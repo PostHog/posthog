@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -79,6 +79,19 @@ describe('LemonTree', () => {
         )
 
         expect(screen.getByText('Filter properties')).toBeInTheDocument()
+    })
+
+    it('treats a node with an empty children array as a leaf, routing clicks to onItemClick', () => {
+        const onItemClick = jest.fn()
+        const onFolderClick = jest.fn()
+        // A node that renders without a chevron (empty children) must behave like the leaf it looks like.
+        const data: TreeDataItem[] = [{ id: 'events', name: 'events', children: [] }]
+
+        render(<LemonTree data={data} onItemClick={onItemClick} onFolderClick={onFolderClick} />)
+        fireEvent.click(screen.getByText('events'))
+
+        expect(onItemClick).toHaveBeenCalledTimes(1)
+        expect(onFolderClick).not.toHaveBeenCalled()
     })
 
     it('renders only the visible window while scrolling', async () => {

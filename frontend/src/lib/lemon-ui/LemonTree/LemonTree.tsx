@@ -1030,7 +1030,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 isKeyboardAction = false,
                 event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
             ): void => {
-                const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
+                const isFolder = (item?.children && item?.children?.length > 0) || item?.record?.type === 'folder'
 
                 // Handle click on a node
                 if (!isFolder) {
@@ -1251,7 +1251,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                         // Skip if item is disabled
                         if (!currentItem.disabledReason) {
-                            if (currentItem.children && currentItem.children?.length >= 0) {
+                            if (currentItem.children && currentItem.children?.length > 0) {
                                 // Toggle folder expanded state
                                 if (expandedItemIdsState.includes(currentItem.id)) {
                                     onFolderClick?.(currentItem, false)

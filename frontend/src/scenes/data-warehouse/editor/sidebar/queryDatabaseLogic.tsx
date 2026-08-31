@@ -1013,6 +1013,13 @@ const createTraversedVirtualTableNode = (
     }
 }
 
+const createEmptyFolderNode = (id: string): TreeDataItem => ({
+    id: `${id}-empty/`,
+    name: 'Empty folder',
+    type: 'empty-folder',
+    record: { type: 'empty-folder' },
+})
+
 const createFieldNode = (
     tableName: string,
     field: DatabaseSchemaField,
@@ -1077,8 +1084,9 @@ const createFieldNode = (
                 })
                 .filter((node): node is TreeDataItem => node !== null) ?? []
 
+        const virtualTableId = `${isSearch ? 'search-' : ''}virtual-${tableName}-${columnPath}`
         return {
-            id: `${isSearch ? 'search-' : ''}virtual-${tableName}-${columnPath}`,
+            id: virtualTableId,
             name: field.name,
             type: 'node',
             record: {
@@ -1086,7 +1094,7 @@ const createFieldNode = (
                 field,
                 table: tableName,
             },
-            children,
+            children: children.length > 0 ? children : [createEmptyFolderNode(virtualTableId)],
         }
     }
 
@@ -1252,7 +1260,7 @@ const createTableNode = (
             row_count: table.row_count,
             ...(matches && { searchMatches: matches }),
         },
-        children: tableChildren,
+        children: tableChildren.length > 0 ? tableChildren : [createEmptyFolderNode(tableId)],
     }
 }
 
