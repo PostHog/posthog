@@ -251,7 +251,7 @@ function ExpandedWidget({
                                     : undefined
                             }
                         >
-                            {runtimeError}
+                            <span className="ph-no-capture">{runtimeError}</span>
                         </LemonBanner>
                     ) : null}
                     <div className="relative min-h-0 flex-1" aria-busy={artifactLoading}>
