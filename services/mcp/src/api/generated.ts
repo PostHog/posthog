@@ -40725,6 +40725,20 @@ export namespace Schemas {
       trace_id: string;
     }
 
+    /**
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     */
+    export type GenerationOperationEnum = typeof GenerationOperationEnum[keyof typeof GenerationOperationEnum];
+
+
+    export const GenerationOperationEnum = {
+      Initial: 'initial',
+      Regenerate: 'regenerate',
+      Improve: 'improve',
+    } as const;
+
     export interface GitHubAvailableInstallation {
       /** GitHub installation ID to pass to github/link_existing when linking this installation. */
       installation_id: string;
@@ -42419,6 +42433,7 @@ export namespace Schemas {
      * * `task_model` - task_model
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
+     * * `signals_scout` - signals_scout
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -42444,6 +42459,7 @@ export namespace Schemas {
       TaskModel: 'task_model',
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
+      SignalsScout: 'signals_scout',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -47496,6 +47512,26 @@ export namespace Schemas {
       ExpiringSoon: 'expiring_soon',
       InGrace: 'in_grace',
       Overdue: 'overdue',
+    } as const;
+
+    /**
+     * * `awaiting_generation` - awaiting_generation
+     * * `generating` - generating
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `incompatible` - incompatible
+     */
+    export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
+
+
+    export const LifecycleStatusEnum = {
+      AwaitingGeneration: 'awaiting_generation',
+      Generating: 'generating',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+      Incompatible: 'incompatible',
     } as const;
 
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
@@ -77018,7 +77054,7 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunDetailMetadata = {
       harness_prompt_version?: string;
@@ -77030,6 +77066,7 @@ export namespace Schemas {
       runtime_adapter?: string;
       reasoning_effort?: string;
       network_access?: string;
+      triggered_by?: string;
       derived?: SignalScoutRunDetailMetadataDerived;
       [key: string]: unknown;
      };
@@ -77099,7 +77136,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
@@ -77113,7 +77150,7 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunSummaryMetadata = {
       harness_prompt_version?: string;
@@ -77125,6 +77162,7 @@ export namespace Schemas {
       runtime_adapter?: string;
       reasoning_effort?: string;
       network_access?: string;
+      triggered_by?: string;
       derived?: SignalScoutRunSummaryMetadataDerived;
       [key: string]: unknown;
      };
@@ -77194,7 +77232,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -85946,6 +85984,22 @@ export namespace Schemas {
       code?: string;
     }
 
+    /**
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     * * `revert` - revert
+     */
+    export type VersionOperationEnum = typeof VersionOperationEnum[keyof typeof VersionOperationEnum];
+
+
+    export const VersionOperationEnum = {
+      Initial: 'initial',
+      Regenerate: 'regenerate',
+      Improve: 'improve',
+      Revert: 'revert',
+    } as const;
+
     export interface ViewLinkValidation {
       /**
          * Name of the table or view being joined onto the source table.
@@ -86468,11 +86522,325 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
+    export interface WidgetCancelRequest {
+      /** Generation job to cancel. */
+      generation_id: string;
+    }
+
     export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
       results: WidgetCatalogEntry[];
+    }
+
+    export interface WidgetError {
+      /** Stable machine-readable error code. */
+      code: string;
+      /** Actionable error detail. */
+      detail: string;
+    }
+
+    export interface WidgetFrameColumn {
+      /** Column name. */
+      name: string;
+      /** Column type reported by the completed notebook run. */
+      type: string;
+    }
+
+    export interface WidgetFrame {
+      /** Logical dataframe name. */
+      name: string;
+      /** Completed notebook run used for every page in this iframe load. */
+      runId: string;
+      /** Dataframe columns in display order. */
+      columns: WidgetFrameColumn[];
+      /** Requested page of dataframe rows. */
+      rows: unknown[][];
+      /**
+         * Rows available in the completed run.
+         * @minimum 0
+         */
+      totalRowCount: number;
+      /**
+         * Rows returned in this response.
+         * @minimum 0
+         */
+      includedRowCount: number;
+      /**
+         * Zero-based offset of this page.
+         * @minimum 0
+         */
+      offset: number;
+      /**
+         * Offset for the next page, if any.
+         * @minimum 0
+         * @nullable
+         */
+      nextOffset: number | null;
+      /** Whether more rows exist after this page. */
+      truncated: boolean;
+    }
+
+    /**
+     * * `claude-haiku-4-5` - claude-haiku-4-5
+     * * `claude-sonnet-4-6` - claude-sonnet-4-6
+     * * `claude-sonnet-5` - claude-sonnet-5
+     * * `claude-opus-5` - claude-opus-5
+     */
+    export type WidgetGenerateRequestModelEnum = typeof WidgetGenerateRequestModelEnum[keyof typeof WidgetGenerateRequestModelEnum];
+
+
+    export const WidgetGenerateRequestModelEnum = {
+      ClaudeHaiku45: 'claude-haiku-4-5',
+      ClaudeSonnet46: 'claude-sonnet-4-6',
+      ClaudeSonnet5: 'claude-sonnet-5',
+      ClaudeOpus5: 'claude-opus-5',
+    } as const;
+
+    export interface WidgetGenerateRequest {
+      /**
+         * Instructions for the generated widget.
+         * @maxLength 20000
+         */
+      prompt: string;
+      /** Idempotency key for this generation job. */
+      generation_id: string;
+      /** AI model used to generate the widget.
+       *
+       * * `claude-haiku-4-5` - claude-haiku-4-5
+       * * `claude-sonnet-4-6` - claude-sonnet-4-6
+       * * `claude-sonnet-5` - claude-sonnet-5
+       * * `claude-opus-5` - claude-opus-5 */
+      model?: WidgetGenerateRequestModelEnum;
+      /** Whether to generate from scratch or improve the current source.
+       *
+       * * `initial` - initial
+       * * `regenerate` - regenerate
+       * * `improve` - improve */
+      generation_operation?: GenerationOperationEnum;
+    }
+
+    /**
+     * * `queued` - queued
+     * * `generating` - generating
+     * * `publishing` - publishing
+     */
+    export type WidgetJobStatusEnum = typeof WidgetJobStatusEnum[keyof typeof WidgetJobStatusEnum];
+
+
+    export const WidgetJobStatusEnum = {
+      Queued: 'queued',
+      Generating: 'generating',
+      Publishing: 'publishing',
+    } as const;
+
+    export interface WidgetJob {
+      /** Generation job identifier. */
+      id: string;
+      /** Current durable job state.
+       *
+       * * `queued` - queued
+       * * `generating` - generating
+       * * `publishing` - publishing */
+      status: WidgetJobStatusEnum;
+      /** Current generation phase. */
+      phase: string;
+      /** AI model processing the job. */
+      model: string;
+      /** When the job was queued. */
+      created_at: string;
+      /**
+         * When a worker started the job.
+         * @nullable
+         */
+      started_at: string | null;
+    }
+
+    export interface WidgetRevertRequest {
+      /** Earlier version to restore as a new version. */
+      version_id: string;
+      /** Current version used for optimistic concurrency. */
+      expected_current_version_id: string;
+    }
+
+    export interface WidgetSecurityFinding {
+      /** Severity of this potential security issue.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Short description of the potential security issue. */
+      title: string;
+      /** Why the source may be unsafe and what it could do. */
+      details: string;
+    }
+
+    /**
+     * * `none` - none
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical
+     */
+    export type WidgetSecurityReviewSeverityEnum = typeof WidgetSecurityReviewSeverityEnum[keyof typeof WidgetSecurityReviewSeverityEnum];
+
+
+    export const WidgetSecurityReviewSeverityEnum = {
+      None: 'none',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    export interface WidgetSecurityReview {
+      /** Highest severity found, or none when the review found no issues.
+       *
+       * * `none` - none
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: WidgetSecurityReviewSeverityEnum;
+      /** Concise result from the automated security review. */
+      summary: string;
+      /** Potential security issues found in the source. */
+      findings: WidgetSecurityFinding[];
+      /** Fast AI model used for the security review. */
+      model: string;
+      /** Version of the security review instructions and parser. */
+      review_version: string;
+      /** When this exact widget source was reviewed. */
+      reviewed_at: string;
+    }
+
+    export interface WidgetSource {
+      /** Read-only source code for the current widget version. */
+      source: string;
+    }
+
+    export interface WidgetStatus {
+      /** Current widget and preview state.
+       *
+       * * `awaiting_generation` - awaiting_generation
+       * * `generating` - generating
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed
+       * * `incompatible` - incompatible */
+      lifecycle_status: LifecycleStatusEnum;
+      /**
+         * Actionable failure detail.
+         * @nullable
+         */
+      error_detail?: string | null;
+      /**
+         * Short-lived URL for the selected widget version's preview.
+         * @nullable
+         */
+      artifact_url?: string | null;
+      /** Logical dataframe slots available to the selected version. */
+      frame_names: string[];
+      /**
+         * Selected immutable widget version.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /**
+         * Reusable widget identity.
+         * @nullable
+         */
+      widget_id: string | null;
+      /**
+         * Placement in this notebook.
+         * @nullable
+         */
+      instance_id: string | null;
+      /** Whether the widget has generated history. */
+      has_versions: boolean;
+      /** Active generation job, if any. */
+      active_job: WidgetJob | null;
+      /** Automated review for the selected source, or null for a legacy unreviewed version. */
+      security_review: WidgetSecurityReview | null;
+      /**
+         * Hex SHA-256 over the exact immutable artifact manifest selected for display.
+         * @nullable
+         */
+      build_hash: string | null;
+    }
+
+    export interface WidgetVersion {
+      /** Immutable widget version identifier. */
+      id: string;
+      /**
+         * Version this one was based on.
+         * @nullable
+         */
+      parent_version_id: string | null;
+      /**
+         * One-based version number.
+         * @minimum 1
+         */
+      version: number;
+      /** Action that created this version.
+       *
+       * * `initial` - initial
+       * * `regenerate` - regenerate
+       * * `improve` - improve
+       * * `revert` - revert */
+      version_operation: VersionOperationEnum;
+      /** Instructions added by this version. */
+      prompt_delta: string;
+      /** Complete instructions represented by this version. */
+      effective_prompt: string;
+      /**
+         * AI model, or null when this version did not run a model.
+         * @nullable
+         */
+      model: string | null;
+      /** When this version was created. */
+      created_at: string;
+      /** Preview build state.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * Preview URL when retained and ready.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /** Logical dataframe slots available to this version. */
+      frame_names: string[];
+      /** Whether this notebook instance currently displays this version. */
+      is_current: boolean;
+      /** Automated review for this source, or null for a legacy unreviewed version. */
+      security_review: WidgetSecurityReview | null;
+      /**
+         * Hex SHA-256 over this version's exact immutable artifact manifest.
+         * @nullable
+         */
+      build_hash: string | null;
+    }
+
+    export interface WidgetVersionPage {
+      /** Versions ordered newest first. */
+      results: WidgetVersion[];
+      /**
+         * Total versions.
+         * @minimum 0
+         */
+      count: number;
+      /**
+         * Offset for the next page.
+         * @nullable
+         */
+      next_offset: number | null;
     }
 
     /**
@@ -96633,6 +97001,25 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksWidgetFrameParams = {
+    limit?: number;
+    offset?: number;
+    run_id?: string;
+    version_id?: string;
+    };
+
+    export type NotebooksWidgetSourceParams = {
+    /**
+     * Immutable widget version whose source should be returned.
+     */
+    version_id?: string;
+    };
+
+    export type NotebooksWidgetVersionsParams = {
+    limit?: number;
+    offset?: number;
     };
 
     export type NotificationsListParams = {
