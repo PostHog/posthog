@@ -86,6 +86,13 @@ class AsyncHarmonicClient:
 
         Tries domain variations: example.com → www.example.com if first fails.
 
+        None on every variation is a catch-all: it means not-found, a network or API error, or
+        the egress limiter shedding the call, with no way to tell those apart from the return
+        value alone. That is fine for a caller that just skips the domain and retries later (the
+        weekly bulk job, the only caller today), but wrong for a caller that would persist a
+        not-found as data — use enrich_company_by_domain_strict there instead, which raises on an
+        operational failure or a shed rather than folding it into the same result as a real miss.
+
         Args:
             domain: Company domain (e.g., "posthog.com")
 
@@ -126,6 +133,11 @@ class AsyncHarmonicClient:
                     company_data = result.get("company")
                     return company_data
 
+            except HarmonicEgressBudgetExhausted:
+                # A shed is our own limiter declining to call out, not a Harmonic failure — the
+                # limiter already records it as a metric; capturing it here would page on our
+                # own throttling working as designed.
+                continue
             except Exception as e:
                 capture_exception(e)
                 continue

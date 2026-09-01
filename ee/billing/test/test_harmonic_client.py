@@ -198,11 +198,17 @@ async def test_non_strict_sends_api_key_as_header_not_in_url_or_params():
 
 @pytest.mark.asyncio
 async def test_non_strict_returns_none_when_every_variation_is_rate_limited():
-    # A limiter denial is swallowed by the same per-variation except block as a network error.
+    # A limiter denial is swallowed by the same per-variation except block as a network error,
+    # but must not be reported as one: the limiter already records it as a metric, and paging on
+    # our own throttling working as designed would be noise.
     mock_request = AsyncMock(side_effect=HarmonicEgressBudgetExhausted("degrading"))
-    with patch(HARMONIC_REQUEST, new=mock_request):
+    with (
+        patch(HARMONIC_REQUEST, new=mock_request),
+        patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception") as mock_capture,
+    ):
         result = await _client(priority=Priority.BATCH).enrich_company_by_domain("posthog.com")
     assert result is None
+    mock_capture.assert_not_called()
 
 
 @pytest.mark.asyncio
