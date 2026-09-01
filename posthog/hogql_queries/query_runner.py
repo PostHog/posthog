@@ -2231,7 +2231,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         ttl=retention_ttl(
                             insight_id=insight_id,
                             dashboard_id=dashboard_id,
-                            query_kind=getattr(self.query, "kind", None),
                             access_method=get_query_tag_value("access_method"),
                         ),
                     )

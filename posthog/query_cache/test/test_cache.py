@@ -82,16 +82,13 @@ class TestQueryCacheFacade(BaseTest):
 class TestRetentionTtl(SimpleTestCase):
     @parameterized.expand(
         [
-            ("api_key_unattached", None, None, "HogQLQuery", "personal_api_key", "short"),
-            ("oauth_unattached", None, None, "TrendsQuery", "oauth", "short"),
-            ("project_secret_unattached", None, None, "EventsQuery", "project_secret_api_key", "short"),
-            ("api_key_unknown_kind", None, None, None, "personal_api_key", "short"),
-            ("api_key_insight", 1, None, "TrendsQuery", "personal_api_key", "long"),
-            ("api_key_dashboard", None, 2, "TrendsQuery", "personal_api_key", "long"),
-            ("session_unattached", None, None, "HogQLQuery", None, "long"),
-            ("sharing_token", None, None, "TrendsQuery", "sharing_token", "long"),
-            ("api_key_property_values", None, None, "PropertyValuesQuery", "personal_api_key", "long"),
-            ("api_key_experiment", None, None, "ExperimentQuery", "personal_api_key", "long"),
+            ("api_key_unattached", None, None, "personal_api_key", "short"),
+            ("oauth_unattached", None, None, "oauth", "short"),
+            ("project_secret_unattached", None, None, "project_secret_api_key", "short"),
+            ("api_key_insight", 1, None, "personal_api_key", "long"),
+            ("api_key_dashboard", None, 2, "personal_api_key", "long"),
+            ("session_unattached", None, None, None, "long"),
+            ("sharing_token", None, None, "sharing_token", "long"),
         ]
     )
     def test_retention_ttl(
@@ -99,13 +96,10 @@ class TestRetentionTtl(SimpleTestCase):
         _name: str,
         insight_id: int | None,
         dashboard_id: int | None,
-        kind: str | None,
         access_method: str | None,
         expected: str,
     ) -> None:
-        ttl = retention_ttl(
-            insight_id=insight_id, dashboard_id=dashboard_id, query_kind=kind, access_method=access_method
-        )
+        ttl = retention_ttl(insight_id=insight_id, dashboard_id=dashboard_id, access_method=access_method)
 
         expected_ttl = settings.CACHED_RESULTS_PROGRAMMATIC_TTL if expected == "short" else settings.CACHED_RESULTS_TTL
         assert ttl == expected_ttl

@@ -39,30 +39,16 @@ PROGRAMMATIC_ACCESS_METHODS = frozenset(
     {"personal_api_key", "project_secret_api_key", "team_secret_token", "oauth", "id_jag"}
 )
 
-# Unattached kinds whose entries are read through stale-serving modes long after the write:
-# property-value dropdowns block on a cache miss (posthog/api/event.py, posthog/api/person.py),
-# and a finished experiment never recomputes on its own, so its fixed date range serves fresh
-# hits for the entry's whole lifetime. These keep the full TTL even for programmatic writers.
-_LONG_RETENTION_KIND_PREFIXES = ("PropertyValues", "Experiment")
 
-
-def retention_ttl(
-    *,
-    insight_id: Optional[int],
-    dashboard_id: Optional[int],
-    query_kind: Optional[str],
-    access_method: Optional[str],
-) -> int:
+def retention_ttl(*, insight_id: Optional[int], dashboard_id: Optional[int], access_method: Optional[str]) -> int:
     """TTL in seconds for one cache entry write.
 
-    Entries that belong to an insight or dashboard keep the full TTL: every insight surface
-    defaults to cache-only reads (posthog/hogql_queries/refresh_policy.py), so those entries
-    are served at any age. Programmatic writes outside that get a short TTL, because they are
-    almost never read again and no read path treats a result older than a day as fresh.
+    Entries that belong to an insight or dashboard keep the full TTL whoever wrote them: every
+    insight surface defaults to cache-only reads (posthog/hogql_queries/refresh_policy.py), so
+    those entries are served at any age. Other programmatic writes get a short TTL, because they
+    are almost never read again and no read path treats a result older than a day as fresh.
     """
     if insight_id is not None or dashboard_id is not None:
-        return settings.CACHED_RESULTS_TTL
-    if query_kind is not None and query_kind.startswith(_LONG_RETENTION_KIND_PREFIXES):
         return settings.CACHED_RESULTS_TTL
     if access_method in PROGRAMMATIC_ACCESS_METHODS:
         return settings.CACHED_RESULTS_PROGRAMMATIC_TTL
