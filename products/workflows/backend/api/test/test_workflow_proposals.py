@@ -308,9 +308,13 @@ class TestWorkflowProposals(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{untouched}/optimisation", {"enabled": False}, format="json"
         )
 
+        archived = self._create_active_flow()
+        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{archived}", {"status": "archived"})
+
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows?optimisation_enabled=true")
 
         assert listed.status_code == 200, listed.json()
+        # An archived workflow drops out even though someone opted it in: its metrics are history.
         assert [row["id"] for row in listed.json()["results"]] == [opted_in]
 
     def test_provenance_comes_from_the_transport_not_the_payload(self, _mock_flag):
