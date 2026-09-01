@@ -540,6 +540,7 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
     except ValueError as error:
         raise ValidationError({"trigger_config": str(error)})
 
+    prompt_guide = (data.get("synthesis_config") or {}).get("prompt_guide")
     slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")[:34] or "digest"
     scout_name = f"signals-scout-{slug}"
     destinations = _scout_destinations_from_legacy(data)
@@ -547,12 +548,12 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
         team=team.parent_team or team,
         user=user,
         name=scout_name,
-        description=(data.get("synthesis_config") or {}).get("prompt_guide") or f'Replay Vision digest "{name}".',
+        description=prompt_guide or f'Replay Vision digest "{name}".',
         body=compose_digest_scout_body(
             str(scanner_id),
-            selection=data.get("selection") or {},
-            prompt_guide=(data.get("synthesis_config") or {}).get("prompt_guide"),
-            max_observations=data.get("max_observations") if data.get("max_observations") != 100 else None,
+            selection=data.get("selection"),
+            prompt_guide=prompt_guide,
+            max_observations=data.get("max_observations"),
         ),
         files=[],
         config_options={

@@ -365,10 +365,9 @@ class Command(BaseCommand):
             "description": f'Migrated Replay Vision digest "{action.name}" for scanner "{action.scanner.name}".',
             "body": compose_digest_scout_body(
                 str(action.scanner_id),
-                selection=action.selection or {},
+                selection=action.selection,
                 prompt_guide=(action.synthesis_config or {}).get("prompt_guide"),
-                # The legacy default is not a customization, so it should not narrow the scout.
-                max_observations=action.max_observations if action.max_observations != 100 else None,
+                max_observations=action.max_observations,
             ),
             "config": {
                 "enabled": action.enabled,

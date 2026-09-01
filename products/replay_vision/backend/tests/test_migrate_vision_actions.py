@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -174,6 +175,7 @@ class TestMigrateVisionActions(APIBaseTest):
         assert "Focus on payment failures." in kwargs["body"]
         assert "the verdict is one of `fail`" in kwargs["body"]
         assert "fall back to the last 7 days" in kwargs["body"]
+        assert "Read at most" not in kwargs["body"]
         assert kwargs["config_options"]["run_cron_schedule"] == "0 9 * * 1"
         assert kwargs["config_options"]["output_destinations"]["slack"]["channel_id"] == "C123"
         action.refresh_from_db()
@@ -278,3 +280,17 @@ class TestMigrateVisionActions(APIBaseTest):
         for key in ("replay-vision-alerts",):
             flag = FeatureFlag.objects.get(team=self.team, key=key)
             assert flag.filters["groups"][0]["properties"][0]["value"] == []
+
+
+class TestComposeDigestScoutBody(SimpleTestCase):
+    def test_legacy_narrowing_shapes(self) -> None:
+        capped = compose_digest_scout_body("sid", max_observations=25)
+        assert "Read at most 25 matching observations" in capped
+        assert "Read at most" not in compose_digest_scout_body("sid", max_observations=100)
+
+        bare = compose_digest_scout_body("sid", selection={"verdict": "fail"})
+        assert "the verdict is one of `fail`" in bare
+        assert bare == compose_digest_scout_body("sid", selection={"verdict": ["fail"]})
+
+        malformed = compose_digest_scout_body("sid", selection={"window_days": "7"}, prompt_guide=None)
+        assert "fall back to the last 24 hours" in malformed
