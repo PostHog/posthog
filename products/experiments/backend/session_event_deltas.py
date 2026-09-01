@@ -487,9 +487,21 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
     return replace(
         result,
         cards=shelf.cards,
-        dropped_duplicate_cards=len(cards) - len(deduped),
+        # Counted only on a shelf the reader gets. The number exists so the shelf-loaded telemetry
+        # can say how often DUPLICATE_CARD_OVERLAP fires on real shelves, and a drop from a shelf
+        # that was then suppressed is not evidence about the threshold.
+        dropped_duplicate_cards=len(cards) - len(deduped) if shelf.cards else 0,
         empty_reason=shelf.empty_reason,
     )
+
+
+def _has_finding(cards: list[ExperimentWatchCard]) -> bool:
+    """Whether any card on the shelf claims the arms differ.
+
+    Behavior, friction and the variant's own rendering all claim it, each on the same evidence bar.
+    A metric shortcut claims nothing, so it is the one kind that cannot hold a shelf up alone.
+    """
+    return any(card.kind != WatchCardKind.METRIC for card in cards)
 
 
 def _findings_or_nothing(cards: list[ExperimentWatchCard], empty_reason: Optional[WatchEmptyReason]) -> _Shelf:
@@ -501,13 +513,13 @@ def _findings_or_nothing(cards: list[ExperimentWatchCard], empty_reason: Optiona
     results tab already told them, so the empty state is the more honest answer: it at least says
     which of the three things happened.
     """
-    if any(card.kind != WatchCardKind.METRIC for card in cards):
+    if _has_finding(cards):
         return _Shelf(cards=cards, empty_reason=None)
     # A reason is already set when the comparison itself produced no finding. It is not when this
     # viewer's own recording access removed the findings, and that case cannot be named: saying the
     # shelf lost cards would tell the viewer that recordings denied to them ran through this
     # experiment, which is the fact the object-level control withholds. "No recordings" is what
-    # they have either way.
+    # they have either way, and the copy behind it names no cause.
     return _Shelf(cards=[], empty_reason=empty_reason or WatchEmptyReason.NO_RECORDINGS)
 
 
@@ -1056,7 +1068,7 @@ def _build_shelf(
         covered_from=scan.covered_from,
     )
     comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
-    if not comparison_cards:
+    if not _has_finding(resolved):
         # Every finding died on the replay existence check, so whatever shortcuts survived are the
         # whole shelf and the shelf is not shown. Returning here also skips the shortcut recovery
         # below, whose only purpose is to fill slots beside a finding.

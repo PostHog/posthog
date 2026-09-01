@@ -469,10 +469,15 @@ function EmptyShelf({
     reason,
     ended,
 }: {
-    reason: Exclude<ExperimentWatchEmptyReasonEnumApi, 'too_early'>
+    reason:
+        | typeof ExperimentWatchEmptyReasonEnumApi.NoSeparation
+        | typeof ExperimentWatchEmptyReasonEnumApi.NoRecordings
     ended: boolean
 }): JSX.Element {
     if (reason === ExperimentWatchEmptyReasonEnumApi.NoRecordings) {
+        // Names no cause. Replay sampling and retention are the usual one, but the same state is
+        // reached when this viewer may not open the recordings behind the findings, and saying the
+        // shelf lost cards would tell them recordings denied to them ran through this experiment.
         return (
             <LemonBanner
                 type="info"
@@ -482,15 +487,17 @@ function EmptyShelf({
                 }}
             >
                 Nothing to watch here. Some events separated the variants, but none of those sessions has a recording to
-                open. Check your session replay sampling and retention settings.
+                open. Session replay sampling and retention decide which sessions are kept.
             </LemonBanner>
         )
     }
+    // Scoped to the sessions the caption above names, rather than to the whole run: the window can
+    // be clamped to hours, and the comparison can run out of room to rank every event name.
     return (
         <LemonBanner type="info">
             {ended
-                ? "Nothing separated the variants. People did the same things in every variant's recorded sessions, which is a result in itself. Differences small enough to be chance never get a card."
-                : "Nothing separated the variants yet. People did the same things in every variant's recorded sessions, which is a result in itself. Differences small enough to be chance never get a card, so check back as more people are exposed."}
+                ? 'Nothing separated the variants. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card.'
+                : 'Nothing separated the variants yet. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card, so check back as more people are exposed.'}
         </LemonBanner>
     )
 }
@@ -510,27 +517,36 @@ function WatchShelves({
     recordingsById: Map<string, ExperimentReplayRecording>
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
 }): JSX.Element {
-    if (deltas.empty_reason === ExperimentWatchEmptyReasonEnumApi.TooEarly) {
+    const emptyReason = deltas.empty_reason
+    if (emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly) {
         // No caption above this one: nothing was compared, so the window it would describe covers
         // nothing, and naming a stretch of days would claim coverage that never happened.
         return (
             <LemonBanner type="info">
                 Too early to compare behavior: this needs at least{' '}
                 {pluralize(deltas.min_arm_persons, 'exposed person', 'exposed people')} in two variants, and has{' '}
-                {deltas.arms.map((arm) => `${humanFriendlyNumber(arm.persons)} in ${arm.key}`).join(', ')}. Check back
-                once more people are exposed.
+                {deltas.arms.map((arm) => `${humanFriendlyNumber(arm.persons)} in ${arm.key}`).join(', ')}.{' '}
+                {ended
+                    ? 'The experiment ended before enough people were exposed to compare them.'
+                    : 'Check back once more people are exposed.'}
             </LemonBanner>
         )
     }
 
-    if (deltas.empty_reason !== null) {
+    // Each reason is matched by name rather than tested for "not null", so a response that predates
+    // the field, or carries a reason this build does not know, falls through to the shelves instead
+    // of replacing a full shelf with an empty state that claims something the backend never said.
+    if (
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSeparation ||
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoRecordings
+    ) {
         // The caption stays: how much of the run was covered, and whether it was truncated or had
         // test accounts taken out, is what decides how much "the variants behaved the same" is
         // worth.
         return (
             <div className="flex flex-col gap-3">
-                <ShelfCaption deltas={deltas} />
-                <EmptyShelf reason={deltas.empty_reason} ended={ended} />
+                <ShelfCaption deltas={deltas} hasCards={false} />
+                <EmptyShelf reason={emptyReason} ended={ended} />
             </div>
         )
     }
@@ -547,7 +563,7 @@ function WatchShelves({
 
     return (
         <div className="flex flex-col gap-3">
-            <ShelfCaption deltas={deltas} />
+            <ShelfCaption deltas={deltas} hasCards />
             {/* Said whenever nothing was found, not only when the response is empty: the shelves
                 below can be full of metric shortcuts and events a variant renders itself, and a
                 reader left to infer "no differences" from their absence reads the surface as
@@ -626,8 +642,18 @@ function WatchShelves({
  * Read before the cards, not after them: what a reader has to know to interpret a shelf is that it
  * points at recordings rather than measuring anything, and the window it actually covered. The
  * full method sits behind the info icon.
+ *
+ * `hasCards` is false above an empty state, where the window and the caveats still decide how much
+ * "nothing separated the variants" is worth, but a sentence about what the cards do would describe
+ * cards the reader cannot see.
  */
-function ShelfCaption({ deltas }: { deltas: ExperimentSessionEventDeltaResponseApi }): JSX.Element {
+function ShelfCaption({
+    deltas,
+    hasCards,
+}: {
+    deltas: ExperimentSessionEventDeltaResponseApi
+    hasCards: boolean
+}): JSX.Element {
     // A window that ran out inside a single day reads wrong as two identical dates, and "Aug 3 to
     // Aug 3" hides that only a few hours were covered.
     const sameDay = dayjs(deltas.date_from).isSame(dayjs(deltas.date_to), 'day')
@@ -660,9 +686,10 @@ function ShelfCaption({ deltas }: { deltas: ExperimentSessionEventDeltaResponseA
     return (
         <div className="flex items-center gap-1 text-xs text-secondary">
             <span>
-                These highlight which recordings might be worth watching. They don't say which variant is doing better,
-                the way metrics do. From about {span} of recorded sessions, between{' '}
-                {dayjs(deltas.date_from).format(format)} and {dayjs(deltas.date_to).format(format)}.
+                {hasCards &&
+                    "These highlight which recordings might be worth watching. They don't say which variant is doing better, the way metrics do. "}
+                From about {span} of recorded sessions, between {dayjs(deltas.date_from).format(format)} and{' '}
+                {dayjs(deltas.date_to).format(format)}.
             </span>
             <Tooltip
                 title={

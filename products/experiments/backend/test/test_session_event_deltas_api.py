@@ -265,6 +265,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert all(card["recording_count"] == len(card["session_ids"]) > 0 for card in behavior)
         # An event the arms share and one person's one-off get no card at all.
         assert {"noise", "rare"}.isdisjoint({card["event"] for card in behavior})
+        # No reason, because there is a shelf. The frontend hides the whole shelf on any reason at
+        # all, so one leaking onto a populated response would replace these cards with a banner.
+        assert data["empty_reason"] is None
         assert data["too_early"] is False
         assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 30), ("test", 30)]
 

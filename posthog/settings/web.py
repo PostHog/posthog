@@ -728,7 +728,7 @@ SPECTACULAR_SETTINGS = {
         # would collide, and `multiple_variant_handling` would otherwise generate a bare
         # `MultipleVariantHandling` sitting next to the schema type of the same name. One prefix
         # for all four.
-        "ExperimentWatchCardKindEnum": ["behavior", "friction", "metric"],
+        "ExperimentWatchCardKindEnum": ["behavior", "friction", "variant_only", "metric"],
         "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
         "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
         "ExperimentWatchEmptyReasonEnum": ["too_early", "no_separation", "no_recordings"],

@@ -10,14 +10,23 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_funnel_metric.json'
 
-import { ExperimentWatchEmptyReasonEnumApi } from 'products/experiments/frontend/generated/api.schemas'
+import {
+    type ExperimentSessionEventDeltaResponseApi,
+    ExperimentWatchEmptyReasonEnumApi,
+    ExperimentWatchMultipleVariantHandlingEnumApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 // The three ways the "what to watch" shelf comes back with nothing. They are separate stories
 // because the copy is the whole feature here: each one sends the reader somewhere different, and
 // a screenshot is the only way to see that they read as three answers rather than one absence.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
-const emptyShelf = (emptyReason: ExperimentWatchEmptyReasonEnumApi, armPersons: number): Record<string, unknown> => ({
+// Typed as the generated response so a new required field on the serializer breaks the typecheck
+// here, rather than leaving three stories snapshotting a shape the endpoint can no longer return.
+const emptyShelf = (
+    emptyReason: ExperimentWatchEmptyReasonEnumApi,
+    armPersons: number
+): ExperimentSessionEventDeltaResponseApi => ({
     cards: [],
     arms: [
         { key: 'control', persons: armPersons, sessions: Math.round(armPersons * 1.4) },
@@ -25,7 +34,7 @@ const emptyShelf = (emptyReason: ExperimentWatchEmptyReasonEnumApi, armPersons: 
         { key: 'test-2', persons: armPersons, sessions: Math.round(armPersons * 1.4) },
     ],
     multiple_variant_persons: 0,
-    multiple_variant_handling: 'exclude',
+    multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi.Exclude,
     metric_events: ['checkout_started', 'purchase'],
     date_from: '2025-05-30T09:00:00Z',
     date_to: '2025-06-01T09:00:00Z',
