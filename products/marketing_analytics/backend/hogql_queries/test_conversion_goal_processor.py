@@ -29,7 +29,11 @@ from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
-from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
+    TRACKED_FIELDS,
+    ConversionGoalProcessor,
+    tracked_fields_for_level,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -6395,3 +6399,43 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         total = sum(row[4] for row in response.results)
         # Normalization ensures weights sum to 1.0 regardless of duplicate timestamps
         assert abs(total - 1.0) < 0.01, f"Weights should sum to ~1.0 after normalization, got {total}"
+
+
+class TestTrackedFieldsPerLevel(BaseTest):
+    # Every tracked field costs a conversion array and a UTM array per goal, carried through all four
+    # attribution stages. Collecting one the level never selects is pure query text, and N goals
+    # multiply it toward ClickHouse's max_query_size.
+
+    @parameterized.expand(
+        [
+            # Channel classification reads medium, referring_domain and the click ids, so these
+            # levels genuinely need the full set.
+            (MarketingAnalyticsDrillDownLevel.CHANNEL, {f.name for f in TRACKED_FIELDS}),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE, {f.name for f in TRACKED_FIELDS}),
+            # Everything else emits campaign and source only; the click ids ride along because
+            # `_build_source_expr` names the ad network from them when utm_source is empty.
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN, {"campaign", "source", "gclid", "gad_source"}),
+            (MarketingAnalyticsDrillDownLevel.SOURCE, {"campaign", "source", "gclid", "gad_source"}),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM, {"campaign", "source", "gclid", "gad_source", "medium"}),
+            (MarketingAnalyticsDrillDownLevel.CONTENT, {"campaign", "source", "gclid", "gad_source", "content"}),
+            (MarketingAnalyticsDrillDownLevel.TERM, {"campaign", "source", "gclid", "gad_source", "term"}),
+        ]
+    )
+    def test_level_reads_only_the_fields_it_selects(self, level, expected_names):
+        assert {f.name for f in tracked_fields_for_level(level)} == expected_names
+
+    def test_every_level_can_build_its_own_grouping_expression(self):
+        # `_build_final_aggregation_query` indexes field_exprs by campaign, source and the level's own
+        # UTM field. A level missing from the read set would raise KeyError at query build time.
+        for level in MarketingAnalyticsDrillDownLevel:
+            names = {f.name for f in tracked_fields_for_level(level)}
+            assert {"campaign", "source"} <= names, level
+            utm_field = ConversionGoalProcessor._UTM_LEVEL_FIELD_MAP.get(level)
+            if utm_field:
+                assert utm_field in names, level
+
+    def test_narrowing_preserves_field_order(self):
+        # The pipeline pairs arrays positionally across stages, so the narrowed list must stay in
+        # TRACKED_FIELDS order rather than in set order.
+        narrowed = tracked_fields_for_level(MarketingAnalyticsDrillDownLevel.CAMPAIGN)
+        assert narrowed == [f for f in TRACKED_FIELDS if f in narrowed]

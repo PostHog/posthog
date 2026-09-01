@@ -15,10 +15,13 @@ from posthog.schema import (
     ConversionGoalFilter2,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsDrillDownLevel,
     PropertyMathType,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -35,7 +38,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
 from .constants import CAC_COLUMN_SUFFIX, ROAS_COLUMN
-from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
+from .conversion_goal_processor import TRACKED_FIELDS, ConversionGoalProcessor, SharedTouchpointsPrecompute
 from .conversion_goals_aggregator import ConversionGoalsAggregator, _map_in_caller_context
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -848,3 +851,137 @@ class TestGoalParallelismContextPropagation(SimpleTestCase):
         assert all(tags == (Feature.CACHE_WARMUP, "marketingAnalyticsStaleRevalidation") for tags in seen.values()), (
             seen
         )
+
+
+class TestUnifiedCteQuerySize(ClickhouseTestMixin, BaseTest):
+    """The unified CTE embeds one attribution pipeline per goal, and compare mode emits the whole
+    query twice. ClickHouse caps a statement at max_query_size, so past some goal count the
+    dashboard stops rendering and every tile reports "Query size exceeded" instead of data.
+    """
+
+    # posthog/clickhouse/client/execute.py default_settings()
+    CLICKHOUSE_MAX_QUERY_SIZE = 1048576
+
+    def setUp(self):
+        super().setUp()
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
+        # The live attribution scan, not the precompute read: it is the larger of the two, and it is
+        # what a team without warm precompute jobs actually runs.
+        self.config.conversion_goal_precomputation_enabled = False
+        self.date_range = QueryDateRange(
+            date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            team=self.team,
+            interval=None,
+            now=datetime(2023, 1, 31, 23, 59, 59),
+        )
+
+    def _date_conditions(self, **kwargs) -> list[ast.Expr]:
+        return [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-01")]),
+            )
+        ]
+
+    def _unified_cte_clickhouse_sql(self, goal_count: int) -> str:
+        processors = [
+            ConversionGoalProcessor(
+                goal=ConversionGoalFilter1(
+                    kind="EventsNode",
+                    event=f"event_{i}",
+                    conversion_goal_id=f"goal_{i}",
+                    conversion_goal_name=f"Goal {i}",
+                    math=BaseMathType.TOTAL,
+                    schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+                ),
+                index=i,
+                team=self.team,
+                config=self.config,
+            )
+            for i in range(goal_count)
+        ]
+        cte = ConversionGoalsAggregator(processors=processors, config=self.config).generate_unified_cte(
+            self.date_range, self._date_conditions
+        )
+        printed, _ = prepare_and_print_ast(
+            cte.expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), dialect="clickhouse"
+        )
+        return printed
+
+    def test_twenty_goals_in_compare_mode_stay_well_under_the_clickhouse_limit(self):
+        # Compare mode builds the current and previous period as two independent query trees, so the
+        # statement ClickHouse receives is about twice one period's CTE. 20 goals is a real dashboard
+        # size, and the pair used to land just under the cap — close enough that campaign name
+        # mappings or property filters on the goals pushed it over and broke the whole page.
+        one_period = len(self._unified_cte_clickhouse_sql(20))
+
+        assert one_period * 2 < self.CLICKHOUSE_MAX_QUERY_SIZE * 0.75, (
+            f"20 goals in compare mode print {one_period * 2:,} chars, over 75% of ClickHouse's "
+            f"{self.CLICKHOUSE_MAX_QUERY_SIZE:,} limit. The margin absorbs campaign name mappings, "
+            "per-goal property filters and the surrounding query, so losing it means the marketing "
+            "dashboard fails with 'Query size exceeded' for teams with many conversion goals."
+        )
+
+    def test_query_size_grows_linearly_with_goal_count(self):
+        # Each goal must cost a fixed slice. A per-goal cost that grows with the total — a column
+        # added per goal to every other goal's subquery, say — turns this into a quadratic that only
+        # shows up on the largest dashboards.
+        one_goal = len(self._unified_cte_clickhouse_sql(1))
+        twenty_goals = len(self._unified_cte_clickhouse_sql(20))
+
+        assert twenty_goals < one_goal * 22, (
+            f"20 goals print {twenty_goals:,} chars against {one_goal:,} for one. Per-goal cost is "
+            "growing with the goal count instead of staying flat."
+        )
+
+    def test_campaign_level_does_not_collect_fields_only_channel_level_reads(self):
+        # Channel classification needs all nine tracked fields; campaign level selects campaign and
+        # source. Collecting the other arrays anyway is what made the per-goal pipeline oversized.
+        # Asserting on the arrays rather than on total length, because channel level also prints the
+        # large channel_type expression and would look bigger either way.
+        channel_only = ("utm_mediums", "utm_contents", "utm_terms", "utm_referring_domains", "utm_fbclids")
+
+        self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+        campaign_sql = self._unified_cte_clickhouse_sql(1)
+        self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CHANNEL
+        channel_sql = self._unified_cte_clickhouse_sql(1)
+
+        for array in channel_only:
+            assert array not in campaign_sql, f"campaign level still collects {array}"
+            assert array in channel_sql, f"channel level needs {array} to classify the row"
+        # Both levels group by campaign and source, so those stay on every level.
+        for array in ("utm_campaigns", "utm_sources"):
+            assert array in campaign_sql and array in channel_sql
+
+    def test_touchpoint_dedup_keeps_every_field_in_its_identity(self):
+        # Narrowing the read set must not narrow the DISTINCT that dedupes precomputed rows: two
+        # touchpoints that differ only in a field this level ignores are still two touchpoints, and
+        # collapsing them would silently change every attribution weight.
+        self.config.conversion_goal_precomputation_enabled = True
+        self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+        processor = ConversionGoalProcessor(
+            goal=ConversionGoalFilter1(
+                kind="EventsNode",
+                event="purchase",
+                conversion_goal_id="dedup_goal",
+                conversion_goal_name="Dedup Goal",
+                math=BaseMathType.TOTAL,
+                schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+            ),
+            index=0,
+            team=self.team,
+            config=self.config,
+        )
+        touchpoints = processor._build_touchpoint_arrays_from_table(
+            [uuid.uuid4()], datetime(2023, 1, 1), datetime(2023, 1, 31)
+        )
+        printed, _ = prepare_and_print_ast(
+            touchpoints, HogQLContext(team_id=self.team.pk, enable_select_queries=True), dialect="clickhouse"
+        )
+        distinct_block = printed.split("DISTINCT", 1)[1].split("FROM", 1)[0]
+
+        for field in TRACKED_FIELDS:
+            assert field.attributed_name in distinct_block, (
+                f"{field.attributed_name} dropped from the touchpoint dedup identity"
+            )

@@ -21,12 +21,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -38,22 +33,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -63,22 +48,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -88,12 +63,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -122,12 +92,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -183,12 +148,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -200,22 +160,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -225,22 +175,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -250,12 +190,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -284,12 +219,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -345,12 +275,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -362,22 +287,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -387,22 +302,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -412,12 +317,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -446,12 +346,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -507,12 +402,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -524,22 +414,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -549,22 +429,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -574,12 +444,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -608,12 +473,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -673,12 +533,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -690,22 +545,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -715,22 +560,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -740,12 +575,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -774,12 +604,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -820,12 +645,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -837,22 +657,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -862,22 +672,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -887,12 +687,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -921,12 +716,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -967,12 +757,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -984,22 +769,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -1009,22 +784,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -1034,12 +799,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -1068,12 +828,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -1131,12 +886,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -1148,22 +898,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -1173,22 +913,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -1198,12 +928,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -1232,12 +957,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
@@ -1277,12 +997,7 @@
         person_id,
         if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
         if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
-        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
-        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
-        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
         if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
-        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
         if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
         '-' AS campaign_id,
         1 AS conversion_value
@@ -1294,22 +1009,12 @@
           conversion_math_values[i] AS conversion_math_value,
           conversion_campaigns[i] AS conversion_campaign,
           conversion_sources[i] AS conversion_source,
-          conversion_mediums[i] AS conversion_medium,
-          conversion_contents[i] AS conversion_content,
-          conversion_terms[i] AS conversion_term,
-          conversion_referring_domains[i] AS conversion_referring_domain,
           conversion_gclids[i] AS conversion_gclid,
-          conversion_fbclids[i] AS conversion_fbclid,
           conversion_gad_sources[i] AS conversion_gad_source,
           arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
-          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
-          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
-          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
-          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
           if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
-          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
           if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
         FROM
         (
@@ -1319,22 +1024,12 @@
             c.conversion_math_values AS conversion_math_values,
             c.conversion_campaigns AS conversion_campaigns,
             c.conversion_sources AS conversion_sources,
-            c.conversion_mediums AS conversion_mediums,
-            c.conversion_contents AS conversion_contents,
-            c.conversion_terms AS conversion_terms,
-            c.conversion_referring_domains AS conversion_referring_domains,
             c.conversion_gclids AS conversion_gclids,
-            c.conversion_fbclids AS conversion_fbclids,
             c.conversion_gad_sources AS conversion_gad_sources,
             t.utm_timestamps AS utm_timestamps,
             t.utm_campaigns AS utm_campaigns,
             t.utm_sources AS utm_sources,
-            t.utm_mediums AS utm_mediums,
-            t.utm_contents AS utm_contents,
-            t.utm_terms AS utm_terms,
-            t.utm_referring_domains AS utm_referring_domains,
             t.utm_gclids AS utm_gclids,
-            t.utm_fbclids AS utm_fbclids,
             t.utm_gad_sources AS utm_gad_sources
           FROM
           (
@@ -1344,12 +1039,7 @@
               arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
             (
@@ -1378,12 +1068,7 @@
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
               groupArray(campaign_name) AS utm_campaigns,
               groupArray(source_name) AS utm_sources,
-              groupArray(medium_name) AS utm_mediums,
-              groupArray(content_name) AS utm_contents,
-              groupArray(term_name) AS utm_terms,
-              groupArray(referring_domain_name) AS utm_referring_domains,
               groupArray(gclid_name) AS utm_gclids,
-              groupArray(fbclid_name) AS utm_fbclids,
               groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
