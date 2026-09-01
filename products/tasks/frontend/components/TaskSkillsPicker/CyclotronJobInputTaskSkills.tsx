@@ -12,25 +12,23 @@ export default function CyclotronJobInputTaskSkills({ value, onChange }: CustomI
 
     const selectedNames: string[] = Array.isArray(value) ? value : []
 
+    // The description goes in the tooltip rather than the row, because LemonInputSelect renders
+    // the same node for a dropdown row and for the snack of a selected value. Inlining it made
+    // each selected skill a two-line snack, and only after the dropdown had loaded its options,
+    // so the field grew and changed shape mid-edit. Search still matches descriptions server-side.
     const options = skillOptions.map((skill) => ({
         key: skill.name,
         label: skill.name,
-        // Stacked, so a long name and a long description each truncate on their own line
-        // instead of fighting for one row in a narrow panel.
-        labelComponent: (
-            <span className="flex flex-col">
-                <span className="truncate">{skill.name}</span>
-                {skill.description ? <span className="text-muted text-xs truncate">{skill.description}</span> : null}
-            </span>
-        ),
+        tooltip: skill.description || undefined,
     }))
-    // A selected name that is not on the loaded page renders as itself. With server-side paging
-    // and a live search query, "not loaded" is the common reason a name is missing, so labeling
-    // it unavailable would be wrong most of the time. The name is also the identity the run
-    // resolves, so nothing is hidden by showing it plainly.
+    // Every selected name needs an option, including one the current page or search does not
+    // cover. Without it LemonInputSelect reads the value as a custom entry and offers it back as
+    // `Add "error-triage"`, which reads as though the skill were not already attached. The cost is
+    // that a search cannot hide a selected skill, which is the better half of the trade: the rows
+    // stay available to deselect while the query narrows everything else.
     for (const name of selectedNames) {
         if (!options.some((option) => option.key === name)) {
-            options.push({ key: name, label: name, labelComponent: <span className="truncate">{name}</span> })
+            options.push({ key: name, label: name, tooltip: undefined })
         }
     }
 
