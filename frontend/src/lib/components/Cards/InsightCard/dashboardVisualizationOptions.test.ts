@@ -210,6 +210,22 @@ describe('dashboardVisualizationOptions', () => {
             expect(screen.getByRole('status')).toHaveTextContent('Saving')
         })
 
+        it('shows the display options saving state while the chart type is being saved', () => {
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    ...baseProps,
+                    saving: true,
+                })
+            )
+
+            render(
+                (result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection)
+                    .title as JSX.Element
+            )
+
+            expect(screen.getByRole('status')).toHaveTextContent('Saving')
+        })
+
         it('makes display controls inert while a chart type is being saved', () => {
             const { result } = renderHook(() =>
                 useDashboardVisualizationOptions({

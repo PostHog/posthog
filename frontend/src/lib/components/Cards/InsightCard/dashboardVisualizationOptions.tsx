@@ -42,6 +42,7 @@ export function useDashboardVisualizationOptions({
     persistSqlDisplayOptions?: (query: DataVisualizationNode) => void
 }): LemonMenuItems {
     const sqlQuery = sqlQueryForVisualizationPicker(query, !!persistVisualizationType)
+    const savingVisualizationChanges = saving || savingSqlDisplayOptions
 
     // Dashboard date and property filters reach a HogQL query only through a {filters} placeholder,
     // which substitutes into a WHERE clause, so they change rows and never the columns the axes name.
@@ -59,7 +60,7 @@ export function useDashboardVisualizationOptions({
         types,
         rowCount,
         loading,
-        saving: saving || savingSqlDisplayOptions,
+        saving: savingVisualizationChanges,
         overriddenVariable,
         persistVisualizationType,
     }
@@ -135,7 +136,7 @@ export function useDashboardVisualizationOptions({
                       title: (
                           <h5 className="mx-2 my-1 flex items-center justify-between gap-2">
                               Display
-                              {savingSqlDisplayOptions ? (
+                              {savingVisualizationChanges ? (
                                   <span className="flex items-center gap-1 font-normal text-muted" role="status">
                                       <Spinner /> Saving
                                   </span>
@@ -152,7 +153,7 @@ export function useDashboardVisualizationOptions({
         ]
     }, [
         sqlQuery,
-        savingSqlDisplayOptions,
+        savingVisualizationChanges,
         persistVisualizationType,
         persistSqlDisplayOptions,
         renderPicker,
