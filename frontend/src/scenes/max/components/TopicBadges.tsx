@@ -1,9 +1,12 @@
+import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -42,8 +45,17 @@ export interface TopicBadgesProps {
 /** Row of PostHog AI topic badges (+ the Desktop beta badge). Selection is owned by the parent. */
 export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicBadgesProps): JSX.Element | null {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+    const { featureFlags } = useValues(featureFlagLogic)
     // Intro-modal visibility is pure view state, so it stays local instead of in a logic
     const [codeIntroOpen, setCodeIntroOpen] = useState(false)
+
+    // Experiment: does labeling the badge by outcome beat the neutral "Code" for self-driving
+    // setup? Short-circuit on the autonomy gate so the flag (and its exposure event) is only
+    // evaluated for users who actually see the badge.
+    const codeBadgeLabel =
+        isProductAutonomyEnabled && featureFlags[FEATURE_FLAGS.CODE_BADGE_SELF_DRIVING_LABEL] === 'self-driving'
+            ? 'Self-driving'
+            : CODE_BADGE.label
 
     if (!topics.length) {
         return null
@@ -81,7 +93,7 @@ export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicB
                         data-attr="capability-badge-code"
                     >
                         <span className="flex items-center gap-1.5">
-                            {CODE_BADGE.label}
+                            {codeBadgeLabel}
                             <LemonTag type="warning" size="small">
                                 Beta
                             </LemonTag>
