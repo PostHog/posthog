@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
-import { IconArrowRight, IconWrench } from '@posthog/icons'
+import { IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,62 +14,26 @@ import { ConversationType } from '~/types'
 
 import {
     MODE_DEFINITIONS,
+    ModeDefinition,
     SPECIAL_MODES,
     SpecialMode,
     ToolDefinition,
     getDefaultTools,
-    getToolsForMode,
 } from '../max-constants'
 import { maxThreadLogic } from '../maxThreadLogic'
 
 type ModeValue = AgentMode | SpecialMode | null
 
-function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Element {
+// One fixed tooltip on the trigger describes every mode. Per-row tooltips are
+// avoided on purpose: they mount a differently sized popover at a different
+// anchor on each hover, which makes the menu flicker and the rows shift.
+function buildGeneralTooltip(
+    description: string,
+    defaultTools: ToolDefinition[],
+    modes: ModeDefinition[]
+): JSX.Element {
     return (
-        <div className="max-h-[calc(100vh - (var(--spacing) * 5))] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
-            <div>{description}</div>
-            {tools.length > 0 && (
-                <div>
-                    <div className="font-semibold mb-0.5">Tools:</div>
-                    <ul className="space-y-0.5 text-sm *:flex *:items-start">
-                        {tools.map((tool: ToolDefinition) => (
-                            <li key={tool.name}>
-                                <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
-                                    {tool.icon || <IconWrench />}
-                                </span>
-                                <span>
-                                    <strong className="italic">
-                                        {tool.name}
-                                        {tool.beta && (
-                                            <LemonTag size="small" type="warning" className="ml-1 not-italic">
-                                                BETA
-                                            </LemonTag>
-                                        )}
-                                        {tool.alpha && (
-                                            <LemonTag size="small" type="danger" className="ml-1 not-italic">
-                                                ALPHA
-                                            </LemonTag>
-                                        )}
-                                    </strong>
-                                    {tool.description?.replace(tool.name, '')}
-                                </span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-        </div>
-    )
-}
-
-function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]): JSX.Element {
-    const modeEntries = Object.entries(MODE_DEFINITIONS) as [
-        AgentMode,
-        (typeof MODE_DEFINITIONS)[keyof typeof MODE_DEFINITIONS],
-    ][]
-
-    return (
-        <div className="max-w-sm flex flex-col gap-1.5">
+        <div className="max-w-sm max-h-[calc(100vh_-_var(--spacing)*5)] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
             <div>{description}</div>
             {defaultTools.length > 0 && (
                 <div>
@@ -86,24 +50,15 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
                     </ul>
                 </div>
             )}
-            {modeEntries.length > 0 && (
+            {modes.length > 0 && (
                 <div>
-                    <div className="font-semibold mb-0.5">Mode-specific tools:</div>
-                    <ul className="space-y-0.5 text-sm *:flex *:items-start">
-                        {modeEntries.map(([mode, def]) => {
-                            const tools = getToolsForMode(mode)
-                            if (tools.length === 0) {
-                                return null
-                            }
-                            return (
-                                <li key={mode}>
-                                    <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
-                                    <span>
-                                        <em>{def.name}:</em> {tools.map((tool) => tool.name).join(', ')}
-                                    </span>
-                                </li>
-                            )
-                        })}
+                    <div className="font-semibold mb-0.5">Modes:</div>
+                    <ul className="space-y-1 text-sm">
+                        {modes.map((mode) => (
+                            <li key={mode.name}>
+                                <em>{mode.name}:</em> {mode.description}
+                            </li>
+                        ))}
                     </ul>
                 </div>
             )}
@@ -129,7 +84,6 @@ function getModeOptions({
             value: null as ModeValue,
             label: SPECIAL_MODES.auto.name as string | JSX.Element,
             icon: SPECIAL_MODES.auto.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
         },
     ]
     if (planModeEnabled) {
@@ -146,7 +100,6 @@ function getModeOptions({
                 </span>
             ),
             icon: SPECIAL_MODES.plan.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools()),
         })
     }
 
@@ -164,7 +117,6 @@ function getModeOptions({
                 </span>
             ),
             icon: SPECIAL_MODES.research.icon,
-            tooltip: <div>{SPECIAL_MODES.research.description}</div>,
         })
     }
 
@@ -199,10 +151,32 @@ function getModeOptions({
                         def.name
                     ),
                 icon: def.icon,
-                tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
             })),
         },
     ]
+}
+
+// The modes shown in the menu, in menu order, so the trigger tooltip describes exactly what a user can pick.
+function getVisibleModes({
+    planModeEnabled,
+    researchEnabled,
+    featureFlags,
+    hasExistingMessages,
+}: GetModeOptionsParams): ModeDefinition[] {
+    const modes: ModeDefinition[] = [SPECIAL_MODES.auto]
+    if (planModeEnabled) {
+        modes.push(SPECIAL_MODES.plan)
+    }
+    if (researchEnabled && !hasExistingMessages) {
+        modes.push(SPECIAL_MODES.research)
+    }
+    for (const def of Object.values(MODE_DEFINITIONS)) {
+        if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
+            continue
+        }
+        modes.push(def)
+    }
+    return modes
 }
 
 export function ModeSelector(): JSX.Element | null {
@@ -216,6 +190,16 @@ export function ModeSelector(): JSX.Element | null {
     const modeOptions = useMemo(
         () =>
             getModeOptions({
+                planModeEnabled,
+                researchEnabled,
+                featureFlags,
+                hasExistingMessages,
+            }),
+        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
+    )
+    const visibleModes = useMemo(
+        () =>
+            getVisibleModes({
                 planModeEnabled,
                 researchEnabled,
                 featureFlags,
@@ -251,7 +235,8 @@ export function ModeSelector(): JSX.Element | null {
             }
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools()
+                getDefaultTools(),
+                visibleModes
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
