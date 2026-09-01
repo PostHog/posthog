@@ -33,6 +33,8 @@ HOLDOUT_PAYLOAD_KEY_PREFIX = "holdout-"
 
 
 def _payload_key_is_resolvable(key: str, variant_keys: set[str]) -> bool:
+    # Pinned by test_migration_0014_clean_inert_violations; the holdout and boolean keys are the
+    # ones a variant-key-only check silently deletes.
     return key in variant_keys or key in BOOLEAN_PAYLOAD_KEYS or key.startswith(HOLDOUT_PAYLOAD_KEY_PREFIX)
 
 
