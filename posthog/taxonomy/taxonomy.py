@@ -183,6 +183,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "primary_property": "$feature_flag",
         },
+        "$experiment_exposure": {
+            "label": "Experiment exposure",
+            "description": "When a user is exposed to an experiment variant.",
+            "ignored_in_assistant": True,  # Duplicate of $feature_flag_called; mixing both double-counts exposures
+            "primary_property": "$feature_flag",
+        },
         "$feature_view": {
             "label": "Feature view",
             "description": "When a user views a feature.",
@@ -1744,7 +1750,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
+            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
