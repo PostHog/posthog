@@ -16,6 +16,7 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.hogql_queries.query_failure_handling import USER_QUERY_ERROR_TYPE_NAMES
 from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
@@ -88,15 +89,17 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
             # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
-            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
-            # error tracking.
+            # API serving a login page instead of JSON), expected-control-flow ApplicationErrors
+            # (activity-retry-as-poll probes), and user-caused query errors (the query is too big or
+            # too slow, or the failure was replayed from the query-failure cache) are not defects —
+            # re-raise without reporting them to error tracking.
             if (
                 temporalio.exceptions.is_cancelled_exception(e)
                 or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
+                or getattr(e, "served_from_query_failure_cache", False)
                 or (
                     isinstance(e, temporalio.exceptions.ApplicationError)
-                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES | USER_QUERY_ERROR_TYPE_NAMES
                 )
             ):
                 raise

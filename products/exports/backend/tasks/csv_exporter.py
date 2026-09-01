@@ -36,6 +36,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
+from posthog.hogql_queries.query_failure_handling import is_expected_user_query_error
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
@@ -750,6 +751,8 @@ def export_tabular(
                     "dashboard_id": exported_asset.dashboard_id,
                 },
             )
-        else:
+        elif not is_expected_user_query_error(e):
+            # A query too big or too slow is the user's to fix by narrowing it, not a defect, so it
+            # does not belong in error tracking - same reasoning as the revoked-creator carve-out.
             capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         raise
