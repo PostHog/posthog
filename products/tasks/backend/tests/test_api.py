@@ -12882,8 +12882,12 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(state["runtime_adapter"], "claude")
         self.assertEqual(state["model"], "zai-org/glm-5.3-flash")
         self.assertEqual(state["reasoning_effort"], "high")
-        self.assertIn("image-spec.yaml", state["pending_user_message"])
-        self.assertIn("install pytorch and flox", state["pending_user_message"])
+        message = state["pending_user_message"]
+        self.assertIn("image-spec.yaml", message)
+        self.assertIn("run_commands:  # shell commands executed in order at image BUILD time\n  - >-", message)
+        self.assertIn("validate its YAML syntax", message)
+        self.assertIn("uv run --no-project --with PyYAML", message)
+        self.assertIn("install pytorch and flox", message)
 
     @parameterized.expand(
         [
