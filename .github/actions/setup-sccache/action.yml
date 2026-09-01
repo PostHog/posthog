@@ -3,12 +3,18 @@ description: |
     Installs sccache and configures it as the Rust compiler wrapper.
     Uses actions/cache to avoid repeated downloads from GitHub's releases CDN.
     The sccache binary is pinned to a specific version for reproducibility.
+    Namespaces the remote cache on the native-library crate versions in Cargo.lock
+    (see cache-key-prefix.sh) and exports the prefix as SCCACHE_WEBDAV_KEY_PREFIX.
 
 inputs:
     version:
         description: 'sccache version to install (e.g. 0.14.0)'
         required: false
         default: '0.14.0'
+    cargo-lock:
+        description: 'Cargo.lock that keys the remote cache namespace, relative to the workspace'
+        required: false
+        default: 'rust/Cargo.lock'
 
 runs:
     using: composite
@@ -67,8 +73,14 @@ runs:
 
         - name: Configure sccache
           shell: bash
+          env:
+              CARGO_LOCK: ${{ inputs.cargo-lock }}
           run: |
               echo "$RUNNER_TEMP/sccache" >> "$GITHUB_PATH"
+              SCCACHE_WEBDAV_KEY_PREFIX=$(bash "$GITHUB_ACTION_PATH/cache-key-prefix.sh" "$GITHUB_WORKSPACE/$CARGO_LOCK")
+              export SCCACHE_WEBDAV_KEY_PREFIX
+              echo "SCCACHE_WEBDAV_KEY_PREFIX=$SCCACHE_WEBDAV_KEY_PREFIX" >> "$GITHUB_ENV"
+              echo "Remote cache key prefix: $SCCACHE_WEBDAV_KEY_PREFIX"
               for i in 1 2 3; do
                 if "$RUNNER_TEMP/sccache/sccache" --start-server; then
                   echo "sccache server started successfully"

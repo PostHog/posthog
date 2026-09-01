@@ -109,6 +109,7 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
 
             - name: Copy proto files into rust build context
@@ -147,7 +148,7 @@ jobs:
               env:
                   IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
-                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  echo "cache-key-prefix=$(bash "$GITHUB_WORKSPACE/.github/actions/setup-sccache/cache-key-prefix.sh" Cargo.lock)" >> "$GITHUB_OUTPUT"
                   if [ "$IS_FORK_PR" = "true" ]; then
                       echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
                       exit 0

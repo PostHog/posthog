@@ -290,9 +290,6 @@ jobs:
                     with:
                         toolchain: 1.91.1
 
-            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -314,6 +311,10 @@ jobs:
                   echo "Building shard crates: ${crates[*]}"
                   cargo build "${crates[@]}" --locked --release
                   find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
+
+            - name: Show sccache stats
+              if: ${{ !cancelled() }}
+              run: sccache --show-stats || true
 
     test:
         name: Test Rust (${{ matrix.packages }})
@@ -382,9 +383,6 @@ jobs:
 
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
-
-            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
@@ -546,6 +544,10 @@ jobs:
                       fi
                   done
 
+            - name: Show sccache stats
+              if: ${{ !cancelled() }}
+              run: sccache --show-stats || true
+
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
             # secret).
@@ -631,9 +633,6 @@ jobs:
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
 
-            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -649,6 +648,10 @@ jobs:
 
             - name: Build the personhog stack and harness
               run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
+
+            - name: Show sccache stats
+              if: ${{ !cancelled() }}
+              run: sccache --show-stats || true
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
@@ -836,9 +839,6 @@ jobs:
                         toolchain: 1.91.1
                         components: clippy,rustfmt
 
-            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -863,6 +863,10 @@ jobs:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
+
+            - name: Show sccache stats
+              if: ${{ !cancelled() }}
+              run: sccache --show-stats || true
 
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
