@@ -208,28 +208,22 @@ pub fn match_property(
 
     match operator {
         OperatorType::Exact | OperatorType::IsNot => {
-            let compute_scalar_exact_match = |value: &Value, override_value: &Value| -> bool {
-                if let (Some(value), Some(override_value)) = (
-                    parse_boolean_property_value(value),
-                    parse_boolean_property_value(override_value),
-                ) {
-                    return value == override_value;
-                }
-
-                to_string_representation(value).to_lowercase()
-                    == to_string_representation(override_value).to_lowercase()
-            };
-
             let compute_exact_match = |value: &Value, override_value: &Value| -> bool {
-                if value.is_array() {
-                    return value
-                        .as_array()
-                        .expect("expected array value")
-                        .iter()
-                        .any(|value| compute_scalar_exact_match(value, override_value));
+                match value {
+                    Value::Array(values) if values.is_empty() => {
+                        matches_legacy_empty_exact_filter(override_value)
+                    }
+                    Value::Array(values) => {
+                        let target = to_string_representation(override_value).to_lowercase();
+                        values
+                            .iter()
+                            .any(|value| to_string_representation(value).to_lowercase() == target)
+                    }
+                    single_value => {
+                        to_string_representation(single_value).to_lowercase()
+                            == to_string_representation(override_value).to_lowercase()
+                    }
                 }
-
-                compute_scalar_exact_match(value, override_value)
             };
 
             if let Some(match_value) = match_value {
@@ -644,12 +638,12 @@ pub fn match_property(
     }
 }
 
-fn parse_boolean_property_value(value: &Value) -> Option<bool> {
+fn matches_legacy_empty_exact_filter(value: &Value) -> bool {
     match value {
-        Value::Bool(value) => Some(*value),
-        Value::String(value) if value.eq_ignore_ascii_case("true") => Some(true),
-        Value::String(value) if value.eq_ignore_ascii_case("false") => Some(false),
-        _ => None,
+        Value::Bool(value) => *value,
+        Value::String(value) => value.eq_ignore_ascii_case("true"),
+        Value::Array(values) => values.iter().all(matches_legacy_empty_exact_filter),
+        _ => false,
     }
 }
 
@@ -936,90 +930,85 @@ mod test_match_properties {
         .expect("expected match to exist")
     }
 
-    #[test]
-    fn test_match_properties_exact_only_coerces_explicit_boolean_values() {
-        let cases = [
-            (json!(false), json!(false), true),
-            (json!(false), json!("FALSE"), true),
-            (json!("FaLsE"), json!(false), true),
-            (json!(true), json!(true), true),
-            (json!(true), json!("TRUE"), true),
-            (json!("TrUe"), json!(true), true),
-            (json!(false), json!(true), false),
-            (json!(false), json!("true"), false),
-            (json!(false), json!(0), false),
-            (json!(false), Value::Null, false),
-            (json!(false), json!(""), false),
-            (json!(false), json!("banana"), false),
-            (json!(true), json!(1), false),
-            (json!(true), json!("banana"), false),
-        ];
-
-        for (filter_value, user_value, expected) in cases {
-            let actual = match_exact_value(
+    #[test_case(json!(false), json!(false), true; "bool false matches bool false")]
+    #[test_case(json!(false), json!("FALSE"), true; "bool false matches uppercase false string")]
+    #[test_case(json!("FaLsE"), json!(false), true; "mixed case false string matches bool false")]
+    #[test_case(json!(true), json!(true), true; "bool true matches bool true")]
+    #[test_case(json!(true), json!("TRUE"), true; "bool true matches uppercase true string")]
+    #[test_case(json!("TrUe"), json!(true), true; "mixed case true string matches bool true")]
+    #[test_case(json!(false), json!(true), false; "bool false does not match bool true")]
+    #[test_case(json!(false), json!("true"), false; "bool false does not match true string")]
+    #[test_case(json!(false), json!(0), false; "zero does not coerce to false")]
+    #[test_case(json!(false), Value::Null, false; "null does not coerce to false")]
+    #[test_case(json!(false), json!(""), false; "empty string does not coerce to false")]
+    #[test_case(json!(false), json!("banana"), false; "arbitrary string does not coerce to false")]
+    #[test_case(json!(true), json!(1), false; "one does not coerce to true")]
+    #[test_case(json!(true), json!("banana"), false; "arbitrary string does not coerce to true")]
+    #[test_case(json!(true), json!([true]), false; "bool true does not match bool array")]
+    #[test_case(json!(true), json!([]), false; "bool true does not match empty array")]
+    fn test_match_properties_exact_scalar_values_do_not_use_truthiness(
+        filter_value: Value,
+        user_value: Value,
+        expected: bool,
+    ) {
+        assert_eq!(
+            match_exact_value(
                 filter_value.clone(),
                 user_value.clone(),
                 OperatorType::Exact,
-            );
-            assert_eq!(
-                actual, expected,
-                "exact filter={filter_value} user_value={user_value}"
-            );
-
-            let actual_is_not = match_exact_value(filter_value, user_value, OperatorType::IsNot);
-            assert_eq!(actual_is_not, !expected, "is_not must complement exact");
-        }
+            ),
+            expected
+        );
+        assert_eq!(
+            match_exact_value(filter_value, user_value, OperatorType::IsNot),
+            !expected
+        );
     }
 
-    #[test]
-    fn test_match_properties_exact_boolean_arrays_use_any_membership() {
-        let cases = [
-            (json!(["true", "false"]), json!(true), true),
-            (json!(["true", "false"]), json!("TRUE"), true),
-            (json!(["true", "false"]), json!(false), true),
-            (json!(["true", "false"]), json!("false"), true),
-            (json!(["true", "false"]), json!("pro"), false),
-            (json!(["false"]), json!("banana"), false),
-            (json!(["FREE", "PRO"]), json!("pro"), true),
-        ];
-
-        for (filter_value, user_value, expected) in cases {
-            let actual = match_exact_value(
+    #[test_case(json!(["true", "false"]), json!(true), true; "boolean strings contain bool true")]
+    #[test_case(json!(["true", "false"]), json!("TRUE"), true; "boolean strings contain uppercase true string")]
+    #[test_case(json!(["true", "false"]), json!(false), true; "boolean strings contain bool false")]
+    #[test_case(json!(["true", "false"]), json!("false"), true; "boolean strings contain false string")]
+    #[test_case(json!(["true", "false"]), json!("pro"), false; "boolean strings do not contain arbitrary string")]
+    #[test_case(json!(["false"]), json!("banana"), false; "false string does not match arbitrary string")]
+    #[test_case(json!(["FREE", "PRO"]), json!("pro"), true; "string membership is case insensitive")]
+    fn test_match_properties_exact_boolean_arrays_use_any_membership(
+        filter_value: Value,
+        user_value: Value,
+        expected: bool,
+    ) {
+        assert_eq!(
+            match_exact_value(
                 filter_value.clone(),
                 user_value.clone(),
                 OperatorType::Exact,
-            );
-            assert_eq!(
-                actual, expected,
-                "exact filter={filter_value} user_value={user_value}"
-            );
-
-            let actual_is_not = match_exact_value(filter_value, user_value, OperatorType::IsNot);
-            assert_eq!(actual_is_not, !expected, "is_not must complement exact");
-        }
+            ),
+            expected
+        );
+        assert_eq!(
+            match_exact_value(filter_value, user_value, OperatorType::IsNot),
+            !expected
+        );
     }
 
-    #[test]
-    fn test_match_properties_exact_empty_array_never_matches() {
-        for user_value in [
-            json!(true),
-            json!("true"),
-            json!(false),
-            json!("banana"),
-            json!([]),
-            json!([true]),
-        ] {
-            assert!(!match_exact_value(
-                json!([]),
-                user_value.clone(),
-                OperatorType::Exact,
-            ));
-            assert!(match_exact_value(
-                json!([]),
-                user_value,
-                OperatorType::IsNot,
-            ));
-        }
+    #[test_case(json!(true), true; "empty filter keeps bool true match")]
+    #[test_case(json!("true"), true; "empty filter keeps true string match")]
+    #[test_case(json!(false), false; "empty filter keeps bool false mismatch")]
+    #[test_case(json!("banana"), false; "empty filter keeps arbitrary string mismatch")]
+    #[test_case(json!([]), true; "empty filter keeps empty array match")]
+    #[test_case(json!([true]), true; "empty filter keeps truthy array match")]
+    fn test_match_properties_exact_empty_array_preserves_existing_behavior(
+        user_value: Value,
+        expected: bool,
+    ) {
+        assert_eq!(
+            match_exact_value(json!([]), user_value.clone(), OperatorType::Exact),
+            expected
+        );
+        assert_eq!(
+            match_exact_value(json!([]), user_value, OperatorType::IsNot),
+            !expected
+        );
     }
 
     #[test]
