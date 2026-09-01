@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
+use common_grpc::GrpcMetricsLayer;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use envconfig::Envconfig;
@@ -111,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
     // before exposing it beyond that boundary because records affect tenant billing.
     Server::builder()
+        .layer(GrpcMetricsLayer)
         .add_service(UsageIngestionServer::new(service))
         .serve(config.grpc_address.parse()?)
         .await?;
