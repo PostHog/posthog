@@ -396,6 +396,10 @@ export class EmailService {
                         count: 1,
                     })
                 }
+                // Mark the skip so the flow-level billing gate does not charge for a send that
+                // never reached the provider, and does not re-pin the run's attribution version to
+                // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
+                result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
             }
