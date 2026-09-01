@@ -39,6 +39,7 @@ from posthog.permissions import (
     SharingTokenPermission,
     TeamMemberAccessPermission,
     VerifiedDomainEnforcementPermission,
+    is_service_auth,
 )
 from posthog.products import is_product_module
 from posthog.scopes import APIScopeObjectOrNotSupported
@@ -366,6 +367,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.action != "list":
             # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
             # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+
+        # Mirrors AccessControlPermission.has_object_permission: service credentials (TST, PSAK)
+        # authenticate as synthetic users UserAccessControl cannot evaluate, so they are gated by
+        # API scope and project membership instead of object-level RBAC. Without this the filter
+        # passes a non-model user into a `created_by` lookup and raises TypeError.
+        if is_service_auth(self.request):
             return queryset
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
