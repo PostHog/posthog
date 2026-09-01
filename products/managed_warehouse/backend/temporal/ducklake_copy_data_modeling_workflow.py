@@ -174,7 +174,7 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 normalized_name=normalized_name,
                 source_table_uri=model.table_uri,
                 schema_name=ducklake_data_modeling_schema(inputs.team_id),
-                table_name=ducklake_data_modeling_table_name(saved_query.id),
+                table_name=ducklake_data_modeling_table_name(model.model_label, normalized_name),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
                 staging_uri=staging_uri,

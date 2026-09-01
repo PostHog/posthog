@@ -125,7 +125,7 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 ### Data Modeling
 
 - **Schema**: `posthog_data_modeling_team_<team_id>`
-- **Table**: the sanitized saved-query UUID; UUIDs that start with a digit receive a `model_` prefix
+- **Table**: the sanitized model label, with the normalized saved query name as a fallback
 - **Example**: `ducklake.posthog_data_modeling_team_123.model_12345678123456781234567812345678`
 
 ### Data Imports and Data Import Registration
@@ -171,7 +171,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    Once the modeling workflow completes it automatically starts `ducklake-copy.data-modeling` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.
 
 5. **Query the new DuckLake table**
-   The copy activity creates a table at `ducklake.posthog_data_modeling_team_<team_id>.<sanitized_saved_query_uuid>`. From any DuckDB shell you can inspect it, for example:
+   The copy activity creates a table at `ducklake.posthog_data_modeling_team_<team_id>.<model_label>`. From any DuckDB shell you can inspect it, for example:
 
    ```sql
    duckdb -c "
@@ -193,7 +193,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
 
      -- Query a specific table
-     SELECT * FROM ducklake.posthog_data_modeling_team_${TEAM_ID}.${MODEL_TABLE_NAME} LIMIT 10;
+     SELECT * FROM ducklake.posthog_data_modeling_team_${TEAM_ID}.${MODEL_LABEL} LIMIT 10;
    "
    ```
 

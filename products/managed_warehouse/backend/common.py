@@ -571,8 +571,8 @@ def ducklake_data_modeling_schema(team_id: int) -> str:
     return f"{DATA_MODELING_DUCKLAKE_SCHEMA_PREFIX}_{team_id}"
 
 
-def ducklake_data_modeling_table_name(saved_query_id: UUID) -> str:
-    return sanitize_ducklake_identifier(saved_query_id.hex, default_prefix="model")
+def ducklake_data_modeling_table_name(model_label: str, normalized_name: str) -> str:
+    return sanitize_ducklake_identifier(model_label or normalized_name, default_prefix="model")
 
 
 TABLE_SUFFIX_MAX_LENGTH = 63

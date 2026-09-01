@@ -44,6 +44,7 @@ def build_trino_table_locators(
     table_names: ManagedWarehouseTableNames,
 ) -> dict[str, TrinoTableLocator]:
     """Build explicit Trino targets from the relations managed warehouse provisions."""
+    from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.managed_warehouse.backend.facade import team_state as team_state_facade
     from products.warehouse_sources.backend.facade.ducklake import list_ducklake_imported_tables
@@ -54,15 +55,26 @@ def build_trino_table_locators(
     }
 
     model_schema = ducklake_data_modeling_schema(team_id)
-    materialized_models = DataWarehouseSavedQuery.objects.filter(
-        team_id=team_id, is_materialized=True, table__isnull=False
-    ).exclude(deleted=True)
+    materialized_models = list(
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, is_materialized=True, table__isnull=False).exclude(
+            deleted=True
+        )
+    )
+    model_labels_by_saved_query_id = {
+        saved_query_id: path[-1]
+        for saved_query_id, path in DataWarehouseModelPath.objects.filter(
+            team_id=team_id,
+            saved_query_id__in=[saved_query.id for saved_query in materialized_models],
+        ).values_list("saved_query_id", "path")
+        if path
+    }
     for saved_query in materialized_models:
         if database.has_table(saved_query.name):
+            model_label = model_labels_by_saved_query_id.get(saved_query.id, saved_query.id.hex)
             locators[saved_query.name] = (
                 catalog_name,
                 model_schema,
-                ducklake_data_modeling_table_name(saved_query.id),
+                ducklake_data_modeling_table_name(model_label, saved_query.normalized_name),
             )
 
     naming_version = team_state_facade.data_imports_table_naming_version(team_id)

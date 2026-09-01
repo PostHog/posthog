@@ -13,7 +13,6 @@ from temporalio.testing import WorkflowEnvironment
 
 import products.managed_warehouse.backend.logic.verification.config as verification_config
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.managed_warehouse.backend.common import ducklake_data_modeling_table_name
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -56,7 +55,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     activity_environment, ateam, monkeypatch
 ):
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
-        id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        id=uuid.UUID("22345678-1234-5678-1234-567812345678"),
         team=ateam,
         name="ducklake_model",
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
@@ -183,8 +182,8 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
         "default_row_check",
         "inherited_extra_check",
     ]
-    assert override_metadata.table_name == ducklake_data_modeling_table_name(override_query.id)
-    assert inherit_metadata.table_name == ducklake_data_modeling_table_name(inherit_query.id)
+    assert override_metadata.table_name == "override_only_model"
+    assert inherit_metadata.table_name == "inherits_defaults_model"
 
 
 def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch):
