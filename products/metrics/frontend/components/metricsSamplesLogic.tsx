@@ -15,7 +15,7 @@ import type {
 } from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
-import { formatSeriesName, seriesColor } from './metricsSeries'
+import { formatSeriesName, seriesColor, shouldShowClauseAliases } from './metricsSeries'
 import { type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 // The side panel next to the chart: per-series aggregates, or the raw emissions
@@ -68,6 +68,9 @@ export interface metricsSamplesLogicActions {
     ) => {
         payload?: any
         queryResults: import('products/metrics/frontend/generated/api.schemas')._MetricSeriesApi[]
+    } // metricsViewerLogic
+    setActiveClauseIndex: (index: number) => {
+        index: number
     } // metricsViewerLogic
     setDateFrom: (dateFrom: string | null) => {
         dateFrom: string | null
@@ -157,6 +160,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                 'setDateTo',
                 'setFilterGroup',
                 'setSelectedMetricType',
+                'setActiveClauseIndex',
                 'fetchQueryResultsSuccess',
             ],
         ],
@@ -235,18 +239,20 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         // views always describe the same query (colors match the chart legend).
         aggregateRows: [
             (s) => [s.queryResults, s.metricName],
-            (queryResults: MetricsViewerSeries[], metricName: string): MetricsAggregateRow[] =>
-                queryResults.map((series, index) => {
+            (queryResults: MetricsViewerSeries[], metricName: string): MetricsAggregateRow[] => {
+                const showClause = shouldShowClauseAliases(queryResults)
+                return queryResults.map((series, index) => {
                     // Null points are gaps (unrepresentable buckets) — skip them
                     // rather than counting them as zero.
                     const values = series.points.map((point) => point.value).filter((value) => value !== null)
                     return {
-                        name: formatSeriesName(series, metricName),
+                        name: formatSeriesName(series, metricName, { showClause }),
                         color: seriesColor(index),
                         latest: values.length ? values[values.length - 1] : 0,
                         total: values.reduce((sum, value) => sum + value, 0),
                     }
-                }),
+                })
+            },
         ],
         // Exemplar dots for the chart: only emissions that carry trace context.
         traceExemplars: [
@@ -294,6 +300,11 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             // The viewer pins the type in its own setMetricName listener, so without
             // this a metric switch can load samples pinned to the previous type.
             setSelectedMetricType: reloadWhenShown,
+            // Samples (and the exemplar dots derived from them) describe the active
+            // clause, so switching it refreshes them even while the tab is hidden.
+            setActiveClauseIndex: () => {
+                actions.loadSamples({})
+            },
         }
     }),
 ])

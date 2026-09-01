@@ -14,6 +14,7 @@ import {
 
 import { metricsQueryCreate, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 
+import { metricsViewerLogic } from './components/metricsViewerLogic'
 import { metricsSceneLogic } from './metricsSceneLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
@@ -117,6 +118,78 @@ describe('metricsSceneLogic', () => {
             expect(logic.values[valueKey as keyof typeof logic.values]).toEqual(expected)
         })
 
+        it('restores multiple clauses and a formula from the clauses URL param', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', {
+                    activeTab: 'viewer',
+                    clauses: JSON.stringify([
+                        { name: 'a', metricName: 'requests_total', aggregation: 'rate' },
+                        {
+                            name: 'b',
+                            metricName: 'queue_depth',
+                            aggregation: 'avg',
+                            metricType: 'gauge',
+                            groupBy: ['env'],
+                        },
+                    ]),
+                    formula: 'a / b',
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toEqual([
+                expect.objectContaining({ name: 'a', metricName: 'requests_total', aggregation: 'rate' }),
+                expect.objectContaining({
+                    name: 'b',
+                    metricName: 'queue_depth',
+                    aggregation: 'avg',
+                    selectedMetricType: 'gauge',
+                    groupByKeys: ['env'],
+                }),
+            ])
+            expect(logic.values.formula).toEqual('a / b')
+        })
+
+        it('a legacy single-metric link collapses multi-clause state', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', {
+                    clauses: JSON.stringify([
+                        { name: 'a', metricName: 'requests_total', aggregation: 'rate' },
+                        { name: 'b', metricName: 'queue_depth', aggregation: 'avg' },
+                    ]),
+                    formula: 'a / b',
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.viewerClauses).toHaveLength(2)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'queue_depth' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toHaveLength(1)
+            expect(logic.values.metricName).toEqual('queue_depth')
+            expect(logic.values.formula).toEqual('')
+        })
+
+        // The clauses param is attacker-controlled JSON; any invalid entry must reject the
+        // whole param instead of reaching the viewer half-validated.
+        it.each([
+            ['unparsable JSON', '{not json'],
+            ['not an array', '{"a":1}'],
+            ['a clause without a metric', '[{"name":"a","aggregation":"sum"}]'],
+            ['an unknown aggregation', '[{"name":"a","metricName":"x","aggregation":"nope"}]'],
+            [
+                'duplicate aliases',
+                '[{"name":"a","metricName":"x","aggregation":"sum"},{"name":"a","metricName":"y","aggregation":"sum"}]',
+            ],
+        ])('ignores a malformed clauses param (%s)', async (_, urlValue) => {
+            const before = logic.values.viewerClauses
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { clauses: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toEqual(before)
+        })
+
         it.each([
             ['unparsable JSON', '{not valid json'],
             // kea-router pre-parses JSON-looking params, so these arrive as real values
@@ -166,6 +239,39 @@ describe('metricsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).not.toHaveProperty('dateFrom')
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+        })
+
+        // The two URL encodings must never disagree: multi-series/formula state writes
+        // `clauses` and removes the legacy params, and collapsing back restores them.
+        it('switches between the legacy and clauses encodings as series come and go', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+            expect(router.values.searchParams).not.toHaveProperty('clauses')
+
+            metricsViewerLogic.actions.addClause()
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.setMetricName('queue_depth')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('metricName')
+            expect(router.values.searchParams.clauses).toEqual([
+                expect.objectContaining({ name: 'a', metricName: 'requests_total' }),
+                expect.objectContaining({ name: 'b', metricName: 'queue_depth' }),
+            ])
+
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.setFormula('a / b')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.formula).toEqual('a / b')
+
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.setFormula('')
+                metricsViewerLogic.actions.removeClause(1)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('clauses')
+            expect(router.values.searchParams).not.toHaveProperty('formula')
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
         })
 

@@ -19,7 +19,7 @@ import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
 import { buildMetricsChartConfig } from './metricsChartConfig'
 import { MetricsExemplarMarkers, type MetricsExemplar } from './MetricsExemplarMarkers'
-import { formatSeriesName, type MetricsChartSeries, seriesColor } from './metricsSeries'
+import { formatSeriesName, type MetricsChartSeries, seriesColor, shouldShowClauseAliases } from './metricsSeries'
 
 const AREA_FILL_OPACITY = 0.2
 
@@ -44,18 +44,21 @@ export function MetricsSeriesChart({
     const isBar = display?.type === 'bar'
     const isArea = display?.type === 'area'
 
-    const chartSeries = useMemo<Series[]>(
-        () =>
-            series.map((s, index) => ({
-                key: `${index}`,
-                label: formatSeriesName({ labels: s.labels, metric_name: s.metricName ?? undefined }, fallbackName),
-                // A null value is a gap (non-representable aggregate); charted as 0 for now.
-                data: s.points.map((p) => p.value ?? 0),
-                color: getColorVar(seriesColor(index)),
-                ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
-            })),
-        [series, fallbackName, isArea]
-    )
+    const chartSeries = useMemo<Series[]>(() => {
+        const showClause = shouldShowClauseAliases(series)
+        return series.map((s, index) => ({
+            key: `${index}`,
+            label: formatSeriesName(
+                { labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause },
+                fallbackName,
+                { showClause }
+            ),
+            // A null value is a gap (non-representable aggregate); charted as 0 for now.
+            data: s.points.map((p) => p.value ?? 0),
+            color: getColorVar(seriesColor(index)),
+            ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
+        }))
+    }, [series, fallbackName, isArea])
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(

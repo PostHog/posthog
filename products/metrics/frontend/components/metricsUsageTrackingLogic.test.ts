@@ -124,7 +124,7 @@ describe('metricsUsageTrackingLogic', () => {
                     } as any,
                     {} as any
                 ),
-            { aggregation: 'p95' },
+            { aggregation: 'p95', clause_count: 1, has_formula: false },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()

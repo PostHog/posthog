@@ -18,6 +18,7 @@ import {
 
 import {
     metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
     metricsQueryCreate,
     metricsValuesRetrieve,
 } from 'products/metrics/frontend/generated/api'
@@ -30,6 +31,7 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     metricsValuesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
+    metricsCharacterizeCreate: jest.fn(),
 }))
 
 jest.mock('scenes/insights/utils/api', () => ({
@@ -78,6 +80,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockReset()
+        jest.mocked(metricsCharacterizeCreate).mockReset()
         jest.mocked(insightsApi.create).mockReset()
         logic = metricsViewerLogic()
         logic.mount()
@@ -144,6 +147,100 @@ describe('metricsViewerLogic', () => {
 
     it('produces no MetricsQuery node without a metric name', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // Guards the multi-series save path: each clause carries its own metric/aggregation,
+    // and the (sanitized) formula rides along — otherwise a saved insight re-runs a
+    // different query than the viewer showed.
+    it('maps multiple clauses and a formula into the MetricsQuery node', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setFormula('A / b!')
+
+        expect(logic.values.metricsQueryNode).toEqual({
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                { name: 'a', metricName: 'requests_total', aggregation: 'increase', metricType: 'sum' },
+                { name: 'b', metricName: 'queue_depth', aggregation: 'avg', metricType: 'gauge' },
+            ],
+            formula: 'a / b',
+            dateRange: { date_from: '-1h' },
+        })
+    })
+
+    // The samples panel, anomaly badge, and picker scoping all read the active clause
+    // through the single-clause selectors — pointing them at the wrong clause silently
+    // shows one series' samples under another series' chart line.
+    it('single-clause setters and selectors follow the active clause', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        expect(logic.values.activeClauseIndex).toBe(1)
+
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.viewerClauses.map((clause) => clause.metricName)).toEqual(['requests_total', 'queue_depth'])
+
+        logic.actions.setActiveClauseIndex(0)
+        expect(logic.values.metricName).toBe('requests_total')
+        expect(logic.values.aggregation).toBe('increase')
+    })
+
+    // A formula references clauses by alias, so a duplicate alias after remove/add would
+    // silently rebind the formula (or be rejected by the backend as non-unique).
+    it('keeps aliases unique when clauses are removed and re-added', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause() // b
+        logic.actions.addClause() // c
+        logic.actions.removeClause(1)
+        logic.actions.addClause() // reuses the freed letter
+        expect(logic.values.viewerClauses.map((clause) => clause.name)).toEqual(['a', 'c', 'b'])
+    })
+
+    it('skips clauses without a metric when fetching, so a blank row does not fail the query', async () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+
+        const requestBody = jest.mocked(metricsQueryCreate).mock.calls[0][1]
+        expect(requestBody.query.clauses).toEqual([
+            expect.objectContaining({ name: 'a', metricName: 'requests_total' }),
+        ])
+        expect(requestBody.query).not.toHaveProperty('formula')
+    })
+
+    // A "vs baseline" badge computed from one input clause would be attributed to the
+    // whole (multi-series or formula) chart — suppressing it is the honest behavior.
+    it('suppresses the anomaly characterization for multi-series queries', async () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchAnomaly({})
+        }).toDispatchActions(['fetchAnomalySuccess'])
+
+        expect(metricsCharacterizeCreate).not.toHaveBeenCalled()
+        expect(logic.values.anomalyReport).toBeNull()
+    })
+
+    it('names a formula insight after the formula and its inputs', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setFormula('a / b')
+
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+
+        expect(insightsApi.create).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'a / b (requests_total, queue_depth)' })
+        )
     })
 
     // A type outside the API enum (or a metric missing from the picker list) must be
