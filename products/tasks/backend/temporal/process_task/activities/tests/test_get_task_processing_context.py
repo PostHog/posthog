@@ -1473,6 +1473,30 @@ class TestGetTaskProcessingContextActivity:
         assert result.custom_image_name == "posthog-dev-stack"
 
     @pytest.mark.django_db(transaction=True)
+    @override_settings(HOGLAND_API_URL="https://hogland.example", HOGLAND_API_TOKEN="hog-tok")
+    def test_hogland_run_forces_off_modal_vm_and_network_allowlist(self, activity_environment, test_task):
+        # A run that resolves to hogland must carry use_modal_vm_sandbox and
+        # use_modal_network_allowlist as False, so provisioning builds a plain hogland
+        # box instead of a Modal VM_BASE config with the Modal provider allowlist. The
+        # VM payload and the flag below would each set their value True; the force-off
+        # must still land both at False for a hogland run.
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with (
+            patch(VM_FLAG_PAYLOAD_TARGET, return_value='{"default_base_origin_products": ["user_created"]}'),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_backend == "hogland"
+        assert result.use_modal_vm_sandbox is False
+        assert result.use_modal_network_allowlist is False
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):
         custom_prompt = "Re-run the failed mypy checks and push a fix."
         test_task.ci_prompt = custom_prompt
@@ -1516,8 +1540,6 @@ class TestResolveSandboxBackend:
             "run_id": "run-1",
             "state": None,
             "task_runtime": "acp",
-            "use_modal_vm_sandbox": False,
-            "use_modal_network_allowlist": False,
             "custom_image_name": None,
         }
         kwargs.update(overrides)
@@ -1538,15 +1560,17 @@ class TestResolveSandboxBackend:
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"use_modal_vm_sandbox": True},
             {"custom_image_name": "posthog-sandbox-custom-x"},
             {"task_runtime": "pi"},
-            {"use_modal_network_allowlist": True},
         ],
-        ids=["vm_runtime", "custom_image", "pi_runtime", "modal_network_allowlist"],
+        ids=["custom_image", "pi_runtime"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
-    def test_modal_only_features_fall_back_to_modal_even_with_the_flag_on(self, overrides):
+    def test_hard_incapabilities_fall_back_to_modal_even_with_the_flag_on(self, overrides):
+        # A custom image or the Pi runtime cannot run on hogland's default template, so
+        # they force Modal even with the flag on. The Modal VM-sandbox and
+        # network-allowlist preferences are deliberately not gated here — a flagged run
+        # wins hogland over them (covered by the caller force-off test).
         assert self._resolve_with_flag(True, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
@@ -1598,14 +1622,15 @@ class TestResolveSandboxBackend:
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"use_modal_vm_sandbox": True},
             {"custom_image_name": "img"},
-            {"use_modal_network_allowlist": True},
+            {"task_runtime": "pi"},
         ],
-        ids=["vm", "custom_image", "network_allowlist"],
+        ids=["custom_image", "pi_runtime"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
-    def test_hogland_override_cannot_defeat_modal_only_fallbacks(self, overrides):
+    def test_hogland_override_cannot_defeat_hard_incapabilities(self, overrides):
+        # A stale or forged hogland override surviving a cloud resume must not route a
+        # custom-image or Pi run to hogland — the capability gates sit ahead of the override.
         assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS)
