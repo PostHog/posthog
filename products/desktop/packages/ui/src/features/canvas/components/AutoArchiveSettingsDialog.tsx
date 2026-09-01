@@ -174,7 +174,7 @@ export function AutoArchiveSettingsDialog({
                 className="w-24 shrink-0"
               >
                 <NumberFieldGroup>
-                  <NumberFieldInput placeholder="0" />
+                  <NumberFieldInput className="text-start" />
                 </NumberFieldGroup>
               </NumberFieldRoot>
             </Field>
