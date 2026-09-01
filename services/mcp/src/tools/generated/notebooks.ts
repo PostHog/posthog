@@ -196,6 +196,7 @@ const notebooksListFrames = (): ToolBase<
             'cpu_cores',
             'memory_gb',
             'idle_timeout_seconds',
+            'backend',
             'hourly_price',
             'preset_key',
         ]) as typeof result

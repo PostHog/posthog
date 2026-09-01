@@ -7839,7 +7839,7 @@
         }
     },
     "notebooks-list-frames": {
-        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell.",
+        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell. Only a modal backend is charged: hourly_price is calculated for a local docker kernel too, so quote it to the user only when backend is modal.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "List notebook dataframes",
