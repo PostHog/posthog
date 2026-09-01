@@ -75,17 +75,25 @@ describe('TriggerHandler', () => {
         expect(result.nextAction?.id).toEqual('exit')
     })
 
+    // A saved trigger with no row filters carries the server-compiled always-true bytecode.
+    const NO_FILTERS_BYTECODE = ['_h', 29]
+
+    const warehouseTableTrigger = (
+        filters: Record<string, any> = { properties: [], bytecode: NO_FILTERS_BYTECODE }
+    ): HogFlow['trigger'] =>
+        ({
+            type: 'data-warehouse-table',
+            table_name: 'postgres.public.accounts',
+            filters,
+        }) as HogFlow['trigger']
+
     it.each([
         ['matching', 'churned', 'exit'],
         ['non-matching', 'active', null],
     ])('evaluates warehouse-row trigger filters against a %s row', async (_label, status, expectedNextActionId) => {
         const { result } = await run(
-            {
-                type: 'data-warehouse-table',
-                table_name: 'postgres.public.accounts',
-                filters: { properties: [{ key: 'status' }], bytecode: ROW_BYTECODE },
-            } as HogFlow['trigger'],
-            { event: '$warehouse_source_row', properties: { status } }
+            warehouseTableTrigger({ properties: [{ key: 'status' }], bytecode: ROW_BYTECODE }),
+            { event: '$warehouse_source_row', properties: { status, $source_table: 'postgres.public.accounts' } }
         )
 
         if (expectedNextActionId) {
@@ -93,6 +101,32 @@ describe('TriggerHandler', () => {
         } else {
             expect(result).toEqual({ finished: true, skipped: true })
         }
+    })
+
+    // A freshly created warehouse trigger has empty filters, which match unconditionally - so
+    // without a row-kind/table check any event would otherwise pass it, the same false positive
+    // this handler already closes for slack-message.
+    it.each([
+        ['a non-warehouse event', '$pageview', {}],
+        ['the wrong row kind', '$warehouse_view_row', { $source_table: 'postgres.public.accounts' }],
+        ['a row from another table', '$warehouse_source_row', { $source_table: 'postgres.public.orders' }],
+    ])('skips a data-warehouse-table trigger with no filters given %s', async (_label, eventName, properties) => {
+        const { result } = await run(warehouseTableTrigger(), { event: eventName, properties })
+
+        expect(result).toEqual({ finished: true, skipped: true })
+    })
+
+    it('continues a data-warehouse-view trigger given a matching view row', async () => {
+        const { result } = await run(
+            {
+                type: 'data-warehouse-view',
+                table_name: 'materialized_active_users',
+                filters: { properties: [], bytecode: NO_FILTERS_BYTECODE },
+            } as HogFlow['trigger'],
+            { event: '$warehouse_view_row', properties: { $source_table: 'materialized_active_users' } }
+        )
+
+        expect(result.nextAction?.id).toEqual('exit')
     })
 
     it('continues a trigger type without filters regardless of the event', async () => {

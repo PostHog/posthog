@@ -383,6 +383,32 @@ export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowS
 // The Python producer keeps its own copy in products/slack_app/backend/slack_workflow_events.py.
 export const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
 
+// Synthetic event name stamped on the row built for a warehouse-row trigger from a synced source
+// table. Shared by the warehouse-events consumer's eligibility check and the test-run trigger
+// handler so both match the same rows.
+export const WAREHOUSE_SOURCE_ROW_EVENT = '$warehouse_source_row'
+
+// The same, for a row a materialized view run added or updated.
+export const WAREHOUSE_VIEW_ROW_EVENT = '$warehouse_view_row'
+
+// Property on the synthetic row event holding the dot-notated source table name, read against a
+// row-scoped trigger's own `table_name` to confirm a row actually came from that table.
+export const DWH_SOURCE_TABLE_PROPERTY = '$source_table'
+
+// The row-scoped trigger type a synthetic warehouse event's name matches, or null for anything
+// else. Explicit rather than defaulting to one type, so a caller that can receive an arbitrary
+// event - like a workflow test run - does not treat an unrelated event as a warehouse row by
+// elimination.
+export function rowScopedTriggerTypeForEvent(eventName: string | undefined): RowScopedTrigger['type'] | null {
+    if (eventName === WAREHOUSE_VIEW_ROW_EVENT) {
+        return 'data-warehouse-view'
+    }
+    if (eventName === WAREHOUSE_SOURCE_ROW_EVENT) {
+        return 'data-warehouse-table'
+    }
+    return null
+}
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>

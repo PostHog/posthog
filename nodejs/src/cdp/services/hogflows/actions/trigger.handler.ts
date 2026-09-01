@@ -1,6 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction, SLACK_MESSAGE_RECEIVED_EVENT, isRowScopedTrigger } from '~/cdp/schema/hogflow'
+import {
+    DWH_SOURCE_TABLE_PROPERTY,
+    HogFlowAction,
+    SLACK_MESSAGE_RECEIVED_EVENT,
+    isRowScopedTrigger,
+    rowScopedTriggerTypeForEvent,
+} from '~/cdp/schema/hogflow'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction } from '../hogflow-utils'
@@ -15,17 +21,35 @@ export class TriggerHandler implements ActionHandler {
         result,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'trigger' }>>): Promise<ActionHandlerResult> {
         const trigger = action.config
+        const event = invocation.state.event
 
         // Test runs accept arbitrary globals, so mirror the eligibility check the internal-events
         // consumer applies before a real invocation is ever created: a slack-message trigger only
         // fires on $slack_message_received events.
-        if (trigger.type === 'slack-message' && invocation.state.event?.event !== SLACK_MESSAGE_RECEIVED_EVENT) {
+        if (trigger.type === 'slack-message' && event?.event !== SLACK_MESSAGE_RECEIVED_EVENT) {
             result.logs.push({
                 level: 'info',
                 timestamp: DateTime.now(),
-                message: `Slack message triggers only fire for '${SLACK_MESSAGE_RECEIVED_EVENT}' events. A '${invocation.state.event?.event}' event would not trigger this workflow.`,
+                message: `Slack message triggers only fire for '${SLACK_MESSAGE_RECEIVED_EVENT}' events. A '${event?.event}' event would not trigger this workflow.`,
             })
             return { finished: true, skipped: true }
+        }
+
+        // Mirrors the warehouse-events consumer's eligibility check: a row-scoped trigger only
+        // fires on a row of its own kind (source table vs materialized view) from its own table.
+        // Without this, any event - a $pageview included - passes a row-scoped trigger whose
+        // filters are empty, which is the default for a freshly created one.
+        if (isRowScopedTrigger(trigger)) {
+            const sourceTable = event?.properties?.[DWH_SOURCE_TABLE_PROPERTY]
+            const rowTriggerType = rowScopedTriggerTypeForEvent(event?.event)
+            if (rowTriggerType !== trigger.type || sourceTable !== trigger.table_name) {
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `This workflow triggers on rows from '${trigger.table_name}'. A '${event?.event}' event with source table '${sourceTable}' would not trigger it.`,
+                })
+                return { finished: true, skipped: true }
+            }
         }
 
         // The filter-carrying trigger types, the same set buildHogFlowInvocations evaluates before

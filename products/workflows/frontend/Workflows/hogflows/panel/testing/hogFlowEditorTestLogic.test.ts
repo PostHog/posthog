@@ -193,6 +193,35 @@ describe('hogFlowEditorTestLogic', () => {
             expect(typeof globals.event.properties.channel).toEqual('string')
         })
 
+        // Each native poster mode compiles to a different property filter (slackTriggerFilters.ts).
+        // A sample seeding only channel satisfies 'anyone' by accident and rejects every other mode.
+        it.each([
+            ['people', [] as string[], (props: Record<string, any>) => expect(props.bot_id).toBeNull()],
+            ['apps', [] as string[], (props: Record<string, any>) => expect(props.bot_id).not.toBeNull()],
+            [
+                'specific_people',
+                ['U0999999999'],
+                (props: Record<string, any>) => expect(props.user).toEqual('U0999999999'),
+            ],
+            [
+                'specific_apps',
+                ['A0999999999'],
+                (props: Record<string, any>) => expect(props.app_id).toEqual('A0999999999'),
+            ],
+        ])('seeds a sample that satisfies the %s poster filter', (posterMode, posterIds, assertion) => {
+            const properties = encodeSlackFilters({
+                channel: 'C0ALERTS',
+                posterMode: posterMode as any,
+                posterIds,
+                topLevelOnly: false,
+                additional: [],
+            })
+
+            const globals = createExampleEventForTrigger({ type: 'slack-message', filters: { properties } }, 1, 'wf')
+
+            assertion(globals.event.properties)
+        })
+
         it('returns the standard example event for event triggers', () => {
             const globals = createExampleEventForTrigger({ type: 'event', filters: {} }, 1, 'wf')
 
