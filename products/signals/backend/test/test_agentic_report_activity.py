@@ -460,16 +460,12 @@ async def test_run_agentic_report_activity_keeps_reviewer_selection_written_mid_
     as_of = datetime.now(UTC)
     reviewer = await sync_to_async(User.objects.create)(email=f"reviewer-{random.randint(1, 99999)}@example.com")
     # A wrong-repo dismissal cleared the selection after this run resolved its own. The reviewer's
-    # row must stay the newest one, and the run's stale value must not grant auto-start.
+    # row must stay the newest one — settle-time auto-start reads the report's current artefacts.
     await database_sync_to_async(SignalReportArtefact.append_status)(
         team_id=ateam.id,
         report_id=str(report.id),
         content=RepoSelectionResult(repository=None, reason="cleared by a reviewer", autostart_eligible=False),
         attribution=ArtefactAttribution.from_user(reviewer.id),
-    )
-    autostart = AsyncMock()
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.maybe_autostart_implementation_task", autostart
     )
 
     await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
@@ -482,9 +478,6 @@ async def test_run_agentic_report_activity_keeps_reviewer_selection_written_mid_
         )
     )()
     assert [json.loads(selection.content)["repository"] for selection in selections] == [None]
-    # A reviewer superseded the selection mid-run, so no auto-start may run against the rejected
-    # repository — not even on the reviewer-resolved path, which never consults the eligibility flag.
-    autostart.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -493,7 +486,7 @@ async def test_run_agentic_report_activity_detects_task_attributed_wrong_repo_di
     # An agent dismissing a report as wrong_repo through the MCP surface attributes the dismissal to
     # its task, so the `dismissal` artefact carries a null created_by. The supersede guard must still
     # detect it off the dismissal artefact; keying only off a user-attributed repo_selection row
-    # would miss it, and the run would bury the correction with its stale selection and auto-start.
+    # would miss it, and the run would bury the correction with its stale selection.
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -512,22 +505,16 @@ async def test_run_agentic_report_activity_detects_task_attributed_wrong_repo_di
         ),
         attribution=ArtefactAttribution.from_task(str(task.id)),
     )
-    autostart = AsyncMock()
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.maybe_autostart_implementation_task", autostart
-    )
 
     await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
 
-    # Superseded by the agent's correction: the run must not persist its own stale selection on top,
-    # and must not auto-start against the rejected repository.
+    # Superseded by the agent's correction: the run must not persist its own stale selection on top.
     selections = await database_sync_to_async(
         lambda: list(
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
         )
     )()
     assert selections == []
-    autostart.assert_not_awaited()
 
 
 @pytest.mark.asyncio
