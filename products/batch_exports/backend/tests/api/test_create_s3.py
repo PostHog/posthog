@@ -291,10 +291,6 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
-# The endpoint URL now lives on the s3-compatible integration, which SSRF-checks it on creation
-# (see `test_create_rejects_invalid_endpoint_url` in posthog/api/test/test_integration.py).
-
-
 @pytest.mark.parametrize(
     "destination_type,integration_fixture",
     [
