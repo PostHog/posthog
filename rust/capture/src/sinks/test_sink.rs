@@ -10,6 +10,7 @@
 //!   the sink before wrapping in `Arc<dyn Event>`)
 
 use crate::api::CaptureError;
+use crate::outputs::PublishEvents;
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
@@ -38,6 +39,19 @@ impl Event for MockSink {
     }
 
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.events.lock().unwrap().extend(events);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishEvents for MockSink {
+    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.events.lock().unwrap().push(event);
+        Ok(())
+    }
+
+    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
     }

@@ -354,6 +354,26 @@ class TestProxyRecordAPI(APIBaseTest):
         assert not ProxyRecord.objects.filter(organization=self.organization, domain=domain).exists()
         mock_sync_connect.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("apex", "posthog.com"),
+            ("subdomain", "app.posthog.com"),
+            # The literal Cloudflare CNAME target other tenants' domains already point
+            # to; claiming it as your own `domain` would collide with their routing.
+            ("shared_cloudflare_target", "cf-prod-eu-proxy.europehog.com"),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_create_rejects_posthog_owned_domains(self, _name, domain, mock_sync_connect):
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {"domain": domain},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProxyRecord.objects.filter(organization=self.organization, domain=domain).exists()
+        mock_sync_connect.assert_not_called()
+
     @patch("posthog.api.proxy_record.sync_connect")
     def test_create_cleans_up_on_temporal_failure(self, mock_sync_connect):
         mock_sync_connect.side_effect = Exception("connection failed")
@@ -483,6 +503,28 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.ERRORING
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_retry_refuses_a_stored_domain_that_is_reserved(self, mock_sync_connect):
+        # Rows can predate this check (a legacy row, or a direct ORM write outside the
+        # serializer), so retry has to refuse re-dispatching provisioning for one rather
+        # than trusting a value validate_domain would reject today.
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="app.posthog.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_sync_connect.assert_not_called()
         record.refresh_from_db()
         assert record.status == ProxyRecord.Status.ERRORING
 

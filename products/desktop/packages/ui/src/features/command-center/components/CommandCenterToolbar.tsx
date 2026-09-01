@@ -3,7 +3,7 @@ import {
   MagnifyingGlassPlus,
   Trash,
 } from "@phosphor-icons/react";
-import { reflowCells } from "@posthog/core/command-center/grid";
+import { resizeCellsForLayout } from "@posthog/core/command-center/grid";
 import { Flex, Select, Text } from "@radix-ui/themes";
 import { useCallback } from "react";
 import {
@@ -98,14 +98,17 @@ export function CommandCenterToolbar({
 
   const handleSetLayout = useCallback(
     (preset: LayoutPreset) => {
-      const { cells, layout: current } = useCommandCenterStore.getState();
-      // Cells keep their row and column across a resize, so what falls off is
-      // whatever the reflow didn't keep — not simply the tail.
-      const kept = reflowCells(cells, current, preset);
+      const { cells, layout: currentLayout } = useCommandCenterStore.getState();
+      const kept = resizeCellsForLayout(
+        cells,
+        currentLayout,
+        preset,
+        occupiedCellIndices,
+      );
+      setLayout(preset, kept);
       destroyTerminalCells(cells.filter((cell) => !kept.includes(cell)));
-      setLayout(preset);
     },
-    [setLayout],
+    [occupiedCellIndices, setLayout],
   );
 
   const handleOptimize = useCallback(() => {
