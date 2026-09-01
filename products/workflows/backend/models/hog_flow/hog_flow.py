@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Final
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -101,7 +102,7 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 }
 
 
-def hog_flow_kind_choices() -> list[tuple[str, str]]:
+def hog_flow_kind_choices() -> list[tuple[str, str | Promise]]:
     # Callable so adding a purpose-built surface doesn't generate a no-op migration.
     return list(HogFlow.Kind.choices)
 
