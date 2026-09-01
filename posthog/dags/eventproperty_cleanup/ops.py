@@ -45,6 +45,8 @@ UNIT_LOG_LIMIT = 200
 @frozen
 class PreflightReport:
     database: str
+    db_role: str
+    statement_timeout: str
     is_primary: bool
     indexes: tuple[str, ...]
     replication_slots: tuple[str, ...]
@@ -108,7 +110,7 @@ def _skipped(mode: str) -> ModeResult:
 def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig) -> PreflightReport:
     with connection.cursor() as cursor:
         cursor.execute(sql.PREFLIGHT_PRIMARY)
-        in_recovery, database = cursor.fetchone()
+        in_recovery, database, db_role, stmt_timeout = cursor.fetchone()
         cursor.execute(sql.PREFLIGHT_INDEXES, {"table": sql.TABLE})
         indexes = tuple(sorted(row[0] for row in cursor.fetchall()))
         cursor.execute(sql.PREFLIGHT_REPLICATION_SLOTS)
@@ -156,6 +158,8 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
 
     report = PreflightReport(
         database=database,
+        db_role=db_role,
+        statement_timeout=stmt_timeout,
         is_primary=not in_recovery,
         indexes=indexes,
         replication_slots=slots,
@@ -166,6 +170,8 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
     context.add_output_metadata(
         {
             "database": database,
+            "db_role": db_role,
+            "statement_timeout": stmt_timeout,
             "is_primary": not in_recovery,
             "indexes": ", ".join(indexes),
             "replication_slots": ", ".join(slots) or "none",
@@ -175,6 +181,16 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
         }
     )
     return report
+
+
+def _discovery_limit_reached(config: EventPropertyCleanupConfig, engine: DeleteEngine, seen: int) -> str | None:
+    """Bounds that apply while discovering, so a dry run cannot crawl a whole region unbounded."""
+    if config.max_units is not None and seen >= config.max_units:
+        return "max_units"
+    if config.max_runtime_minutes is not None:
+        if engine.clock() - engine.started_at >= config.max_runtime_minutes * 60:
+            return "max_runtime"
+    return None
 
 
 def run_units(
@@ -201,6 +217,13 @@ def run_units(
     for unit in units:
         if unit.team_id in config.never_delete_team_ids:
             continue
+        # Discovery is bounded too, not just deletion: a dry run never enters the engine, so
+        # without this a default run crawls every team in the region with no way to stop it.
+        discovery_stop = _discovery_limit_reached(config, engine, seen)
+        if discovery_stop:
+            stopped_reason = discovery_stop
+            context.log.warning("stopping %s discovery: %s", mode, discovery_stop)
+            break
         seen += 1
         teams.add(unit.team_id)
         estimated += unit.est_rows
@@ -313,7 +336,7 @@ def run_dormant_op(
     preflight: PreflightReport,
     previous: ModeResult,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    persons_database_reader: dagster.ResourceParam[psycopg2.extensions.connection],
+    persons_database_url: dagster.ResourceParam[str],
 ) -> Iterator[dagster.Output]:
     if not config.dormant_discovery_enabled:
         context.log.info("dormant-tenant discovery disabled")
@@ -322,14 +345,20 @@ def run_dormant_op(
         return
 
     clickhouse_probe = clickhouse_probe_for(cluster)
-    with discovery_cursor(config) as cursor:
-        verdicts, units = score_dormant_teams(
-            cursor,
-            config,
-            persons_probe_for(persons_database_reader, config.dormant_persons_probe_timeout),
-            clickhouse_probe,
-            datetime.now(UTC),
-        )
+    # Connect here, not at resource init: only this mode needs the persons DB, and an eager
+    # connection would fail every run of the job -- including a pollution-only dry run.
+    persons_connection = psycopg2.connect(persons_database_url, connect_timeout=10)
+    try:
+        with discovery_cursor(config) as cursor:
+            verdicts, units = score_dormant_teams(
+                cursor,
+                config,
+                persons_probe_for(persons_connection, config.dormant_persons_probe_timeout),
+                clickhouse_probe,
+                datetime.now(UTC),
+            )
+    finally:
+        persons_connection.close()
     csv_text = scorecard_csv(verdicts)
     context.log.info("dormancy scorecard\n%s", csv_text)
     eligible = [v.signals.team_id for v in verdicts if v.eligible]

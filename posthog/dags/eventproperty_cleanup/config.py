@@ -34,7 +34,17 @@ class EventPropertyCleanupConfig(dagster.Config):
     )
     max_runtime_minutes: int | None = Field(
         default=None,
-        description="Stop starting new batches after this many minutes.",
+        description=(
+            "Stop starting new batches, and stop discovering new units, after this many minutes. "
+            "The budget is per mode, so a run of all three modes can take three times this."
+        ),
+    )
+    max_units: int | None = Field(
+        default=None,
+        description=(
+            "Stop a mode after discovering this many units. Bounds a dry run, which does no "
+            "deleting and so is not bounded by max_rows."
+        ),
     )
     never_delete_team_ids: list[int] = Field(
         default_factory=list,
@@ -53,8 +63,12 @@ class EventPropertyCleanupConfig(dagster.Config):
     lock_timeout: str = Field(default="2s", description="Postgres lock_timeout per DELETE.")
     statement_timeout: str = Field(default="60s", description="Postgres statement_timeout per DELETE.")
     pause_dead_tuple_ratio: float = Field(
-        default=0.02,
-        description="Pause while n_dead_tup / n_live_tup on posthog_eventproperty is above this.",
+        default=0.05,
+        description=(
+            "Vacuum when n_dead_tup / n_live_tup on posthog_eventproperty is above this, or pause "
+            "when vacuum is off. Autovacuum only fires at 0.1 of the table, so this must stay below "
+            "that to be the signal that acts first."
+        ),
     )
     pause_propdefs_blocked_backends: int = Field(
         default=8,
@@ -114,7 +128,10 @@ class EventPropertyCleanupConfig(dagster.Config):
     )
     skip_paying_orgs: bool = Field(
         default=True,
-        description="Skip teams whose organization has an active subscription.",
+        description=(
+            "Skip teams whose organization has an active subscription. Applies to retention only. "
+            "Pollution rows are never real data, so pollution cleans paying tenants too."
+        ),
     )
 
     # Mode 2b: event-level retention

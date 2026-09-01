@@ -35,6 +35,9 @@ from posthog.dags.eventproperty_cleanup.units import (
 from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
+# Fixtures whose age is compared against Postgres now() must be built from the real clock,
+# otherwise they silently stop being "recent" once wall-clock time passes NOW + the window.
+REAL_NOW = datetime.now(UTC)
 HEALTHY = HealthProbe(dead_tuple_ratio=0.0, blocked_propdefs_backends=0)
 UNHEALTHY = HealthProbe(dead_tuple_ratio=0.5, blocked_propdefs_backends=0)
 POLLUTION_UNIT = WorkUnit(
@@ -60,6 +63,7 @@ class FakeBackend:
         self.probes = list(probes or [HEALTHY])
         self.delete_calls: list[dict[str, Any]] = []
         self.vacuum_calls: list[tuple[int, int]] = []
+        self.probe_calls = 0
 
     def delete_batch(self, statement: str, params: dict[str, Any], lock_timeout: str, statement_timeout: str) -> int:
         self.delete_calls.append(params)
@@ -69,6 +73,7 @@ class FakeBackend:
         return outcome
 
     def probe_health(self) -> HealthProbe:
+        self.probe_calls += 1
         return self.probes.pop(0) if len(self.probes) > 1 else self.probes[0]
 
     def vacuum(self, cost_delay_ms: int, cost_limit: int) -> list[str]:
@@ -125,13 +130,55 @@ class TestDeleteEngine:
 
     def test_pauses_while_unhealthy_then_resumes(self):
         backend = FakeBackend([100, 7], probes=[UNHEALTHY, UNHEALTHY, HEALTHY])
-        engine, sleeps = make_engine(backend, pause_seconds=30)
+        engine, sleeps = make_engine(backend, pause_seconds=30, vacuum=False)
 
         result = engine.run_unit(POLLUTION_UNIT)
 
         assert result.pauses == 2
         assert sleeps.count(30) == 2
         assert result.rows_deleted == 107
+
+    def test_dead_tuple_pressure_vacuums_instead_of_sleeping_forever(self):
+        # Autovacuum only fires far above the pause threshold, and the job makes the dead tuples
+        # itself, so sleeping here would hang the run. It must vacuum its way out.
+        backend = FakeBackend([100, 7], probes=[UNHEALTHY, HEALTHY])
+        engine, sleeps = make_engine(backend, pause_seconds=30, vacuum=True)
+
+        result = engine.run_unit(POLLUTION_UNIT)
+
+        assert backend.vacuum_calls != []
+        assert 30 not in sleeps
+        assert result.rows_deleted == 107
+
+    def test_pause_gives_up_when_the_runtime_budget_is_spent(self):
+        # An unbounded pause loop would ignore max_runtime_minutes and hold the pod forever.
+        backend = FakeBackend([100] * 5, probes=[UNHEALTHY])
+        cfg = EventPropertyCleanupConfig(
+            dry_run=False, batch_size=100, sleep_seconds=0, vacuum=False, max_runtime_minutes=1
+        )
+        # The budget is spent the moment the first health probe reports pressure.
+        engine = DeleteEngine(
+            cfg, backend, sleep=lambda _: None, clock=lambda: 10_000.0 if backend.probe_calls else 0.0
+        )
+
+        result = engine.run_unit(POLLUTION_UNIT)
+
+        assert result.stopped_reason == "max_runtime"
+        assert result.rows_deleted == 0
+        # Proves the budget was honoured inside the pause, not before it was ever entered.
+        assert backend.probe_calls > 0
+
+    def test_metrics_are_flushed_even_when_a_unit_fails(self):
+        backend = FakeBackend([100, database_error("42P01")])
+        metrics = MagicMock()
+        cfg = EventPropertyCleanupConfig(dry_run=False, batch_size=100, sleep_seconds=0, metrics_flush_batches=1_000)
+        engine = DeleteEngine(cfg, backend, metrics=metrics, metric_labels={"mode": "pollution"})
+
+        with pytest.raises(DatabaseError):
+            engine.run_unit(POLLUTION_UNIT)
+
+        flushed = [c.args[0] for c in metrics.increment.call_args_list]
+        assert "eventproperty_cleanup_rows_deleted" in flushed
 
     @parameterized.expand([("40001",), ("40P01",), ("55P03",), ("57014",)])
     def test_retryable_error_is_retried_with_a_pause(self, pgcode: str):
@@ -205,10 +252,17 @@ class TestTeamChunking:
 
 
 class TestDeleteStatement:
-    def test_retention_unit_requires_retention_days(self):
-        unit = WorkUnit(mode="retention", team_id=1, project_id=1, key=("a", "b"), est_rows=0, reason="")
+    @parameterized.expand(
+        [
+            ("retention", WorkUnit(mode="retention", team_id=1, project_id=1, key=("a",), est_rows=0, reason="")),
+            ("dormant", WorkUnit(mode="dormant", team_id=1, project_id=1, key="*", est_rows=0, reason="")),
+        ]
+    )
+    def test_a_mode_without_its_window_is_refused(self, _name: str, unit: WorkUnit):
+        # Both windows reach SQL as a bound parameter; a missing one would surface as a driver
+        # error mid-delete instead of failing the unit up front.
         with pytest.raises(ValueError):
-            delete_statement(unit, 10, None)
+            delete_statement(unit, 10, None, None)
 
 
 def dormant_signals(**overrides: Any) -> DormancySignals:
@@ -357,9 +411,9 @@ class TestPredicatesAgainstPostgres:
     def test_retention_deletes_stale_events_only(self):
         stale, fresh, unknown = "old_event", "new_event", "unknown_event"
         EventDefinition.objects.create(
-            team=self.team, project_id=self.project_id, name=stale, last_seen_at=NOW - timedelta(days=400)
+            team=self.team, project_id=self.project_id, name=stale, last_seen_at=REAL_NOW - timedelta(days=400)
         )
-        EventDefinition.objects.create(team=self.team, project_id=self.project_id, name=fresh, last_seen_at=NOW)
+        EventDefinition.objects.create(team=self.team, project_id=self.project_id, name=fresh, last_seen_at=REAL_NOW)
         EventDefinition.objects.create(team=self.team, project_id=self.project_id, name=unknown, last_seen_at=None)
         for event in (stale, fresh, unknown):
             self.add_row(event, "$browser")
@@ -374,7 +428,7 @@ class TestPredicatesAgainstPostgres:
     def test_retention_candidates_are_paged_by_name(self):
         for name in ("a_event", "b_event", "c_event", "d_event", "e_event"):
             EventDefinition.objects.create(
-                team=self.team, project_id=self.project_id, name=name, last_seen_at=NOW - timedelta(days=400)
+                team=self.team, project_id=self.project_id, name=name, last_seen_at=REAL_NOW - timedelta(days=400)
             )
         config = replace_config(self.config, retention_event_batch=2)
 
@@ -382,6 +436,45 @@ class TestPredicatesAgainstPostgres:
             units = list(discover_retention_units(cursor, config))
 
         assert [u.key for u in units] == [("a_event", "b_event"), ("c_event", "d_event"), ("e_event",)]
+
+    def test_pollution_still_cleans_paying_orgs_but_retention_skips_them(self):
+        # Pollution rows are never real data, so a paying org gets them removed too. Retention
+        # deletes rows for events that really happened, so skip_paying_orgs still guards it.
+        self.team.organization.has_active_subscription = True
+        self.team.organization.save()
+        self.add_propdef("$initial_os", PropertyDefinition.Type.PERSON)
+        self.add_row("$pageview", "$initial_os")
+        EventDefinition.objects.create(
+            team=self.team, project_id=self.project_id, name="stale", last_seen_at=REAL_NOW - timedelta(days=400)
+        )
+        config = replace_config(self.config, skip_paying_orgs=True)
+
+        with connection.cursor() as cursor:
+            pollution = list(discover_pollution_units(cursor, config))
+            retention = list(discover_retention_units(cursor, config))
+
+        assert [u.key for u in pollution] == ["$initial_os"]
+        assert retention == []
+
+    @parameterized.expand([("revived_tenant", 0, 0, {"$pageview:$browser"}), ("quiet_tenant", 400, 1, set())])
+    def test_dormant_delete_rechecks_the_window_inside_the_statement(
+        self, _name: str, last_seen_days_ago: int, expected_deleted: int, expected_rows: set[str]
+    ):
+        # A tenant that wakes up mid-delete must keep its rows without waiting for the coarse
+        # revalidate_every_rows check, so the predicate lives in the DELETE like the other modes.
+        self.add_row("$pageview", "$browser")
+        EventDefinition.objects.create(
+            team=self.team,
+            project_id=self.project_id,
+            name="e",
+            last_seen_at=REAL_NOW - timedelta(days=last_seen_days_ago),
+        )
+        unit = WorkUnit(
+            mode="dormant", team_id=self.team.id, project_id=self.project_id, key="*", est_rows=1, reason=""
+        )
+
+        assert self.run_units([unit]) == expected_deleted
+        assert self.rows() == expected_rows
 
     def test_never_delete_team_ids_removes_the_team_from_discovery(self):
         self.add_propdef("$initial_referrer", PropertyDefinition.Type.PERSON)
@@ -401,7 +494,7 @@ class TestPredicatesAgainstPostgres:
     )
     def test_still_dormant_recheck(self, _name: str, age_days: int, recent_events: int | None, expected: bool):
         EventDefinition.objects.create(
-            team=self.team, project_id=self.project_id, name="e", last_seen_at=NOW - timedelta(days=age_days)
+            team=self.team, project_id=self.project_id, name="e", last_seen_at=REAL_NOW - timedelta(days=age_days)
         )
 
         with connection.cursor() as cursor:
@@ -426,7 +519,7 @@ class TestJobWiring:
     def run_job(self, **config: Any) -> dict[str, int]:
         result = ops.eventproperty_cleanup_job.execute_in_process(
             run_config={"skip_paying_orgs": False, **config},
-            resources={"cluster": MagicMock(), "persons_database_reader": MagicMock()},
+            resources={"cluster": MagicMock(), "persons_database_url": "postgresql://unused/never-opened"},
         )
         assert result.success
         return result.output_for_node("collect_and_vacuum_op")

@@ -1,6 +1,6 @@
 """All SQL for the posthog_eventproperty cleanup job, in one place.
 
-Plans were verified on the production replicas. Each DELETE re-checks its own predicate so a
+Plans were verified on the production replicas. Every DELETE re-checks its own predicate, so a
 row that became legitimate between discovery and deletion is never removed.
 """
 
@@ -10,7 +10,11 @@ REQUIRED_INDEXES = (
     "posthog_eventproperty_team_id_and_property_r32khd9s",
 )
 
-PREFLIGHT_PRIMARY = "SELECT pg_is_in_recovery(), current_database()"
+# statement_timeout is reported so the run record shows it: prod-EU inherits 30 minutes from the
+# cluster while prod-US overrides it to 0 at the database level, and only the vacuum session opts out.
+PREFLIGHT_PRIMARY = """
+SELECT pg_is_in_recovery(), current_database(), current_user, current_setting('statement_timeout')
+"""
 PREFLIGHT_INDEXES = "SELECT indexname FROM pg_indexes WHERE tablename = %(table)s"
 PREFLIGHT_REPLICATION_SLOTS = "SELECT slot_name, active FROM pg_replication_slots"
 # Without pg_read_all_stats, pg_stat_activity hides other sessions' wait events and the
@@ -40,15 +44,21 @@ WHERE t.id = ANY(%(team_ids)s)
 ORDER BY o.has_active_subscription NULLS FIRST, t.id
 """
 
-MAX_TEAM_ID = "SELECT coalesce(max(id), 0) FROM posthog_team"
+# Upper bound for the discovery range walk. Covers both scoping styles: pollution ranges over
+# coalesce(project_id, team_id), retention over team_id, and a team can sit in an older project.
+MAX_TEAM_ID = "SELECT greatest(coalesce(max(id), 0), coalesce(max(project_id), 0)) FROM posthog_team"
 
-# Mode 2a. Teams in a team_id range that own at least one non-event property definition. A bounded
-# range scan on posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical), so discovery never
-# issues one statement over the whole table.
+# Mode 2a. Teams in a project_id range that own at least one non-event property definition. A
+# bounded range scan on posthog_pro_project_3583d2_idx (coalesce(project_id, team_id), type,
+# is_numerical), so discovery never issues one statement over the whole table. Scoped on the
+# coalesce expression rather than bare team_id so it does not depend on the team-scoped twin
+# posthog_pro_team_id_eac36d_idx, which is being dropped as unused.
 POLLUTION_TEAM_UNIVERSE = """
 SELECT DISTINCT team_id
 FROM posthog_propertydefinition
-WHERE team_id > %(lo)s AND team_id <= %(hi)s AND type <> 1
+WHERE coalesce(project_id, team_id) > %(lo)s
+  AND coalesce(project_id, team_id) <= %(hi)s
+  AND type <> 1
 ORDER BY team_id
 """
 
@@ -128,11 +138,17 @@ WHERE ctid = ANY(ARRAY(
         AND (ed.last_seen_at IS NULL OR ed.last_seen_at >= now() - make_interval(days => %(days)s)))
 """
 
-# Mode 2c. Whole-tenant delete through the (team_id, property) index prefix.
+# Mode 2c. Whole-tenant delete through the (team_id, property) index prefix. Like the other two
+# modes the DELETE re-checks its own predicate: if the tenant sent an event since scoring, its
+# event definitions carry a fresh last_seen_at and the statement deletes nothing. Cheap because
+# EXISTS stops at the first hit and the batch pays it once, not per row.
 DORMANT_DELETE = """
 DELETE FROM posthog_eventproperty
 WHERE ctid = ANY(ARRAY(
         SELECT ctid FROM posthog_eventproperty WHERE team_id = %(team_id)s LIMIT %(batch)s))
+  AND NOT EXISTS (
+      SELECT 1 FROM posthog_eventdefinition
+      WHERE team_id = %(team_id)s AND last_seen_at >= now() - make_interval(days => %(days)s))
 """
 
 # Mode 2c. Largest owners of the table from planner statistics, without touching the table.
@@ -206,9 +222,17 @@ SELECT n_live_tup, n_dead_tup
 FROM pg_stat_user_tables
 WHERE relname = 'posthog_eventproperty'
 """
+# Other sessions blocked on a lock over this table. Deliberately not filtered by role: the propdefs
+# service connects as the cluster's master user, which is also the role this job runs as, so a
+# username filter would either match nothing or match the job's own backend and pause it forever.
 HEALTH_BLOCKED_PROPDEFS = """
-SELECT count(*) FROM pg_stat_activity
-WHERE usename = 'property-defs-rs' AND wait_event_type IN ('Lock', 'IO')
+SELECT count(*)
+FROM pg_stat_activity a
+WHERE a.pid <> pg_backend_pid()
+  AND a.wait_event_type = 'Lock'
+  AND EXISTS (
+      SELECT 1 FROM pg_locks l
+      WHERE l.pid = a.pid AND NOT l.granted AND l.relation = 'posthog_eventproperty'::regclass)
 """
 
 VACUUM = "VACUUM (INDEX_CLEANUP ON, VERBOSE) posthog_eventproperty"

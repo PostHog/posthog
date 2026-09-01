@@ -62,13 +62,20 @@ def load_team_scopes(cursor, team_ids: Sequence[int]) -> list[TeamScope]:
     ]
 
 
-def eligible_team_scopes(cursor, config: EventPropertyCleanupConfig, team_ids: Sequence[int]) -> list[TeamScope]:
-    """Apply the team-level config filters shared by the pollution and retention modes."""
+def eligible_team_scopes(
+    cursor, config: EventPropertyCleanupConfig, team_ids: Sequence[int], *, apply_paying_org_filter: bool
+) -> list[TeamScope]:
+    """Apply the team-level config filters shared by the pollution and retention modes.
+
+    `skip_paying_orgs` guards the modes that remove real data. Pollution rows are not real data --
+    they assert a property appeared on an event when it never did -- so pollution passes False and
+    cleans paying and non-paying tenants alike.
+    """
     excluded = set(config.never_delete_team_ids)
     allowed = set(config.team_ids) if config.team_ids is not None else None
     wanted = [t for t in team_ids if t not in excluded and (allowed is None or t in allowed)]
     scopes = load_team_scopes(cursor, wanted)
-    if config.skip_paying_orgs:
+    if apply_paying_org_filter and config.skip_paying_orgs:
         scopes = [s for s in scopes if not s.has_active_subscription]
     return scopes
 
@@ -106,7 +113,7 @@ def discover_pollution_units(
 ) -> Iterator[WorkUnit]:
     """One unit per (team, property) whose property has no EVENT-type definition in the project."""
     for team_ids in iter_team_chunks(cursor, config, sql.POLLUTION_TEAM_UNIVERSE, {}, sleep):
-        for scope in eligible_team_scopes(cursor, config, team_ids):
+        for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=False):
             cursor.execute(sql.POLLUTION_CANDIDATE_NAMES, {"project_id": scope.project_id})
             names = [row[0] for row in cursor.fetchall()]
             for name in names:
@@ -130,7 +137,7 @@ def discover_retention_units(
         return
     params = {"days": config.retention_days}
     for team_ids in iter_team_chunks(cursor, config, sql.RETENTION_TEAM_UNIVERSE, params, sleep):
-        for scope in eligible_team_scopes(cursor, config, team_ids):
+        for scope in eligible_team_scopes(cursor, config, team_ids, apply_paying_org_filter=True):
             after = ""
             while True:
                 cursor.execute(

@@ -89,7 +89,8 @@ class DjangoPostgresBackend:
 
     def vacuum(self, cost_delay_ms: int, cost_limit: int) -> list[str]:
         # VACUUM cannot run inside a transaction, so it needs its own autocommit connection built
-        # from the same parameters Django uses (host, sslmode, ...).
+        # from the same parameters Django uses. Django is on psycopg3, whose params carry objects
+        # psycopg2 rejects, so the psycopg3-only keys are dropped.
         params = {
             k: v
             for k, v in connection.get_connection_params().items()
@@ -99,6 +100,10 @@ class DjangoPostgresBackend:
         try:
             conn.autocommit = True
             with conn.cursor() as cursor:
+                # A full vacuum of this table runs for hours. prod-EU inherits a 30 minute
+                # statement_timeout from the cluster (prod-US does not), which would cancel it
+                # mid-sweep and fail the run, so the session opts out explicitly.
+                cursor.execute("SET statement_timeout = 0")
                 cursor.execute("SET vacuum_cost_delay = %s", (f"{cost_delay_ms}ms",))
                 cursor.execute("SET vacuum_cost_limit = %s", (cost_limit,))
                 cursor.execute(sql.VACUUM)
@@ -112,7 +117,9 @@ def sqlstate_of(exc: BaseException) -> str | None:
     return getattr(cause, "pgcode", None) or getattr(cause, "sqlstate", None)
 
 
-def delete_statement(unit: WorkUnit, batch_size: int, retention_days: int | None) -> tuple[str, dict[str, Any]]:
+def delete_statement(
+    unit: WorkUnit, batch_size: int, retention_days: int | None, dormant_days: int | None = None
+) -> tuple[str, dict[str, Any]]:
     if unit.mode == "pollution":
         return sql.POLLUTION_DELETE, {
             "team_id": unit.team_id,
@@ -130,7 +137,9 @@ def delete_statement(unit: WorkUnit, batch_size: int, retention_days: int | None
             "batch": batch_size,
         }
     if unit.mode == "dormant":
-        return sql.DORMANT_DELETE, {"team_id": unit.team_id, "batch": batch_size}
+        if dormant_days is None:
+            raise ValueError("dormant unit without dormant_days")
+        return sql.DORMANT_DELETE, {"team_id": unit.team_id, "days": dormant_days, "batch": batch_size}
     raise ValueError(f"unknown mode {unit.mode}")
 
 
@@ -166,60 +175,75 @@ class DeleteEngine:
     def run_unit(self, unit: WorkUnit, revalidate: Callable[[], bool] | None = None) -> UnitResult:
         """Delete one unit. `revalidate` runs after every `revalidate_every_rows` deleted rows; False stops the unit."""
         started = self.clock()
-        statement, params = delete_statement(unit, self.config.batch_size, self.config.retention_days)
+        statement, params = delete_statement(
+            unit, self.config.batch_size, self.config.retention_days, self.config.dormant_days
+        )
         rows_deleted = batches = pauses = vacuums = rows_since_vacuum = 0
         rows_since_revalidation = 0
         stopped_reason: str | None = None
         retries = 0
         force_pause = False
 
-        while True:
-            stopped_reason = self._limit_reached()
-            if stopped_reason:
-                break
-            if revalidate is not None and rows_since_revalidation >= self.config.revalidate_every_rows:
-                rows_since_revalidation = 0
-                if not revalidate():
-                    stopped_reason = "revalidation_failed"
-                    self._count("eventproperty_cleanup_revalidation_stops")
+        try:
+            while True:
+                stopped_reason = self._limit_reached()
+                if stopped_reason:
                     break
-            pauses += self._pause_while_unhealthy(force_pause)
-            force_pause = False
-            try:
-                deleted = self.backend.delete_batch(
-                    statement, params, self.config.lock_timeout, self.config.statement_timeout
-                )
-            except DatabaseError as exc:
-                code = sqlstate_of(exc)
-                if code in RETRYABLE_SQLSTATES and retries < MAX_RETRY_ATTEMPTS:
-                    retries += 1
-                    force_pause = True
-                    self._count("eventproperty_cleanup_retries", {"sqlstate": code or "unknown"})
-                    self.sleep(RETRY_BACKOFF_SECONDS)
-                    continue
-                raise
-            retries = 0
-            batches += 1
-            rows_deleted += deleted
-            rows_since_revalidation += deleted
-            self.rows_deleted_total += deleted
-            self.rows_since_vacuum += deleted
-            rows_since_vacuum += deleted
-            self._count("eventproperty_cleanup_rows_deleted", value=float(deleted))
-            self._count("eventproperty_cleanup_batches")
-            self._batches_since_flush += 1
-            if self._batches_since_flush >= self.config.metrics_flush_batches:
-                self.flush_metrics()
-            if self.config.vacuum and self.rows_since_vacuum >= self.config.rows_between_vacuum:
-                self.vacuum()
-                vacuums += 1
-                rows_since_vacuum = 0
-            if deleted < self.config.batch_size:
-                break
-            if self.config.sleep_seconds:
-                self.sleep(self.config.sleep_seconds)
+                if revalidate is not None and rows_since_revalidation >= self.config.revalidate_every_rows:
+                    rows_since_revalidation = 0
+                    if not revalidate():
+                        stopped_reason = "revalidation_failed"
+                        self._count("eventproperty_cleanup_revalidation_stops")
+                        break
+                vacuums_before_pause = self.vacuums
+                pauses += self._pause_while_unhealthy(force_pause)
+                force_pause = False
+                # A pause can vacuum to clear the job's own dead tuples; keep the unit's view in step.
+                if self.vacuums > vacuums_before_pause:
+                    vacuums += self.vacuums - vacuums_before_pause
+                    rows_since_vacuum = 0
+                # A pause also ends when the run budget runs out. Stop rather than spend it on one
+                # more batch.
+                stopped_reason = self._limit_reached()
+                if stopped_reason:
+                    break
+                try:
+                    deleted = self.backend.delete_batch(
+                        statement, params, self.config.lock_timeout, self.config.statement_timeout
+                    )
+                except DatabaseError as exc:
+                    code = sqlstate_of(exc)
+                    if code in RETRYABLE_SQLSTATES and retries < MAX_RETRY_ATTEMPTS:
+                        retries += 1
+                        force_pause = True
+                        self._count("eventproperty_cleanup_retries", {"sqlstate": code or "unknown"})
+                        self.sleep(RETRY_BACKOFF_SECONDS)
+                        continue
+                    raise
+                retries = 0
+                batches += 1
+                rows_deleted += deleted
+                rows_since_revalidation += deleted
+                self.rows_deleted_total += deleted
+                self.rows_since_vacuum += deleted
+                rows_since_vacuum += deleted
+                self._count("eventproperty_cleanup_rows_deleted", value=float(deleted))
+                self._count("eventproperty_cleanup_batches")
+                self._batches_since_flush += 1
+                if self._batches_since_flush >= self.config.metrics_flush_batches:
+                    self.flush_metrics()
+                if self.config.vacuum and self.rows_since_vacuum >= self.config.rows_between_vacuum:
+                    self.vacuum()
+                    vacuums += 1
+                    rows_since_vacuum = 0
+                if deleted < self.config.batch_size:
+                    break
+                if self.config.sleep_seconds:
+                    self.sleep(self.config.sleep_seconds)
 
-        self.flush_metrics()
+        finally:
+            self.flush_metrics()
+
         return UnitResult(
             mode=unit.mode,
             team_id=unit.team_id,
@@ -251,16 +275,28 @@ class DeleteEngine:
         return None
 
     def _pause_while_unhealthy(self, force: bool) -> int:
+        """Wait out database pressure. Returns early when a run limit is reached.
+
+        Dead tuples are the one pressure signal this job creates itself, so sleeping cannot clear
+        them: autovacuum only fires at 0.1 * reltuples, far above the pause threshold. Vacuuming is
+        the way out, and sleeping would hang the run forever.
+        """
         pauses = 0
         while True:
-            probe = self._probe(refresh=force or pauses > 0)
-            unhealthy = (
-                force
-                or probe.dead_tuple_ratio > self.config.pause_dead_tuple_ratio
-                or probe.blocked_propdefs_backends >= self.config.pause_propdefs_blocked_backends
-            )
-            if not unhealthy:
+            if self._limit_reached():
                 return pauses
+            probe = self._probe(refresh=force or pauses > 0)
+            dead_tuples_high = probe.dead_tuple_ratio > self.config.pause_dead_tuple_ratio
+            blocked = probe.blocked_propdefs_backends >= self.config.pause_propdefs_blocked_backends
+            if not (force or dead_tuples_high or blocked):
+                return pauses
+            if dead_tuples_high and self.config.vacuum and not force:
+                logger.info("eventproperty_cleanup.vacuum_on_pressure", probe=probe)
+                self._count("eventproperty_cleanup_pauses", {"reason": "dead_tuples"})
+                self.vacuum()
+                pauses += 1
+                force = False
+                continue
             reason = "retry" if force else "health"
             force = False
             pauses += 1

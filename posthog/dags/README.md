@@ -262,14 +262,16 @@ It has no schedule and no sensor; launch it from the launchpad, once per region.
 The default config is a dry run: it discovers and scores, and issues no `DELETE` or `VACUUM`.
 Modes, all gated by config in `posthog/dags/eventproperty_cleanup/config.py`:
 
-- `pollution_enabled` (default on): rows whose property has no EVENT-type `posthog_propertydefinition` in the project.
+- `pollution_enabled` (default on): rows whose property has no EVENT-type `posthog_propertydefinition` in the project. These rows assert a property appeared on an event when it never did, so `skip_paying_orgs` does not apply to this mode.
 - `retention_days` (default off): rows for events whose `posthog_eventdefinition.last_seen_at` is older than the window.
 - `dormant_discovery_enabled` (default off): scores the largest tenants on cloud DB, persons DB and ClickHouse signals and reports a scorecard. Rows are deleted only for teams that are both eligible now and listed in `dormant_approved_team_ids`.
 
 Every unit re-checks its predicate inside the `DELETE`, so a failed run is resumed by launching the same config again.
 The job runs as five sequential ops in a single process (`in_process_executor`); nothing is parallelized because the table lives on the shared cloud primary.
 Discovery and scoring read the Django `replica` connection when Dagster has one configured (`POSTHOG_POSTGRES_READ_HOST`), else the primary with a warning. Discovery walks `team_id` ranges (`discovery_team_chunk`) so no statement scans a whole table.
-Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists.
+Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists. That gate matters more on US than EU, because `posthog_eventproperty` is a member of the `big_tables` publication there, so an active slot would ship every delete downstream.
+Bound an exploratory run with `max_units` or `max_runtime_minutes`; both apply to discovery, not just deletion.
+At the default `sleep_seconds` the job clears roughly 7,700 rows/s, so shrinking the table is a multi-week campaign per region rather than a single run.
 
 ## Additional Resources
 
