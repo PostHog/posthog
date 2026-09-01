@@ -1,5 +1,12 @@
+import { setSpanAttributes } from '~/common/tracing/tracing-utils'
+
 import { LazyLoader } from './lazy-loader'
 import { delay } from './utils'
+
+jest.mock('~/common/tracing/tracing-utils', () => ({
+    ...jest.requireActual('~/common/tracing/tracing-utils'),
+    setSpanAttributes: jest.fn(),
+}))
 
 describe('LazyLoader', () => {
     jest.setTimeout(1000)
@@ -192,6 +199,29 @@ describe('LazyLoader', () => {
                   ],
                 ]
             `)
+        })
+    })
+
+    describe('span attributes', () => {
+        it('records whether keys were cached, loaded, or waited on an in-flight load', async () => {
+            loader.mockResolvedValue({ key1: 'value1' })
+
+            const first = lazyLoader.get('key1')
+            const second = lazyLoader.get('key1')
+            await Promise.all([first, second])
+            await lazyLoader.get('key1')
+
+            expect(jest.mocked(setSpanAttributes).mock.calls.map(([attrs]) => attrs['lazyloader.outcome'])).toEqual([
+                'loaded',
+                'waited_pending',
+                'all_cached',
+            ])
+            expect(jest.mocked(setSpanAttributes)).toHaveBeenLastCalledWith({
+                'lazyloader.name': 'test',
+                'lazyloader.keys': 1,
+                'lazyloader.misses': 0,
+                'lazyloader.outcome': 'all_cached',
+            })
         })
     })
 
