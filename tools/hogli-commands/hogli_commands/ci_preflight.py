@@ -129,7 +129,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="complexity",
-        label="cyclomatic complexity (warn >10)",
+        label="cyclomatic complexity (warn >10, >15 in tests)",
         # From complexity_lint.py so preflight and the command can't drift on scope.
         triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
         verify=["hogli", "lint:complexity"],

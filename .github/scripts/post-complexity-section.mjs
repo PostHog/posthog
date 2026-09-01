@@ -27,18 +27,19 @@ const findings = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
 const maxComplexity = findings.reduce((max, finding) => Math.max(max, finding.complexity), 0)
 const summary =
     findings.length > 0
-        ? `${findings.length} function${findings.length === 1 ? '' : 's'} above 10 (max ${maxComplexity})`
+        ? `${findings.length} function${findings.length === 1 ? '' : 's'} above the limit (max ${maxComplexity})`
         : 'clean'
 
 const lines = [
-    `Cyclomatic complexity above 10 in changed ${language} files. Warn only: worth simplifying when you next touch these functions.`,
+    `Cyclomatic complexity above the limit in changed ${language} files (10 for production files, 15 for test files). Warn only: worth simplifying when you next touch these functions.`,
     '',
 ]
 if (findings.length > 0) {
-    lines.push('| Function | Location | Complexity |', '| --- | --- | --- |')
+    lines.push('| Function | Location | Complexity | Limit |', '| --- | --- | --- | --- |')
     for (const finding of [...findings].sort((a, b) => b.complexity - a.complexity)) {
         lines.push(
-            `| \`${markdownCell(finding.name)}\` | \`${markdownCell(finding.file)}:${finding.line}\` | ${finding.complexity} |`
+            // `limit` is absent from findings written by linters that predate it.
+            `| \`${markdownCell(finding.name)}\` | \`${markdownCell(finding.file)}:${finding.line}\` | ${finding.complexity} | ${finding.limit ?? '?'} |`
         )
     }
 }
