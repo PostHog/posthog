@@ -40,7 +40,8 @@ import {
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
-import { MessageActionsMenu, MessageActionsMenuProvider } from './MessageActionsMenu'
+import { MessageActionsMenu } from './MessageActionsMenu'
+import { MessageActionsMenuProvider } from './MessageActionsMenuProvider'
 import { RedactedMediaPlaceholder } from './RedactedMediaPlaceholder'
 import { XMLViewer } from './XMLViewer'
 
@@ -360,7 +361,7 @@ export function ConversationMessagesDisplay({
             : null
 
     return (
-        <MessageActionsMenuProvider>
+        <MessageActionsMenuProvider resetKey={`${traceId ?? ''}:${inputRolesSignature}:${outputRolesSignature}`}>
             <LLMInputOutput
                 inputDisplay={inputDisplay}
                 outputDisplay={

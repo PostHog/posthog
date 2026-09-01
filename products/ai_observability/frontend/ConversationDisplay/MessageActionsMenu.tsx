@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, createContext, useContext, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
@@ -15,6 +15,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
+import { useMessageActionsMenuContext } from './MessageActionsMenuProvider'
 import { TranslatePopover } from './TranslatePopover'
 
 const MAX_EDITOR_RETRIES = 10
@@ -25,23 +26,6 @@ export interface MessageActionsMenuProps {
     content: string
     traceId?: string | null
     menuKey?: string
-}
-
-interface MessageActionsMenuContextValue {
-    activeMenuKey: string | null
-    setActiveMenuKey: (menuKey: string) => void
-}
-
-const MessageActionsMenuContext = createContext<MessageActionsMenuContextValue | null>(null)
-
-export function MessageActionsMenuProvider({ children }: { children: ReactNode }): JSX.Element {
-    const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null)
-
-    return (
-        <MessageActionsMenuContext.Provider value={{ activeMenuKey, setActiveMenuKey }}>
-            {children}
-        </MessageActionsMenuContext.Provider>
-    )
 }
 
 const ActiveMessageActionsMenu = ({
@@ -178,7 +162,7 @@ export function MessageActionsMenu({
     traceId,
     menuKey = 'standalone',
 }: MessageActionsMenuProps): JSX.Element | null {
-    const sharedMenu = useContext(MessageActionsMenuContext)
+    const sharedMenu = useMessageActionsMenuContext()
     const triggerRef = useRef<HTMLButtonElement | null>(null)
     const isActive = !sharedMenu || sharedMenu.activeMenuKey === menuKey
     const shouldRestoreFocus = !!sharedMenu && isActive

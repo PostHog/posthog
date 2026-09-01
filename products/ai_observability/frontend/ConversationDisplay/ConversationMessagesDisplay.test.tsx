@@ -472,7 +472,7 @@ describe('ConversationMessagesDisplay', () => {
     })
 
     it('mounts one message actions menu only after a trigger is used', async () => {
-        const { container } = render(
+        const { container, rerender } = render(
             <Provider>
                 <ConversationMessagesDisplay
                     inputNormalized={inputNormalized}
@@ -501,6 +501,22 @@ describe('ConversationMessagesDisplay', () => {
         expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
         expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(1)
         expect(document.activeElement).toBe(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[1])
+
+        rerender(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={[...inputNormalized, { role: 'user', content: 'extra user input' }]}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                />
+            </Provider>
+        )
+
+        // A different conversation must clear the active menu key, or its matching
+        // message would mount with the menu already open and steal focus.
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(6)
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(0)
     })
 
     it.each<[string, unknown, unknown, unknown, unknown, string | null]>([
