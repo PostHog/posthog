@@ -8,6 +8,8 @@ import { mswDecorator } from '~/mocks/browser'
 import type {
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
+    MCPToolApprovalStateEnumApi,
+    ResolvedToolPolicyApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
 
 import CyclotronJobInputTaskConnectors from './CyclotronJobInputTaskConnectors'
@@ -59,6 +61,33 @@ const SERVERS = [
     server('linear-id', 'Linear'),
 ]
 
+function resolvedTool(toolName: string, policyState: MCPToolApprovalStateEnumApi): ResolvedToolPolicyApi {
+    return {
+        tool_name: toolName,
+        description: `${toolName} tool`,
+        input_schema: {},
+        is_destructive: policyState === 'do_not_use',
+        policy_state: policyState,
+        team_state: null,
+        locked: false,
+        decided_by: 'default',
+        rule_name: '',
+        rule_description: '',
+    }
+}
+
+// Incident.io has a mixed policy spread; every other server sits on the needs-approval default.
+const TOOLS_BY_SERVER: Record<string, MCPToolApprovalStateEnumApi[]> = {
+    'incident-id': ['approved', 'approved', 'needs_approval', 'needs_approval', 'needs_approval', 'do_not_use'],
+    'datadog-id': ['needs_approval', 'needs_approval'],
+    'linear-id': ['needs_approval', 'needs_approval', 'needs_approval', 'do_not_use'],
+}
+
+function toolsResponse(serverId: string): [number, Record<string, unknown>] {
+    const tools = (TOOLS_BY_SERVER[serverId] ?? []).map((state, index) => resolvedTool(`tool_${index}`, state))
+    return [200, { count: tools.length, next: null, previous: null, results: tools }]
+}
+
 function Picker({ initialValue }: { initialValue: string[] }): JSX.Element {
     const [value, setValue] = useState<string[]>(initialValue)
     return (
@@ -82,6 +111,8 @@ const meta: Meta<typeof CyclotronJobInputTaskConnectors> = {
                     200,
                     { count: 1, next: null, previous: null, results: [workflowAccount(SERVERS)] },
                 ],
+                '/api/projects/:team_id/mcp_gateway/servers/:server_id/tools/': (req) =>
+                    toolsResponse(String(req.params.server_id)),
             },
         }),
     ],
@@ -96,6 +127,11 @@ type Story = StoryObj<typeof CyclotronJobInputTaskConnectors>
 
 export const Selection: Story = {
     render: () => <Picker initialValue={['incident-id']} />,
+}
+
+// An enabled server with nothing approved warns that task runs can't use it yet.
+export const NoApprovedTools: Story = {
+    render: () => <Picker initialValue={['linear-id']} />,
 }
 
 // A saved id that no team share backs anymore keeps a row, so it can be switched off.

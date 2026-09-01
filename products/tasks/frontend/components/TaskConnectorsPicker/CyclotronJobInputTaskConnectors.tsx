@@ -10,8 +10,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { agentServerConnectionIssue } from 'products/mcp_store/frontend/gateway/agentServerUtils'
+import { PolicySummary } from 'products/mcp_store/frontend/gateway/gatewayUtils'
 
-import { taskConnectorsPickerLogic } from './taskConnectorsPickerLogic'
+import { ServerToolPolicyCounts, taskConnectorsPickerLogic } from './taskConnectorsPickerLogic'
 
 /**
  * Per-step selection among the MCP servers shared with everyone in the project, saved as the
@@ -36,8 +37,13 @@ export default function CyclotronJobInputTaskConnectors(props: CustomInputRender
 }
 
 function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JSX.Element {
-    const { workflowAccount, teamWorkflowServers, serviceAccountsLoading, serviceAccountsFailed } =
-        useValues(taskConnectorsPickerLogic)
+    const {
+        workflowAccount,
+        teamWorkflowServers,
+        serviceAccountsLoading,
+        serviceAccountsFailed,
+        toolPolicyCountsByServer,
+    } = useValues(taskConnectorsPickerLogic)
 
     const selectedIds: string[] = Array.isArray(value) ? value : []
     const toggleServer = (serverId: string, selected: boolean): void => {
@@ -81,27 +87,37 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
                 <div className="divide-y">
                     {teamWorkflowServers.map((server) => {
                         const issue = agentServerConnectionIssue(server)
+                        const selected = selectedIds.includes(server.id)
                         return (
-                            <div key={server.id} className="flex items-center gap-3 px-3 py-2">
-                                <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={24} />
-                                <div className="min-w-0 flex-1">
-                                    <div className="font-medium text-sm text-default truncate">{server.name}</div>
-                                    {server.description && (
-                                        <div className="text-xs text-secondary truncate">{server.description}</div>
+                            <div key={server.id} className="px-3 py-2">
+                                <div className="flex items-center gap-3">
+                                    <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={24} />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-medium text-sm text-default truncate">{server.name}</div>
+                                        {server.description && (
+                                            <div className="text-xs text-secondary truncate">{server.description}</div>
+                                        )}
+                                    </div>
+                                    {issue && (
+                                        <LemonTag type={issue.tagType} size="small">
+                                            {issue.label}
+                                        </LemonTag>
                                     )}
+                                    <LemonSwitch
+                                        size="small"
+                                        checked={selected}
+                                        onChange={(checked) => toggleServer(server.id, checked)}
+                                        aria-label={`Let this task use ${server.name}`}
+                                        data-attr="task-connectors-picker-server"
+                                    />
                                 </div>
-                                {issue && (
-                                    <LemonTag type={issue.tagType} size="small">
-                                        {issue.label}
-                                    </LemonTag>
+                                {selected && workflowAccount && (
+                                    <ServerToolPolicyNote
+                                        counts={toolPolicyCountsByServer[server.id]}
+                                        serverId={server.id}
+                                        accountId={workflowAccount.id}
+                                    />
                                 )}
-                                <LemonSwitch
-                                    size="small"
-                                    checked={selectedIds.includes(server.id)}
-                                    onChange={(checked) => toggleServer(server.id, checked)}
-                                    aria-label={`Let this task use ${server.name}`}
-                                    data-attr="task-connectors-picker-server"
-                                />
                             </div>
                         )
                     })}
@@ -141,4 +157,44 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
     }
 
     return <div data-attr="task-connectors-picker">{body}</div>
+}
+
+/** Per-state tool counts under an enabled server, so a selection with no approved tools is visible here. */
+function ServerToolPolicyNote({
+    counts,
+    serverId,
+    accountId,
+}: {
+    counts: ServerToolPolicyCounts | 'error' | undefined
+    serverId: string
+    accountId: string
+}): JSX.Element | null {
+    if (counts === undefined) {
+        return null
+    }
+    return (
+        <div className="mt-1.5 pl-9" data-attr="task-connectors-picker-tool-policy-note">
+            <div className="flex items-center justify-between gap-3">
+                {counts === 'error' ? (
+                    <span className="text-xs text-secondary">
+                        Couldn't load tool approvals. Refresh the page to try again.
+                    </span>
+                ) : (
+                    <PolicySummary counts={counts} />
+                )}
+                <Link
+                    to={urls.mcpGatewayServer(serverId, `agent:${accountId}`)}
+                    className="text-xs shrink-0"
+                    data-attr="task-connectors-picker-tool-policies"
+                >
+                    Tool policies
+                </Link>
+            </div>
+            {counts !== 'error' && counts.approved === 0 && (
+                <div className="mt-1 text-xs text-warning">
+                    No tools approved yet, so task runs can't use this server.
+                </div>
+            )}
+        </div>
+    )
 }

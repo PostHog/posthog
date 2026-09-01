@@ -10,6 +10,8 @@ import type {
     ConnectionStateEnumApi,
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
+    MCPToolApprovalStateEnumApi,
+    ResolvedToolPolicyApi,
     UserBasicApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
 
@@ -74,6 +76,21 @@ function listResponse<T>(results: T[]): [number, { count: number; next: null; pr
     return [200, { count: results.length, next: null, previous: null, results }]
 }
 
+function resolvedTool(toolName: string, policyState: MCPToolApprovalStateEnumApi): ResolvedToolPolicyApi {
+    return {
+        tool_name: toolName,
+        description: '',
+        input_schema: {},
+        is_destructive: false,
+        policy_state: policyState,
+        team_state: null,
+        locked: false,
+        decided_by: 'default',
+        rule_name: '',
+        rule_description: '',
+    }
+}
+
 describe('taskConnectorsPickerLogic', () => {
     let logic: ReturnType<typeof taskConnectorsPickerLogic.build> | undefined
 
@@ -98,6 +115,14 @@ describe('taskConnectorsPickerLogic', () => {
                         account('scout', [scoutOnlyNotion]),
                         account('workflow', [personalIncident, teamIncident, datadog, disabledLinear]),
                     ]),
+                '/api/projects/:team_id/mcp_gateway/servers/:server_id/tools/': (req) =>
+                    req.params.server_id === 'incident-id'
+                        ? listResponse([
+                              resolvedTool('search', 'approved'),
+                              resolvedTool('create_incident', 'needs_approval'),
+                              resolvedTool('delete_incident', 'do_not_use'),
+                          ])
+                        : [500, { detail: 'boom' }],
             },
         })
 
@@ -110,6 +135,12 @@ describe('taskConnectorsPickerLogic', () => {
         // grant the gateway refuses (server disabled for the project, or the sharing member revoked).
         expect(logic.values.teamWorkflowServers).toEqual([datadog, teamIncident])
         expect(logic.values.serviceAccountsFailed).toBe(false)
+        // Agent-scope tool approvals load for exactly the offered servers; a failed load is marked
+        // rather than mistaken for a server with no tools.
+        expect(logic.values.toolPolicyCountsByServer).toEqual({
+            'incident-id': { approved: 1, needs_approval: 1, do_not_use: 1 },
+            'datadog-id': 'error',
+        })
     })
 
     it('records a failed load apart from an empty one', async () => {
