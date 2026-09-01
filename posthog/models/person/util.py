@@ -54,6 +54,10 @@ if TYPE_CHECKING:
 
 _get_client = require_personhog_client
 
+# Existence and id/uuid lookups only need these fields; the mask keeps the (potentially huge)
+# person properties columns out of the RPC payloads and off the persons replica's disk reads.
+UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+
 
 def _get_persons_for_uuid_batch(
     client: PersonHogClient,
@@ -392,9 +396,9 @@ def get_distinct_ids_for_persons(
 
 
 def _fetch_persons_by_uuids_via_personhog(
-    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None, read_options: ReadOptions | None = None
 ) -> list[Person]:
-    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids", read_options=read_options)
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
@@ -416,10 +420,24 @@ def _fetch_persons_by_uuids_via_personhog(
     ]
 
 
-def get_persons_by_uuids(team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None) -> list[Person]:
+def get_persons_by_uuids(
+    team_id: int,
+    uuids: list[str],
+    *,
+    distinct_id_limit: int | None = None,
+    read_options: ReadOptions | None = None,
+) -> list[Person]:
+    """Fetch persons for the given UUIDs.
+
+    Callers that read only ``id``/``uuid`` (e.g. existence checks) pass
+    ``read_options=UUID_ONLY_READ_OPTIONS`` to keep the person properties columns off the
+    persons replica's disk reads and out of the RPC payloads.
+    """
     return personhog_call(
         "get_persons_by_uuids",
-        lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids, distinct_id_limit=distinct_id_limit),
+        lambda: _fetch_persons_by_uuids_via_personhog(
+            team_id, uuids, distinct_id_limit=distinct_id_limit, read_options=read_options
+        ),
     )
 
 
@@ -528,16 +546,11 @@ def get_person_by_pk_or_uuid(team_id: int, key: str, *, distinct_id_limit: int |
             return None
 
 
-_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
-
-
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
     # _batched_get_persons_by_uuids also filters out persons with id == 0 (server "not found" sentinel),
     # which the previous single-RPC implementation did not do. This is intentionally more correct.
-    # Existence only needs uuid/id/team_id — the field mask keeps (potentially huge) person
-    # properties out of the RPC payloads.
     valid_persons = _batched_get_persons_by_uuids(
-        team_id, uuids, "validate_person_uuids_exist", read_options=_UUID_ONLY_READ_OPTIONS
+        team_id, uuids, "validate_person_uuids_exist", read_options=UUID_ONLY_READ_OPTIONS
     )
     return [p.uuid for p in valid_persons]
 
@@ -565,7 +578,7 @@ def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str], *, concurr
             team_id,
             uuids,
             "get_person_ids_and_uuids_by_uuids",
-            read_options=_UUID_ONLY_READ_OPTIONS,
+            read_options=UUID_ONLY_READ_OPTIONS,
             concurrency=concurrency,
         )
         return [(p.id, p.uuid) for p in persons]
@@ -605,7 +618,7 @@ def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[s
             "get_person_uuids_by_distinct_ids",
             # Keep every match so the caller sees which distinct IDs resolved; dedupe by person below.
             deduplicate_by_person=False,
-            read_options=_UUID_ONLY_READ_OPTIONS,
+            read_options=UUID_ONLY_READ_OPTIONS,
         )
         matched: set[str] = set()
         seen_person_ids: set[int] = set()

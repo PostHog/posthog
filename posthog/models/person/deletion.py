@@ -7,7 +7,12 @@ from rest_framework.exceptions import NotFound
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
-from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_by_uuids
+from posthog.models.person.util import (
+    UUID_ONLY_READ_OPTIONS,
+    create_person,
+    create_person_distinct_id,
+    get_persons_by_uuids,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -252,7 +257,10 @@ def find_orphaned_ch_persons(team_id: int, uuids: Optional[list[str]] = None) ->
     candidate_uuids = list(candidates)
     for start in range(0, len(candidate_uuids), _PERSONHOG_UUID_BATCH):
         batch = candidate_uuids[start : start + _PERSONHOG_UUID_BATCH]
-        present_in_db.update(str(p.uuid) for p in get_persons_by_uuids(team_id, batch, distinct_id_limit=0))
+        present_in_db.update(
+            str(p.uuid)
+            for p in get_persons_by_uuids(team_id, batch, distinct_id_limit=0, read_options=UUID_ONLY_READ_OPTIONS)
+        )
 
     return [
         OrphanedPerson(uuid=uuid, ch_max_version=max_version, created_at=created_at)
@@ -391,6 +399,9 @@ def _find_reverse_drift(team_id: int, deleted_winners: list[_Mapping], orphan_uu
     live_in_db: set[str] = set()
     for start in range(0, len(winner_uuids), _PERSONHOG_UUID_BATCH):
         batch = winner_uuids[start : start + _PERSONHOG_UUID_BATCH]
-        live_in_db.update(str(p.uuid) for p in get_persons_by_uuids(team_id, batch, distinct_id_limit=0))
+        live_in_db.update(
+            str(p.uuid)
+            for p in get_persons_by_uuids(team_id, batch, distinct_id_limit=0, read_options=UUID_ONLY_READ_OPTIONS)
+        )
 
     return sorted((m.distinct_id, m.winner_person_id) for m in deleted_winners if m.winner_person_id in live_in_db)

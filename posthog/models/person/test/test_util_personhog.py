@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from posthog.models.person.util import (
+    UUID_ONLY_READ_OPTIONS,
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
     _fetch_person_by_uuid_via_personhog,
@@ -13,6 +14,7 @@ from posthog.models.person.util import (
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
+    get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.client import personhog_call
@@ -307,6 +309,28 @@ class TestFetchPersonsByUuidsViaPersonhog(SimpleTestCase):
             )
 
             assert result[0].distinct_ids == ["d1", "d2"]
+
+    def test_forwards_read_options_to_request(self):
+        # Existence-check callers pass UUID_ONLY_READ_OPTIONS so the RPC skips the person
+        # properties columns; guard that the public helper plumbs the mask through.
+        uuid = "550e8400-e29b-41d4-a716-446655440001"
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid=uuid, distinct_ids=["d1"])
+
+            get_persons_by_uuids(1, [uuid], distinct_id_limit=0, read_options=UUID_ONLY_READ_OPTIONS)
+
+            calls = fake.assert_called("get_persons_by_uuids", times=1)
+            assert list(calls[0].request.read_options.field_mask) == ["uuid", "id", "team_id"]
+
+    def test_no_read_options_by_default(self):
+        uuid = "550e8400-e29b-41d4-a716-446655440001"
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid=uuid, distinct_ids=["d1"])
+
+            get_persons_by_uuids(1, [uuid])
+
+            calls = fake.assert_called("get_persons_by_uuids", times=1)
+            assert list(calls[0].request.read_options.field_mask) == []
 
 
 class TestValidateUuidsViaPersonhog(SimpleTestCase):
