@@ -2539,17 +2539,44 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
 _GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +[^ ]+)* +(gc|repack|maintenance|pack-objects)"
 
 
-def _git_housekeeping_running() -> bool:
-    """True while git already packs, so the caller leaves the lock and pack dir alone."""
+def _process_belongs_to_repo(pid: str, repo: str) -> bool:
+    """Whether one git process works on this repository.
+
+    The scheduled job names the path with ``-C``, and git's own scheduler does not,
+    so check the command line first and the working directory second.
+    """
+    try:
+        cmdline = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True  # Cannot tell, so claim it and do nothing.
+    if repo in cmdline.stdout:
+        return True
+    try:
+        cwd = subprocess.run(["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return any(line[1:].startswith(repo) for line in cwd.stdout.splitlines() if line.startswith("n"))
+
+
+def _git_housekeeping_running(main_worktree: Path) -> bool:
+    """True while git already packs this repository.
+
+    The pattern alone is machine wide, so an unrelated checkout running `git gc` would
+    otherwise make this repository look busy, and the repair would skip itself.
+    """
     try:
         result = subprocess.run(
             ["pgrep", "-f", _GIT_HOUSEKEEPING_PGREP_PATTERN],
             capture_output=True,
+            text=True,
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError):
         return True  # Cannot tell, so assume yes and do nothing.
-    return result.returncode == 0
+    if result.returncode != 0:
+        return False
+    repo = str(main_worktree)
+    return any(_process_belongs_to_repo(pid, repo) for pid in result.stdout.split())
 
 
 def _git_main_worktree(repo_root: Path, common_dir: Path) -> Path:
@@ -2651,7 +2678,7 @@ def doctor_git(fix: bool) -> None:
     health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
     packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
     # Run the process scan only when a result depends on it.
-    busy = _git_housekeeping_running() if (health.stale_lock or packs_high) else False
+    busy = _git_housekeeping_running(main_worktree) if (health.stale_lock or packs_high) else False
     acted = False
 
     if health.stale_lock and not busy:
