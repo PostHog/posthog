@@ -24,9 +24,9 @@ from posthog.models.utils import UUIDTModel
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
-# All destination types that share the s3-export Temporal workflow.
-# Includes the legacy "S3" alias for backwards compatibility.
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
+# S3-family destination types that are in use. Note that this excludes the legacy "S3"
+# type which has now been fully deprecated.
+S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
 
 class DayOfWeek(IntEnum):
@@ -66,7 +66,7 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"  # legacy alias; AwsS3 / S3Compatible are the preferred types for new rows
+        S3 = "S3"  # TODO: legacy alias which is no longer used so can be removed
         AWS_S3 = "AwsS3"
         S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"

@@ -1984,7 +1984,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for AwsS3 and S3Compatible destinations, and when creating Databricks, AzureBlob, BigQuery and Postgres destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
                     ),
             })
             .describe(
@@ -2429,7 +2429,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for AwsS3 and S3Compatible destinations, and when creating Databricks, AzureBlob, BigQuery and Postgres destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
                     ),
             })
             .describe(
@@ -2863,7 +2863,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for AwsS3 and S3Compatible destinations, and when creating Databricks, AzureBlob, BigQuery and Postgres destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
                     ),
             })
             .describe(
@@ -3318,7 +3318,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for AwsS3 and S3Compatible destinations, and when creating Databricks, AzureBlob, BigQuery and Postgres destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake and Redshift, which still support inline credentials.'
                     ),
             })
             .describe(

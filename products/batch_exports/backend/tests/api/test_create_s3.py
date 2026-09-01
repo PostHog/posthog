@@ -5,6 +5,7 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 from temporalio.client import ScheduleActionStartWorkflow
 
+from products.batch_exports.backend.models.batch_export import S3_FAMILY_TYPES
 from products.batch_exports.backend.tests.api.conftest import describe_schedule
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
@@ -12,8 +13,6 @@ pytestmark = [
     pytest.mark.django_db,
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
-
-_S3_FAMILY_TYPES = ["AwsS3", "S3Compatible"]
 
 _S3_FAMILY_BASE_CONFIG = {
     "bucket_name": "my-bucket",
@@ -63,7 +62,7 @@ def test_create_s3_family_batch_export(
     assert response.json()["destination"]["type"] == expected_persisted_type
 
 
-@pytest.mark.parametrize("destination_type", _S3_FAMILY_TYPES)
+@pytest.mark.parametrize("destination_type", sorted(S3_FAMILY_TYPES))
 def test_create_s3_family_batch_export_requires_an_integration(
     client: HttpClient, temporal, organization, team, user, destination_type
 ):

@@ -838,11 +838,6 @@ S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
     BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
 
-# Fields an S3-family export reads from its integration at run time. Rows migrated off inline
-# credentials still hold them in stored config, but no write may set them. Any other credential
-# field is already rejected as unknown, because the input dataclasses never declared it.
-S3_INTEGRATION_OWNED_FIELDS = frozenset({"aws_access_key_id", "aws_secret_access_key", "endpoint_url"})
-
 
 def _coerce_integration_id(value: typing.Any) -> int | None:
     """Return the integration id encoded in a Redshift COPY credential value, if any.
@@ -889,9 +884,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "ID of a team-scoped Integration providing credentials. Required for AwsS3 and S3Compatible "
-            "destinations, and when creating Databricks, AzureBlob, BigQuery and Postgres destinations; "
-            "optional for Snowflake and Redshift (inline credentials remain supported); unused for other types."
+            "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
+            "through one. Required for all of those except Snowflake and Redshift, which still support "
+            "inline credentials."
         ),
     )
 
@@ -1481,8 +1476,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             # Credentials and the provider endpoint live in the integration. Only the submitted
             # config is checked: rows migrated off inline credentials still hold these keys in
-            # stored config, and patching one must not resurface them as an error.
-            submitted_credential_fields = sorted(S3_INTEGRATION_OWNED_FIELDS & config.keys())
+            # stored config, and patching one must not resurface them as an error. Any other
+            # credential field is already rejected as unknown, since the input dataclasses never
+            # declared it.
+            integration_owned_fields = {"aws_access_key_id", "aws_secret_access_key", "endpoint_url"}
+            submitted_credential_fields = sorted(integration_owned_fields & config.keys())
             if submitted_credential_fields:
                 raise serializers.ValidationError(
                     f"{destination_type} batch exports authenticate through their integration. "
