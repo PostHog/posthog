@@ -89,6 +89,27 @@ class TestExportRendererAuthentication(APIBaseTest):
         )
         assert response.status_code == expected_status
 
+    def test_heatmap_token_accepts_legacy_viewport_accuracy_default(self) -> None:
+        token = self._make_export_renderer_token(
+            export_context={
+                "heatmap_url": "https://example.com",
+                "heatmap_data_url": "https://example.com",
+                "heatmap_type": "click",
+                "width": 1400,
+                "common_filters": {"date_from": "-7d"},
+                "heatmap_filters": {"type": "click", "aggregation": "total_count"},
+            }
+        )
+
+        response = self._unauthenticated_client().get(
+            self._heatmap_url().replace(
+                "viewport_width_min=1260&viewport_width_max=1540", "viewport_width_min=280&viewport_width_max=2520"
+            ),
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
     @parameterized.expand(
         [
             ("recording_list", "/api/environments/{team_id}/session_recordings"),

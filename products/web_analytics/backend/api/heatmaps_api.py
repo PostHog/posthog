@@ -662,7 +662,7 @@ def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, obje
     width = export_context.get("width", 1400)
     if not isinstance(width, int | float) or isinstance(width, bool):
         return None
-    viewport_accuracy = heatmap_filters.get("viewportAccuracy", 0.9)
+    viewport_accuracy = heatmap_filters.get("viewportAccuracy", 0.2)
     if not isinstance(viewport_accuracy, int | float) or isinstance(viewport_accuracy, bool):
         return None
 
