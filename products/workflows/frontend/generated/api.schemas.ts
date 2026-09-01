@@ -1293,6 +1293,8 @@ export interface WorkflowProposalVersionOutcomeApi {
     version: number
     /** The metric the suggestion aimed at. */
     target: WorkflowProposalMetricApi
+    /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
+    click_through: WorkflowProposalMetricApi
     /** Counter-metrics over the same window, so a harmful win is visible. */
     guardrails: WorkflowProposalMetricApi[]
 }

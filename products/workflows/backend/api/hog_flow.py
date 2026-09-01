@@ -143,6 +143,7 @@ from products.workflows.backend.metrics import (
     GUARDRAIL_METRICS,
     HOG_FLOW_VERSION_APP_SOURCE,
     MIN_EVIDENCE_SAMPLE,
+    TARGET_CLICK_METRIC,
     TARGET_OPEN_METRIC,
     TARGET_SEND_METRIC,
     TARGET_UNTRACKED_METRIC,
@@ -3762,6 +3763,9 @@ class WorkflowProposalMetricSerializer(serializers.Serializer):
 class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Workflow version these numbers belong to.")
     target = WorkflowProposalMetricSerializer(help_text="The metric the suggestion aimed at.")
+    click_through = WorkflowProposalMetricSerializer(
+        help_text="Click-through rate over the same window and denominator, since opens alone can move without clicks."
+    )
     guardrails = WorkflowProposalMetricSerializer(
         many=True, help_text="Counter-metrics over the same window, so a harmful win is visible."
     )
@@ -5296,7 +5300,13 @@ class HogFlowViewSet(
             app_source_id=f"{hog_flow.id}/{version}",
             breakdown_by="name",
             after=after,
-            name=[TARGET_SEND_METRIC, TARGET_OPEN_METRIC, TARGET_UNTRACKED_METRIC, *GUARDRAIL_METRICS],
+            name=[
+                TARGET_SEND_METRIC,
+                TARGET_OPEN_METRIC,
+                TARGET_CLICK_METRIC,
+                TARGET_UNTRACKED_METRIC,
+                *GUARDRAIL_METRICS,
+            ],
         ).totals
         sends = int(totals.get(TARGET_SEND_METRIC, 0))
         # Untracked sends can never record an open, so the open rate reads against tracked sends. The
@@ -5314,6 +5324,8 @@ class HogFlowViewSet(
         return {
             "version": version,
             "target": rate(int(totals.get(TARGET_OPEN_METRIC, 0)), "email open rate", tracked_sends),
+            # Same denominator as opens: a send with tracking off can record neither.
+            "click_through": rate(int(totals.get(TARGET_CLICK_METRIC, 0)), "click rate", tracked_sends),
             "guardrails": [rate(int(totals.get(name, 0)), GUARDRAIL_LABELS[name], sends) for name in GUARDRAIL_METRICS],
         }
 
