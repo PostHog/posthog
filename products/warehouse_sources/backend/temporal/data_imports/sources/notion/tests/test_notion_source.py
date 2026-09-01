@@ -69,11 +69,16 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_get_schemas_returns_all_endpoints_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
+    def test_get_schemas_marks_only_database_rows_incremental(self) -> None:
+        # database_rows reads through the query endpoint, which filters on last_edited_time; the
+        # search-backed streams cannot, so they must stay full refresh. A regression either way
+        # (all-full-refresh, or a search stream flipped incremental) silently syncs the wrong shape.
+        schemas = {s.name: s for s in self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)}
+        assert set(schemas) == set(ENDPOINTS)
+        assert schemas["database_rows"].supports_incremental is True
+        assert [f["field"] for f in schemas["database_rows"].incremental_fields] == ["last_edited_time"]
+        assert all(s.supports_incremental is False for name, s in schemas.items() if name != "database_rows")
+        assert all(s.supports_append is False for s in schemas.values())
 
     def test_get_schemas_honors_names_filter(self) -> None:
         schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1, names=["users"])
