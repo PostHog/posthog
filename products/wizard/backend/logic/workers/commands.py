@@ -7,10 +7,12 @@ from django.conf import settings
 from posthog.utils import get_instance_region
 
 from products.wizard.backend.facade.validation import is_executable_wizard_version
+from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
     MAX_HANDOFF_BODY_BYTES,
+    WIZARD_DIFF_OUTPUT_PATH,
     WIZARD_PACKAGE_INSTALL_PATH,
     WIZARD_TIMEOUT_SECONDS,
 )
@@ -89,7 +91,14 @@ def build_local_wizard_preparation_command() -> str:
 
 
 def build_git_diff_command(repository_path: str) -> str:
-    return f"cd {shlex.quote(repository_path)} && git add -N --all && git diff --binary --no-ext-diff HEAD"
+    # Stage the diff to a file and ship at most MAX_GIT_DIFF_BYTES+1 back: the worker reads all
+    # stdout into memory, so the byte cap is enforced sandbox-side. The sentinel extra byte lets
+    # the artifact step tell "at the limit" from "oversized"; && preserves git's exit code.
+    return (
+        f"cd {shlex.quote(repository_path)} && git add -N --all && "
+        f"git diff --binary --no-ext-diff HEAD > {shlex.quote(WIZARD_DIFF_OUTPUT_PATH)} && "
+        f"head -c {MAX_GIT_DIFF_BYTES + 1} {shlex.quote(WIZARD_DIFF_OUTPUT_PATH)}"
+    )
 
 
 def build_sanitize_repository_remote_command(repository_path: str, repository: str) -> str:

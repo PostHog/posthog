@@ -13,6 +13,7 @@ LOCAL_WIZARD_BUILD_TIMEOUT_SECONDS = 15 * 60
 LOCAL_WIZARD_ARCHIVE_PATH = "/tmp/posthog-local-wizard.tar.gz"
 LOCAL_WIZARD_INSTALL_PATH = "/tmp/posthog-local-wizard"
 WIZARD_PACKAGE_INSTALL_PATH = "/tmp/posthog-wizard-package"
+WIZARD_DIFF_OUTPUT_PATH = "/tmp/posthog-wizard-diff.patch"
 LOCAL_WIZARD_SOURCE_ENTRIES = (
     "README.md",
     "bin.ts",
