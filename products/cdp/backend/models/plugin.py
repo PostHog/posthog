@@ -154,8 +154,7 @@ class Plugin(models.Model):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="plugins",
-        related_query_name="plugin",
+        related_name="+",
         null=True,
     )
     plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType, default=None)

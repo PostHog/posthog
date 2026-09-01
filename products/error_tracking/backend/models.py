@@ -598,7 +598,7 @@ class ErrorTrackingStackFrame(UUIDTModel):
     raw_id = models.TextField(null=False, blank=False)
     # Raw frames could be resolved into multiple frames after demangling because of compilation process
     part = models.IntegerField(null=False, default=0)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)

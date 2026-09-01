@@ -37,7 +37,7 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # takes a parent lock during migration; scoping is enforced app-side.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Channels are the tasks product's model; every canvas is filed into one.
-    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="canvases")
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="+")
 
     name = models.CharField(max_length=400)
     kind = models.CharField(max_length=16, default=KIND_FREEFORM)

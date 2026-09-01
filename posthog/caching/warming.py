@@ -117,7 +117,8 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
-        single_insights = team.insight_set.filter(
+        single_insights = Insight.objects.filter(
+            team=team,
             insightviewed__last_viewed_at__gte=threshold,
             pk__in=insight_ids_single,
         )
