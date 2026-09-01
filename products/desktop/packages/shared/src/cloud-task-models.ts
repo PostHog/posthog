@@ -161,6 +161,10 @@ export function isAnthropicModel(model: GatewayModel): boolean {
   return model.id.startsWith("claude-") || model.id.startsWith("anthropic/");
 }
 
+export function isAnthropicModelId(modelId: string): boolean {
+  return modelId.startsWith("claude-") || modelId.startsWith("anthropic/");
+}
+
 export function isOpenAIModel(model: GatewayModel): boolean {
   if (model.owned_by) {
     return model.owned_by === "openai";

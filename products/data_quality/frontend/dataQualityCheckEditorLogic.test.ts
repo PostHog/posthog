@@ -12,6 +12,7 @@ import {
     warehouseSavedQueriesChecksCheckTypesList,
     warehouseSavedQueriesChecksCreate,
     warehouseSavedQueriesChecksPartialUpdate,
+    warehouseTablesChecksCheckTypesList,
     warehouseTablesChecksCreate,
 } from './generated/api'
 import type { DataQualityCheckApi } from './generated/api.schemas'
@@ -61,11 +62,12 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
             path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
             actions({ loadDatabase: true }),
             reducers({
-                views: [[]],
+                views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: {} } }]],
                 dataWarehouseTables: [
                     [{ id: 'table-9', name: 'stripe_charges', fields: { customer_id: {}, amount: {} } }],
                 ],
                 databaseLoading: [false],
+                databaseLoadError: [null],
                 loadCount: [0, { loadDatabase: (state: number) => state + 1 }],
             }),
         ]),
@@ -147,6 +149,7 @@ describe('dataQualityCheckEditorLogic', () => {
         jest.clearAllMocks()
         silenceKeaLoadersErrors()
         ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
+        ;(warehouseTablesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
     })
 
     afterEach(() => {
@@ -377,6 +380,107 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
     })
 
+    it.each<[string, DataQualitySubjectRef, string, string, jest.Mock]>([
+        [
+            'a table',
+            { subjectType: 'table', subjectId: 'table-9' },
+            'customer_id',
+            'table-9',
+            warehouseTablesChecksCreate as jest.Mock,
+        ],
+        [
+            'a view',
+            { subjectType: 'view', subjectId: 'view-7' },
+            'order_id',
+            'view-7',
+            warehouseSavedQueriesChecksCreate as jest.Mock,
+        ],
+    ])(
+        'opens without a subject and creates against %s after it is picked',
+        async (_case, subject, column, id, create) => {
+            create.mockResolvedValue(buildCheck({ id: 'check-new' }))
+            await mountLogic({ surface: 'overview' })
+
+            logic.actions.openEditor(null, null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(warehouseSavedQueriesChecksCheckTypesList).not.toHaveBeenCalled()
+            expect(warehouseTablesChecksCheckTypesList).not.toHaveBeenCalled()
+            expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
+
+            logic.actions.setSubject(subject)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setCheckFormValues({ checkType: 'not_null', columnName: column })
+
+            logic.actions.submitCheckForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(create).toHaveBeenCalledWith('1', id, expect.objectContaining({ column_name: column }))
+        }
+    )
+
+    it('clears subject-specific errors and columns when the picked subject changes', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSubject({ subjectType: 'table', subjectId: 'table-9' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({ columnName: 'customer_id', toColumn: 'id' })
+        logic.actions.setCheckFormManualErrors({ columnName: 'Pick a column.' })
+        logic.actions.setServerError('Could not save the check.')
+
+        logic.actions.setSubject({ subjectType: 'view', subjectId: 'view-7' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm.columnName).toEqual('')
+        expect(logic.values.checkForm.toColumn).toEqual('id')
+        expect(logic.values.checkFormManualErrors).toEqual({})
+        expect(logic.values.serverError).toBeNull()
+    })
+
+    it('reloads check types when the picked subject changes', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSubject({ subjectType: 'table', subjectId: 'table-9' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSubject({ subjectType: 'view', subjectId: 'view-7' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseTablesChecksCheckTypesList).toHaveBeenCalledWith('1', 'table-9')
+        expect(warehouseSavedQueriesChecksCheckTypesList).toHaveBeenCalledWith('1', 'view-7')
+    })
+
+    it('does not create a check until a subject is picked', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
+        expect(warehouseTablesChecksCreate).not.toHaveBeenCalled()
+    })
+
+    it('clears the check type error when a failed catalog request is retried', async () => {
+        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock)
+            .mockRejectedValueOnce(new Error('down'))
+            .mockResolvedValueOnce(CHECK_TYPE_CATALOG)
+        await mountLogic()
+        logic.actions.openEditor(null, VIEW_SUBJECT, COLUMNS)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkTypesError).toBe(true)
+
+        logic.actions.loadCheckTypes()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkTypesError).toBe(false)
+        expect(logic.values.checkTypes).toEqual(CHECK_TYPE_CATALOG)
+    })
+
     it('closes an untouched draft without asking', async () => {
         await mountLogic()
         await openWith(buildCheck())
@@ -434,6 +538,18 @@ describe('dataQualityCheckEditorLogic', () => {
 
         logic.actions.setCheckFormValues({ checkType: 'not_null', columnName: 'customer_id' })
         logic.actions.setCheckFormValues({ checkType: 'relationships' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
+    })
+
+    it('keeps the warehouse catalog loaded when reopening an unscoped draft', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.closeEditor()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
 
         expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
