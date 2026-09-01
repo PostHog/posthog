@@ -160,6 +160,24 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('taxonomic-tab-actions')).toBeInTheDocument()
         })
 
+        it('drops the category list heading in the pill variant so the category name shows once', async () => {
+            // The pill variant folds the Categories column into the search input. The list heading
+            // must fold with it, or the category name renders twice (pill + heading).
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+            const { container } = renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(container.querySelectorAll('.taxonomic-group-title')).toHaveLength(0)
+        })
+
         it.each([
             { label: 'Suggested series', description: 'series context' },
             { label: 'Suggested step', description: 'step context' },

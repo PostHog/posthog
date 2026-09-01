@@ -74,6 +74,13 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { getItemGroup } from './InfiniteList'
 import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
 
+// Category endpoints fetch with `exclude_hidden: true`, so a hidden item never appears under
+// its category tab. Keep it out of the aggregated tab too, or that tab shows an "Events" row
+// (say) that the Events tab returns nothing for.
+function isHiddenDefinition(item: TaxonomicDefinitionTypes): boolean {
+    return 'hidden' in item && !!item.hidden
+}
+
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
     query: string,
@@ -1567,8 +1574,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const q = searchQuery.trim().toLowerCase()
-                return (contextFilteredPinnedItems || []).filter((item) =>
-                    pinnedItemMatchesSearch(item, q, taxonomicGroups)
+                return (contextFilteredPinnedItems || []).filter(
+                    (item) => !isHiddenDefinition(item) && pinnedItemMatchesSearch(item, q, taxonomicGroups)
                 )
             },
         ],
@@ -1584,8 +1591,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const q = searchQuery.trim().toLowerCase()
-                return (contextFilteredRecentItems || []).filter((item) =>
-                    recentItemMatchesSearch(item, q, taxonomicGroups)
+                return (contextFilteredRecentItems || []).filter(
+                    (item) => !isHiddenDefinition(item) && recentItemMatchesSearch(item, q, taxonomicGroups)
                 )
             },
         ],
