@@ -46,14 +46,14 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
 def _dispatch(
     schema: MagicMock,
     inputs: SourceInputs,
-    backlog: bool = False,
+    in_flight: bool = False,
     job_version: str | None = ExternalDataJob.PipelineVersion.V3,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
         patch(f"{_SCHEMA_MODEL}.objects") as objects,
         patch(f"{_JOB_MODEL}.objects") as job_objects,
-        patch(f"{_MANAGER}.has_pending_legacy_backlog", return_value=backlog),
+        patch(f"{_MANAGER}.has_batches_in_flight", return_value=in_flight),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
@@ -106,10 +106,11 @@ class TestBufferedDispatch:
 
         assert response.name == "users"
 
-    def test_a_pending_legacy_backlog_yields_an_empty_run_rather_than_pausing_the_schedule(self):
-        response = _dispatch(_schema(), _inputs(), backlog=True)
-
-        assert list(response.items()) == []
+    def test_a_delivery_still_in_flight_fails_the_run_rather_than_completing_it(self):
+        # An empty response completes the job, and a listing stamp matures into a deletion proof on
+        # its job completing — so standing down would prove files a crashed attempt never drained.
+        with pytest.raises(ValueError, match="deliveries in flight"):
+            _dispatch(_schema(), _inputs(), in_flight=True)
 
     def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
         with pytest.raises(ValueError, match="cdc_mode='snapshot'"):

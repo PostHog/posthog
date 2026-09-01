@@ -59,7 +59,7 @@ def get_buffer_cursor_rows_skipped_metric(team_id: int, source_id: str) -> Metri
     inside it. A standing rate means runs keep dying part-way through.
     """
     return _source_meter(team_id, source_id).create_counter(
-        "cdc_buffer_cursor_rows_skipped_total", "Buffer rows skipped on resuming part-way into a file"
+        "cdc_buffer_cursor_rows_skipped_total", "Buffer rows skipped on resuming part-way into a transaction"
     )
 
 

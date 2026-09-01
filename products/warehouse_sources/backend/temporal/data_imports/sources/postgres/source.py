@@ -1320,7 +1320,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
             consumes_buffer,
-            has_pending_legacy_backlog,
+            has_batches_in_flight,
             select_lane,
             served_lanes,
         )
@@ -1357,16 +1357,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         lane = select_lane(schema, job_id=inputs.job_id)
         primary_keys = schema.primary_key_columns
 
-        if has_pending_legacy_backlog(schema):
-            # Legacy deliveries carry no position column, so merging buffered rows before they land
-            # lets an older row overwrite a newer one. No-op this run — an empty response keeps the
-            # schedule alive, unlike CDCHandledExternally, which would pause it for good.
-            inputs.logger.info("cdc_buffered_waiting_for_legacy_backlog", schema_name=schema.name)
-            return SourceResponse(
-                name=lane.resource_name,
-                items=lambda: iter(()),
-                primary_keys=primary_keys,
-                cdc_write_mode=lane.write_mode,
+        if has_batches_in_flight(schema):
+            # Reading now would stage rows alongside a delivery that is still landing: a legacy one
+            # carries no position to order against, and a previous attempt of this job holds staged
+            # batches that are still claimable, which the append lane would write twice.
+            #
+            # Failing beats returning nothing. An empty response COMPLETES the job, and a listing
+            # stamp matures into a deletion proof on its job completing — so a tick that stood down
+            # would hand the crashed attempt's stamp a proof for files it never drained. The
+            # activity's own retries double as the wait, and a plain error leaves the schedule
+            # alone, unlike CDCHandledExternally.
+            raise ValueError(
+                f"Buffered CDC schema {schema.name} still has deliveries in flight. Consuming the "
+                "buffer now could write rows a landing batch is about to write. Retrying."
             )
 
         manager = CDCSourceManager(

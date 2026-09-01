@@ -37,6 +37,22 @@ of the files would spend it against rows that never landed. Watch
 `cdc_buffer_cursor_rows_skipped_total`: it fires only on a genuine mid-transaction resume, so a
 standing rate means runs keep dying partway through one.
 
+Held is not the same as re-read. A lane stops fetching a file once its OWN completed listing proves
+it drained it, so an idle schema settles at zero rows on every lane while the files wait for the
+slowest one. Alert on the age of the oldest file the shared floor has not passed, not on file
+count: files a lane is deliberately holding are the normal state, not a stall.
+
+**A run stands down while any delivery for the schema is still in the queue** — a legacy one, or a
+previous attempt of this same job. Both would write alongside whatever this run reads, and on the
+append lane that is a second copy of the same history. Two scheduled runs cannot overlap on their
+own: the v3 pipeline lock is held from the start of the workflow until the loader completes the
+job. The window is a retried activity, which runs under the lock its own workflow already holds,
+and a lock takeover, which hands the lock to a new job while the old one's batches are still
+queued. It fails the run rather than returning an empty one, because an empty response completes
+the job, and a listing stamp becomes a deletion proof once its job completes — so standing down
+quietly would hand a crashed attempt's stamp a proof for files it never drained. The activity's own
+retries are the wait; a backlog that clears within them never surfaces as a failure.
+
 Nothing is re-snapshotted. The slot, the Delta tables, and `initial_sync_complete` are all
 preserved, so there is no WAL gap and no re-sync.
 

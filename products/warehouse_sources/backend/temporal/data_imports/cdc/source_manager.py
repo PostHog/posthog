@@ -95,11 +95,9 @@ BUFFER_LISTING_CONFIG_KEY = "cdc_buffer_listing"
 
 
 def _listing_stamps(sync_type_config: dict | None, *, single_lane: str | None = None) -> dict[str, dict]:
-    """The per-lane listing stamps, reading the single-lane shape this key used to hold.
+    """Per-lane listing stamps, `{resource_name: {"listed_at": iso, "job_id": str}}`.
 
-    That shape was a bare stamp rather than a mapping, written when consolidated was the only lane
-    the buffer served. `single_lane` names the lane it belongs to, so a schema flipped before this
-    change keeps its deletion proof instead of re-merging its trailing file once.
+    A bare stamp stored at the top level of the key is read as belonging to `single_lane`.
     """
     raw = (sync_type_config or {}).get(BUFFER_LISTING_CONFIG_KEY)
     if not isinstance(raw, dict):
@@ -196,7 +194,7 @@ def select_lane(schema: ExternalDataSchema, *, job_id: str | None = None) -> CDC
     for lane in lanes:
         if lane.resource_name != last_served:
             return lane
-    return lanes[0]
+    raise ValueError(f"Lanes of schema {schema.name} share a resource name; alternation needs them distinct")
 
 
 def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
@@ -211,12 +209,28 @@ def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
     return consumes_buffer(schema, ingest_mode=parse_ingest_mode(schema.source.job_inputs))
 
 
-def has_pending_legacy_backlog(schema: ExternalDataSchema) -> bool:
-    """Whether legacy-lane deliveries for this schema are still in flight.
+def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
+    """Whether any delivery for this schema is still working through the queue.
 
-    Deferred runs and sourcebatch batches carry no position column, so nothing orders them against
-    buffered writes — a consumer merge racing them lets an older legacy row land after a newer
-    buffered one. The consumer no-ops until both are drained; buffer files just wait.
+    Two kinds, and the consumer must stand down for both.
+
+    Legacy deliveries carry no position column, so nothing orders them against buffered writes — a
+    consumer merge racing them lets an older legacy row land after a newer buffered one.
+
+    A previous attempt of THIS job is the other kind, and it is why the check has to cover buffered
+    batches too. The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
+    the workflow until the loader completes the job — but a retried activity runs under the lock its
+    own workflow already holds, and a takeover hands the lock to a new job while the old one's
+    batches are still queued. Attempts are superseded only when the loader shows no recent
+    progress, and the claim gates are scoped per run, so an attempt that died with batches still
+    staged has them claimed and written alongside whatever a new attempt reads. The merge lane
+    absorbs that as upserts; the append lane writes it as a second copy of the same history.
+
+    Batches only reach a terminal state after their position is recorded, so "nothing in flight"
+    is also what makes the resume point safe to read: every commit before it is already visible.
+
+    Runs holding a failed batch are excluded by the query, matching the loader's claim gate — their
+    remaining batches can never be claimed, so they cannot write anything to collide with.
     """
     if schema.sync_type_config.get("cdc_deferred_runs"):
         return True
@@ -238,6 +252,21 @@ def consolidated_resource_name(schema: ExternalDataSchema) -> str:
     `users`), and targeting the wrong one lands changes in a parallel Delta table no query reads.
     """
     return resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
+
+
+@frozen
+class _ConsumeState:
+    """What one run reads from the schema's config before it touches a file.
+
+    Two floors, because deleting a file and declining to read one answer to different lanes: a file
+    goes only when EVERY lane has passed it, but this lane may skip whatever IT has passed.
+    """
+
+    floor: int | None
+    own_floor: int | None
+    stamps: dict[str, dict]
+    applied_position: int | None
+    applied_rows: int
 
 
 @frozen
@@ -263,29 +292,42 @@ class CDCSourceManager:
         return self._lane_resource_names or [resource_name]
 
     @staticmethod
-    def _drop_applied_prefix(table: pa.Table, position: int, remaining: int) -> tuple[pa.Table, int]:
-        """Drop the first `remaining` rows of this table that sit at `position`.
+    def _drop_applied_rows(table: pa.Table, position: int, remaining: int) -> tuple[pa.Table, int]:
+        """Drop what this lane already wrote: everything below `position`, and `remaining` rows at it.
 
-        Rows at the position are the tail of one transaction, which the previous run may have
-        applied only part of. They are read in the same order every run — files sort by position
-        and index, row order within a file is fixed — so the count of rows already applied names
-        a prefix, and what follows it is the unapplied remainder.
+        Below the position is settled outright — the position only ever advances on a commit, and
+        it is that commit's highest row, so every row beneath it landed in that batch or an earlier
+        one. A file that straddles the position carries such rows alongside the ones still owed.
+
+        At the position, the rows are the tail of one transaction the previous run may have applied
+        only part of. They are read in the same order every run — files sort by position and index,
+        row order within a file is fixed — so the count already applied names a prefix, and what
+        follows it is the unapplied remainder. Only that prefix spends the count.
+
+        Done here rather than left to the loader's resolution: that is behind a rollout flag, and
+        the append lane cannot be correct only when a flag says so.
         """
-        if remaining <= 0 or not table.num_rows:
+        if not table.num_rows:
             return table, 0
         seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
-        at_position = [i for i, seq in enumerate(seqs) if seq == position]
-        dropped = at_position[:remaining]
-        if not dropped:
+        keep: list[int] = []
+        dropped_at_position = 0
+        for i, seq in enumerate(seqs):
+            if seq is not None and seq < position:
+                continue
+            if seq == position and dropped_at_position < remaining:
+                dropped_at_position += 1
+                continue
+            keep.append(i)
+        if len(keep) == table.num_rows:
             return table, 0
-        skip = set(dropped)
-        keep = [i for i in range(table.num_rows) if i not in skip]
-        return table.take(pa.array(keep, type=pa.int64())), len(dropped)
+        return table.take(pa.array(keep, type=pa.int64())), dropped_at_position
 
-    async def _read_consume_state(self, resource_name: str) -> tuple[int | None, dict[str, dict], int | None, int]:
-        """The deletion floor across every lane, their listing stamps, and this lane's applied state.
+    async def _read_consume_state(self, resource_name: str) -> _ConsumeState:
+        """Everything one run needs from `sync_type_config`, read once.
 
-        One read of `sync_type_config` answers all of it. The floor is the lowest position any lane
+        The shared floor decides deletion, this lane's own floor decides what it can skip reading,
+        and the applied state is where its skip resumes. The floor is the lowest position any lane
         can PROVE it finished, so a file survives until the slowest lane has taken it; a lane that
         has recorded nothing has proven nothing, so it holds deletion entirely.
 
@@ -305,7 +347,14 @@ class CDCSourceManager:
         floor = None if any(p is None for p in positions) else min(p for p in positions if p is not None)
         stamps = _listing_stamps(sync_type_config, single_lane=lanes[0] if len(lanes) == 1 else None)
         applied_position, applied_rows = read_load_state(sync_type_config, resource_name)
-        return floor, stamps, applied_position, applied_rows
+        own_floor = provable_position(sync_type_config, resource_name)
+        return _ConsumeState(
+            floor=floor,
+            own_floor=own_floor,
+            stamps=stamps,
+            applied_position=applied_position,
+            applied_rows=applied_rows,
+        )
 
     async def _stamp_listing(self, resource_name: str, listed_at: dt.datetime) -> None:
         """Record that this run listed the buffer for its lane, before any file is read.
@@ -442,14 +491,21 @@ class CDCSourceManager:
     ) -> AsyncGenerator[pa.Table]:
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
-        floor, prior_stamps, applied_position, applied_rows = await self._read_consume_state(resource_name)
+        state = await self._read_consume_state(resource_name)
+        applied_position = state.applied_position
         # Only the append lane resumes part-way into a transaction. The merge lane re-reads freely:
         # its upsert makes a row it already holds a no-op.
-        if write_mode != COMPANION_WRITE_MODE:
-            applied_rows = 0
+        applied_rows = state.applied_rows if write_mode == COMPANION_WRITE_MODE else 0
         skipped_rows = 0
         # Proof comes from the PRIOR stamps, resolved before this run overwrites its lane's.
-        proof_time = await self._earliest_completed_listing(resource_name, prior_stamps) if floor is not None else None
+        proof_time = (
+            await self._earliest_completed_listing(resource_name, state.stamps) if state.floor is not None else None
+        )
+        # The same question asked of this lane alone: a file it has already drained is one it can
+        # stop fetching, even while a slower lane keeps it undeleted.
+        own_proof = (
+            await self._completed_listing_time(state.stamps.get(resource_name)) if state.own_floor is not None else None
+        )
         await self._stamp_listing(resource_name, listed_at)
 
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
@@ -458,8 +514,15 @@ class CDCSourceManager:
             for file in files:
                 key = file.key
                 # The only place a buffer file is deleted — see _is_consumed for the proof.
-                if self._is_consumed(file.span.end_seq, file.modified, floor, proof_time):
+                if self._is_consumed(file.span.end_seq, file.modified, state.floor, proof_time):
                     await s3._rm(key)
+                    continue
+
+                # Same proof, this lane's own floor: it has committed everything in here, so fetching
+                # it again would re-apply rows it holds and bill for them, every tick until the
+                # slowest lane lets the file go. A file the append lane still owes rows at is never
+                # skipped, because `provable_position` keeps its own floor below that position.
+                if self._is_consumed(file.span.end_seq, file.modified, state.own_floor, own_proof):
                     continue
 
                 try:
@@ -472,8 +535,8 @@ class CDCSourceManager:
                     await self._logger.adebug("cdc_buffer_file_already_consumed", key=key)
                     continue
 
-                if applied_rows and applied_position is not None:
-                    table, skipped = self._drop_applied_prefix(table, applied_position, applied_rows)
+                if write_mode == COMPANION_WRITE_MODE and applied_position is not None:
+                    table, skipped = self._drop_applied_rows(table, applied_position, applied_rows)
                     applied_rows -= skipped
                     skipped_rows += skipped
 
