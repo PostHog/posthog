@@ -586,6 +586,7 @@ SPECTACULAR_SETTINGS = {
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardSavedViewScopeEnum": "products.dashboards.backend.models.dashboard_saved_view.DashboardSavedView.Scope",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
