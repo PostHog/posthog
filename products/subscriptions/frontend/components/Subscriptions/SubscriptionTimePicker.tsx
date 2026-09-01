@@ -43,7 +43,7 @@ export function SubscriptionTimePicker({
             value={selectedTime}
             onChange={(time) => {
                 const [hour, minute] = time.split(':').map(Number)
-                onChange(dayjs(value).hour(hour).minute(minute).second(0).millisecond(0).toISOString())
+                onChange(dayjs().hour(hour).minute(minute).second(0).toISOString())
             }}
         />
     )

@@ -230,6 +230,11 @@ export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> =
     { value: '-1', label: 'last' },
 ]
 
+export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
+    value: String(x),
+    label: `${x % 12 || 12}:00 ${x < 12 ? 'AM' : 'PM'}`,
+}))
+
 const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
     monday: RRule.MO,
     tuesday: RRule.TU,
@@ -247,9 +252,6 @@ const RRULE_FREQ_MAP: Record<string, number> = {
     yearly: RRule.YEARLY,
 }
 
-// Keep in sync with products/exports/backend/constants.py.
-const SUBSCRIPTION_MINIMUM_LEAD_MINUTES = 7
-
 // Client-side preview only — the authoritative next delivery date is computed
 // server-side in posthog/models/subscription.py (Subscription.set_next_delivery_date)
 export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Date | null {
@@ -264,7 +266,7 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
             bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
-        return rule.after(new Date(Date.now() + SUBSCRIPTION_MINIMUM_LEAD_MINUTES * 60 * 1000))
+        return rule.after(new Date())
     } catch {
         return null
     }

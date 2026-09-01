@@ -88,7 +88,7 @@ target_type: "email" | "slack"        # webhook is rejected for prompt subs
 target_value: "..."                   # comma-separated emails, or "<channel_id>|<channel_name>"
 frequency: "daily" | "weekly" | "monthly" | "yearly"
 interval: 1                            # 1 = every tick; 2 = every other tick; etc.
-start_date: "2026-09-15T09:30:00Z"   # anchors the recurrence + time-of-day; hour and half-hour slots are supported; need not be in the future
+start_date: "2026-09-15T09:00:00Z"   # anchors the recurrence + time-of-day; need not be in the future — the scheduler delivers the next occurrence
 title: "..."                          # display name in the subscriptions list
 ```
 
@@ -161,7 +161,7 @@ title: 'Daily onboarding watch'
   help; re-create it instead).
 - **`next_delivery_date` is server-computed from the rrule.** Don't try to set it
   manually — it's read-only. The first delivery fires at the first `start_date`
-  occurrence that is at least a short buffer (currently 7 minutes) in the future,
+  occurrence that is at least a short buffer (currently ~15 minutes) in the future,
   so a `start_date` only seconds ahead rolls to the next occurrence.
 - **Transient send failures retry; only permanent failures auto-disable.** A
   transient failure (Slack rate limit, SMTP blip, network) fails that delivery and

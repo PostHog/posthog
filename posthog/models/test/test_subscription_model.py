@@ -30,26 +30,6 @@ from products.product_analytics.backend.facade.models import Insight
 
 
 class TestSubscriptionScheduling:
-    @freeze_time("2026-09-01 09:20:00")
-    def test_next_delivery_uses_the_half_hour_cycle(self) -> None:
-        next_delivery_date = Subscription._compute_next_delivery_date(
-            frequency="daily",
-            interval=1,
-            start_date=datetime(2026, 9, 1, 9, 30, tzinfo=ZoneInfo("UTC")),
-        )
-
-        assert next_delivery_date == datetime(2026, 9, 1, 9, 30, tzinfo=ZoneInfo("UTC"))
-
-    @freeze_time("2026-09-01 09:23:59")
-    def test_next_delivery_keeps_a_commit_margin_for_schedules_with_seconds(self) -> None:
-        next_delivery_date = Subscription._compute_next_delivery_date(
-            frequency="daily",
-            interval=1,
-            start_date=datetime(2026, 9, 1, 9, 30, 59, tzinfo=ZoneInfo("UTC")),
-        )
-
-        assert next_delivery_date == datetime(2026, 9, 2, 9, 30, 59, tzinfo=ZoneInfo("UTC"))
-
     def test_weekly_schedule_ignores_stale_monthly_position(self) -> None:
         subscription = Subscription(
             frequency=Subscription.SubscriptionFrequency.WEEKLY,

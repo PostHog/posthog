@@ -2,7 +2,6 @@ from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
-    create_scheduled_delivery_record,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
@@ -36,7 +35,6 @@ ACTIVITIES = [
     generate_ai_subscription_report,
     advance_next_delivery_date,
     create_delivery_record,
-    create_scheduled_delivery_record,
     update_delivery_record,
     snapshot_subscription_insights,
 ]

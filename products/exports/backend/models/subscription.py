@@ -23,8 +23,6 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
-from products.exports.backend.constants import SUBSCRIPTION_MINIMUM_LEAD_MINUTES
-
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
@@ -302,8 +300,8 @@ class Subscription(ModelActivityMixin, models.Model):
             and start_date.strftime("%A").lower() not in byweekday
         ):
             return None
-        # Leave a small commit margin before the scheduler's fetch cutoff.
-        now = timezone.now() + timedelta(minutes=SUBSCRIPTION_MINIMUM_LEAD_MINUTES)
+        # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
+        now = timezone.now() + timedelta(minutes=15)
         return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
 
     @property
