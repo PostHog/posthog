@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import SafeRemoveIndexConcurrently
+
 
 class Migration(migrations.Migration):
     atomic = False
@@ -9,18 +11,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveIndex(
-                    model_name="schemapropertygroup",
-                    name="schema_pg_team_name_idx",
-                ),
-            ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql="DROP INDEX CONCURRENTLY IF EXISTS schema_pg_team_name_idx",
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
+        SafeRemoveIndexConcurrently(
+            model_name="schemapropertygroup",
+            name="schema_pg_team_name_idx",
         ),
     ]
