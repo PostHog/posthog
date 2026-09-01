@@ -1,9 +1,9 @@
 """
 DuckLake query-client surface for managed_warehouse.
 
-Connect to managed Trino, and compile and run queries against an org's duckgres server.
-This surface serves the endpoints shadow path, data-modeling materialization, and the
-duckling backfill.
+Connect to managed Trino, compile queries for managed DuckLake data, and run queries against
+an org's duckgres server. This surface serves the endpoints shadow path, data-modeling
+materialization, and the duckling backfill.
 
 Delegates to ``client`` at call time rather than re-exporting its functions: a bound
 re-export would freeze a copy that ``@patch`` on the source module never reaches. The
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         DuckLakeS3Secret,
         DuckLakeTableResult,
         ManagedWarehouseTrinoConnection,
+        TrinoCompiledQuery,
     )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
 
@@ -47,6 +48,7 @@ __all__ = [
     "ServiceCredentialUnavailable",
     "ManagedWarehouseTrinoConnectionUnavailable",
     "compile_hogql_to_ducklake_sql",
+    "compile_hogql_to_trino_sql",
     "connect_managed_warehouse_trino",
     "execute_ducklake_create_table",
     "execute_ducklake_query",
@@ -71,6 +73,27 @@ def connect_managed_warehouse_trino(organization_id: str) -> AbstractContextMana
     )
 
     return _connect_managed_warehouse_trino(organization_id)
+
+
+def compile_hogql_to_trino_sql(
+    team_id: int,
+    query: HogQLQuery,
+    *,
+    team: Team | None = None,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> TrinoCompiledQuery:
+    from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keep the optional compiler off startup paths
+        compile_hogql_to_trino_sql as _compile_hogql_to_trino_sql,
+    )
+
+    return _compile_hogql_to_trino_sql(
+        team_id,
+        query,
+        team=team,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
 
 
 def make_duckgres_conninfo(
