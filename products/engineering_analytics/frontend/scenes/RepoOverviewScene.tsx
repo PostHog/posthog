@@ -16,12 +16,11 @@ import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
-import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
-import { compactAgeLabel, compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
+import { compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { withCurrentScope, withScope } from '../lib/scope'
@@ -72,26 +71,6 @@ export function RepoOverviewScene(): JSX.Element {
 
     const asMinutes = (seconds: number | null | undefined): number | null => (seconds != null ? seconds / 60 : null)
 
-    // Cycle time is ready→merge wherever the backend can observe the draft/ready transitions. Without
-    // them it falls back to the coarse created→merged span and says so, rather than labelling one
-    // measure with the other's name.
-    const cycleTime =
-        overview?.median_ready_to_merge_seconds != null
-            ? {
-                  title: 'Median time from ready for review to merge',
-                  value: overview.median_ready_to_merge_seconds,
-                  previousValue: overview.median_ready_to_merge_seconds_prev,
-                  tooltip:
-                      'Median ready-for-review to merged time, bots and drafts excluded. Time as a draft is not counted.',
-              }
-            : {
-                  title: 'Median time from open to merge',
-                  value: overview?.median_open_to_merge_seconds,
-                  previousValue: overview?.median_open_to_merge_seconds_prev,
-                  tooltip:
-                      'Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused.',
-              }
-
     if (notConnected) {
         return <ConnectGitHubSource />
     }
@@ -111,15 +90,7 @@ export function RepoOverviewScene(): JSX.Element {
             <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
 
             {/* The PR backlog below the panel is current-state, not windowed. */}
-            <ScopePanel
-                busy={hubReloading}
-                controls={
-                    <>
-                        <SourceScopeChip pickerOnly />
-                        <ScopeDateFilter />
-                    </>
-                }
-            >
+            <ScopePanel busy={hubReloading}>
                 {/* The windowed headline metrics: each card compares this window against the previous
                         one directly (two values), not as a time series. CI cost is a window total, not a
                         rate, so its number lives on the Workflows section below. */}
@@ -150,17 +121,6 @@ export function RepoOverviewScene(): JSX.Element {
                         />
 
                         <WindowComparisonCard
-                            title={cycleTime.title}
-                            value={cycleTime.value}
-                            previousValue={cycleTime.previousValue}
-                            formatValue={compactHoursLabel}
-                            goodWhenDown
-                            loading={overviewPending}
-                            tooltip={cycleTime.tooltip}
-                            emptyText="No PRs merged in the window yet."
-                        />
-
-                        <WindowComparisonCard
                             title="CI cost per merged PR"
                             value={overview?.cost_per_merge_usd}
                             previousValue={overview?.cost_per_merge_usd_prev}
@@ -179,75 +139,13 @@ export function RepoOverviewScene(): JSX.Element {
                     </div>
                 </Section>
 
-                <Section id="merge-queue" title="Merge queue" busy={overviewLoading}>
-                    {overview &&
-                    overview.merge_queue_merged_pr_count === 0 &&
-                    overview.merge_queue_failed_or_cancelled_share == null ? (
-                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                            No merge queue activity in the window.
-                        </LemonCard>
-                    ) : (
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                            <WindowComparisonCard
-                                title="Median time in the merge queue"
-                                tooltip="From a PR's first merge queue gate run starting to the PR merging. Waiting before gate testing starts is not included. The tick marks the p90."
-                                value={overview?.merge_queue_median_first_gate_to_merge_seconds}
-                                previousValue={overview?.merge_queue_median_first_gate_to_merge_seconds_prev}
-                                formatValue={compactAgeLabel}
-                                goodWhenDown
-                                marker={overview?.merge_queue_p90_first_gate_to_merge_seconds}
-                                markerPrevious={overview?.merge_queue_p90_first_gate_to_merge_seconds_prev}
-                                markerLabel="p90"
-                                loading={overviewPending}
-                                emptyText="No queue-landed merges in the window."
-                            />
-                            <WindowComparisonCard
-                                title="Merges retried in the queue"
-                                tooltip="Share of queue-landed merges that needed more than one gate attempt. Bisection branches count toward the attempt they investigate."
-                                value={overview?.merge_queue_multi_attempt_merge_share}
-                                previousValue={overview?.merge_queue_multi_attempt_merge_share_prev}
-                                formatValue={percent}
-                                deltaUnit="pt"
-                                goodWhenDown
-                                loading={overviewPending}
-                                emptyText="No queue-landed merges in the window."
-                            />
-                            {overview?.merge_queue_trunk_available ? (
-                                <WindowComparisonCard
-                                    title="Left the queue unmerged"
-                                    tooltip="Share of concluded merge queue entries that ended failed or cancelled, from the queue's own records."
-                                    value={overview?.merge_queue_failed_or_cancelled_share}
-                                    previousValue={overview?.merge_queue_failed_or_cancelled_share_prev}
-                                    formatValue={(v) => percent(v, 1)}
-                                    deltaUnit="pt"
-                                    goodWhenDown
-                                    loading={overviewPending}
-                                    emptyText="No concluded queue entries in the window."
-                                />
-                            ) : (
-                                <WindowComparisonCard
-                                    title="Merges with a failed queue run"
-                                    tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
-                                    value={overview?.merge_queue_failed_gate_merge_share}
-                                    previousValue={overview?.merge_queue_failed_gate_merge_share_prev}
-                                    formatValue={percent}
-                                    deltaUnit="pt"
-                                    goodWhenDown
-                                    loading={overviewPending}
-                                    emptyText="No queue-landed merges in the window."
-                                />
-                            )}
-                        </div>
-                    )}
-                </Section>
-
                 <Section
                     id="master"
                     title={`${overviewDefaultBranch === 'main' ? 'Main' : 'Master'} health`}
                     busy={repoActivityLoading}
                 >
-                    {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict — the
-                    at-a-glance "is master healthy and fast lately" read without the full chart's weight. The
+                    {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict, so
+                    "is master healthy and fast lately" reads at a glance without the full chart's weight. The
                     full scatter (start-time axis, in-flight band, zoom) lives on the workflow page. */}
                     {hasEnoughRunActivity(activityRuns) ? (
                         <RunActivityMiniBars
@@ -257,7 +155,7 @@ export function RepoOverviewScene(): JSX.Element {
                             noun="commit"
                             onBarClick={(run) => {
                                 // Each bar is a whole commit (its workflows collapsed), so open the commit on
-                                // GitHub — all its checks — rather than one arbitrary workflow run.
+                                // GitHub with all its checks rather than one arbitrary workflow run.
                                 const [owner, repoName] = (activeSource?.repo || '').split('/')
                                 if (!run.headSha || !owner || !repoName) {
                                     return
@@ -319,7 +217,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 <Link
                                     to={
                                         // A bare link would reset the shared window / branch / repo scope (the filters
-                                        // logic re-hydrates from the URL on every route) — carry it, plus the source.
+                                        // logic re-hydrates from the URL on every route), so carry it, plus the source.
                                         withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
                                     }
                                 >
