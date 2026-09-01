@@ -480,6 +480,39 @@ class TestScoutReportAPI(APIBaseTest):
         assert queued_output_ids == [created["report_id"]]
         assert queued_before_autostart == [True]
 
+    def test_content_edit_survives_a_slack_status_read_failure(self) -> None:
+        # The status read that gates the Slack delivery runs after the edit has committed. A transient
+        # failure there must not fail the call or skip the side effects below it (autostart, the tally):
+        # only the delivery enqueue is best-effort. Degrade to skipping the enqueue and carry on.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with (
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+            patch(
+                "products.signals.backend.scout_harness.tools.report.get_scout_report_status",
+                side_effect=RuntimeError("db unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+            patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "summary": "Rewritten summary",
+                    "suggested_reviewers": [{"github_login": "octocat"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The read failed, so the delivery is skipped, but autostart and the run tally still ran.
+        queue.assert_not_called()
+        autostart.assert_awaited_once()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
+
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
         # which is what `maybe_autostart_from_report_artefacts` reads to open a draft PR. Repo is normalized.

@@ -1408,7 +1408,20 @@ def _do_edit_report(
         # its content to a configured destination. The delivery worker re-checks status at send time
         # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
         # and skips queueing work that would no-op.
-        report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
+        #
+        # The edit has already committed, so a transient failure on this read must not fail the call or
+        # skip the side effects below (repository inference, autostart, the tally) — same best-effort
+        # posture as the title read further down. Degrade to None, which the `is not None` guard treats
+        # as "don't enqueue"; the delivery is best-effort and `queue_configured_scout_slack_delivery`
+        # swallows its own failures anyway.
+        try:
+            report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
+        except Exception:
+            logger.warning(
+                "signals_scout.edit_report: failed to read report status for slack delivery",
+                extra={"team_id": team.id, "report_id": report_id},
+            )
+            report_status = None
         # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
         # touched only them has nothing to say in the channel — delivering it would post the report
         # a second time byte for byte.
