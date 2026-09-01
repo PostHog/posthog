@@ -470,6 +470,154 @@ describe('ConversationMessagesDisplay', () => {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
     })
+
+    it.each<[string, unknown, unknown, unknown, unknown, string | null]>([
+        [
+            'only output tokens were billed',
+            2048,
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'only reasoning tokens were billed',
+            undefined,
+            442,
+            undefined,
+            undefined,
+            'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+        ],
+        [
+            'reasoning matches the billed output exactly',
+            442,
+            442,
+            undefined,
+            undefined,
+            'The provider reported 442 output tokens but no content was captured. All of them may have been reasoning.',
+        ],
+        [
+            'reasoning exceeds the output count, so the output is missing content',
+            400,
+            500,
+            undefined,
+            undefined,
+            'The provider reported 400 output tokens and 500 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider reported the count as a string',
+            '512',
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 512 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider spelled the token limit in upper case',
+            2048,
+            undefined,
+            undefined,
+            'MAX_TOKENS',
+            'The provider reported 2,048 output tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the stop reason outranks the reasoning-token guess',
+            undefined,
+            442,
+            undefined,
+            'length',
+            'The provider reported 442 reasoning tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the provider blocked the response without billing anything',
+            0,
+            0,
+            undefined,
+            'PROHIBITED_CONTENT',
+            'The provider blocked the response.',
+        ],
+        [
+            'the stop reason describes a normal ending',
+            2048,
+            undefined,
+            undefined,
+            'end_turn',
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'reasoning is only a fraction of the billed output',
+            2048,
+            12,
+            undefined,
+            undefined,
+            'The provider reported 2,048 output tokens and 12 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'the text-token split says none of the output was text',
+            169,
+            56,
+            0,
+            undefined,
+            'The provider reported 169 output tokens and 56 reasoning tokens but no content was captured. None of them were text.',
+        ],
+        [
+            'the text-token split says text was billed too',
+            442,
+            442,
+            113,
+            undefined,
+            'The provider reported 442 output tokens and 442 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider hyphenated the stop reason',
+            2048,
+            undefined,
+            undefined,
+            'content-filter',
+            'The provider reported 2,048 output tokens but no content was captured. The provider blocked the response.',
+        ],
+        [
+            'an older SDK sent the count as an object',
+            { total: 10585, noCache: 10585, cacheRead: 0 },
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 10,585 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        ['the provider billed nothing', 0, 0, undefined, undefined, null],
+        ['no token counts arrived', undefined, undefined, undefined, undefined, null],
+    ])(
+        'empty output explains the gap when %s',
+        (_label, outputTokens, reasoningTokens, textOutputTokens, stopReason, expected) => {
+            const { container } = render(
+                <Provider>
+                    <ConversationMessagesDisplay
+                        inputNormalized={inputNormalized}
+                        outputNormalized={[]}
+                        errorData={null}
+                        raisedError={false}
+                        outputTokens={outputTokens}
+                        reasoningTokens={reasoningTokens}
+                        textOutputTokens={textOutputTokens}
+                        stopReason={stopReason}
+                    />
+                </Provider>
+            )
+
+            expect(screen.getByText('No output')).toBeInTheDocument()
+            const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
+            if (expected !== null) {
+                expect(explanation).toHaveTextContent(expected)
+                // The notice names a cause and the link carries the fix. A typo'd anchor dead-ends there.
+                expect(explanation!.querySelector('a')).toHaveAttribute(
+                    'href',
+                    'https://posthog.com/docs/ai-observability/troubleshooting#why-does-my-generation-show-no-output'
+                )
+            } else {
+                expect(explanation).toBeNull()
+            }
+        }
+    )
 })
 
 describe('ImageMessageDisplay', () => {

@@ -52,6 +52,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
     DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
 )
+from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -2001,7 +2002,7 @@ if settings.TEST:
         _clickhouse_pool_checkouts += 1
         return _original_chpool_get_client(self, *args, **kwargs)
 
-    ChPool.get_client = _counting_chpool_get_client
+    ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
 def reset_clickhouse_database() -> None:
@@ -2030,6 +2031,7 @@ def reset_clickhouse_database() -> None:
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[drop_sql() for drop_sql in DROP_CLEANUP_SNAPSHOT_TABLE_SQL],
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2152,6 +2154,7 @@ def reset_clickhouse_database() -> None:
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
             ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            *[table_sql() for table_sql in CLEANUP_SNAPSHOT_TABLE_SQL],
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),

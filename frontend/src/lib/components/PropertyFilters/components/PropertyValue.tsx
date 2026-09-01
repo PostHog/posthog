@@ -380,6 +380,7 @@ export function PropertyValue({
                 onChange={setValue}
                 max={10000}
                 isFixedDateMode
+                allowFutureRelativeDateOptions
                 dateOptions={[
                     {
                         key: 'Last 24 hours',
