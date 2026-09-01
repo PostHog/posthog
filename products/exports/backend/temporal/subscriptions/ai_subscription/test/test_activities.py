@@ -10,12 +10,17 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     DiagnosticCounts,
     _load_snapshot,
+    _parse_context_refs,
     _persist_ai_report,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportContext,
+    AiReportContexts,
+    AiReportDashboardContext,
+    AiReportInsightContext,
     AiReportResult,
     QueryStepDiagnostic,
 )
@@ -55,6 +60,23 @@ def _create_delivery(team, user) -> SubscriptionDelivery:
 @sync_to_async
 def _snapshot(delivery_id) -> dict:
     return SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
+
+
+@sync_to_async
+def _context_refs(delivery_id) -> list[str]:
+    return SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
+
+
+@parameterized.expand(
+    [
+        ("valid", ["dashboard:123", "insight:456"], ([123], [456])),
+        ("unknown kind", ["replay:123"], None),
+        ("invalid id", ["insight:not-an-id"], None),
+        ("missing separator", ["insight123"], None),
+    ]
+)
+async def test_parse_context_refs(_name, context_refs, expected) -> None:
+    assert _parse_context_refs(context_refs) == expected
 
 
 async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(team, user) -> None:
@@ -98,6 +120,74 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
     assert snapshot[AI_REPORT_CHARTS_KEY] == []
+
+
+async def test_persist_ai_report_writes_only_compact_context_provenance(team, user) -> None:
+    delivery = await _create_delivery(team, user)
+    result = AiReportResult(
+        markdown="# Weekly report",
+        window_end_utc=_WINDOW_END_UTC,
+        diagnostics=(),
+        context=AiReportContext(
+            contexts=AiReportContexts(
+                dashboards=(
+                    AiReportDashboardContext(
+                        id=123,
+                        name="Activation",
+                        insights=(
+                            AiReportInsightContext(
+                                id=987,
+                                name="Signup conversion",
+                                status="success",
+                            ),
+                        ),
+                    ),
+                ),
+                insights=(
+                    AiReportInsightContext(
+                        id=456,
+                        name="Account creation",
+                        status="truncated",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    await _persist_ai_report(delivery.id, result, prompt="full report prompt that must stay outside context")
+
+    snapshot = await _snapshot(delivery.id)
+    assert await _context_refs(delivery.id) == ["dashboard:123", "insight:987", "insight:456"]
+    assert snapshot["ai_report_context"] == {
+        "contexts": {
+            "dashboards": [
+                {
+                    "id": 123,
+                    "name": "Activation",
+                    "insights": [
+                        {
+                            "id": 987,
+                            "name": "Signup conversion",
+                            "status": "success",
+                        }
+                    ],
+                }
+            ],
+            "insights": [
+                {
+                    "id": 456,
+                    "name": "Account creation",
+                    "status": "truncated",
+                }
+            ],
+        },
+    }
+    persisted_context = str(snapshot["ai_report_context"])
+    assert "raw" not in persisted_context
+    assert "full report prompt" not in persisted_context
+    assert "formatted" not in persisted_context
+    assert "primary" not in persisted_context
+    assert "supporting" not in persisted_context
 
 
 async def test_persist_ai_report_writes_chart_references_not_images(team, user) -> None:

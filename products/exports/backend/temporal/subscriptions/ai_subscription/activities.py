@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import dataclasses
+from collections.abc import Collection
 from datetime import datetime
 
 from django.utils import timezone as tz
@@ -23,6 +24,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    creator_can_access_report_context,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
@@ -54,6 +58,7 @@ LOGGER = get_logger(__name__)
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
+AI_REPORT_CONTEXT_KEY = "ai_report_context"
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -68,6 +73,38 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
         return snapshot if isinstance(snapshot, dict) else None
 
     return await _read()
+
+
+def _parse_context_refs(context_refs: Collection[str]) -> tuple[list[int], list[int]] | None:
+    dashboard_ids: list[int] = []
+    insight_ids: list[int] = []
+    targets = {"dashboard": dashboard_ids, "insight": insight_ids}
+    for context_ref in context_refs:
+        kind, separator, raw_id = context_ref.partition(":")
+        try:
+            context_id = int(raw_id)
+        except ValueError:
+            return None
+        if separator != ":" or kind not in targets or context_id < 1:
+            return None
+        targets[kind].append(context_id)
+    return dashboard_ids, insight_ids
+
+
+def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
+    try:
+        context_refs = SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
+    except SubscriptionDelivery.DoesNotExist:
+        return False
+    parsed_refs = _parse_context_refs(context_refs)
+    if parsed_refs is None:
+        return False
+    dashboard_ids, insight_ids = parsed_refs
+    return creator_can_access_report_context(
+        subscription,
+        dashboard_ids=dashboard_ids,
+        insight_ids=insight_ids,
+    )
 
 
 def _snapshot_report(snapshot: dict | None) -> str | None:
@@ -120,10 +157,24 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
+            AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
-        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+        delivery.context_refs = list(
+            dict.fromkeys(
+                [
+                    *(f"dashboard:{dashboard.id}" for dashboard in result.context.contexts.dashboards),
+                    *(
+                        f"insight:{insight.id}"
+                        for dashboard in result.context.contexts.dashboards
+                        for insight in dashboard.insights
+                    ),
+                    *(f"insight:{insight.id}" for insight in result.context.contexts.insights),
+                ]
+            )
+        )
+        delivery.save(update_fields=["content_snapshot", "context_refs", "last_updated_at"])
 
     await _write()
 
@@ -307,7 +358,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
 
-    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
+    await _persist_ai_report(inputs.delivery_id, report_result, report_result.prompt)
     counts = _report_diagnostic_counts(report_result)
     return GenerateAIReportResult(
         aborted=False,
@@ -339,6 +390,13 @@ async def _deliver_ai_subscription(
         # report, so retrying just burns attempts — fail loud rather than ship an empty report.
         raise ApplicationError(
             f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
+            non_retryable=True,
+        )
+    if not await database_sync_to_async(_creator_can_access_delivery_context, thread_sensitive=False)(
+        subscription, delivery_id
+    ):
+        raise ApplicationError(
+            f"AI report context is no longer accessible for subscription {subscription.id}",
             non_retryable=True,
         )
 
