@@ -177,6 +177,10 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 # practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
 SCOUT_USER_WRITE_SCOPES: list[str] = [
     "notebook:write",
+    # Suggesting a workflow change, which a person then approves or rejects. Deliberately not
+    # `hog_flow:write`: that also publishes, updates and test-sends a workflow, so an autonomous run
+    # holding it could put mail in front of real people. This scope can only queue a suggestion.
+    "hog_flow_proposal:write",
 ]
 
 
