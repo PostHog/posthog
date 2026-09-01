@@ -3,11 +3,12 @@ import { IconPieChart } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { RestrictionScope } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { WebVitalsPreview } from './WebVitalsPreview'
 import { webVitalsSetupLogic } from './webVitalsSetupLogic'
@@ -44,9 +45,10 @@ export const webVitalsEmptyState: SceneProductEmptyState = {
                 onClick: () => {
                     teamLogic.findMounted()?.actions.updateCurrentTeam({ autocapture_web_vitals_opt_in: true })
                 },
-                accessControl: {
-                    resourceType: AccessControlResourceType.WebAnalytics,
-                    minAccessLevel: AccessControlLevel.Editor,
+                // Same gate as the settings toggle that writes this field.
+                restriction: {
+                    scope: RestrictionScope.Project,
+                    minimumAccessLevel: TeamMembershipLevel.Admin,
                 },
                 // pinned: Playwright and autocapture dashboards select the old enable button by this attr
                 dataAttr: 'web-vitals-enable',
