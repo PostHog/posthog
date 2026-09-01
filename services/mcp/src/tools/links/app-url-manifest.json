@@ -1174,6 +1174,11 @@
         "params": [],
         "scope": "global"
     },
+    "organizationBillingRealTimeUsage": {
+        "template": "/organization/billing/real-time-usage",
+        "params": [],
+        "scope": "global"
+    },
     "organizationBillingSection": {
         "template": "/organization/billing/overview",
         "params": [],
