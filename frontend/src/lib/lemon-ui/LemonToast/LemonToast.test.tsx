@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, within } from '@testing-library/react'
 
+import { resetGetHelpAction, setGetHelpAction } from './getHelp'
 import { GET_HELP_BUTTON, ToastContent, withClickableUrls } from './LemonToast'
 
 describe('LemonToast', () => {
@@ -10,6 +11,40 @@ describe('LemonToast', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         Object.assign(navigator, { clipboard: { writeText } })
+    })
+
+    afterEach(() => {
+        resetGetHelpAction()
+        jest.restoreAllMocks()
+    })
+
+    // "Get help" has to reach support where the person already is. Sending them to posthog.com
+    // instead drops the error, the scene, and everything else that made the toast worth acting on.
+    it('runs the registered get-help action rather than opening posthog.com', () => {
+        const openSupport = jest.fn()
+        setGetHelpAction(openSupport)
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+
+        const { container } = render(
+            <ToastContent type="error" message="Load experiment failed" button={GET_HELP_BUTTON} />
+        )
+        fireEvent.click(within(container).getByText('Get help'))
+
+        expect(openSupport).toHaveBeenCalledTimes(1)
+        expect(windowOpen).not.toHaveBeenCalled()
+    })
+
+    // The toolbar and the exporter render toasts but have no support form to open, so they keep
+    // the posthog.com fallback.
+    it('falls back to the support page when nothing is registered', () => {
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+
+        const { container } = render(
+            <ToastContent type="error" message="Load experiment failed" button={GET_HELP_BUTTON} />
+        )
+        fireEvent.click(within(container).getByText('Get help'))
+
+        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/support'), '_blank')
     })
 
     // The copy button reads the rendered message out of the DOM, so it copies whatever sits inside the

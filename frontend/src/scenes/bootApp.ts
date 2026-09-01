@@ -1,3 +1,4 @@
+import { registerToastGetHelp } from 'lib/components/Support/registerToastGetHelp'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -27,6 +28,9 @@ export function bootApp(): void {
     // Link resolves its drag-to-notebook behavior through a seam so bundles without
     // notebooks (toolbar, exporter) don't ship them; the app opts in here
     registerNotebookLinkDrag()
+    // Same seam for the error toast's "Get help" button: the app opens support in place, the
+    // toolbar and exporter keep sending people to posthog.com/support
+    registerToastGetHelp()
 
     const idle =
         typeof window.requestIdleCallback === 'function'
