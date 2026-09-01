@@ -92,7 +92,7 @@ async fn async_main(config: Config) -> Result<()> {
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating cohort-seeder PostgreSQL pool")?;
     let clickhouse_client = build_client(&config).context("building ClickHouse client")?;
-    let scanner = ChunkScanner::new(clickhouse_client.clone());
+    let scanner = ChunkScanner::new(clickhouse_client.clone(), config.team_allowlist.clone());
     let producer = SeedTileProducer::new(
         &config.build_kafka_config(),
         config.seed_events_topic.clone(),
