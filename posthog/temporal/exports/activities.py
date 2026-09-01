@@ -9,8 +9,12 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.exports.retry_policy import EXPORT_MAX_ATTEMPTS
-from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, export_failure_metadata
+from posthog.temporal.exports.types import (
+    ExportAssetActivityInputs,
+    ExportAssetResult,
+    RecordExportFailureInputs,
+    export_failure_metadata,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
@@ -64,7 +68,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 )
             exception_class = type(e).__name__
             is_retryable = exception_class in RETRYABLE_ERROR_NAMES
-            if not is_retryable or temporalio.activity.info().attempt >= EXPORT_MAX_ATTEMPTS:
+            if not is_retryable:
                 await database_sync_to_async(exporter._record_export_failure, thread_sensitive=False)(asset, e)
             error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(
@@ -94,3 +98,11 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             exported_asset_id=asset.id,
             success=asset.has_content,
         )
+
+
+@temporalio.activity.defn
+def record_export_failure_activity(inputs: RecordExportFailureInputs) -> None:
+    asset = ExportedAsset.objects_including_ttl_deleted.get(pk=inputs.exported_asset_id)
+    if asset.exception:
+        return
+    exporter._record_export_failure(asset, inputs.exception, inputs.exception_type)
