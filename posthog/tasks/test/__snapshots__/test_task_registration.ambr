@@ -38,7 +38,6 @@
     'posthog.tasks.email.send_email_sending_reputation_finding',
     'posthog.tasks.email.send_email_sending_suspended',
     'posthog.tasks.email.send_email_sending_unsuspended',
-    'posthog.tasks.email.send_email_verification',
     'posthog.tasks.email.send_email_verification_code',
     'posthog.tasks.email.send_error_tracking_issue_assigned',
     'posthog.tasks.email.send_error_tracking_weekly_digest',
