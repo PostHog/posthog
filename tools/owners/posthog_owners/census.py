@@ -37,6 +37,15 @@ class TeamTestCensus:
     def test_file_count(self) -> int:
         return self.pytest_file_count + self.jest_file_count
 
+    def as_payload(self) -> dict[str, int | str]:
+        """The wire shape shared by ``owners:census --json`` and the census events."""
+        return {
+            "owner_team": self.owner_team,
+            "pytest_file_count": self.pytest_file_count,
+            "jest_file_count": self.jest_file_count,
+            "test_file_count": self.test_file_count,
+        }
+
 
 def census(paths: Iterable[str], repo_root: Path) -> list[TeamTestCensus]:
     """Count test files per owning team over repo-relative ``paths``, most tests first.

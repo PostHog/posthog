@@ -297,10 +297,14 @@ def normalize_jest_file(file: str, jest_root: str = "frontend") -> str:
     mangles the path or drops the file as un-normalizable, so the root follows the
     artifact's suite.
     """
+    return _normalize_repo_file(file, jest_root)
+
+
+def _normalize_repo_file(file: str, root: str) -> str:
     if not file:
         return ""
-    normalized = posixpath.normpath(posixpath.join(jest_root, file.replace("\\", "/")))
-    if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+    normalized = posixpath.normpath(posixpath.join(root, file.replace("\\", "/")))
+    if normalized == ".." or normalized.startswith(("../", "/")):
         return ""
     return normalized
 
@@ -321,12 +325,7 @@ def normalize_pytest_file(file: str) -> str:
     (``../../../opt/.../unittest/mock.py``). Such a path can never resolve an owner, so it is
     discarded here and the caller falls back to inferring the file from the JUnit classname.
     """
-    if not file:
-        return ""
-    normalized = posixpath.normpath(file.replace("\\", "/"))
-    if normalized == ".." or normalized.startswith(("../", "/")):
-        return ""
-    return normalized
+    return _normalize_repo_file(file, ".")
 
 
 def infer_pytest_file(classname: str) -> str:

@@ -69,20 +69,7 @@ def cmd_census(as_json: bool, prefix: str | None) -> None:
     resolver = OwnersResolver()
     rows = census(resolver.tracked_files(prefix), resolver.repo_root)
     if as_json:
-        click.echo(
-            json.dumps(
-                [
-                    {
-                        "owner_team": row.owner_team,
-                        "pytest_file_count": row.pytest_file_count,
-                        "jest_file_count": row.jest_file_count,
-                        "test_file_count": row.test_file_count,
-                    }
-                    for row in rows
-                ],
-                indent=2,
-            )
-        )
+        click.echo(json.dumps([row.as_payload() for row in rows], indent=2))
         return
     for row in rows:
         click.echo(
