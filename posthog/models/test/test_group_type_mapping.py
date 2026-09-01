@@ -708,6 +708,15 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_client.update_group_type_mapping.assert_not_called()
         mock_invalidate.assert_not_called()
 
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch(_CLIENT_PATCH)
+    def test_unconfigured_client_is_a_no_op(self, mock_get_client, mock_invalidate):
+        mock_get_client.return_value = None
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+
+        mock_invalidate.assert_not_called()
+
 
 # ── Terminal-failure hardening tests ──────────────────────────────────
 
