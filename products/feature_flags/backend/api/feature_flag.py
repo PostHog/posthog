@@ -3493,14 +3493,20 @@ class FeatureFlagViewSet(
     # Lifecycle actions — the typed, single-purpose alternative to PATCH for the two state
     # fields. Each one changes only `active` and/or `archived`. None of them accepts or
     # rewrites `filters`, so a caller no longer reads the flag, mutates one field, and sends
-    # the whole targeting object back (which silently overwrites concurrent edits).
+    # the whole targeting object back.
+    #
+    # That shrinks the lost-update window; it does not close it. The serializer saves the
+    # instance get_object() loaded, and Django writes every column, so an edit committed
+    # between that read and the save is still reverted. A version-sending PATCH has the same
+    # hole: the conflict check only fires when the caller's own fields overlap. What these
+    # endpoints remove is the caller-held read, which spans as long as the caller takes
+    # rather than the inside of one request.
     #
     # Each routes through the flag facade, which writes through FeatureFlagSerializer — the
     # same path PATCH uses, so the approval gate, the dependency guards, cache invalidation
     # and activity logging all apply. The write bumps `version` under a row lock, but the
     # stale-write conflict check does not run: it compares a caller-supplied `version`, and
-    # these endpoints take no body. They only ever write the two state fields, so there is no
-    # stale read to protect.
+    # these endpoints take no body.
     #
     # A flag already in the requested state is a successful no-op with no write, so a retry
     # cannot bump the version or log a change that did not happen.
