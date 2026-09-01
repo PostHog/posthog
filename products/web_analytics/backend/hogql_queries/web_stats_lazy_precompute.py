@@ -42,6 +42,10 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     web_ensure_precomputed,
 )
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    owns_shape as frustration_owns_shape,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import owns_shape as paths_owns_shape
 
 _FAMILY = "web_stats"
 
@@ -197,6 +201,11 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web stats
     table query — the shared web analytics gate plus stats-specific checks."""
     if runner._effective_breakdown() != runner.query.breakdownBy:
+        return False
+    # The paths and frustration gates run before this one and record why they declined. This gate's
+    # own reasons describe the simple-breakdown table's schema, so recording one for a shape another
+    # family owns replaces their reason with a restatement of the query shape.
+    if paths_owns_shape(runner.query) or frustration_owns_shape(runner.query):
         return False
     return _can_use_lazy_precompute_shared(runner, log_prefix="web_stats", extra_check=_check_stats_eligible)
 

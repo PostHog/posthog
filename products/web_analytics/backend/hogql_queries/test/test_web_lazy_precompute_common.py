@@ -18,6 +18,8 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebStatsBreakdown,
@@ -62,6 +64,15 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    can_use_lazy_precompute as can_use_frustration_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_paths_lazy_precompute,
+)
 from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
@@ -192,6 +203,66 @@ class TestEligibilityReasonTagging(BaseTest):
         log_eligibility_outcome(log_prefix="web_stats_table", team_id=self.team.pk, error=DateRangeOverMax(120))
 
         assert lazy_precompute_ineligible_reason(strategy) is None
+
+    @parameterized.expand(
+        [
+            (
+                "paths owns page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                    includeAvgTimeOnPage=True,
+                ),
+                "AvgTimeOnPageUnsupported",
+            ),
+            (
+                "frustration owns its own breakdown",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.FRUSTRATION_METRICS,
+                    orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
+                ),
+                "UnsupportedOrderBy",
+            ),
+        ]
+    )
+    def test_the_owning_familys_reason_survives_the_other_stats_gates(
+        self, _name: str, query: WebStatsTableQuery, expected_reason: str
+    ) -> None:
+        # A stats-table read consults all three gates in turn, and two of them can never serve the
+        # shape. Only the owning gate's reason says why the read went live, so a gate that declines
+        # on shape alone must leave it alone. Each shape here is picked so the other two gates would
+        # report something different, which is what makes the assertion bite.
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert not can_use_paths_lazy_precompute(runner)
+            assert not can_use_frustration_lazy_precompute(runner)
+            assert not can_use_stats_lazy_precompute(runner)
+
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == expected_reason
+
+    def test_a_shape_no_family_owns_still_reports_its_own_reason(self) -> None:
+        # No family serves PreviousPage, so the simple-breakdown gate owns the shape and its reason
+        # is the answer. Suppressing shape mismatches must not swallow a real coverage gap.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="-7d"),
+                properties=[],
+                breakdownBy=WebStatsBreakdown.PREVIOUS_PAGE,
+            ),
+        )
+
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert not can_use_paths_lazy_precompute(runner)
+            assert not can_use_frustration_lazy_precompute(runner)
+            assert not can_use_stats_lazy_precompute(runner)
+
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "UnsupportedBreakdown"
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):

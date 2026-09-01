@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter, Histogram
 
-from posthog.schema import HogQLQueryModifiers, WebAnalyticsOrderByFields, WebStatsBreakdown
+from posthog.schema import HogQLQueryModifiers, WebAnalyticsOrderByFields, WebStatsBreakdown, WebStatsTableQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -31,6 +31,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
+    FamilyShapeMismatch,
     LazyPrecomputeIneligible,
     ceil_utc_day,
     check_common_eligibility,
@@ -90,7 +91,7 @@ WEB_STATS_FRUSTRATION_LAZY_ROWS = Histogram(
 )
 
 
-class WrongBreakdown(LazyPrecomputeIneligible):
+class WrongBreakdown(FamilyShapeMismatch, LazyPrecomputeIneligible):
     pass
 
 
@@ -119,6 +120,15 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
         return False
     log_eligibility_outcome(log_prefix="web_stats_frustration_lazy_precompute", team_id=runner.team.pk, error=None)
     return True
+
+
+def owns_shape(query: WebStatsTableQuery) -> bool:
+    """Whether the FRUSTRATION family is the one that should serve this query shape.
+
+    Mirrors the breakdown check at the top of `_check_eligible`. The simple-breakdown gate reads
+    this to know the shape is already spoken for.
+    """
+    return query.breakdownBy == WebStatsBreakdown.FRUSTRATION_METRICS
 
 
 def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:

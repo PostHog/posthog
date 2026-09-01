@@ -22,6 +22,7 @@ from posthog.schema import (
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
+    WebStatsTableQuery,
 )
 
 from posthog.hogql import ast
@@ -42,6 +43,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
+    FamilyShapeMismatch,
     LazyPrecomputeIneligible,
     ceil_utc_day,
     check_common_eligibility,
@@ -102,11 +104,11 @@ WEB_STATS_PATHS_LAZY_ROWS = Histogram(
 )
 
 
-class WrongBreakdown(LazyPrecomputeIneligible):
+class WrongBreakdown(FamilyShapeMismatch, LazyPrecomputeIneligible):
     pass
 
 
-class MissingBounceRate(LazyPrecomputeIneligible):
+class MissingBounceRate(FamilyShapeMismatch, LazyPrecomputeIneligible):
     pass
 
 
@@ -143,6 +145,17 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
         return False
     log_eligibility_outcome(log_prefix="web_stats_paths_lazy_precompute", team_id=runner.team.pk, error=None)
     return True
+
+
+def owns_shape(query: WebStatsTableQuery) -> bool:
+    """Whether the PATHS family is the one that should serve this query shape.
+
+    Mirrors the shape checks at the top of `_check_eligible`. The simple-breakdown gate reads this
+    to know the shape is already spoken for.
+    """
+    return query.breakdownBy in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE) and bool(
+        query.includeBounceRate
+    )
 
 
 def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
