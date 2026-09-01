@@ -7,7 +7,7 @@ a data-import job or a view materialization, outside request context, so it scop
 Both resolvers are the feature's pipeline choke point: they return None when the
 ``warehouse-person-properties`` rollout flag is off for the team's organization, which switches
 off staging, the post-run workflow gate, and the upsert in one place. The flag is only evaluated
-once a binding is confirmed to have enabled person sources, so unconfigured tables and views (the
+once a binding is confirmed to have enabled profile sources, so unconfigured tables and views (the
 vast majority of runs) never pay a flag-service call.
 """
 
