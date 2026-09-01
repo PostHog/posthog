@@ -176,7 +176,7 @@ describe('notebookKernelInfoLogic', () => {
             status: 'running',
             cpu_cores: 4,
             memory_gb: 8,
-            next_hourly_price: 1,
+            hourly_price: 1,
         })
         logic = notebookKernelInfoLogic({ shortId: 'price-fallback-01890abc', mode: 'notebook' })
         logic.mount()
@@ -187,6 +187,22 @@ describe('notebookKernelInfoLogic', () => {
         // Move it, and we can no longer honestly quote anything.
         logic.actions.setMemoryGb(16)
         expect(logic.values.selectedHourlyPrice).toBeNull()
+    })
+
+    test('does not restart again when the server already did', async () => {
+        // A resize restarts the kernel server-side. Restarting again would tear down the sandbox
+        // that was just built for the new shape.
+        const configSpy = jest.spyOn(api.notebooks, 'kernelConfig').mockResolvedValue({ restarted: true })
+        const restartSpy = jest.spyOn(api.notebooks, 'kernelRestart').mockResolvedValue({})
+        logic = notebookKernelInfoLogic({ shortId: 'no-double-restart-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.saveKernelConfig({ cpu_cores: 4, memory_gb: 8 }, 'restart')
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(configSpy).toHaveBeenCalled()
+        expect(restartSpy).not.toHaveBeenCalled()
     })
 
     test('a shared notebook issues no team-scoped kernel requests', async () => {
