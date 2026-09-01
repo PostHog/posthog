@@ -44,9 +44,9 @@ logic here: the harness is for whole-stack behavior only.
   kill, etcd lease revocation, per-service env. New disruptions are new
   methods here.
 - `src/scenarios/merge.rs` — the merge lane (`--merge-concurrency`): MergePersons
-  calls against pairs of live persons while the other lanes write to them.
-  Merged sources fold into the survivor's journal and are retired from the
-  shared `src/pool.rs` target pool.
+  calls with one or more sources (`--merge-sources`) against live persons while
+  the other lanes write to them. Merged sources hang off the survivor in the
+  journal tree and are retired from the shared `src/pool.rs` target pool.
 - `src/state.rs` — the acked-write journal and its verifiers. New invariants go
   here, and their decision tables get unit tests: a false-negative verifier
   looks identical to a healthy stack, so e2e runs cannot reveal it.

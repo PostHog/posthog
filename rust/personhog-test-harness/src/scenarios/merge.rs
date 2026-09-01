@@ -1,15 +1,16 @@
-//! The merge lane: MergePersons calls against random pairs of live
-//! persons while the blast writers and probers keep writing to both.
+//! The merge lane: MergePersons calls against random live persons while
+//! the blast writers and probers keep writing to all of them.
 //!
-//! Every pair is two distinct live persons. Thus every call that settles
-//! as `merged` ran the durable saga end to end (fence, seal, fold, flip,
-//! release) with writes racing the source's fence and the target's fold.
-//! A source distinct id is reserved for one in-flight call and is never
-//! reused after a merge, so the journal always knows which person died.
-//! Targets are shared, so two calls can contend for one person and
-//! exercise the saga's conflict settlements.
+//! Every call names one target and one or more distinct live sources.
+//! Thus every source that settles as `merged` ran the durable saga end
+//! to end (fence, seal, fold, flip, release) with writes racing the
+//! source's fence and the target's fold. A source distinct id is reserved
+//! for one in-flight call and is never reused after a merge, so the
+//! journal always knows which person died. Targets are shared, so two
+//! calls can contend for one person and exercise the saga's conflict
+//! settlements.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,7 +28,8 @@ use crate::client::{HarnessClient, IdentityClient};
 use crate::pool::TargetPool;
 use crate::report::ConsistencyViolation;
 use crate::scenarios::blast::{is_not_found, per_worker_tick};
-use crate::state::PersonState;
+use crate::scenarios::gate::SEED_KEY;
+use crate::state::{MergeAck, PersonState};
 use crate::stats::StatsCollector;
 
 /// Attempts per merge call under one op id. A retry under the same op id
@@ -36,11 +38,20 @@ use crate::stats::StatsCollector;
 const MERGE_ATTEMPTS: u32 = 3;
 const MERGE_RETRY_BACKOFF: Duration = Duration::from_millis(500);
 
+/// The `$set_once` value that must never land: it is sent for keys the
+/// survivor already holds, so the fold's set-once tier has to leave
+/// them alone.
+const SET_ONCE_LOSER: &str = "harness_set_once_must_not_win";
+
 pub struct MergeLane {
     pub team_id: i64,
     pub concurrency: usize,
     /// Combined target rate across the workers. Unset runs flat out.
     pub rate_per_sec: Option<f64>,
+    /// Sources per call. The leader folds several sealed sources in
+    /// request order, and only a call with more than one source
+    /// exercises that ordering.
+    pub sources_per_call: usize,
     pub allow_identified_sources: bool,
     pub move_limit: i64,
     /// Persons created with many distinct ids. Workers prefer a wide
@@ -72,11 +83,12 @@ impl WideRole {
 /// run anyway. The op record decides, see [`settle_unresolved`].
 pub struct UnresolvedMerge {
     pub op_id: uuid::Uuid,
-    pub source: i64,
-    /// The merge event's `$set` key and value. Journaled on the survivor
-    /// if the op record says the merge ran.
-    pub key: String,
-    pub value: serde_json::Value,
+    /// The sources, as person id and distinct id, in request order.
+    pub sources: Vec<(i64, String)>,
+    /// The merge event's `$set` and `$set_once`. Journaled on the
+    /// survivor if the op record says the merge ran.
+    pub set: HashMap<String, serde_json::Value>,
+    pub set_once: HashMap<String, serde_json::Value>,
 }
 
 pub struct MergeLaneResult {
@@ -84,9 +96,43 @@ pub struct MergeLaneResult {
     pub unresolved: Vec<UnresolvedMerge>,
 }
 
+/// The merge event's property writes for one call. Three `$set_once`
+/// keys cover the fold's set-once tier: a fresh key it must fill, the
+/// `$set` key it must lose to, and the seed key every person holds, which
+/// it must leave alone.
+struct MergeEvent {
+    set: HashMap<String, serde_json::Value>,
+    set_once: HashMap<String, serde_json::Value>,
+}
+
+impl MergeEvent {
+    fn new(op_id: &uuid::Uuid) -> Self {
+        let op = json!(op_id.to_string());
+        let loser = json!(SET_ONCE_LOSER);
+        Self {
+            set: HashMap::from([(format!("harness_merge_{op_id}"), op.clone())]),
+            set_once: HashMap::from([
+                (format!("harness_merge_once_{op_id}"), op),
+                (format!("harness_merge_{op_id}"), loser.clone()),
+                (SEED_KEY.to_string(), loser),
+            ]),
+        }
+    }
+
+    /// The keys the survivor document must carry after the fold, with
+    /// their values.
+    fn expected(&self) -> impl Iterator<Item = (&String, &serde_json::Value)> {
+        self.set.iter().chain(
+            self.set_once
+                .iter()
+                .filter(|(_, value)| value.as_str() != Some(SET_ONCE_LOSER)),
+        )
+    }
+}
+
 /// Drive merges until the deadline. Every `merged` ack is journaled into
-/// `state` and the destroyed source leaves `pool`. Returns the violations
-/// observed live: a survivor without the merge's own write, a merged
+/// `state` and the destroyed sources leave `pool`. Returns the violations
+/// observed live: a survivor without the merge event's writes, a merged
 /// source that still reads as alive, or an ack with no survivor.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_merges(
@@ -104,9 +150,8 @@ pub async fn run_merges(
     let worker_tick = lane
         .rate_per_sec
         .map(|rate| per_worker_tick(rate, lane.concurrency));
-    let wide: Arc<std::collections::HashSet<i64>> =
-        Arc::new(lane.wide_persons.iter().copied().collect());
-    // The eligible set excludes the wide persons so an ordinary pair
+    let wide: Arc<HashSet<i64>> = Arc::new(lane.wide_persons.iter().copied().collect());
+    // The eligible set excludes the wide persons so an ordinary pick
     // cannot spend a wide source.
     let eligible = Arc::new(Mutex::new(
         pool.snapshot()
@@ -139,8 +184,12 @@ pub async fn run_merges(
         let collector = collector.clone();
         let state = state.clone();
         let stop = stop.clone();
-        let (team_id, allow_identified_sources, move_limit) =
-            (lane.team_id, lane.allow_identified_sources, lane.move_limit);
+        let (team_id, allow_identified_sources, move_limit, sources_per_call) = (
+            lane.team_id,
+            lane.allow_identified_sources,
+            lane.move_limit,
+            lane.sources_per_call.max(1),
+        );
 
         handles.push(tokio::spawn(async move {
             let mut rng = rand::rngs::StdRng::from_entropy();
@@ -151,6 +200,15 @@ pub async fn run_merges(
             });
             let mut violations = Vec::new();
             let mut unresolved = Vec::new();
+            // A source goes back to the set it was reserved from when the
+            // call leaves it alive.
+            let release = |source: i64| {
+                if wide.contains(&source) {
+                    wide_sources.lock().unwrap().push(source);
+                } else {
+                    eligible.lock().unwrap().push(source);
+                }
+            };
 
             while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
                 if let Some(pacer) = pacer.as_mut() {
@@ -159,7 +217,7 @@ pub async fn run_merges(
                 let picked =
                     pick_wide_pair(&wide_sources, &wide_targets, &eligible, &pool, &mut rng)
                         .or_else(|| pick_pair(&eligible, &pool, &mut rng));
-                let Some((source, target)) = picked else {
+                let Some((first_source, target)) = picked else {
                     // Fewer than two live persons remain, or every
                     // source is reserved.
                     if pool.len() < 2 {
@@ -168,16 +226,25 @@ pub async fn run_merges(
                     sleep(Duration::from_millis(200)).await;
                     continue;
                 };
-                let (Some(source_did), Some(target_did)) =
-                    (distinct_ids.get(&source), distinct_ids.get(&target))
-                else {
+                let mut sources = vec![first_source];
+                reserve_more_sources(&eligible, &mut sources, target, sources_per_call, &mut rng);
+                let Some(target_did) = distinct_ids.get(&target) else {
                     unreachable!("every pooled person was created with a distinct id");
                 };
+                let source_dids: Vec<String> = sources
+                    .iter()
+                    .map(|source| {
+                        distinct_ids.get(source).cloned().unwrap_or_else(|| {
+                            unreachable!("every pooled person was created with a distinct id")
+                        })
+                    })
+                    .collect();
 
-                state.mark_merge_pending(source).await;
+                for &source in &sources {
+                    state.mark_merge_pending(source).await;
+                }
                 let op_id = uuid::Uuid::new_v4();
-                let key = format!("harness_merge_{op_id}");
-                let value = serde_json::Value::String(op_id.to_string());
+                let event = MergeEvent::new(&op_id);
 
                 let start = Instant::now();
                 let mut attempt = 0;
@@ -187,8 +254,9 @@ pub async fn run_merges(
                         .merge_persons(
                             team_id,
                             target_did,
-                            std::slice::from_ref(source_did),
-                            json!({ &key: &value }),
+                            &source_dids,
+                            json!(event.set),
+                            json!(event.set_once),
                             &op_id,
                             allow_identified_sources,
                             move_limit,
@@ -198,7 +266,7 @@ pub async fn run_merges(
                         Ok(response) => break Some(response),
                         Err(e) if attempt < MERGE_ATTEMPTS => {
                             tracing::warn!(
-                                source,
+                                ?sources,
                                 target,
                                 attempt,
                                 error = format!("{e:#}"),
@@ -208,17 +276,18 @@ pub async fn run_merges(
                         }
                         Err(e) => {
                             tracing::warn!(
-                                source,
+                                ?sources,
                                 target,
                                 error = format!("{e:#}"),
-                                "merge call failed on every attempt; source outcome unknown"
+                                "merge call failed on every attempt; source outcomes unknown"
                             );
                             break None;
                         }
                     }
                 };
 
-                let recorder = if wide.contains(&source) || wide.contains(&target) {
+                let recorder = if wide.contains(&target) || sources.iter().any(|s| wide.contains(s))
+                {
                     &collector.wide_merges
                 } else {
                     &collector.merges
@@ -227,104 +296,127 @@ pub async fn run_merges(
                     recorder.record_failure();
                     // The saga is durable, and the sweeper re-drives
                     // abandoned ops. The call can still destroy the
-                    // source after this failure. The op record settles
-                    // it after traffic. Until then the source stays
+                    // sources after this failure. The op record settles
+                    // them after traffic. Until then every source stays
                     // reserved and takes no more traffic.
-                    state.record_merge_uncertain(source).await;
-                    pool.remove(source);
+                    for &source in &sources {
+                        state.record_merge_uncertain(source).await;
+                        pool.remove(source);
+                    }
                     unresolved.push(UnresolvedMerge {
                         op_id,
-                        source,
-                        key,
-                        value,
+                        sources: sources.iter().copied().zip(source_dids).collect(),
+                        set: event.set,
+                        set_once: event.set_once,
                     });
                     continue;
                 };
                 recorder.record_success(start.elapsed());
 
-                let source_outcome = response
-                    .results
-                    .iter()
-                    .find(|r| r.source_distinct_id == *source_did)
-                    .map(|r| r.outcome())
-                    .unwrap_or(MergeSourceOutcome::Unspecified);
-                collector.record_merge_outcome(outcome_name(source_outcome));
-
-                if source_outcome != MergeSourceOutcome::Merged {
-                    // Every outcome except merged leaves the source alive.
-                    state.clear_merge_pending(source).await;
-                    if wide.contains(&source) {
-                        wide_sources.lock().unwrap().push(source);
+                let mut merged = Vec::new();
+                for (&source, source_did) in sources.iter().zip(&source_dids) {
+                    let outcome = response
+                        .results
+                        .iter()
+                        .find(|r| r.source_distinct_id == *source_did)
+                        .map(|r| r.outcome())
+                        .unwrap_or(MergeSourceOutcome::Unspecified);
+                    collector.record_merge_outcome(outcome_name(outcome));
+                    if outcome == MergeSourceOutcome::Merged {
+                        merged.push(source);
                     } else {
-                        eligible.lock().unwrap().push(source);
+                        // Every outcome except merged leaves the source alive.
+                        state.clear_merge_pending(source).await;
+                        release(source);
                     }
+                }
+                if merged.is_empty() {
                     continue;
                 }
 
                 let Some(survivor) = response.survivor else {
-                    violations.push(ConsistencyViolation {
-                        person_id: source,
-                        key: "__merge_ack_missing_survivor".to_string(),
-                        expected: json!("a merged ack carries the survivor document"),
-                        actual: serde_json::Value::Null,
-                    });
-                    // The source is destroyed but the survivor is
-                    // unknown. Keep the reservation so reads tolerate
-                    // its absence, and stop asserting on it.
-                    state.record_merge_uncertain(source).await;
-                    pool.remove(source);
+                    // The sources are destroyed but the survivor is
+                    // unknown. Keep the reservations so reads tolerate
+                    // their absence, and stop asserting on them.
+                    for &source in &merged {
+                        violations.push(ConsistencyViolation {
+                            person_id: source,
+                            key: "__merge_ack_missing_survivor".to_string(),
+                            expected: json!("a merged ack carries the survivor document"),
+                            actual: serde_json::Value::Null,
+                        });
+                        state.record_merge_uncertain(source).await;
+                        pool.remove(source);
+                    }
                     continue;
                 };
                 let survivor_props: serde_json::Value =
                     serde_json::from_slice(&survivor.properties).unwrap_or_else(|_| json!({}));
-                if survivor_props.get(&key) != Some(&value) {
-                    // The fold applies the merge event's $set last. The
-                    // folded document in the ack must already carry it.
+                // The fold applies the merge event's writes last. The
+                // folded document in the ack must already carry them.
+                for (key, value) in event.expected() {
+                    if survivor_props.get(key) != Some(value) {
+                        violations.push(ConsistencyViolation {
+                            person_id: survivor.id,
+                            key: key.clone(),
+                            expected: value.clone(),
+                            actual: survivor_props
+                                .get(key)
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
+                        });
+                    }
+                }
+                if survivor_props.get(SEED_KEY) == Some(&json!(SET_ONCE_LOSER)) {
                     violations.push(ConsistencyViolation {
                         person_id: survivor.id,
-                        key: key.clone(),
-                        expected: value.clone(),
-                        actual: survivor_props
-                            .get(&key)
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null),
+                        key: SEED_KEY.to_string(),
+                        expected: json!(
+                            "the value the fold carried; $set_once must not replace it"
+                        ),
+                        actual: json!(SET_ONCE_LOSER),
                     });
                 }
                 state
-                    .record_merge(
-                        source,
-                        survivor.id,
-                        survivor.version,
-                        HashMap::from([(key, value)]),
-                    )
+                    .record_merge(MergeAck {
+                        survivor: survivor.id,
+                        survivor_version: survivor.version,
+                        sources: merged.clone(),
+                        set: event.set,
+                        set_once: event.set_once,
+                    })
                     .await;
-                pool.remove(source);
+                for &source in &merged {
+                    pool.remove(source);
+                }
 
-                // Read-your-merge check. The release produced the
+                // Read-your-merge check. The release produced each
                 // source's death document before the saga completed. A
                 // strong read served now must not find a living person.
-                let read_start = Instant::now();
-                match router
-                    .get_person(team_id, source, ConsistencyLevel::Strong)
-                    .await
-                {
-                    Ok(Some(person)) if !person.is_deleted => {
-                        collector.reads.record_success(read_start.elapsed());
-                        violations.push(ConsistencyViolation {
-                            person_id: source,
-                            key: "__merged_source_alive".to_string(),
-                            expected: json!("not found after the merge ack"),
-                            actual: json!({ "version": person.version }),
-                        });
-                    }
-                    Ok(_) => collector.reads.record_success(read_start.elapsed()),
-                    Err(e) if is_not_found(&e) => {
-                        collector.reads.record_success(read_start.elapsed())
-                    }
-                    Err(e) => {
-                        // Readability is end-of-run verification's job.
-                        collector.reads.record_failure();
-                        tracing::warn!(source, error = %e, "post-merge read failed");
+                for &source in &merged {
+                    let read_start = Instant::now();
+                    match router
+                        .get_person(team_id, source, ConsistencyLevel::Strong)
+                        .await
+                    {
+                        Ok(Some(person)) if !person.is_deleted => {
+                            collector.reads.record_success(read_start.elapsed());
+                            violations.push(ConsistencyViolation {
+                                person_id: source,
+                                key: "__merged_source_alive".to_string(),
+                                expected: json!("not found after the merge ack"),
+                                actual: json!({ "version": person.version }),
+                            });
+                        }
+                        Ok(_) => collector.reads.record_success(read_start.elapsed()),
+                        Err(e) if is_not_found(&e) => {
+                            collector.reads.record_success(read_start.elapsed())
+                        }
+                        Err(e) => {
+                            // Readability is end-of-run verification's job.
+                            collector.reads.record_failure();
+                            tracing::warn!(source, error = %e, "post-merge read failed");
+                        }
                     }
                 }
             }
@@ -354,14 +446,14 @@ pub async fn run_merges(
 }
 
 /// Settle every unresolved merge from the saga's own record. A
-/// `completed` op with the source `merged` is journaled as the merge it
-/// was. That is safe after later merges' acks, because the journal
-/// orders folds by the recorded survivor version. An aborted op means
-/// the source lived on. So does a missing op row, because the call
-/// failed before the saga froze its request. An op still in flight is
-/// polled until `deadline` elapses, which gives the sweeper time to
+/// `completed` op is journaled as the merge it was, with the sources the
+/// record says merged. That is safe after later merges' acks, because
+/// the journal orders folds by the recorded survivor version. An aborted
+/// op means every source lived on. So does a missing op row, because the
+/// call failed before the saga froze its request. An op still in flight
+/// is polled until `deadline` elapses, which gives the sweeper time to
 /// re-drive it. An op that never settles is a violation: no lifecycle
-/// op can ever touch that person again.
+/// op can ever touch those persons again.
 pub async fn settle_unresolved(
     pool: &PgPool,
     state: &PersonState,
@@ -389,7 +481,9 @@ pub async fn settle_unresolved(
             let Some(row) = row else {
                 // No op row means the saga never froze the request, so
                 // nothing destructive started.
-                state.clear_merge_pending(merge.source).await;
+                for (source, _) in &merge.sources {
+                    state.clear_merge_pending(*source).await;
+                }
                 continue;
             };
             let step: String = row.get("step");
@@ -397,35 +491,57 @@ pub async fn settle_unresolved(
             match step.as_str() {
                 "completed" => {
                     let outcome = outcome.unwrap_or_default();
-                    let merged = outcome["results"]
+                    let merged_dids: HashSet<&str> = outcome["results"]
                         .as_array()
-                        .is_some_and(|results| results.iter().any(|r| r["outcome"] == "merged"));
+                        .map(|results| {
+                            results
+                                .iter()
+                                .filter(|r| r["outcome"] == "merged")
+                                .filter_map(|r| r["distinct_id"].as_str())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut merged = Vec::new();
+                    for (source, did) in &merge.sources {
+                        if merged_dids.contains(did.as_str()) {
+                            merged.push(*source);
+                        } else {
+                            state.clear_merge_pending(*source).await;
+                        }
+                    }
+                    if merged.is_empty() {
+                        continue;
+                    }
                     let survivor = &outcome["survivor"];
-                    match (
-                        merged,
-                        survivor["id"].as_i64(),
-                        survivor["version"].as_i64(),
-                    ) {
-                        (true, Some(id), Some(version)) => {
+                    match (survivor["id"].as_i64(), survivor["version"].as_i64()) {
+                        (Some(id), Some(version)) => {
                             state
-                                .record_merge(
-                                    merge.source,
-                                    id,
-                                    version,
-                                    HashMap::from([(merge.key, merge.value)]),
-                                )
+                                .record_merge(MergeAck {
+                                    survivor: id,
+                                    survivor_version: version,
+                                    sources: merged,
+                                    set: merge.set,
+                                    set_once: merge.set_once,
+                                })
                                 .await;
                         }
-                        (true, _, _) => violations.push(ConsistencyViolation {
-                            person_id: merge.source,
-                            key: "__merge_record_missing_survivor".to_string(),
-                            expected: json!("a completed merge records its survivor"),
-                            actual: outcome,
-                        }),
-                        (false, _, _) => state.clear_merge_pending(merge.source).await,
+                        _ => {
+                            for source in merged {
+                                violations.push(ConsistencyViolation {
+                                    person_id: source,
+                                    key: "__merge_record_missing_survivor".to_string(),
+                                    expected: json!("a completed merge records its survivor"),
+                                    actual: outcome.clone(),
+                                });
+                            }
+                        }
                     }
                 }
-                "aborted" => state.clear_merge_pending(merge.source).await,
+                "aborted" => {
+                    for (source, _) in &merge.sources {
+                        state.clear_merge_pending(*source).await;
+                    }
+                }
                 _ => still_pending.push(merge),
             }
         }
@@ -434,12 +550,14 @@ pub async fn settle_unresolved(
         }
         if started.elapsed() > deadline {
             for merge in still_pending {
-                violations.push(ConsistencyViolation {
-                    person_id: merge.source,
-                    key: "__merge_unsettled".to_string(),
-                    expected: json!(format!("op {} terminal within {deadline:?}", merge.op_id)),
-                    actual: json!("in flight"),
-                });
+                for (source, _) in merge.sources {
+                    violations.push(ConsistencyViolation {
+                        person_id: source,
+                        key: "__merge_unsettled".to_string(),
+                        expected: json!(format!("op {} terminal within {deadline:?}", merge.op_id)),
+                        actual: json!("in flight"),
+                    });
+                }
             }
             return Ok(violations);
         }
@@ -458,10 +576,11 @@ fn pick_wide_pair(
     pool: &TargetPool,
     rng: &mut impl Rng,
 ) -> Option<(i64, i64)> {
+    let live = pool.snapshot();
     let live_wide_targets: Vec<i64> = wide_targets
         .iter()
         .copied()
-        .filter(|id| pool.snapshot().contains(id))
+        .filter(|id| live.contains(id))
         .collect();
     let source = {
         let mut wide_sources = wide_sources.lock().unwrap();
@@ -537,6 +656,28 @@ fn pick_pair(
     None
 }
 
+/// Reserve ordinary sources until the call carries `wanted`, or the
+/// eligible set runs out. The target is never a source of its own call.
+fn reserve_more_sources(
+    eligible: &Mutex<Vec<i64>>,
+    sources: &mut Vec<i64>,
+    target: i64,
+    wanted: usize,
+    rng: &mut impl Rng,
+) {
+    let mut eligible = eligible.lock().unwrap();
+    while sources.len() < wanted {
+        let candidates: Vec<usize> = (0..eligible.len())
+            .filter(|&i| eligible[i] != target)
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let source = eligible.swap_remove(candidates[rng.gen_range(0..candidates.len())]);
+        sources.push(source);
+    }
+}
+
 fn note_dry(dry_at: &Mutex<Option<Duration>>, at: Duration) {
     let mut dry = dry_at.lock().unwrap();
     if dry.is_none() {
@@ -555,5 +696,30 @@ pub fn outcome_name(outcome: MergeSourceOutcome) -> &'static str {
         MergeSourceOutcome::SkippedMoveLimit => "skipped_move_limit",
         MergeSourceOutcome::Error => "error",
         MergeSourceOutcome::Unspecified => "unspecified",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A call with several sources must not double-book a person: the
+    /// target is never one of its own sources, and every source comes
+    /// out of the eligible set exactly once.
+    #[test]
+    fn extra_sources_are_reserved_apart_from_the_target() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        let eligible = Mutex::new(vec![2, 3, 4]);
+        let mut sources = vec![1];
+        reserve_more_sources(&eligible, &mut sources, 3, 3, &mut rng);
+        sources.sort_unstable();
+        assert_eq!(sources, vec![1, 2, 4]);
+        assert_eq!(*eligible.lock().unwrap(), vec![3]);
+
+        // The eligible set running out caps the call, and does not
+        // spend the target.
+        reserve_more_sources(&eligible, &mut sources, 3, 10, &mut rng);
+        assert_eq!(sources.len(), 3);
+        assert_eq!(*eligible.lock().unwrap(), vec![3]);
     }
 }

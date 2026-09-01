@@ -352,6 +352,14 @@ pub struct GateArgs {
     #[arg(long)]
     pub merge_rate: Option<f64>,
 
+    /// Sources per merge call. Ingestion sends one, and one is the
+    /// default. With more, the leader folds the sealed sources in
+    /// request order, and the journal holds the survivor to that order.
+    /// Every merged source retires a person, so size --persons for
+    /// sources x rate x duration.
+    #[arg(long, default_value_t = 1)]
+    pub merge_sources: usize,
+
     /// Persons created with --merge-wide-distinct-ids extra distinct ids
     /// each, on top of --persons. The merge lane pairs them per
     /// --merge-wide-role. The expensive merges, where the flip must

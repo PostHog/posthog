@@ -158,9 +158,9 @@ impl IdentityClient {
     }
 
     /// Merge `source_distinct_ids` into the person `target_distinct_id`
-    /// resolves to, and apply `event_set` to the survivor. A retry under
-    /// the same op id returns the recorded outcome and does not merge
-    /// again.
+    /// resolves to, and apply `event_set` and `event_set_once` to the
+    /// survivor. A retry under the same op id returns the recorded
+    /// outcome and does not merge again.
     #[allow(clippy::too_many_arguments)]
     pub async fn merge_persons(
         &self,
@@ -168,6 +168,7 @@ impl IdentityClient {
         target_distinct_id: &str,
         source_distinct_ids: &[String],
         event_set: serde_json::Value,
+        event_set_once: serde_json::Value,
         op_id: &uuid::Uuid,
         allow_identified_sources: bool,
         move_limit: i64,
@@ -186,7 +187,7 @@ impl IdentityClient {
                     })
                     .collect(),
                 event_set: serde_json::to_vec(&event_set)?,
-                event_set_once: Vec::new(),
+                event_set_once: serde_json::to_vec(&event_set_once)?,
                 op_id: op_id.to_string(),
                 allow_identified_sources,
                 move_limit: Some(move_limit),

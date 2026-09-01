@@ -64,14 +64,17 @@ Multiple local leaders work because each registers with a `host:port` pod name, 
 
 ### Merging persons under load
 
-`--merge-concurrency N` adds a merge lane: N workers repeatedly pick two live persons and merge one into the other through `MergePersons` on the identity service, while the blast writers and probers keep writing to both.
-Every pair is two distinct live persons, so each call that settles as `merged` ran the durable saga end to end (fence, seal, fold, flip, release) with writes racing the source's fence and the target's fold.
+`--merge-concurrency N` adds a merge lane: N workers repeatedly pick live persons and merge one or more sources into a target through `MergePersons` on the identity service, while the blast writers and probers keep writing to all of them.
+Every source is a distinct live person, so each source that settles as `merged` ran the durable saga end to end (fence, seal, fold, flip, release) with writes racing the source's fence and the target's fold.
 A source distinct id is reserved for one in-flight call and never reused once merged; targets are shared, so concurrent calls can contend for a person and settle as `skipped_conflict`.
+`--merge-sources K` puts K sources on each call (default 1, the shape ingestion sends); the leader folds sealed sources in request order, and the journal holds the survivor to that order.
 The lane implies `--create-via-identity` (merges need distinct ids) and merges identified sources by default (`--merge-identified-sources false` for `$identify` semantics, under which a survivor can never be a source again).
 
 The invariant extends to the fold rather than stopping at it:
 
-- The source's acked writes are asserted on the survivor under the leader's fold rule (the survivor wins every key it has, the source fills the rest), the merge event's own `$set` key must be in the acked survivor document and afterwards, and the folded version is claimed like any other ack.
+- The sources' acked writes are asserted on the survivor under the leader's fold rule (the survivor wins every key it has, the sources fill the rest in request order), and the folded version is claimed like any other ack.
+- The merge event's own writes are asserted in the acked survivor document and afterwards: its `$set` key must be present, its `$set_once` must fill a fresh key, lose to the same event's `$set` on a shared key, and leave the seed property every person holds untouched.
+- The journal is a tree: a merged source keeps its own keys and hangs off the survivor its ack named, and a live person's expected document is folded from that tree. So a source write whose ack lands after the merge was journaled still counts, even for a key an earlier fold already carried, and a survivor that merges on carries everything with it.
 - A merged source must be gone: a strong read right after the ack and at end of run must answer not-found, its Postgres row must be a tombstone whose death version sits above every version the leader acked for it, and no acked version may exceed the sealed version the saga recorded on its `lifecycle_op_person` row — an ack above the seal means a write got through the fence.
 - Two merges into one survivor are ordered by the folded version, not by ack arrival: the earlier fold fills a key and the later fold finds it present, which is what the journal expects.
 - A merge the crash window abandons mid-saga is re-driven by the identity sweeper (the spawned identity runs it on a 3s cadence), and the delete leg waits for those ops to settle before it asserts.
@@ -89,7 +92,7 @@ target/debug/personhog-test-harness gate --merge-concurrency 2 --merge-rate 2 \
   --persons 100 --duration 15s
 ```
 
-Each merge retires one person, so size `--persons` for rate × duration; the report says when the lane ran the pool dry.
+Each merged source retires one person, so size `--persons` for sources × rate × duration; the report says when the lane ran the pool dry.
 The `merges` row in the report is the baseline: one call is one saga, so its latency is the end-to-end merge cost and its RPS the merge throughput.
 
 ```bash

@@ -22,6 +22,11 @@ use crate::state::PersonState;
 use crate::stats::StatsCollector;
 use crate::verify::verify_postgres;
 
+/// The property every person created through the identity service
+/// carries from birth. The merge lane relies on it being present on
+/// every survivor.
+pub const SEED_KEY: &str = "harness_seed";
+
 /// A chaos disruption scheduled relative to the start of the traffic phase.
 enum ChaosEvent {
     Kill { fast: bool },
@@ -166,6 +171,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
     if args.merge_rate.is_some_and(|rate| rate <= 0.0) {
         bail!("--merge-rate must be positive; omit it to run the merge workers flat out");
+    }
+    if args.merge_sources == 0 {
+        bail!("--merge-sources must be at least 1");
     }
     if args.merge_wide_persons > 0 && args.merge_concurrency == 0 {
         bail!("--merge-wide-persons needs --merge-concurrency");
@@ -374,6 +382,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 team_id: args.team_id,
                 concurrency: args.merge_concurrency,
                 rate_per_sec: args.merge_rate,
+                sources_per_call: args.merge_sources,
                 allow_identified_sources: args.merge_identified_sources,
                 // A survivor collects every distinct id of every merged
                 // source. The pool bounds that total, so no source ever
@@ -387,11 +396,12 @@ pub async fn run(args: GateArgs) -> Result<()> {
             };
             let duration = args.duration;
             println!(
-                "Merging with {} workers{}...",
+                "Merging with {} workers{}, {} source(s) per call...",
                 args.merge_concurrency,
                 args.merge_rate
                     .map(|rate| format!(" at {rate} merges/s"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                args.merge_sources
             );
             tokio::spawn(async move {
                 let identity = IdentityClient::connect(&url).await?;
@@ -842,7 +852,7 @@ async fn create_persons_via_identity(
                     extra_distinct_ids: vec![],
                     event_name: "$set".to_string(),
                     set_properties: serde_json::to_vec(
-                        &serde_json::json!({ "harness_seed": distinct_id }),
+                        &serde_json::json!({ SEED_KEY: distinct_id }),
                     )
                     .expect("seed properties serialize"),
                     set_once_properties: Vec::new(),
@@ -868,10 +878,8 @@ async fn create_persons_via_identity(
                     result.distinct_id
                 );
             }
-            let seed_properties = HashMap::from([(
-                "harness_seed".to_string(),
-                serde_json::json!(result.distinct_id),
-            )]);
+            let seed_properties =
+                HashMap::from([(SEED_KEY.to_string(), serde_json::json!(result.distinct_id))]);
             state
                 .record_write(person.id, person.version, seed_properties)
                 .await;
@@ -903,7 +911,7 @@ async fn create_wide_persons_via_identity(
                 .map(|j| format!("{distinct_id}-{j}"))
                 .collect(),
             event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({ "harness_seed": distinct_id }))
+            set_properties: serde_json::to_vec(&serde_json::json!({ SEED_KEY: distinct_id }))
                 .expect("seed properties serialize"),
             set_once_properties: Vec::new(),
             created_at: 0,
@@ -926,10 +934,7 @@ async fn create_wide_persons_via_identity(
             .record_write(
                 person.id,
                 person.version,
-                HashMap::from([(
-                    "harness_seed".to_string(),
-                    serde_json::json!(result.distinct_id),
-                )]),
+                HashMap::from([(SEED_KEY.to_string(), serde_json::json!(result.distinct_id))]),
             )
             .await;
         persons.push((person.id, result.distinct_id));

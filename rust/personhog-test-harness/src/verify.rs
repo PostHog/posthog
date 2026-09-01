@@ -211,7 +211,10 @@ pub fn verify_tombstone(
         return vec![ConsistencyViolation {
             person_id,
             key: "__merged_source_row".to_string(),
-            expected: json!("tombstone present"),
+            expected: json!(format!(
+                "tombstone present (merged into {})",
+                source.survivor
+            )),
             actual: Value::Null,
         }];
     };
