@@ -223,6 +223,38 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
     },
 })
 
+const FileDownloadBatchExportsCountRowsCreateSchema = () => {
+    const FileDownloadBatchExportsCountRowsCreateBody = orvalSchemas.FileDownloadBatchExportsCountRowsCreateBody()
+    return FileDownloadBatchExportsCountRowsCreateBody
+}
+
+const fileDownloadBatchExportsCountRowsCreate = (): ToolBase<
+    ReturnType<typeof FileDownloadBatchExportsCountRowsCreateSchema>,
+    Schemas.FileDownloadCountRowsResponse
+> => ({
+    name: 'file-download-batch-exports-count-rows-create',
+    schema: FileDownloadBatchExportsCountRowsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof FileDownloadBatchExportsCountRowsCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
+        }
+        const result = await context.api.request<Schemas.FileDownloadCountRowsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/count_rows/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FileDownloadBatchExportsCreateSchema = () => {
     const FileDownloadBatchExportsCreateBody = orvalSchemas.FileDownloadBatchExportsCreateBody()
     return FileDownloadBatchExportsCreateBody
@@ -295,6 +327,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'batch-export-update': batchExportUpdate,
     'batch-exports-list': batchExportsList,
     'file-download-batch-exports-cancel-create': fileDownloadBatchExportsCancelCreate,
+    'file-download-batch-exports-count-rows-create': fileDownloadBatchExportsCountRowsCreate,
     'file-download-batch-exports-create': fileDownloadBatchExportsCreate,
     'file-download-batch-exports-retrieve': fileDownloadBatchExportsRetrieve,
 }

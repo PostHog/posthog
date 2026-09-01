@@ -676,6 +676,8 @@ SPECTACULAR_SETTINGS = {
             None,
         ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+        # Shared by FileDownloadHogQLRequest.model and FileDownloadCountRowsRequest.model.
+        "FileDownloadHogQLModelEnum": ["hogql"],
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
@@ -1472,6 +1474,21 @@ WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20"
 # is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+
+# Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
+# when normal SSRF validation rejects their private/internal address. This is an
+# internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must
+# match one of these complete URLs byte-for-byte. Internal endpoints also bypass
+# the process HTTP proxy so cluster-local traffic is not sent to Smokescreen.
+# Parsed defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES above: a malformed value
+# must not take every process down at settings import; the URL policy degrades to
+# an empty allowlist (everything internal stays blocked).
+try:
+    MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM: dict[str, list[str]] = json.loads(
+        get_from_env("MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM", "{}")
+    )
+except ValueError:
+    MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
