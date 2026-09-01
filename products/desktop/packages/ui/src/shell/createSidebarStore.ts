@@ -7,7 +7,7 @@ export interface SidebarStoreState {
   isResizing: boolean;
 }
 
-export interface SidebarStoreActions {
+interface SidebarStoreActions {
   setOpen: (open: boolean) => void;
   toggle: () => void;
   setWidth: (width: number) => void;

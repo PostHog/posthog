@@ -18,6 +18,13 @@ export const manifest: ProductManifest = {
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
+            docsHref: 'https://posthog.com/docs/customer-analytics',
+        },
+        CustomerAnalyticsAccount: {
+            import: () => import('./frontend/scenes/CustomerAnalyticsAccountScene/CustomerAnalyticsAccountScene'),
+            projectBased: true,
+            name: 'Account details',
+            iconType: 'cohort',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>
@@ -46,10 +53,9 @@ export const manifest: ProductManifest = {
     routes: {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
         '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
-        // Deep-link to a single account (filtered + expanded), optionally on a given tab. Same scene key
-        // as the list so the accounts tab activates; accountsLogic reads the params.
-        '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
-        '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        // The detail scene serves these paths behind its flag and falls back to the list for legacy deep links.
+        '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+        '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
@@ -75,7 +81,7 @@ export const manifest: ProductManifest = {
         customerAnalytics: (): string => '/customer_analytics',
         customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
         customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
-        // Path-based deep link to one account: filters the list to it, expands it, opens `tab`.
+        // Account detail path. The flag-off scene falls back to the filtered, expanded Accounts list.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
             `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
@@ -102,7 +108,12 @@ export const manifest: ProductManifest = {
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             sceneKey: 'CustomerAnalytics',
-            sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
+            sceneKeys: [
+                'CustomerAnalytics',
+                'CustomerAnalyticsAccount',
+                'CustomerJourneyTemplates',
+                'CustomerJourneyBuilder',
+            ],
         },
     ],
     // Deliberately not behind the Customer analytics flag: warehouse-backed person and group

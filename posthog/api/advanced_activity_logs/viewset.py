@@ -27,6 +27,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     apply_activity_visibility_restrictions,
 )
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
@@ -38,7 +39,6 @@ from products.exports.backend.source_authentication import get_export_source_aut
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .ocsf import ActivityLogOCSFSerializer
-from .utils import get_activity_log_lookback_restriction
 
 ACTIVITY_LOG_ORDERING_DESCENDING = "-created_at"
 ACTIVITY_LOG_ORDERING_ASCENDING = "created_at"

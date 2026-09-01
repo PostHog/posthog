@@ -220,7 +220,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_provisioning_partner",
         ProvisioningCapabilityFilter,
     )
-    search_fields = ("name", "client_id", "cimd_metadata_url", "user__email", "organization__name")
+    search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
     actions = ("revoke_all_sessions", "regenerate_client_secret")
@@ -293,7 +293,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url"]
+            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client"]
             if obj.is_cimd_client:
                 # A CIMD client's scope ceiling is derived from its own metadata document and
                 # re-applied on every refresh, so a manual edit here would be silently reverted.
@@ -354,7 +354,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     "CIMD",
                     {
                         "classes": ("collapse",),
-                        "fields": ("cimd_metadata_url", "cimd_metadata_last_fetched"),
+                        "fields": ("cimd_metadata_last_fetched",),
                     },
                 ),
             )

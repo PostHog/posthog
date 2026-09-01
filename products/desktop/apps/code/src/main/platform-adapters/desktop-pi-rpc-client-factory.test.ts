@@ -95,7 +95,6 @@ describe("DesktopPiRpcClientFactory", () => {
           additionalDirectories: ["/tmp/shared"],
           channelMode: true,
         },
-        projectTrusted: true,
       }),
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
@@ -125,7 +124,6 @@ describe("DesktopPiRpcClientFactory", () => {
           url: "http://127.0.0.1:4321/posthog",
         },
       },
-      projectTrusted: true,
       taskContext: {
         projectId: 1,
         apiHost: "https://eu.posthog.com",

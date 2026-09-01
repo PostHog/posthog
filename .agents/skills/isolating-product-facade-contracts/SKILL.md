@@ -135,10 +135,35 @@ least leave a string to grep for.
 
 ## Clearing coupling the scan won't show
 
-`product:isolate:scan` walks the import graph of `backend.*`. Four kinds of
+`product:isolate:scan` walks the import graph of `backend.*`. Six kinds of
 coupling escape it — none is a dead end, each has a defined move. After the
 backend sweep, `git grep "products.<name>"` (not just `.backend`) and read the
 scan's string-reference section to find them.
+
+**Reverse accessors.** A relation field (FK, O2O, M2M) that crosses a product
+boundary without `related_name="+"` adds a reverse accessor and a reverse query
+name to the target class. No import exists, so the scan cannot see it, but any
+caller can traverse it. The move: seal the relation with `related_name="+"`,
+remove any explicit `related_query_name` (it keeps `filter()` traversal alive
+and shows as a `query:<name>` row), and delete its `reverse-accessor(...)` line
+from
+`products/model_crossing_uses_baseline.txt` in the same change
+(`bin/hogli product:crossings --all --write-baseline`); give a caller that
+needs reverse access a facade read function. The crossing ratchet blocks new
+unsealed relations. See products/architecture.md § Cross-product foreign keys.
+
+**Signal coupling.** A receiver whose sender belongs to another boundary runs
+that boundary's code inside this one's save path, with no import edge when the
+sender is a string. Three moves, by case:
+
+- _Core listens to a product model_ (string sender) — flip the direction: the
+  product calls core's public function from its own save path
+  (`remote_config.mark_dirty(team_id)`), a normal product→core import.
+- _A product reacts to a core save_ — register through a core-owned hook
+  (the `register_team_extension_signal` shape), not a raw `@receiver` on a
+  foreign sender. The hook registry is the inventory.
+- _Either direction_ — never do slow or external work in a receiver body. Use
+  `transaction.on_commit` to dispatch a task instead.
 
 **Test-infrastructure coupling.** Tests are in tach's interface graph but not
 in its dependency graph (`hogli lint:tach` runs the two passes CI runs). A test
@@ -246,6 +271,10 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
+- Declare every relation field that crosses a product boundary with
+  `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
+- Do not register a signal receiver on another boundary's sender; use the moves
+  in "Signal coupling" above.
 - Keep contracts pure (no Django/DRF imports).
 - Filter by `team_id` in querysets.
 - Do not add product-specific fields to `Team`; use a Team Extension model.

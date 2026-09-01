@@ -10,7 +10,7 @@ import {
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -36,6 +36,7 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
+import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
@@ -44,7 +45,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
-import { useReportDetailActions } from './ReportDetailActions'
+import { canCreateImplementationPr, useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -78,10 +79,6 @@ export function ReportDetailBadges({
         </>
     )
 }
-
-/** Shared explainer for the signal count in the meta line and the Evidence section. */
-const SIGNALS_TOOLTIP =
-    'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
@@ -242,14 +239,14 @@ export function InboxDetailFrame({
     // Create PR is the report's main call to action, so it takes the primary slot (styled like
     // "Open in GitHub" on PR-bearing reports). The rest render inline as buttons on wide layouts
     // and as a standard `LemonMenu` on narrow ones.
-    const allReportActions = useReportDetailActions(report)
-    const createPrAction = allReportActions.find((action) => action.key === 'create-pr')
+    const reportActions = useReportDetailActions(report)
+    const showCreatePr = canCreateImplementationPr(report)
+    const createPrButton = showCreatePr ? <CreatePrButton report={report} /> : null
     // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
     // when the summary has no Solution section — otherwise an actionable report shows it twice.
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
-    const reportActions = allReportActions.filter((action) => action.key !== 'create-pr')
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -312,7 +309,7 @@ export function InboxDetailFrame({
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
-                        createPrAction={createPrAction}
+                        createPrButton={createPrButton}
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
@@ -385,16 +382,7 @@ export function InboxDetailFrame({
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={
-                                    <span className="flex items-center gap-1">
-                                        <Tooltip title={SIGNALS_TOOLTIP}>
-                                            <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                                {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
-                                            </span>
-                                        </Tooltip>
-                                        {hideRailButton}
-                                    </span>
-                                }
+                                rightSlot={hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
@@ -486,19 +474,7 @@ export function InboxDetailFrame({
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {createPrAction && !summaryHasSolution && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={createPrAction.icon}
-                            loading={createPrAction.loading}
-                            tooltip={createPrAction.disabledReason ? undefined : createPrAction.tooltip}
-                            disabledReason={createPrAction.disabledReason}
-                            onClick={createPrAction.onClick}
-                        >
-                            {createPrAction.label}
-                        </LemonButton>
-                    )}
+                    {!summaryHasSolution && createPrButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -506,7 +482,7 @@ export function InboxDetailFrame({
                         {reportActions.map((action) => (
                             <LemonButton
                                 key={action.key}
-                                type="secondary"
+                                type={action.primary ? 'primary' : 'secondary'}
                                 size="small"
                                 icon={action.icon}
                                 loading={action.loading}

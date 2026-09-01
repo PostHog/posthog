@@ -32,7 +32,7 @@ function buildContext(
   };
 }
 
-export function sentimentToRating(
+function sentimentToRating(
   sentiment: AgentTurnFeedbackSentiment,
 ): AiQualityRating {
   return sentiment === "positive" ? "good" : "bad";

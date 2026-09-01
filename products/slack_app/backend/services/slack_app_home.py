@@ -32,11 +32,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_home_enabled,
-    is_slack_app_oauth_enabled,
-    is_slack_app_untagged_thread_followups_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations
 from products.slack_app.backend.services.model_catalogue import (
@@ -276,10 +272,11 @@ class TaskItem:
     """One row on the Tasks card."""
 
     title: str
-    # Both task links are `None` for a viewer without PostHog Code access, matching the
-    # reply footer: a task page they can't open is as much a dead end as the desktop app.
-    # Stated at every construction rather than defaulted, so a row can't lose its links
-    # by omission and render as plain text.
+    # The desktop link is `None` for a viewer without PostHog Desktop access, matching
+    # the reply footer. The web link is always present: the task page enforces access
+    # itself, so at worst it asks the viewer to sign in. Stated at every construction
+    # rather than defaulted, so a row can't lose its links by omission and render as
+    # plain text.
     posthog_url: str | None
     desktop_url: str | None
     status: str | None  # TaskRun.Status value or None when there's no run yet
@@ -1470,24 +1467,10 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
 
     The caller resolves the integration through the shared region gate, so this
     region owns the workspace by the time we get here.
-
-    Gated by the slack-app-home flag — when off, the publish is skipped so
-    installs without the manifest changes (and workspaces that haven't opted
-    in) keep getting Slack's default blank Home tab instead of seeing an
-    interactive UI for a feature that doesn't fire downstream.
     """
 
     slack_user_id = event.get("user")
     if not slack_user_id:
-        return
-
-    if not is_slack_app_home_enabled(integration):
-        logger.info(
-            "slack_app_home_publish_skipped",
-            reason="flag_off",
-            slack_team_id=slack_team_id,
-            slack_user_id=slack_user_id,
-        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
@@ -1511,7 +1494,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
-        untagged_followup_mode=_resolve_untagged_followup_mode_for_card(integration, slack_user_id),
+        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
     )
     try:
@@ -1540,12 +1523,6 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
-        return HttpResponse(status=200)
-
-    # The flag is the kill-switch for the whole feature — writes and modal
-    # opens must respect it too, otherwise a flipped-off flag silently
-    # accumulates rows that the resolver will ignore.
-    if not is_slack_app_home_enabled(integration):
         return HttpResponse(status=200)
 
     # The Home tab keeps no server-side view state — every payload carries the whole
@@ -1585,18 +1562,15 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
-        # Same gate the card is rendered behind, so a stale view can't write a
-        # setting for a workspace that has since been switched off.
-        if is_slack_app_untagged_thread_followups_enabled(integration, integration.integration_id):
-            _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
+        _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
         republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_UNLINK_ACCOUNT:
-        # Only act when the OAuth-link feature is on for this workspace —
+        # Only act when the OAuth-link feature is available for this install —
         # otherwise the button shouldn't have been rendered, and a stale
         # cached view shouldn't be allowed to drive deletes.
-        if is_slack_app_oauth_enabled(integration, integration.integration_id):
+        if is_slack_app_oauth_enabled(integration):
             _unlink_user_account(integration, slack_user_id)
         republish()
         return HttpResponse(status=200)
@@ -1647,9 +1621,6 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return _modal_error_response("This Slack workspace is no longer connected to PostHog.")
-
-    if not is_slack_app_home_enabled(integration):
-        return _modal_error_response("AI preferences are not available for this workspace right now.")
 
     runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
 
@@ -1833,19 +1804,6 @@ def _write_row(
     )
 
 
-def _resolve_untagged_followup_mode_for_card(
-    integration: Integration, slack_user_id: str
-) -> UntaggedFollowupMode | None:
-    """The picker's current value, or ``None`` to leave the card out entirely.
-
-    The setting only means anything where untagged follow-ups run at all, so the
-    card lives behind the same flag as the behaviour it configures.
-    """
-    if not is_slack_app_untagged_thread_followups_enabled(integration, integration.integration_id):
-        return None
-    return resolve_untagged_followup_mode(integration, slack_user_id)
-
-
 def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: str, action: dict) -> None:
     """Persist the picked mode. An unrecognised value is ignored rather than stored."""
 
@@ -1923,7 +1881,7 @@ def _republish_home(
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
-        untagged_followup_mode=_resolve_untagged_followup_mode_for_card(integration, slack_user_id),
+        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
     )
     try:
@@ -2008,10 +1966,11 @@ def _resolve_tasks_state(
     mapping_by_task = {str(m["task_id"]): m for m in mappings}
 
     site_url = (settings.SITE_URL or "").rstrip("/")
-    # Both task links answer to the reader, the same check the reply footer's links use.
-    # The desktop one goes through the `/code/task` web bridge, which opens the app when
-    # installed and offers a download when not, so it rides alongside the web one.
-    can_open_code_links = viewer_has_code_access(integration, slack_user_id)
+    # Only the desktop link answers to the viewer, the same check the reply footer's
+    # desktop link uses. It goes through the `/code/task` web bridge, which opens the app
+    # when installed and offers a download when not. The web link is always shown — the
+    # task page enforces access itself.
+    can_open_desktop_links = viewer_has_code_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -2022,10 +1981,8 @@ def _resolve_tasks_state(
             continue
         run = runs_by_task.get(str(t.id))
         mapping: Mapping[str, Any] = mapping_by_task.get(str(t.id), {})
-        posthog_url = desktop_url = None
-        if can_open_code_links:
-            posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
-            desktop_url = f"{site_url}/code/task/{t.id}"
+        posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
+        desktop_url = f"{site_url}/code/task/{t.id}" if can_open_desktop_links else None
         all_items.append(
             TaskItem(
                 title=t.title,
@@ -2108,7 +2065,7 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
-    if not is_slack_app_oauth_enabled(integration, slack_team_id):
+    if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
 
     candidate_org_ids = _workspace_org_ids(slack_team_id)
@@ -2154,7 +2111,7 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
     if not candidate_org_ids:
         return None
 
-    if is_slack_app_oauth_enabled(integration, slack_team_id):
+    if is_slack_app_oauth_enabled(integration):
         linked_user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
