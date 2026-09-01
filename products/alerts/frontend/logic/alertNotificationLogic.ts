@@ -73,6 +73,7 @@ export interface alertNotificationLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -132,6 +133,7 @@ export interface alertNotificationLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -515,10 +517,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 return
             }
             lemonToast.success(`Test delivery started for ${deliveryTargets.join(' and ')}.`)
-        },
-        sendTestDeliveryFailure: ({ errorObject }) => {
-            const detail = errorObject?.detail
-            lemonToast.error(typeof detail === 'string' ? detail : 'Unable to send the test. Try again.')
         },
     })),
 

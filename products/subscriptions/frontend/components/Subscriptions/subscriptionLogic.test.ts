@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -12,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
 import { subscriptionLogic } from './subscriptionLogic'
 
@@ -238,6 +239,34 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('records successful wizard-created subscriptions separately from the editor', async () => {
+        const wizardLogic = subscriptionLogic({
+            insightShortId: Insight1,
+            insightName: 'Feature flag evaluations',
+            id: 'new',
+            creationSource: 'wizard',
+        })
+        wizardLogic.mount()
+
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(wizardLogic).toFinishListeners()
+        expect(wizardLogic.values.subscription.title).toBe('Weekly report: Feature flag evaluations')
+
+        wizardLogic.actions.setSubscriptionValues({
+            title: 'Weekly report: Feature flag evaluations',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        wizardLogic.actions.submitSubscription()
+        await expectLogic(wizardLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription created',
+            expect.objectContaining({ creation_source: 'wizard' })
+        )
+        wizardLogic.unmount()
+    })
+
     it('preselects an AI prompt report from the new-subscription URL', async () => {
         router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
 
@@ -246,12 +275,76 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription.resource_type).toBe('ai_prompt')
     })
 
+    it('keeps the analysis window when selecting an example question', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            ai_prompt_config: { window: { mode: 'days_ago_range', start_days_ago: 14, end_days_ago: 7 } },
+        })
+
+        newLogic.actions.selectAiExamplePrompt(
+            'Top 5 events by volume, with counts and unique users for each.',
+            'Top events'
+        )
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.ai_prompt_config?.window).toEqual({
+            mode: 'days_ago_range',
+            start_days_ago: 14,
+            end_days_ago: 7,
+        })
+    })
+
+    it('prefills seven days when selecting the last-N-days analysis window', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.selectAiAnalysisWindow('last_n_days')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.ai_prompt_config?.window).toEqual({
+            mode: 'last_n_days',
+            start_days_ago: 7,
+        })
+    })
+
+    it('prefills a two-week range ending today when selecting the range analysis window', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.selectAiAnalysisWindow('days_ago_range')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.ai_prompt_config?.window).toEqual({
+            mode: 'days_ago_range',
+            start_days_ago: 14,
+            end_days_ago: 0,
+        })
+    })
+
     it('sets the type from query params', async () => {
         router.actions.push('/insights/123/subscriptions/new?target_type=slack')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             target_type: 'slack',
         })
+    })
+
+    it('prefills the current user email for a new email subscription', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription).toMatchObject({
+            target_type: 'email',
+            target_value: MOCK_DEFAULT_USER.email,
+        })
+        expect(newLogic.values.subscriptionChanged).toBe(false)
+
+        newLogic.actions.setSubscriptionValue('target_type', 'slack')
+        newLogic.actions.setSubscriptionValue('target_type', 'email')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.target_value).toBe(MOCK_DEFAULT_USER.email)
     })
 
     // Products deep-link here with a ready-made report (the MCP analytics recurring-report cards),
@@ -677,5 +770,37 @@ describe('subscriptionLogic', () => {
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.prompt).toBeUndefined()
+    })
+
+    it.each([
+        ['removes the gallery flag when files:write is missing', 'chat:write,channels:read', false],
+        ['keeps the gallery flag when files:write is granted', 'chat:write,files:write', true],
+    ] as const)('%s on submit', async (_label, scope, expected) => {
+        const integrations = integrationsLogic()
+        integrations.mount()
+        await expectLogic(integrations).toFinishListeners()
+        integrations.actions.loadIntegrationsSuccess([{ id: 7, kind: 'slack', config: { scope } } as IntegrationType])
+
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 51, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            target_type: 'slack',
+            target_value: 'C123|#general',
+            integration_id: 7,
+            title: 'Gallery test',
+            delivery_config: { post_all_insights_in_main_message: true },
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.delivery_config?.post_all_insights_in_main_message).toBe(expected)
     })
 })

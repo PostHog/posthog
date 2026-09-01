@@ -32,6 +32,7 @@ from django.db.models import (
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
+from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 
 import structlog
@@ -64,6 +65,7 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
     MAX_SEARCH_LENGTH,
@@ -158,7 +160,8 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
-from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
     InsightBasicSerializer,
@@ -2448,7 +2451,9 @@ class DashboardsViewSet(
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
         context["compute_surface"] = (
             ComputeSurface.DASHBOARD_MUTATE
             if self.action in {"create", "update", "partial_update"}
@@ -2634,7 +2639,10 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
         serializer = DashboardSerializer(dashboard, context=serializer_context)
@@ -2680,7 +2688,9 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Skip the "Last accessed" bump during staff impersonation (see retrieve)
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
 

@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LOOKAHEAD_EXPIRY_SECONDS } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -135,6 +136,9 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride, resumeUrl }) => {
+            // Attempt and outcome are captured separately so a gate that accepts clicks but never
+            // approves shows up as a gap between the two, rather than only in a session recording.
+            posthog.capture('ai_consent_approval_submitted', { is_resumed: !!resumeUrl })
             try {
                 await organizationLogic.asyncActions.updateOrganization({
                     is_ai_data_processing_approved: testOnlyOverride ?? true,
@@ -142,9 +146,11 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
             } catch (error) {
                 // A real failure (a lost SSO redirect unloads the page instead of rejecting).
                 actions.setPendingApprovalRedirect(null)
+                posthog.capture('ai_consent_approval_failed')
                 throw error
             }
             actions.setPendingApprovalRedirect(null)
+            posthog.capture('ai_consent_approved')
             lemonToast.success('AI data processing approved')
             if (resumeUrl) {
                 router.actions.push(resumeUrl)
@@ -156,14 +162,17 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
                 actions.requestAiAccessError()
                 return
             }
+            posthog.capture('ai_access_request_submitted')
             try {
                 // Backend notifies the org admins/owners via a customer.io email — keeps the
                 // recipient resolution server-side so it can't be tampered with from the client.
                 await requestAiAccessCreate(organization.id)
                 actions.markAiAccessRequested(organization.id)
+                posthog.capture('ai_access_requested')
                 lemonToast.success('Request sent to your organization admins')
             } catch {
                 actions.requestAiAccessError()
+                posthog.capture('ai_access_request_failed')
                 lemonToast.error('Could not send your request. Please try again.')
             }
         },

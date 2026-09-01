@@ -72,6 +72,19 @@ Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Lo
 - **Loading, empty, and error are three different screens.** Never derive "empty" from data that hasn't resolved — branch on the loading/unknown state first.
 - **Renames sweep code symbols completely; wire strings stay frozen.** Event names, property names/values, flag keys, `data-attr` values, storage keys, and URL paths are API (dashboards, rollouts, and Playwright depend on them) — pin them with a comment instead of renaming.
 
+## Rule 6 — A narrow scene is normal; a phone is not
+
+Every surface a person reads has to hold up in a narrow scene.
+The width a component gets is not the window width: the nav sidebar takes ~215px, an open side panel ~512px more, and the scene pads 32px on top.
+So a 1280px window with the side panel open leaves a scene about 520px wide — narrower than a `md:` breakpoint ever fires at.
+That is a normal working setup, not an edge case, and it is the case agents skip.
+
+- **Break on the container, not the viewport.** `md:`/`lg:`/`xl:` track the window, so they fire long after the real space ran out. Container queries track the space the component actually has. `layout/navigation-3000/Navigation.tsx` names `main-content` and `main-content-container`, so `@min-[48rem]/main-content:` follows the main column. A shared component declares its own container instead, because it must respond wherever a caller places it — `lib/lemon-ui/LemonBanner/LemonBanner.tsx` is the pattern.
+- **Nothing clips and nothing scrolls sideways.** Rows of buttons, tags, or chips get `flex-wrap`. Long strings truncate. Side-by-side halves stack. An unwrapped action row is the most common miss.
+- **Cut decoration before content.** When something has to go at a narrow width, drop the illustration or the padding, not the explanation or the primary action.
+- **Do not build for mobile.** No phone-width layouts, no touch-sized targets, no `sm:` variants for a viewport nobody runs the app at. "Narrow" means a docked panel on a laptop.
+- **Look at it, don't reason about it.** Render the surface at a few widths before calling the work done. A story with a pinned container width snapshots the narrow case, so a regression shows up in visual review.
+
 ## Feature flags in stories
 
 If a story renders a flag-gated component, set the flag via the `featureFlags` story parameter — an imperative `featureFlagLogic.setFeatureFlags` call is silently dropped in the visual-regression runtime. Invoke `/setting-feature-flags-in-storybook` for the mechanics.

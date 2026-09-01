@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BinaryColumnReporter,
+    hex_encode_id_binary_columns,
     table_from_py_list,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import (
@@ -313,6 +314,9 @@ class Batcher:
             # losing data. (In practice sources emit only one item type, never a mix.)
             if self._buffer:
                 raise Exception("Cannot batch a pa.Table while list/dict rows are buffered; call get_table() first")
+            # Arrow-native sources skip `_rows_to_table`, so their binary keys are converted here
+            # instead.
+            item = hex_encode_id_binary_columns(item, self._primary_keys, self._binary_reporter)
             if self._coalesce_tables:
                 self._batch_table(item)
                 return

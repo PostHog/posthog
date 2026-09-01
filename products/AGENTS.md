@@ -39,4 +39,6 @@ breaks isolation and selective CI. If the target product has no facade yet
 (`products/<name>/backend/facade/api.py`), invoke the `/isolating-product-facade-contracts`
 skill to create one.
 
-Run `tach check --dependencies --interfaces` to verify import boundaries are clean.
+Run `hogli lint:tach` to verify import boundaries are clean. It runs the two tach passes CI runs:
+dependencies without test code, interfaces with it, so a test may import any product's public
+surface without a `depends_on` entry but never its internals.

@@ -59,17 +59,13 @@ jobs:
         uses: ./.github/workflows/monitor-github-rate-limit.yml
         secrets:
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-            GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
             GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
             GH_APP_POSTHOG_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
             GH_APP_POSTHOG_TESTS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             GH_APP_TELEMETRY_APP_ID: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
             GH_APP_TELEMETRY_PRIVATE_KEY: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
-            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
             GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-            GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
             GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
 
     flags-project-board:
@@ -120,7 +116,6 @@ jobs:
             )
         uses: ./.github/workflows/ci-migrations-service-separation-check.yml
         secrets:
-            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     release-plan:

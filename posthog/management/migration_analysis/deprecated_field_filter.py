@@ -6,8 +6,9 @@ class DeprecatedFieldFilter:
     Filters 'Remove field' operations for fields wrapped in deprecate_field().
 
     Django-deprecate-fields hides deprecated fields from model introspection unless
-    'makemigrations' is in sys.argv. This causes false positives where deprecated
-    fields appear as missing operations in makemigrations output.
+    a migration command ('makemigrations', 'migrate', 'showmigrations') is in sys.argv.
+    This causes false positives where deprecated fields appear as missing operations
+    in makemigrations output.
 
     This filter introspects only the models that have field removals, checking if
     those specific fields are wrapped in deprecate_field(). Only deprecated field

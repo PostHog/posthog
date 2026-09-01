@@ -137,6 +137,30 @@ class DataWarehouseTable:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class TableSourceLocation:
+    """Where a synced table is administered: the source and schema its detail page hangs off."""
+
+    source_id: UUID
+    schema_id: UUID
+
+
+WAREHOUSE_OBJECT_TABLE = "table"
+WAREHOUSE_OBJECT_VIEW = "view"
+
+
+@dataclass(frozen=True)
+class WarehouseObjectRef:
+    """Which warehouse object a queryable name resolves to, for a caller that must record identity.
+
+    ``kind`` is ``WAREHOUSE_OBJECT_TABLE`` or ``WAREHOUSE_OBJECT_VIEW``, since a name reaches either
+    a warehouse table or a saved query and the two are stored apart.
+    """
+
+    kind: str
+    id: UUID
+
+
 # --- Job ---
 
 

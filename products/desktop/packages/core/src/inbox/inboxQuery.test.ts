@@ -5,7 +5,7 @@ import {
   findReportInInboxListCache,
   inboxReportDetailQueryKey,
   resolveInboxReportDetailCache,
-  seedInboxReportDetailCache,
+  resolveInboxReportForRender,
 } from "./inboxQuery";
 
 function fakeReport(id: string): SignalReport {
@@ -43,11 +43,11 @@ describe("inboxQuery", () => {
     expect(findReportInInboxListCache(queryClient, "r-42")).toEqual(report);
   });
 
-  it("seeds and resolves the detail cache", () => {
+  it("resolves a populated detail cache", () => {
     const queryClient = new QueryClient();
     const report = fakeReport("r-7");
 
-    seedInboxReportDetailCache(queryClient, report);
+    queryClient.setQueryData(inboxReportDetailQueryKey("r-7"), report);
 
     expect(queryClient.getQueryData(inboxReportDetailQueryKey("r-7"))).toEqual(
       report,
@@ -67,7 +67,10 @@ describe("inboxQuery", () => {
     const seededDetail = fakeReport("seeded-detail");
     const listReport = fakeReport("in-list");
 
-    seedInboxReportDetailCache(queryClient, seededDetail);
+    queryClient.setQueryData(
+      inboxReportDetailQueryKey(seededDetail.id),
+      seededDetail,
+    );
     queryClient.setQueryData(
       ["inbox", "signal-reports", "scope-count", "for-you"],
       42,
@@ -81,5 +84,14 @@ describe("inboxQuery", () => {
       listReport,
     );
     expect(findReportInInboxListCache(queryClient, "missing")).toBeUndefined();
+  });
+
+  it("does not fall back after an authoritative missing response", () => {
+    const cachedReport = fakeReport("stale");
+
+    expect(resolveInboxReportForRender(undefined, cachedReport)).toEqual(
+      cachedReport,
+    );
+    expect(resolveInboxReportForRender(null, cachedReport)).toBeNull();
   });
 });

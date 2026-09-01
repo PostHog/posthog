@@ -132,6 +132,47 @@ describe('aiObservabilityAIDataLogic', () => {
         expect(mockApi.queryHogQL.mock.calls[1][0]).toContain('FROM events')
     })
 
+    it('prefers populated input_state over an empty input array and keeps an empty output as arrived', async () => {
+        jest.spyOn(mockApi, 'queryHogQL').mockResolvedValue({
+            results: [
+                [
+                    '[]',
+                    null,
+                    '[]',
+                    JSON.stringify({ messages: [{ type: 'human', content: 'state input' }] }),
+                    null,
+                    null,
+                ],
+            ],
+        } as any)
+
+        const logic = aiObservabilityAIDataLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAIDataForEvent({
+                eventId: 'event-1',
+                input: undefined,
+                output: undefined,
+                tools: undefined,
+                traceId: 'trace-1',
+                timestamp: '2026-04-30T10:00:00Z',
+            })
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                aiDataCache: {
+                    'event-1': {
+                        input: { messages: [{ type: 'human', content: 'state input' }] },
+                        output: [],
+                        tools: undefined,
+                    },
+                },
+            })
+
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
+    })
+
     it('parses fetched heavy props in full instead of collapsing them into a truncated preview', async () => {
         const fullInput = [
             { role: 'system', content: `You are a data extraction specialist. ${'detail '.repeat(60)}` },

@@ -9,6 +9,8 @@ description: >
 
 # Fixing flaky tests
 
+Before you propose a change to how the suite runs in CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records measured verdicts on test parallelism, sharding, and coverage-based selection, so a rejected approach is not rebuilt.
+
 Three non-negotiables, in order:
 
 1. **Reproduce before you fix.** A fix for a failure you never observed is a guess.

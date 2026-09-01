@@ -137,12 +137,15 @@ describe('exportNudgeLogic', () => {
     })
 
     it.each([
-        ['dashboard', DASHBOARD],
-        ['insight', INSIGHT],
-    ])('does not nudge a %s that already has a subscription', async (_kind, subject) => {
+        ['dashboard', DASHBOARD, { kind: 'dashboard', dashboard_id: DASHBOARD_ID }],
+        ['insight', INSIGHT, { kind: 'insight', insight_short_id: INSIGHT_SHORT_ID }],
+    ])('does not nudge a %s that already has a subscription', async (_kind, subject, eventProperties) => {
         mockSubscriptionCounts({ subjectCount: 1 })
 
         expect(await considerNudge(subject)).toBe(false)
+        expect(capturesOf('export nudge not eligible')).toEqual([
+            ['export nudge not eligible', { reason: 'already_subscribed', ...eventProperties }],
+        ])
     })
 
     it('asks again once the subscription that retired the offer is gone', async () => {
@@ -192,8 +195,24 @@ describe('exportNudgeLogic', () => {
             sceneLogic.actions.loadSubscriptionsSuccess([{ id: 1 } as any])
 
             expect(lookUpExportNudge(DASHBOARD)).toEqual({ status: 'ineligible' })
+            expect(capturesOf('export nudge not eligible')).toEqual([
+                [
+                    'export nudge not eligible',
+                    { reason: 'already_subscribed', kind: 'dashboard', dashboard_id: DASHBOARD_ID },
+                ],
+            ])
 
             sceneLogic.unmount()
+        })
+
+        it('is ineligible over the free-tier subscription limit', () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER) // no available features -> free tier
+            logic.actions.loadFreeTierSubscriptionCountSuccess(SubscriptionFreeTierLimit.COUNT)
+
+            expect(lookUpExportNudge(DASHBOARD)).toEqual({ status: 'ineligible' })
+            expect(capturesOf('export nudge not eligible')).toEqual([
+                ['export nudge not eligible', { reason: 'over_limit', kind: 'dashboard', dashboard_id: DASHBOARD_ID }],
+            ])
         })
     })
 
@@ -210,6 +229,16 @@ describe('exportNudgeLogic', () => {
             mockSubscriptionCounts({ subjectCount: 0, teamCount })
 
             expect(await considerNudge()).toBe(nudges)
+            expect(capturesOf('export nudge not eligible')).toEqual(
+                nudges
+                    ? []
+                    : [
+                          [
+                              'export nudge not eligible',
+                              { reason: 'over_limit', kind: 'dashboard', dashboard_id: DASHBOARD_ID },
+                          ],
+                      ]
+            )
         })
     })
 

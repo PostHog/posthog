@@ -1,4 +1,7 @@
-import type { EvidenceDetailSection } from "@posthog/api-client/evidence-previews";
+import type {
+  EvidenceDetailSection,
+  ExperimentResultsPresentation,
+} from "@posthog/api-client/evidence-previews";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   type ChartHeadlineStat,
@@ -39,6 +42,7 @@ export interface EvidenceCardData {
     render: "line" | "bar";
   };
   sections?: EvidenceDetailSection[];
+  experimentResults?: ExperimentResultsPresentation;
   /** A dashboard's tiles, each resolvable to a live insight chart. */
   tiles?: Array<{ shortId: string; name: string | null }>;
   /** Canonical id when it differs from the cited one (a flag cited by key). */
@@ -46,6 +50,12 @@ export interface EvidenceCardData {
 }
 
 const MAX_SPARK_POINTS = 60;
+
+export const EVIDENCE_PREVIEW_STALE_TIME = 5 * 60 * 1000;
+
+export function evidencePreviewQueryKey(target: EvidenceLinkTarget) {
+  return ["evidence-preview", target.kind, target.id] as const;
+}
 
 /** Reduce a shaped chart result to the card's headline + sparkline. */
 function fromChartData(
@@ -71,9 +81,15 @@ function fromChartData(
     };
   }
   if (data.type === "table") {
+    // Column titles are raw SQL for HogQL sources, not labels; show counts.
     return {
       title: `${data.rows.length.toLocaleString("en-US")} ${data.rows.length === 1 ? "row" : "rows"}`,
-      detail: data.columns.join(", ") || undefined,
+      facts:
+        data.columns.length > 0
+          ? [
+              `${data.columns.length} ${data.columns.length === 1 ? "column" : "columns"}`,
+            ]
+          : undefined,
     };
   }
   return { title: fallbackTitle };

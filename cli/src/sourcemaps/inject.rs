@@ -49,10 +49,24 @@ impl InjectArgs {
     }
 }
 
+/// Where an event-mode build's release comes from at runtime.
+///
+/// Web and Node bundles carry it in the chunk. The injected snippet sets `_posthogReleaseId`,
+/// and the SDK emits it on every exception. React Native cannot do this. The injected JS
+/// compiles to Hermes bytecode, and no SDK reads the global out of it. There the server
+/// rebuilds the release from the `$app_namespace` / `$app_version` / `$app_build` that every
+/// event already carries. This is what it does for iOS dSYMs and Android mappings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventReleaseSource {
+    EmbeddedInChunk,
+    AppMetadata,
+}
+
 pub fn inject_impl(
     args: &InjectArgs,
     matcher: impl Fn(&DirEntry) -> bool + 'static,
     existing_release: Option<&Release>,
+    event_release_source: EventReleaseSource,
 ) -> Result<()> {
     let InjectArgs {
         file_selection,
@@ -77,13 +91,20 @@ pub fn inject_impl(
         ReleaseMode::Event => {
             // The release id travels inside each chunk for the SDK to emit, rather than being
             // stamped into the sourcemap, so the release exists but nothing binds a symbol set
-            // to it.
-            let release_id = resolve_release_id(release.clone(), existing_release)?;
-            if release_id.is_none() {
-                warn!(
-                    "no release could be resolved, injecting chunk ids only — events will carry no release"
-                );
-            }
+            // to it. When the SDK reads the release from the app instead, only the chunk ids go
+            // in. The upload then creates the release row that the server resolves onto.
+            let release_id = match event_release_source {
+                EventReleaseSource::EmbeddedInChunk => {
+                    let release_id = resolve_release_id(release.clone(), existing_release)?;
+                    if release_id.is_none() {
+                        warn!(
+                            "no release could be resolved, injecting chunk ids only — events will carry no release"
+                        );
+                    }
+                    release_id
+                }
+                EventReleaseSource::AppMetadata => None,
+            };
             pairs = inject_pairs(pairs, release_id.as_deref())?;
         }
         ReleaseMode::SymbolSet => {

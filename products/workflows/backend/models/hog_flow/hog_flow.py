@@ -52,9 +52,17 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "webhook",
         "data-warehouse-table",
         "data-warehouse-view",
-        "slack-message",
+        "internal-event",
     }
 )
+
+# The internal events a workflow may subscribe to. The internal-events stream carries payloads
+# that each owning product gates behind its own scopes — recording content, exception detail,
+# activity detail, alert bodies — while starting a workflow needs only hog_flow:write. An
+# allowlist keeps that gap closed by default, so adding a trigger means answering the
+# authorization question for that event. Pair a new entry with a tile in
+# products/workflows/frontend/Workflows/hogflows/registry/triggers/.
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
@@ -64,6 +72,16 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_sms",  # SMS sending actions
     "function_push",  # Push notification actions
 }
+
+# Action types that send a message to a person. A workflow containing at least one of these is a
+# "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
+# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
+# same split, and the list API's `type` filter, which queries on it.
+MESSAGING_ACTION_TYPES: Final[list[str]] = [
+    "function_email",
+    "function_sms",
+    "function_push",
+]
 
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")
 # workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
@@ -79,7 +97,7 @@ PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
 ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
     "data-warehouse-view",
-    "slack-message",
+    "internal-event",
 }
 
 

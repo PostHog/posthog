@@ -13,6 +13,9 @@ import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLog
 
 const APPLIED_INDICATOR_MS = 2000
 
+// The indicator names the state the click leaves behind, not the write, because a click on a value
+// already filtered reconciles to the same group and writes nothing (see spanFilterAdd.ts).
+
 interface AttributeRow {
     key: string
     value: string
@@ -69,7 +72,7 @@ export function SpanAttributes({
                       render: (_: unknown, record: AttributeRow) => (
                           <div className="flex gap-x-0">
                               {appliedFilter?.key === record.key && appliedFilter.direction === 'include' ? (
-                                  <LemonButton size="xsmall" tooltip="Filter added">
+                                  <LemonButton size="xsmall" tooltip="Filter applied">
                                       <IconCheck className="text-success" />
                                   </LemonButton>
                               ) : (
@@ -86,7 +89,7 @@ export function SpanAttributes({
                                   </LemonButton>
                               )}
                               {appliedFilter?.key === record.key && appliedFilter.direction === 'exclude' ? (
-                                  <LemonButton size="xsmall" tooltip="Filter added">
+                                  <LemonButton size="xsmall" tooltip="Filter applied">
                                       <IconCheck className="text-success" />
                                   </LemonButton>
                               ) : (

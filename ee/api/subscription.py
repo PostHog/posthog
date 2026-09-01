@@ -37,7 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
@@ -61,6 +61,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -253,6 +254,20 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
+class DeliveryConfigSerializer(serializers.Serializer):
+    """Typed view over the Subscription.delivery_config JSON blob."""
+
+    post_all_insights_in_main_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Slack only: when true, upload all insight images together in the main Slack message "
+            "instead of posting the first image in the main message and the rest as threaded replies. "
+            "Defaults to false."
+        ),
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -260,6 +275,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         "target_value",
         "target_type",
         "integration_id",
+        "delivery_config",
         "prompt",
         "insight_id",
         "dashboard_id",
@@ -298,6 +314,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
+    )
+    delivery_config = DeliveryConfigSerializer(
+        required=False,
+        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -345,6 +365,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "send_test_now",
             "summary_enabled",
             "summary_prompt_guide",
+            "delivery_config",
         ]
         read_only_fields = [
             "id",
@@ -523,6 +544,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "integration_id" in attrs
             else (self.instance.integration_id if self.instance else None)
         )
+        effective_delivery_config = (
+            attrs["delivery_config"]
+            if "delivery_config" in attrs
+            else (self.instance.delivery_config if self.instance else None)
+        ) or {}
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -578,6 +604,25 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+            if effective_delivery_config.get("post_all_insights_in_main_message") and SlackIntegration(
+                integration
+            ).missing_scopes({"files:write"}):
+                raise ValidationError(
+                    {
+                        "delivery_config": [
+                            "Posting all insights in the main message requires the Slack files:write permission. "
+                            "Reconnect Slack to grant it."
+                        ]
+                    }
+                )
+
+        if (
+            effective_delivery_config.get("post_all_insights_in_main_message")
+            and target_type != Subscription.SubscriptionTarget.SLACK
+        ):
+            raise ValidationError(
+                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+            )
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
@@ -1426,6 +1471,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
+class AIReportChartSerializer(serializers.Serializer):
+    export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing this chart.")
+    title = serializers.CharField(help_text="Chart caption, taken from the plan step it illustrates.")
+    step_index = serializers.IntegerField(help_text="Index of the plan step this chart came from.")
+
+
 class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     # Per-step query diagnostics persisted alongside the report markdown. Query-derived (the generated
     # HogQL is here), so it is scrubbed for callers without query access — never shipped to recipients.
@@ -1460,6 +1511,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         "change_summary": None,
         "ai_report": None,
         "ai_report_diagnostics": None,
+        "ai_report_charts": None,
     }
 
     ai_report = serializers.SerializerMethodField(
@@ -1467,6 +1519,9 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     )
     ai_report_diagnostics = serializers.SerializerMethodField(
         help_text="Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics."
+    )
+    ai_report_charts = serializers.SerializerMethodField(
+        help_text="Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed."
     )
     ai_report_prompt = serializers.SerializerMethodField(
         help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
@@ -1494,6 +1549,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "change_summary",
             "ai_report",
             "ai_report_diagnostics",
+            "ai_report_charts",
             "ai_report_prompt",
         ]
         read_only_fields = fields
@@ -1547,6 +1603,14 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY)
         return diagnostics if isinstance(diagnostics, list) else None
 
+    @extend_schema_field(AIReportChartSerializer(many=True, allow_null=True))
+    def get_ai_report_charts(self, delivery: SubscriptionDelivery) -> Optional[list[dict]]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        charts = snapshot.get(AI_REPORT_CHARTS_KEY)
+        return charts if isinstance(charts, list) else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
@@ -1564,11 +1628,18 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             AI_REPORT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_DIAGNOSTICS_KEY in snapshot
+            or AI_REPORT_CHARTS_KEY in snapshot
         ):
             data["content_snapshot"] = {
                 key: value
                 for key, value in snapshot.items()
-                if key not in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY)
+                if key
+                not in (
+                    AI_REPORT_SNAPSHOT_KEY,
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+                    AI_REPORT_DIAGNOSTICS_KEY,
+                    AI_REPORT_CHARTS_KEY,
+                )
             }
         return data
 

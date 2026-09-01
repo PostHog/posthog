@@ -316,6 +316,14 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok, err
 
+    def test_rejects_base_url_with_http_method_prefix(self):
+        # A user who pastes "POST https://..." from API docs used to get an unhelpful
+        # "missing a hostname" — the message must instead tell them to drop the method.
+        manifest = _minimal_manifest(base_url="POST https://api.example.com/v1")
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "Remove the HTTP method" in (err or "")
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",

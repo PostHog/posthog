@@ -52,7 +52,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <Link
-            to={urls.inboxReport(isPr ? 'pulls' : 'reports', report.id)}
+            to={urls.inboxReport('reports', report.id)}
             className="group flex flex-col gap-2 rounded border border-primary bg-surface-primary px-4 py-3.5 no-underline text-inherit transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
         >
             <div className="flex items-center gap-2 flex-wrap">

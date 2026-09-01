@@ -312,6 +312,7 @@ class SandboxSession(BaseSandboxService):
             initial_permission_mode=initial_permission_mode,
             interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN,
             pending_user_message=wrapped,
+            converted_from_langgraph=convert_to_acp,
         )
         state_updates = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
         # Persist the enriched run state and conversation linkage together, under the row lock so a

@@ -4,13 +4,6 @@ import type {
 } from "@posthog/core/clone/cloneTypes";
 import { create } from "zustand";
 
-export type {
-  CloneOperation,
-  CloneProgressEvent,
-  CloneRepositoryInput,
-  CloneStatus,
-} from "@posthog/core/clone/cloneTypes";
-
 interface CloneStore {
   operations: Record<string, CloneOperation>;
   beginClone: (cloneId: string, repository: string, targetPath: string) => void;

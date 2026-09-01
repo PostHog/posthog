@@ -25,8 +25,8 @@ from products.tasks.backend.logic.services.connection_token import create_sandbo
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
-    Sandbox,
     SandboxBase,
+    get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
 )
 from products.tasks.backend.models import Task, TaskRun
@@ -175,20 +175,34 @@ def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
         return False
 
 
-def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
-    if not _is_agent_shadow_enabled(ctx):
+def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
+    try:
+        result = sandbox.execute(
+            f'test "$(head -c 128 /tmp/agent-shadow-launched 2>/dev/null || true)" = {shlex.quote(ctx.run_id)}',
+            timeout_seconds=10,
+        )
+    except Exception:
+        logger.exception("agent_shadow_launch_marker_read_failed", run_id=ctx.run_id, sandbox_id=sandbox.id)
         return False
+    return result.exit_code == 0
+
+
+def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
     if sandbox.config.snapshot_restored and sandbox.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
         return False
-    process = f"[a]gent-shadow --boot-id {ctx.run_id}"
+    if current_activity_attempt() > 1 and _has_agent_shadow_launch_marker(ctx, sandbox):
+        return True
+    if not _is_agent_shadow_enabled(ctx):
+        return False
+    quoted_run_id = shlex.quote(ctx.run_id)
     command = (
-        f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then "
-        f"printf %s {shlex.quote(ctx.run_id)} > /tmp/agent-shadow-launched; "
-        f"elif test -x /usr/local/bin/agent-shadow; then nohup /usr/bin/env -i /usr/local/bin/agent-shadow "
-        f"--boot-id {shlex.quote(ctx.run_id)} --health-url {shlex.quote(sandbox.agent_server_health_url())} "
+        f'if test "$(cat /tmp/agent-shadow-launched 2>/dev/null)" = {quoted_run_id}; then exit 0; fi; '
+        "test -x /usr/local/bin/agent-shadow || exit 1; "
+        "/usr/bin/env -i /usr/bin/setsid /usr/local/bin/agent-shadow "
+        f"--boot-id {quoted_run_id} --health-url {shlex.quote(sandbox.agent_server_health_url())} "
         "--timeout 6m "
         "> /tmp/agent-shadow.json 2> /tmp/agent-shadow.log < /dev/null & "
-        f"printf %s {shlex.quote(ctx.run_id)} > /tmp/agent-shadow-launched; else exit 1; fi"
+        f"printf %s {quoted_run_id} > /tmp/agent-shadow-launched"
     )
     try:
         result = sandbox.execute(command, timeout_seconds=10)
@@ -206,7 +220,7 @@ def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bo
     return True
 
 
-def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, str | int | bool]:
+def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, str | bool | int]:
     process = f"[a]gent-shadow --boot-id {run_id}"
     quoted_run_id = shlex.quote(run_id)
     try:
@@ -216,8 +230,9 @@ def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, st
             f'if test "$marker" = {quoted_run_id}; then '
             f'i=0; while pgrep -f -- {shlex.quote(process)} >/dev/null && test "$i" -lt 20; do '
             "sleep 0.1; i=$((i + 1)); done; "
-            f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then printf 'timed_out\\n'; fi; "
-            "tail -c 65536 /tmp/agent-shadow.json 2>/dev/null || true; fi",
+            f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then printf 'timed_out\\n'; "
+            "elif test -s /tmp/agent-shadow.json; then tail -c 65536 /tmp/agent-shadow.json; "
+            "else printf 'no_output\\n'; tail -c 2048 /tmp/agent-shadow.log 2>/dev/null || true; fi; fi",
             timeout_seconds=5,
         )
     except Exception:
@@ -226,13 +241,22 @@ def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, st
     lines = result.stdout.splitlines()
     if not lines or lines[0] != run_id:
         return {}
-    observation: dict[str, str | int | bool] = {"launched": True}
+    observation: dict[str, str | bool | int] = {"launched": True}
     if len(lines) == 1:
         return observation
     if lines[1] == "timed_out":
         observation["timed_out"] = True
         if len(lines) == 2:
             return observation
+    elif lines[1] == "no_output":
+        observation["failure_class"] = "no_output"
+        logger.warning(
+            "agent_shadow_no_output",
+            run_id=run_id,
+            sandbox_id=sandbox.id,
+            stderr_tail="\n".join(lines[2:])[:2048],
+        )
+        return observation
     try:
         payload = json.loads(lines[-1])
     except (TypeError, json.JSONDecodeError):
@@ -245,13 +269,14 @@ def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, st
     if outcome not in {"ready", "failed"}:
         return observation
     observation["outcome"] = outcome
-    for source, target in (
-        ("observedReadyMs", "observed_ready_ms"),
-        ("productionReadyMs", "production_ready_ms"),
-    ):
-        value = payload.get(source)
-        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-            observation[target] = value
+    if outcome == "ready":
+        for source, target in (
+            ("observedReadyMs", "observed_ready_ms"),
+            ("productionReadyMs", "production_ready_ms"),
+        ):
+            value = payload.get(source)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                observation[target] = value
     failure_class = payload.get("failureClass")
     if failure_class in {"timeout", "boot_id_mismatch", "unsupported_contract"}:
         observation["failure_class"] = failure_class
@@ -276,6 +301,12 @@ class StartAgentServerInput:
     boot_excluded_ms: int = 0
 
 
+@frozen
+class CollectAgentShadowResultInput:
+    sandbox_id: str
+    run_id: str
+
+
 @dataclass
 class MarkRepoReadyInput:
     sandbox_id: str
@@ -291,11 +322,15 @@ class StartAgentServerOutput:
     sandbox_url: str
     connect_token: str | None = None
     launch_ms: int | None = None
+    prepare_ms: int | None = None
+    invoke_ms: int | None = None
+    health_poll_ms: int | None = None
     ready_wait_ms: int | None = None
     session_init_ms: int | None = None
     boot_phases_ms: dict[str, int] = field(default_factory=dict)
     boot_total_ms: int | None = None
-    shadow_observation: dict[str, str | int | bool] = field(default_factory=dict)
+    shadow_observation: dict[str, str | bool | int] = field(default_factory=dict)
+    shadow_launched: bool = False
 
 
 @frozen
@@ -395,6 +430,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
+        origin_product=task.origin_product,
     )
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(
@@ -481,7 +517,6 @@ def _invoke_start_agent_server(
     params: _LaunchParams,
     *,
     repo_ready_file: str | None,
-    wait_for_health: bool,
 ) -> None:
     try:
         sandbox.start_agent_server(
@@ -509,23 +544,12 @@ def _invoke_start_agent_server(
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
-            wait_for_health=wait_for_health,
+            wait_for_health=False,
             rtk_enabled=ctx.rtk_enabled,
+            benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
         )
 
-        # Record the boot identity so same-actor follow-ups within the
-        # freshness window skip the redundant refresh.
-        if params.mcp_configs and params.actor_user_id is not None:
-            mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
-
-        # Persist the effective rtk posture the agent launched with, so terminal
-        # analytics can cohort runs by it (the state override alone misses the
-        # kill-switch flag). Best-effort: never fail the launch over it.
-        try:
-            TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
-        except Exception:
-            logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -540,6 +564,18 @@ def _invoke_start_agent_server(
             },
             cause=e,
         )
+
+
+def _record_agent_server_launch(sandbox: SandboxBase, ctx: TaskProcessingContext, params: _LaunchParams) -> None:
+    if params.mcp_configs and params.actor_user_id is not None:
+        mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
+    try:
+        TaskRun.update_state_atomic(
+            ctx.run_id,
+            updates={"rtk_effective": ctx.rtk_enabled, "benjamin_effective": ctx.benjamin_enabled},
+        )
+    except Exception:
+        logger.warning("persist_effective_toggles_failed", run_id=ctx.run_id, exc_info=True)
 
 
 def _spawn_post_ready_diagnostics(
@@ -604,19 +640,30 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         # Classic (non-deferred) path only: any clone has already happened by now, so a missing
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
         _ensure_repository_on_disk(ctx, sandbox)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
-
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        with StepTimer(
+            "agent_server_prepare", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as prepare_timer:
+            params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+
         with StepTimer(
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
-            _launch_agent_shadow(ctx, sandbox)
-            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
+            shadow_launched = _launch_agent_shadow(ctx, sandbox)
+            with StepTimer(
+                "agent_server_invoke", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as invoke_timer:
+                _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
+            with StepTimer(
+                "agent_server_health", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as health_timer:
+                sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+            _record_agent_server_launch(sandbox, ctx, params)
 
         _record_network_enforcement_observation(ctx)
 
@@ -630,18 +677,20 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             )
 
         boot_total_ms = _record_boot_total(input)
-        shadow_observation = _read_agent_shadow_result(sandbox, ctx.run_id)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
 
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
+            prepare_ms=prepare_timer.elapsed_ms,
+            invoke_ms=invoke_timer.elapsed_ms,
+            health_poll_ms=health_timer.elapsed_ms,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
             boot_total_ms=boot_total_ms,
-            shadow_observation=shadow_observation,
+            shadow_launched=shadow_launched,
         )
 
 
@@ -657,29 +706,39 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
-        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
-
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
+            "agent_server_prepare", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        ) as prepare_timer:
+            params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+
+        with StepTimer(
             "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as launch_timer:
-            _launch_agent_shadow(ctx, sandbox)
-            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
+            shadow_launched = _launch_agent_shadow(ctx, sandbox)
+            with StepTimer(
+                "agent_server_invoke", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+            ) as invoke_timer:
+                _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file)
+            _record_agent_server_launch(sandbox, ctx, params)
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
             launch_ms=launch_timer.elapsed_ms,
+            prepare_ms=prepare_timer.elapsed_ms,
+            invoke_ms=invoke_timer.elapsed_ms,
+            shadow_launched=shadow_launched,
         )
 
 
 @activity.defn
 @asyncify
 def mark_repo_ready(input: MarkRepoReadyInput) -> None:
-    sandbox = Sandbox.get_by_id(input.sandbox_id)
+    sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     for repository in input.failed_repositories or []:
         repo_path = sandbox_repo_path(repository)
         result = sandbox.execute(f"mkdir -p {shlex.quote(repo_path)}", timeout_seconds=10)
@@ -708,17 +767,25 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
         attempt = current_activity_attempt()
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+        prepare_ms: int | None = None
+        invoke_ms: int | None = None
 
         try:
             with StepTimer(
                 "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             ) as ready_timer:
                 if attempt == 1:
-                    sandbox.wait_for_agent_server_ready(agentsh_domains)
+                    with StepTimer(
+                        "agent_server_health",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as health_timer:
+                        sandbox.wait_for_agent_server_ready(agentsh_domains)
                 else:
                     logger.warning(
                         "agent_server_readiness_retry_recovery",
@@ -728,8 +795,30 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         attempt=attempt,
                     )
                     _ensure_repository_on_disk(ctx, sandbox)
-                    params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
-                    _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
+                    with StepTimer(
+                        "agent_server_prepare",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as prepare_timer:
+                        params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+                    prepare_ms = prepare_timer.elapsed_ms
+                    with StepTimer(
+                        "agent_server_invoke",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as invoke_timer:
+                        _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
+                    invoke_ms = invoke_timer.elapsed_ms
+                    with StepTimer(
+                        "agent_server_health",
+                        boot_path=input.boot_path,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    ) as health_timer:
+                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                    _record_agent_server_launch(sandbox, ctx, params)
         except Exception:
             if attempt > 1:
                 increment_agent_server_readiness_retry(
@@ -765,16 +854,24 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             )
 
         boot_total_ms = _record_boot_total(input)
-        shadow_observation = _read_agent_shadow_result(sandbox, ctx.run_id)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, agentsh_domains)
 
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
+            prepare_ms=prepare_ms,
+            invoke_ms=invoke_ms,
+            health_poll_ms=health_timer.elapsed_ms,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
             boot_total_ms=boot_total_ms,
-            shadow_observation=shadow_observation,
         )
+
+
+@activity.defn
+@asyncify
+def collect_agent_shadow_result(input: CollectAgentShadowResultInput) -> dict[str, str | bool | int]:
+    sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+    return _read_agent_shadow_result(sandbox, input.run_id)

@@ -594,6 +594,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Notebook": [
         "text_content",
+        "widget_instances",
     ],
     "FeatureFlag": [
         "experiment",
@@ -794,6 +795,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "totp_devices",
         "static_devices",
         "recovery_devices",
+        # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
+        # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
+        "facet_settings",
     ],
     "AlertConfiguration": [
         "last_checked_at",

@@ -170,6 +170,14 @@ export interface UserBasicApi {
 }
 
 /**
+ * Typed view over the Subscription.delivery_config JSON blob.
+ */
+export interface DeliveryConfigApi {
+    /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
+    post_all_insights_in_main_message?: boolean
+}
+
+/**
  * Standard Subscription serializer.
  */
 export interface SubscriptionApi {
@@ -284,6 +292,8 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -432,6 +442,8 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 /**
@@ -467,6 +479,15 @@ export interface AIReportQueryDiagnosticApi {
      * @nullable
      */
     human_readable_error?: string | null
+}
+
+export interface AIReportChartApi {
+    /** Id of the rendered PNG export backing this chart. */
+    export_asset_id: number
+    /** Chart caption, taken from the plan step it illustrates. */
+    title: string
+    /** Index of the plan step this chart came from. */
+    step_index: number
 }
 
 export interface SubscriptionDeliveryApi {
@@ -532,6 +553,11 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly ai_report_diagnostics: readonly AIReportQueryDiagnosticApi[] | null
+    /**
+     * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
+     * @nullable
+     */
+    readonly ai_report_charts: readonly AIReportChartApi[] | null
     /**
      * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
      * @nullable

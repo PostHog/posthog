@@ -23,6 +23,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
+from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -52,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_v3_lock_skipped_metric,
+    get_version_check_skipped_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
@@ -93,6 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
@@ -205,6 +208,24 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     return message or str(cause)
 
 
+def _is_app_db_failure(internal_error: str) -> bool:
+    """Whether a run failed against PostHog's own app DB rather than the customer's source.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    ``ApplicationError.__str__``), so the class the activity failed with survives into
+    ``internal_error``. ``django.db.InternalError`` is our own ORM: a source reaches a customer
+    database over a raw driver connection, whose read-only error is psycopg's
+    ``ReadOnlySqlTransaction`` and renders under that name instead. The two carry the same message,
+    which is why the class name has to do the telling.
+
+    The phrase narrows the class, mirroring ``is_stale_connection_read_only_error``: Django reports
+    corrupted data and failed-transaction states under the same class, and those are defects rather
+    than an outage that clears on its own.
+    """
+    normalized = internal_error.lower()
+    return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
+
+
 def _fail_stale_running_schema(
     schema_id: str, team_id: int, latest_error: str | None, logger: FilteringBoundLogger
 ) -> None:
@@ -222,7 +243,9 @@ def _fail_stale_running_schema(
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
 
-@dataclasses.dataclass
+# The workflow fills this in as a run unwinds — status, then the error fields on the failure
+# paths — so it is mutated after construction by design.
+@dataclasses.dataclass(frozen=False)
 class UpdateExternalDataJobStatusInputs:
     team_id: int
     job_id: str | None
@@ -304,6 +327,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     else:
         job_id = inputs.job_id
 
+    source: ExternalDataSource | None = None
+    has_non_retryable_error = False
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
@@ -311,9 +336,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(
-            pk=inputs.source_id
-        )
+        source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
@@ -322,20 +345,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = error_message_matches(internal_error_normalized, non_retryable_errors.keys())
+        # A failure against our own app DB carries the same text as several source-side conditions
+        # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
+        # matching it here would disable a sync whose source never failed, and hand the customer a
+        # message telling them to go fix a database that is working.
+        platform_failure = _is_app_db_failure(internal_error_normalized)
+        if platform_failure:
+            inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+
+        has_non_retryable_error = not platform_failure and error_message_matches(
+            internal_error_normalized, non_retryable_errors.keys()
+        )
+
         if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
-            )
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
@@ -364,6 +386,29 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger=logger,
         team_id=inputs.team_id,
     )
+
+    if inputs.internal_error and source is not None:
+        # This activity runs once the workflow has given up, so every error reaching here has
+        # already exhausted its retries — including the ones no source classified. Those used to
+        # leave a schema in error state with no event behind it, which is why whole classes of
+        # failure only ever surfaced through support tickets. Emit for both outcomes and
+        # distinguish them with a property. The capture comes after the DB writes because this
+        # activity retries without limit: emitting first would duplicate the event on every
+        # attempt a transient DB failure causes. The error text is uncurated exception output,
+        # so cap what flows into analytics.
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="schema non-retryable error" if has_non_retryable_error else "schema unclassified error",
+            properties={
+                "schemaId": inputs.schema_id,
+                "sourceId": inputs.source_id,
+                "sourceType": source.source_type,
+                "jobId": inputs.job_id,
+                "teamId": inputs.team_id,
+                "error": inputs.internal_error[:1000],
+                "classified": has_non_retryable_error,
+            },
+        )
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
@@ -510,12 +555,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 CheckPipelineVersionActivityInputs(
                     team_id=inputs.team_id,
                     source_id=inputs.external_data_source_id,
+                    schema_id=inputs.external_data_schema_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             is_v3 = version_result.is_v3
         except Exception:
+            # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
+            # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
+            # the run and let the schedule fire again, matching the lock-not-acquired path.
+            # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
+            if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
+                workflow.logger.error(
+                    "Failed to check pipeline version, skipping run",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                get_version_check_skipped_metric().add(1)
+                return
             workflow.logger.warning(
                 "Failed to check pipeline version, defaulting to V2",
                 extra={"schema_id": str(inputs.external_data_schema_id)},

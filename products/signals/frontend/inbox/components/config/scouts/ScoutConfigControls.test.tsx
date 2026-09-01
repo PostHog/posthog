@@ -1,4 +1,9 @@
-import { fireEvent, render } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render } from '@testing-library/react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -12,6 +17,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-general',
     description: 'General scout',
     scout_origin: 'canonical',
+    owners: [],
     enabled: true,
     status: 'active',
     pause_reason: null,
@@ -40,7 +46,41 @@ describe('ScoutConfigForm', () => {
         },
     })
 
-    beforeEach(() => initKeaTests())
+    beforeEach(() => {
+        // featureFlagLogic persists to localStorage, which jsdom keeps across tests — without
+        // clearing, a flag set in one test leaks into the next test's mount-time state.
+        localStorage.clear()
+        initKeaTests()
+    })
+    afterEach(cleanup)
+
+    const emitSwitchLabel = 'signals-scout-general write signals to the inbox'
+
+    it.each([
+        ['live', true, false],
+        ['dry run', false, true],
+    ])('moves a %s scout to the other posture', (_posture, emit, expectedPatch) => {
+        const onUpdate = jest.fn()
+        const { getByLabelText } = render(<ScoutConfigForm config={{ ...config, emit }} onUpdate={onUpdate} />)
+
+        const emitSwitch = getByLabelText(emitSwitchLabel)
+        expect(emitSwitch).toHaveAttribute('aria-checked', String(emit))
+
+        fireEvent.click(emitSwitch)
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { emit: expectedPatch })
+    })
+
+    // Settable while the scout is off, so a dry-run posture can be chosen before the enable
+    // sends the first run out.
+    it('leaves the dry-run switch editable while the scout is disabled', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText } = render(
+            <ScoutConfigForm config={{ ...config, enabled: false }} onUpdate={onUpdate} />
+        )
+
+        expect(getByLabelText(emitSwitchLabel)).not.toBeDisabled()
+    })
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
         const onUpdate = jest.fn()
@@ -71,6 +111,30 @@ describe('ScoutConfigForm', () => {
 
         expect(container.querySelector('input[type="time"]')).toBeNull()
         expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+        unmount()
+    })
+
+    // Guards the pin's wire values: a model option must patch the raw model id (not its display
+    // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
+    it('pins a model from the dropdown and clears the pin via Default', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
+            [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
+        })
+        const onUpdate = jest.fn()
+        const modelSelectLabel = 'signals-scout-general model'
+        const { getByLabelText, getByText, rerender, unmount } = render(
+            <ScoutConfigForm config={config} onUpdate={onUpdate} />
+        )
+
+        fireEvent.click(getByLabelText(modelSelectLabel))
+        fireEvent.click(getByText('GPT-5.6 Luna'))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { model: 'gpt-5.6-luna' })
+
+        rerender(<ScoutConfigForm config={{ ...config, model: 'gpt-5.6-luna' }} onUpdate={onUpdate} />)
+        fireEvent.click(getByLabelText(modelSelectLabel))
+        fireEvent.click(getByText('Default'))
+        expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })
         unmount()
     })
 

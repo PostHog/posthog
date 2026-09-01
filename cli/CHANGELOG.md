@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.16.1 — 2026-09-01
+
+### Patch changes
+
+- [0a93bb9d822](https://github.com/PostHog/posthog/commit/0a93bb9d822a442e4af94b2659cf07f600231861) Fix `--release-mode event` keeping a stale source map for a chunk that gains a release. The content hash ignored which snippet the chunk carried. The release snippet is longer than the chunk-id snippet, so it shifts the generated columns the uploaded map records. The two uploads therefore shared one hash, the server kept the first map, and later frames resolved to the wrong source positions. The hash now covers the snippet variant. It still ignores the release id itself, so a new release does not re-upload every chunk. — Thanks @ablaszkiewicz!
+
+## 0.16.0 — 2026-08-26
+
+### Minor changes
+
+- [db85d262555](https://github.com/PostHog/posthog/commit/db85d262555a61d89eb71b5dfcfc969053b82236) Add `--release-mode` to `hermes clone` and `hermes upload`. `event` leaves the uploaded Hermes source maps release-independent, so a React Native build that ships unchanged JavaScript across two releases keeps one symbol set instead of colliding on the release the first upload stamped on it. Each exception resolves its own release from the `$app_namespace` / `$app_version` / `$app_build` the SDK already sends, so pass `--release-name`, `--release-version` and `--build` matching the app's bundle identifier or applicationId, version and build number. `symbol-set` stays the default. `hermes inject --release-mode=event` no longer errors: it injects content-addressed chunk ids and, unlike a web build, embeds no release id, because a Hermes bytecode bundle has nothing to read one back out. — Thanks @ablaszkiewicz!
+
 ## 0.15.1 — 2026-08-24
 
 ### Patch changes

@@ -10,6 +10,21 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 
 - [Version a workflow before you edit its body](./README.md#version-a-workflow-before-you-edit-its-body) — adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers breaks in-flight executions with "Non Deterministic Error"; activity implementations and activity input dataclasses are safe to edit freely.
 
+## Logging
+
+Never pass structured fields as keyword arguments to `activity.logger` or `workflow.logger`.
+Both are stdlib `logging.LoggerAdapter` instances, which forward keyword arguments to `Logger._log()`.
+That method accepts only `exc_info`, `stack_info`, `stacklevel` and `extra`, so any other field raises `TypeError`.
+
+- **In an activity, log through the module's structlog logger.** It takes keyword fields directly, and `merge_temporal_context` is registered as a global processor, so the activity id, workflow id and attempt are still attached. See [Logging](./README.md#logging).
+- **In a workflow, keep `workflow.logger` and pass fields via `extra={...}`.** Do not switch a workflow to structlog: `workflow.logger` suppresses duplicate logs during replay, and a structlog logger re-logs every replayed line.
+
+`LoggerAdapter.log` checks `isEnabledFor(level)` before it reads the keyword arguments, so a bad `info` call is inert at the default test level of WARNING and fails only in production, which runs at INFO.
+In a workflow the crash is a workflow _task_ failure, which Temporal retries forever, so the run wedges instead of failing and reports no error status.
+Tests that exercise a workflow end to end should pin `temporalio.activity` and `temporalio.workflow` to INFO, and set an `execution_timeout` so a wedged run fails rather than hangs.
+
+The semgrep rule `temporal-logger-no-keyword-fields` blocks this at review time.
+
 ## Writing or modifying tests in this tree
 
 - [Testing patterns](./README.md#testing-patterns) — when to use real Worker vs `ActivityEnvironment` vs no harness, why some files need `@pytest.mark.django_db(transaction=True)`, the module-scoped Worker pattern that avoids booting the temporal-test-server per test, the `connection.connect()` monkeypatch escape hatch, and the parametrize-don't-copy-paste rule.
@@ -34,5 +49,5 @@ Quick sanity checks that `discover_posthog_code_repository_via_agent_activity` i
 
 ## Running tests locally
 
-- Activities and most workflows can be tested without spinning up the dev stack: `pytest posthog/temporal/path/to/your_test.py`. Some require the temporal docker service — see the [Local development](./README.md#local-development) section of the main README.
+- Activities and most workflows can be tested without spinning up the dev stack: `pytest posthog/temporal/path/to/your_test.py`. Some require the temporal docker service — see the [Local development](./README.md#develop-locally-with-temporal) section of the main README.
 - Batch-export destination tests have extra setup (real BigQuery / Redshift / Databricks credentials). See [`products/batch_exports/backend/tests/temporal/README.md`](../../products/batch_exports/backend/tests/temporal/README.md).

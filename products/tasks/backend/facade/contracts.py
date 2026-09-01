@@ -199,6 +199,7 @@ class TaskDetailDTO:
     latest_run_id: UUID | None = None
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
+    origin_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,7 @@ class ChannelDTO:
     channel_type: str
     github_integration: int | None
     repositories: list[str]
+    auto_archive_after_days: int | None
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
@@ -572,6 +574,7 @@ class TaskRunDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    preview_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -625,6 +628,8 @@ class TaskRunSandboxConnectionDTO:
     sandbox_url: str | None
     sandbox_connect_token: str | None
     connection_token: str | None = None
+    # Query-param name the transport token travels under (provider-specific).
+    sandbox_token_param: str = "_modal_connect_token"
 
 
 @dataclass(frozen=True)
@@ -678,19 +683,6 @@ class WorkflowTaskSlackContext:
 
 
 @dataclass(frozen=True)
-class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Desktop invite.
-
-    ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
-    ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
-    the ORM redemption, idempotency check, count increment, and analytics capture all
-    happen inside the facade so no model leaks across the boundary.
-    """
-
-    outcome: str
-
-
-@dataclass(frozen=True)
 class DesktopBetaTermsAcceptanceDTO:
     is_desktop_beta_terms_accepted: bool
 
@@ -729,6 +721,7 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    environment_variable_keys: list[str] = Field(default_factory=list)
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -837,3 +830,10 @@ class TaskRunStateMetricsDTO:
     oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
     created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
+
+
+class ComputeQuotaDenialReason(StrEnum):
+    """Why a compute request was refused. The value is the denial code the API returns."""
+
+    COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
+    ORGANIZATION_DEACTIVATED = "organization_deactivated"

@@ -17,6 +17,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 
 import { Experiment } from '~/types'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     ExperimentWatchCardStrengthEnumApi,
     ExperimentWatchCardKindEnumApi,
@@ -24,7 +25,6 @@ import {
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import { hasEnded } from '../experimentStatus'
 import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 

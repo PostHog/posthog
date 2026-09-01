@@ -12,14 +12,13 @@ import {
     EventBuilder,
     createKafkaMessages,
     createTestWithTeamIngester,
+    ensureIngestionE2EInfraReady,
     fetchEvents,
     fetchIngestionWarnings,
-    waitForClickHouseKafkaConsumer,
     waitForKafkaMessages,
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
+import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '~/tests/helpers/sql'
 import { GroupTypeIndex, InternalPerson } from '~/types'
 
 // Mock the limiter so it always returns true
@@ -48,6 +47,9 @@ describe.each([
         GROUPS_PREFETCH_ENABLED: false,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
     },
     {
         PERSONS_PREFETCH_ENABLED: true,
@@ -56,6 +58,9 @@ describe.each([
         GROUPS_PREFETCH_ENABLED: true,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: true,
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
+        TEAMS_PREFETCH_ENABLED: true,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: true,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: true,
     },
 ])('Event Pipeline E2E tests (fold+groupBatchCreates=$PERSON_MERGE_FOLD_ENABLED)', (pipelineConfig) => {
     const testWithTeamIngester = createTestWithTeamIngester(pipelineConfig, (infra, kafkaProducer) => {
@@ -96,16 +101,11 @@ describe.each([
     beforeAll(async () => {
         console.log('Creating Clickhouse client')
         clickhouse = Clickhouse.create()
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-        await waitForClickHouseKafkaConsumer(clickhouse)
+        await ensureIngestionE2EInfraReady()
         process.env.SITE_URL = 'https://example.com'
     })
 
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
+    afterAll(() => {
         clickhouse.close()
     })
 
@@ -3487,7 +3487,7 @@ describe.each([
         {},
         async ({ ingester, infra, team, kafkaProducer, token }) => {
             // Create a second team
-            const team2Id = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const team2Id = uniqueTestId()
             await createUserTeamAndOrganization(
                 infra.postgres,
                 team2Id,

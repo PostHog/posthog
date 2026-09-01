@@ -51,6 +51,13 @@ export const REPORTS_INBOX_STATUS_FILTER = INBOX_PIPELINE_STATUSES.filter(
   (status) => status !== "potential",
 ).join(",");
 
+/** Web Inbox's actionable report set: ready reports plus ones waiting on human input. */
+export const INBOX_ACTIONABLE_REPORT_STATUS_FILTER = "ready,pending_input";
+
+/** The two judgments that web Inbox includes in Review and merge / Needs a PR. */
+export const INBOX_ACTIONABLE_ACTIONABILITY_FILTER =
+  "immediately_actionable,requires_human_input";
+
 /**
  * Status filter for the Reports tab's count. `isReportTabReport` keeps a report
  * only when it is `ready` and carries no PR, because every other pipeline status

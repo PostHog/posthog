@@ -91,12 +91,17 @@ _STATE_ACTIVITY_RETRY = common.RetryPolicy(
 # APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
 _STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
-# Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry.
+# Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry, and the
+# re-raised `IntegrityError`s (FK / CHECK violations; the unique-violation case is handled inside
+# the activity) are deterministic — retrying them for the full window would only amplify load.
+# Unlimited attempts, bounded by schedule_to_close (3m): a ScannerAdmissionBusy rejection must be
+# able to retry across a whole contention wave, or every admission in the wave becomes a dropped
+# scan — the sweep watermark and backfill cursor advance past a session with no observation row.
 _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
-    maximum_interval=dt.timedelta(seconds=10),
-    maximum_attempts=5,
-    non_retryable_error_types=["ValueError"],
+    maximum_interval=dt.timedelta(seconds=15),
+    maximum_attempts=0,
+    non_retryable_error_types=["ValueError", "IntegrityError"],
 )
 
 # Generous because fetch's deterministic errors are non_retryable; this budget only covers transient infra (e.g. ClickHouse at capacity).
@@ -162,6 +167,10 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
 # holds no renderable snapshots. It stays retryable over there (blocks can still be landing), so by the time it
 # surfaces here the render attempts are spent and the emptiness is a property of the recording, not of one attempt.
 _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
+
+# The rasterizer refuses a recording whose snapshot blocks exceed its size cap, to keep an oversized render from
+# walking the pod into its memory limit. That size is a fixed property of the recording, so no retry helps.
+_RASTERIZER_TOO_LARGE_TYPE = "RECORDING_TOO_LARGE"
 
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
@@ -420,6 +429,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
+            # An in-flight history from before this branch existed already scheduled the failed-mark for an
+            # oversized recording. `patched` makes those histories skip this branch and keep the old path, so
+            # switching them to the ineligible-mark on replay cannot raise a non-determinism error.
+            if _failure_type(e) == _RASTERIZER_TOO_LARGE_TYPE and wf.patched(
+                "replay-vision-too-large-ineligible-2026-08"
+            ):
+                # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
+                raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
             # Direct cause only: a nested activity timeout inside the child already bumped the
             # counter there, and matching it here would double-count one run.
             if (
