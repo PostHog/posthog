@@ -1,16 +1,14 @@
 """Pre-dispatch gates shared by every off-schedule scout run.
 
-Two entry points start a scout outside its schedule: the `run` endpoint (a human pressing "Run
-now", `scout_harness/views.py`) and a workflow step that runs a scout
-(`scout_harness/workflow_runs.py`). Both have to honour the controls the scheduled coordinator
-already applies before it would ever dispatch this scout — otherwise a trigger routes around a
-rollout kill-switch, or repeated triggers blow past the daily cap the scheduled path respects.
+Two entry points start a scout outside its schedule: the `run` endpoint (`views.py`, a human
+pressing "Run now") and a workflow's "Run scout" step (`workflow_runs.py`). Both must honour the
+controls the scheduled coordinator already applies, or a trigger routes around a rollout
+kill-switch and repeated triggers blow past the daily cap. They live here rather than in either
+caller so the next entry point can't ship without them.
 
-The checks live here rather than in either caller so the next entry point can't ship without
-them, and so a change to the daily budget can't fix one path and miss the other. Each gate
-returns a `ScoutRunRejection` (or `None` to proceed) instead of raising, because the two callers
-speak different transports: the user-facing endpoint maps a rejection onto DRF exceptions, the
-service-to-service one onto HTTP status codes the workflow step reads as a graceful skip.
+Each gate returns a `ScoutRunRejection` (or `None` to proceed) rather than raising, because the
+callers speak different transports: DRF exceptions for the endpoint, HTTP status codes the workflow
+step reads as a graceful skip for the service-to-service path.
 """
 
 from __future__ import annotations
@@ -44,9 +42,7 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 
-# Metadata key the runner stamps the trigger source under. Read here for the workflow cooldown,
-# which has to distinguish "this scout ran recently" from "the workflow path fired recently" —
-# a scheduled or manual run must not extend the workflow cooldown, and vice versa.
+# Metadata key the runner stamps the trigger source under, read here for the workflow cooldown.
 TRIGGERED_BY_METADATA_KEY = "triggered_by"
 
 
@@ -72,18 +68,13 @@ class ScoutRunRejection:
 def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
     """The fleet-level controls the scheduled coordinator enforces, applied to an off-schedule run.
 
-    Reads the `signals-scout` flag payload once (the same snapshot the coordinator plans off):
+    Reads the `signals-scout` flag payload once, the same snapshot the coordinator plans off, for
+    the enrollment kill switch (a project in `skip_team_ids`, or one not enrolled at all, never runs
+    scheduled scouts, so a trigger must not either) and the rolling-24h `max_runs_per_day` budget,
+    whose tally off-schedule runs share because they land the same `SignalScoutRun` rows.
 
-    - **Enrollment kill switch.** A project in `skip_team_ids`, or one not enrolled at all, never
-      runs scheduled scouts — so an off-schedule trigger is forbidden too. Without this, a trigger
-      could run a scout on a project an operator has explicitly drained or held back via the flag.
-    - **Daily run budget.** `max_runs_per_day` (per-team override → fleet default → code constant)
-      bounds dispatches per rolling 24h. Off-schedule runs land the same `SignalScoutRun` rows the
-      coordinator counts, so they share the tally: once the budget is spent the trigger is
-      throttled until the window rolls.
-
-    `team_id` is the canonical (parent) project id, matching how the coordinator plans; team
-    config keys are canonicalized the same way so a child-env override still lines up.
+    `team_id` is the canonical (parent) project id, matching how the coordinator plans; team config
+    keys are canonicalized the same way so a child-env override still lines up.
     """
     payload = _read_flag_payload()
     if not _resolve_enrolled(team_id, _parse_enrollment(payload)):
@@ -107,12 +98,8 @@ def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
 
 
 def check_spend_gates(team: Team) -> ScoutRunRejection | None:
-    """Fail-fast on the two spend gates the run activity re-checks authoritatively.
-
-    Both are re-applied inside `run_signals_scout_activity`, so this is purely about not
-    dispatching a workflow that would only skip — and about turning the common cases into a clean
-    throttle for the caller instead of a 202 whose run never produces anything.
-    """
+    """Fail fast on the two spend gates `run_signals_scout_activity` re-checks authoritatively, so
+    a caller gets a clean throttle instead of a 202 whose run only skips."""
     if is_team_signals_quota_limited(team.api_token):
         return ScoutRunRejection(
             kind=ScoutRunRejectionKind.THROTTLED,
@@ -131,29 +118,23 @@ def check_spend_gates(team: Team) -> ScoutRunRejection | None:
 def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | None:
     """Reject when a *live* run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
 
-    Mirrors the runner's authoritative single-flight (`scout_harness/runner._has_running_run`) so a
-    trigger can fail fast instead of dispatching a workflow the runner would only skip. Status
-    flows from the linked `TaskRun`; covers a run started by any path — coordinator, manual, or
-    workflow.
+    Mirrors the runner's authoritative single-flight (`runner._has_running_run`) so a trigger fails
+    fast instead of dispatching a workflow the runner would only skip. Status flows from the linked
+    `TaskRun`; covers a run started by any path — coordinator, manual, or workflow.
 
-    A run older than `STALE_RUN_CUTOFF_S` is an orphan left by a crashed worker (Temporal kills the
-    activity at the hard ceiling, so it cannot still be executing) — it is deliberately NOT counted
-    as in-flight here. Otherwise this fail-fast conflict would short-circuit before the workflow's
-    runner reaches its `_self_heal_stale_runs` reap, wedging the lane until a scheduled tick happens
-    to reap it — which never comes for a disabled scout, whose only run path is a trigger. Treating
-    the orphan as free lets the dispatched run reap it and proceed.
+    A run older than `STALE_RUN_CUTOFF_S` is an orphan left by a crashed worker and deliberately
+    does NOT count as in-flight. Otherwise this gate short-circuits before the dispatched run's
+    `_self_heal_stale_runs` reap can clear it, wedging the lane until a scheduled tick happens to
+    reap it — which never comes for a disabled scout, whose only run path is a trigger.
     """
     live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
     in_flight = (
         SignalScoutRun.objects.for_team(team_id)
         .filter(
             skill_name=skill_name,
-            # The scout row is inserted from the on_task_run_created hook after its TaskRun
-            # exists, so its created_at is always at or after the TaskRun's — this floor keeps
-            # the same result set as the task_run__created_at__gte one below, but lets
-            # signal_scout_run_recent_idx (team, skill_name, -created_at) range-scan just the
-            # live window before joining to task_run, instead of scanning the scout's whole
-            # history (this table grows with no pruning).
+            # Floors the range scan on signal_scout_run_recent_idx (team, skill_name, -created_at)
+            # instead of the scout's whole unpruned history. Same result set as the task_run floor
+            # below, since the scout row is written only after its TaskRun exists.
             created_at__gte=live_cutoff,
             task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
             task_run__created_at__gte=live_cutoff,
@@ -172,23 +153,16 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
 def check_workflow_cooldown(team_id: int, skill_name: str) -> ScoutRunRejection | None:
     """Reject a workflow-triggered fire inside `WORKFLOW_RUN_COOLDOWN_S` of the previous one.
 
-    Counts only prior *workflow*-triggered runs: a scheduled patrol or a human's "Run now" is not
-    the thing this bounds, and letting either extend the cooldown would make the workflow path's
-    behaviour depend on unrelated activity.
+    Counts only prior *workflow* fires: letting a scheduled patrol or a human's "Run now" extend
+    the cooldown would make this path's behaviour depend on unrelated activity. Measured from run
+    start, since that is what `created_at` records.
 
-    The window is measured from run *start*, since that is what `created_at` records — so a run
-    that takes its full runtime cap leaves roughly a quarter-hour of quiet after it finishes.
+    The `created_at` floor is what keeps this cheap — `signal_scout_run_recent_idx` range-scans just
+    the cooldown window, so the un-indexed `metadata` predicate only sees the rows inside it.
 
-    The `created_at` floor is what keeps this cheap — `signal_scout_run_recent_idx`
-    (team, skill_name, -created_at) range-scans just the cooldown window, so the un-indexed
-    `metadata` predicate only ever sees the handful of rows inside it.
-
-    There is a gap between a dispatch returning and its run row appearing (the row is written once
-    the sandbox is up), during which neither this nor the in-flight check sees anything. Within the
-    workflow path the Temporal id-conflict policy on its own workflow-id namespace closes that gap
-    by rejecting a second start outright. Across paths it stays open: a scheduled or manual start
-    in the same window uses a different id, and only the runner's best-effort single-flight stands
-    between them — the same pre-existing race the other two paths have with each other.
+    A dispatch that has not yet written its run row is invisible to both this and the in-flight
+    gate. Within this path Temporal's id-conflict policy closes that gap; across paths it stays
+    open, the same pre-existing race the scheduled and manual paths already have with each other.
     """
     cutoff = timezone.now() - timedelta(seconds=WORKFLOW_RUN_COOLDOWN_S)
     recent = (

@@ -48,9 +48,6 @@ _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
 
 
 class WorkflowScoutRunsJWTAuthentication(ScopedServiceJWTAuthentication):
-    # Its own key and audience, distinct from the "Create AI task" step's authenticator: both are
-    # the workflow engine dispatching a step for a verified (team, workflow), but a leak of one
-    # step's key must not forge the other's calls.
     purpose = WORKFLOW_SCOUT_RUN_PURPOSE
 
     # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract

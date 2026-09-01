@@ -5476,25 +5476,6 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
-def _run_scout_template() -> dict:
-    template = deepcopy(webhook_template)
-    template["id"] = "template-posthog-run-scout"
-    template["name"] = "Run scout"
-    template["inputs_schema"] = [
-        {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True},
-        {
-            "key": "non_failure_status_codes",
-            "type": "non_failure_status_codes",
-            "label": "Non-failure status codes",
-            "secret": False,
-            "required": True,
-            "hidden": True,
-            "default": [409],
-        },
-    ]
-    return template
-
-
 class TestRunScoutActionValidation(APIBaseTest):
     """Save-time check specific to the "Run scout" step: it used to fail only on the first run,
     once per fire, in a child environment. This locks in that the same misconfiguration is now
@@ -5502,7 +5483,13 @@ class TestRunScoutActionValidation(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_template_to_db(_run_scout_template())
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-run-scout"
+        template["name"] = "Run scout"
+        template["inputs_schema"] = [
+            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True}
+        ]
+        sync_template_to_db(template)
 
     def _post_flow(self, team: Team):
         trigger_action = {

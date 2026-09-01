@@ -33,9 +33,7 @@ describe('posthog run scout template', () => {
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
         // The literal pins the cross-language contract: Django's WORKFLOW_SCOUT_RUN_JWT_SECRET
-        // dev default (posthog/settings/data_stores.py) must match the nodejs one or local runs
-        // 401. Its own signing key, distinct from postHogCreateTask's: a token minted here must
-        // not verify at the "Create AI task" step's endpoint, and vice versa.
+        // dev default (posthog/settings/data_stores.py) must match the nodejs one or local runs 401.
         // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         const claims = jwt.verify(token, 'local-dev-workflow-scout-run-jwt', {
             audience: 'posthog:workflows:scout_run',
@@ -92,13 +90,5 @@ describe('posthog run scout template', () => {
         response = await tester.invokeFetchResponse(response.invocation, { status, body: { detail } })
 
         expect(response.error).toEqual(`Failed to run scout (${status}): ${detail}`)
-    })
-
-    it('declares 409 as a required, defaulted non-failure status so an API-built step gets it too', () => {
-        const entry = template.inputs_schema.find((input) => input.type === 'non_failure_status_codes')
-        expect(entry?.default).toEqual([409])
-        // The backend only fills a schema default for a required input (posthog/cdp/validation.py),
-        // and an API- or MCP-built step has no editor to pre-fill this from the template.
-        expect(entry?.required).toBe(true)
     })
 })

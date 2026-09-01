@@ -1,23 +1,14 @@
-"""Dispatch a scout run from a workflow's "Create AI task" step with a scout selected.
+"""Dispatch a scout run from a workflow's "Run scout" step.
 
 The third way a scout run starts, after the coordinator's schedule and the manual `run` endpoint.
-The step fires this via `products/workflows/backend/api/workflow_tasks.py`, which has already
-proved *which* workflow is calling; everything this module does is decide whether that fire is
-allowed to spend a run, and dispatch it if so.
+`products/workflows/backend/api/workflow_scout_runs.py` has already proved *which* workflow is
+firing; this module decides whether that fire may spend a run, and dispatches it if so.
 
-Two properties define the semantics, and both are deliberate:
-
-- **A trigger is additive to the schedule, never a substitute for it.** A workflow-triggered run
-  never stamps `last_run_at`. For a cron scout, stamping would silently mark the next wall-clock
-  slot fulfilled; for an interval scout, frequent fires would starve the scheduled patrol with
-  nothing to show for it. Not stamping costs at most one occasionally-redundant scheduled run.
-- **A trigger is not a health signal.** Workflow failures don't feed the failure-streak breaker
-  (whose threshold is sized on the schedule's cadence), and the workflow only ever sees the 202 —
-  so the scout's health stays covered by its schedule, which is why a schedule-less scout is out
-  of scope here.
-
-The run itself is a pure kick: no content from the triggering event reaches it, so the prompt is
-identical to a scheduled run's.
+Two deliberate properties. A trigger is additive to the schedule: it never stamps `last_run_at`, so
+fires can't mark a cron slot fulfilled or starve an interval scout's patrol. And it is not a health
+signal: its failures don't feed the failure-streak breaker, whose threshold is sized on the
+schedule's cadence. The run is a pure kick — no content from the triggering event reaches it, so
+the prompt is identical to a scheduled run's.
 """
 
 from __future__ import annotations
@@ -66,14 +57,12 @@ def _rejected(kind: ScoutRunRejectionKind, reason: str, detail: str) -> Workflow
 def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutRunStarted:
     """Start one workflow-triggered run of `skill_name`, or raise `WorkflowScoutRunRejected`.
 
-    `team_id` has to be the project's main environment. Scout rows live under it, and unlike the
-    manual endpoint there is no human credential here to re-authorize against it, so a child
-    environment's workflow is refused rather than resolved upwards.
+    `team_id` has to be the project's main environment: scout rows live under it, and there is no
+    human credential here to re-authorize a child environment against it.
 
-    Rejection kinds are chosen so the workflow step reads them correctly: `NOT_FOUND` means the
-    node names a scout that cannot run (a typo, a deleted skill) and should surface as a step
-    failure the author notices, while `CONFLICT` / `THROTTLED` are ordinary backpressure the step
-    treats as a graceful skip.
+    Rejection kinds are chosen so the step reads them correctly. `NOT_FOUND` means the node names a
+    scout that cannot run (a typo, a deleted skill) and surfaces as a step failure the author
+    notices; `CONFLICT` / `THROTTLED` are ordinary backpressure the step skips on.
     """
     team = Team.objects.get(pk=team_id)
     if team.parent_team_id:
@@ -91,9 +80,8 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
             f"No scout named '{skill_name}' exists in this project.",
         )
 
-    # A withheld scout is invisible across the whole config API and the runner would refuse it
-    # anyway, so it is "not found" here too rather than a skip — the node names something the
-    # project cannot run.
+    # A withheld scout is invisible across the whole config API, so the node names something this
+    # project cannot run — "not found" rather than a skip.
     if skill_name in withheld_skills_for_team(team_id):
         raise _rejected(
             ScoutRunRejectionKind.NOT_FOUND,
@@ -101,9 +89,9 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
             f"No scout named '{skill_name}' exists in this project.",
         )
 
-    # A config can outlive its skill. Dispatching for one would hand back a workflow id whose run
-    # dies in `load_skill_for_run` before any run row exists, so the step would look successful
-    # while nothing ever happens. Reject up front, mirroring the manual endpoint.
+    # A config can outlive its skill. Dispatching for one hands back a workflow id whose run dies
+    # in `load_skill_for_run` before any run row exists, so the step would look successful while
+    # nothing ever happens.
     if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
         raise _rejected(
             ScoutRunRejectionKind.NOT_FOUND,
@@ -111,9 +99,8 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
             f"Scout '{skill_name}' no longer has a skill to run.",
         )
 
-    # Deliberately stricter than the manual endpoint, which lets a human run a disabled scout as a
-    # test act: pausing a scout has to stop automation against it, or a pause would silently keep
-    # spending as long as some workflow still points at it.
+    # Stricter than the manual endpoint, which lets a human run a disabled scout as a test act:
+    # pausing has to stop automation, or a pause keeps spending while a workflow points at it.
     if config.status not in SignalScoutConfig.RUNNABLE_STATUSES:
         raise _rejected(
             ScoutRunRejectionKind.CONFLICT,

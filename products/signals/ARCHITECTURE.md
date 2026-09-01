@@ -334,16 +334,14 @@ model's own status column; active recovery of stranded `IN_PROGRESS` task runs
 (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
 
 **Three dispatch paths, one workflow.** The coordinator's per-tick children are the schedule
-(`triggered_by="schedule"`). Two off-schedule paths reuse the same workflow under their own stable
-id namespaces, so they single-flight independently at the Temporal server: the `run` endpoint
+(`triggered_by="schedule"`). Two off-schedule paths reuse the same workflow under their own stable id
+namespaces, so they single-flight independently at the Temporal server: the `run` endpoint
 (`"manual"`) and a workflow's "Run scout" step (`"workflow"`, `backend/scout_harness/workflow_runs.py`,
-called from the workflows product's `workflow_scout_runs` endpoint).
-Neither stamps `last_run_at` — a trigger is additive to
-the cadence, never a substitute for it — and neither feeds the failure-streak breaker, whose
-threshold is sized on the schedule. The pre-dispatch gates they share (enrolment kill switch, daily
-run budget, Signals quota, daily report limit, in-flight single-flight) live in
-`backend/scout_harness/run_gates.py`; the workflow path adds a 30-minute per-`(team, skill)`
-cooldown of its own, as a backstop that does not have to trust the workflow's masking config.
+called from the workflows product's `workflow_scout_runs` endpoint). Neither stamps `last_run_at`,
+and neither feeds the failure-streak breaker whose threshold is sized on the schedule. The gates they
+share (enrolment kill switch, daily run budget, Signals quota, daily report limit, in-flight
+single-flight) live in `backend/scout_harness/run_gates.py`; the workflow path adds a 30-minute
+per-`(team, skill)` cooldown, a backstop that does not have to trust the workflow's masking config.
 
 Findings emitted during the run go through the harness's `emit_signal_*` tools,
 which call `emit_signal()` with `source_product="signals_scout"` and

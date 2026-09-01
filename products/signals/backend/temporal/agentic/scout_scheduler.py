@@ -207,15 +207,13 @@ class RunSignalsScoutWorkflow:
 def _off_schedule_run_workflow_id(namespace: str, team_id: int, skill_name: str) -> str:
     """Deterministic workflow id for an off-schedule scout run.
 
-    Distinct namespace from the coordinator's per-tick child ids (`signals-scout-run-…`) so an
-    off-schedule run can't collide with a scheduled one, and one namespace per trigger source so
-    the two off-schedule paths single-flight independently at the Temporal server. Stable per
-    `(team, skill)` so the id-conflict policy in the start helpers can single-flight against it.
+    One namespace per trigger source, all distinct from the coordinator's per-tick child ids
+    (`signals-scout-run-…`), so each path single-flights independently at the Temporal server.
+    Stable per `(team, skill)` so the id-conflict policy has something to single-flight against.
 
-    The readable skill fragment is truncated for legibility, but a digest of the *full*
-    skill name is appended so two custom scouts sharing the first 60 chars still map to
-    distinct ids — otherwise `WorkflowIDConflictPolicy.FAIL` would 409 one scout while the
-    other (truncation-twin) is running, even though it has no in-flight run of its own.
+    The readable skill fragment is truncated, but a digest of the *full* skill name is appended so
+    two custom scouts sharing the first 60 chars still map to distinct ids — otherwise
+    `WorkflowIDConflictPolicy.FAIL` would 409 one scout while its truncation-twin is running.
     """
     safe_skill = skill_name.replace(" ", "_")[:60]
     digest = hashlib.sha256(skill_name.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
@@ -238,18 +236,15 @@ async def _start_off_schedule_run(
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
-    Reuses `RunSignalsScoutWorkflow`, so an off-schedule run inherits every guard the scheduled
-    path has — the activity's Signals-credits quota check, and the runner's withheld-skill
-    denylist, stale-run self-heal, and single-flight. It does NOT honor the per-scout schedule or
-    `last_run_at`: an off-schedule run deliberately leaves the cadence untouched — which is also
-    why its failures don't feed the failure-streak breaker (the threshold is sized on the
-    schedule), while an off-schedule success still clears the streak and can resume a
-    breaker-paused lane.
+    Reusing the scheduled path's workflow means an off-schedule run inherits every guard it has —
+    the activity's quota check, and the runner's withheld-skill denylist, stale-run self-heal, and
+    single-flight — but not the per-scout schedule or `last_run_at`, which it deliberately leaves
+    untouched. That is also why its failures don't feed the failure-streak breaker, whose threshold
+    is sized on the schedule, while a success still clears the streak and can resume a paused lane.
 
-    Single-flight is enforced at the Temporal server, so a trigger can't be gamed into stacking
-    concurrent runs of the same scout: `ALLOW_DUPLICATE` lets the stable id be reused once the
-    prior run under it has closed, while `FAIL` rejects a second trigger while one is still
-    running — raising `WorkflowAlreadyStartedError` for the caller to map to a 409.
+    `ALLOW_DUPLICATE` lets the stable id be reused once the prior run under it has closed; `FAIL`
+    rejects a second start while one is running, raising `WorkflowAlreadyStartedError` for the
+    caller to map to a 409.
     """
     await client.start_workflow(
         RunSignalsScoutWorkflow.run,
@@ -276,11 +271,10 @@ def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_name: 
 def start_workflow_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
-    Its own id namespace, so a workflow fire and a human's "Run now" single-flight separately at
-    the Temporal server — a human testing a scout shouldn't 409 the automation, or vice versa. The
-    overlap that actually matters (one live run per `(team, skill)`) is still caught by the
-    runner's own single-flight and the callers' in-flight pre-check, both of which are
-    source-agnostic.
+    Its own id namespace, so a workflow fire and a human's "Run now" single-flight separately — a
+    human testing a scout shouldn't 409 the automation, or vice versa. The overlap that matters
+    (one live run per `(team, skill)`) is still caught by the runner's single-flight and the
+    callers' in-flight pre-check, both source-agnostic.
     """
     return _start_off_schedule_run(
         client,

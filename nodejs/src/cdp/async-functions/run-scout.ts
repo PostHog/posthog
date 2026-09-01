@@ -14,10 +14,7 @@ import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 // The claims scope it to a single team and workflow, which keeps the longer window cheap.
 const TOKEN_TTL_SECONDS = 30 * 60
 
-// A dedicated key, not postHogCreateTask's: both mint from the workflow engine for a verified
-// (team, workflow), but the scoped-JWT rule is narrowest scope, mint a new key for a new use case
-// rather than widen an existing one's — a leak of one can't forge the other's calls, on top of
-// the audience claim already blocking a legitimate token from replaying at the wrong endpoint.
+// Its own key, not postHogCreateTask's — see products/workflows/backend/service_jwt.py for why.
 let scoutRunJwt: ScopedServiceJwt | undefined
 const getScoutRunJwt = (): ScopedServiceJwt =>
     (scoutRunJwt ??= new ScopedServiceJwt(

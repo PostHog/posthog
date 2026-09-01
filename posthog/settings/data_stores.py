@@ -584,11 +584,9 @@ TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
-# Signs the tokens a workflow's "Run scout" action calls back with. A dedicated key rather than
-# reusing TASKS_CREATE_JWT_SECRETS (per the scoped-JWT rule: narrowest scope, mint a new key for
-# a new use case instead of widening an existing one's) — a leak of one can't forge the other's
-# calls, even though the audience claim already blocks a legitimate token from replaying at the
-# wrong endpoint. The dev/test value must match the plugin server's minting default.
+# Signs the tokens a workflow's "Run scout" action calls back with. Its own key rather than
+# TASKS_CREATE_JWT_SECRETS — see products/workflows/backend/service_jwt.py for why. The dev/test
+# value must match the plugin server's minting default.
 WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
 )

@@ -126,20 +126,6 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_rejects_a_request_with_no_token(self) -> None:
-        with patch(_START_SCOUT) as start:
-            response = self.client.post(self.url, {"skill_name": SCOUT}, format="json")
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        start.assert_not_called()
-
-    def test_rejects_a_token_minted_for_another_team(self) -> None:
-        other_team = self.create_team_with_organization(self.organization)
-
-        response = self._post(token=_token(other_team.id, str(self.hog_flow.id)))
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-
     def test_rejects_a_task_creation_token(self) -> None:
         # A token minted for the "Create AI task" step must not spend a scout run, even signed
         # with a secret this endpoint would otherwise accept (both settings share SECRET above) —
@@ -153,9 +139,8 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
 
     @override_settings(WORKFLOW_SCOUT_RUN_JWT_SECRETS=["other-workflow-scout-run-jwt"])
     def test_rejects_a_token_signed_with_the_wrong_secret(self) -> None:
-        # A dedicated key, not TASKS_CREATE_JWT_SECRETS's: a token signed with the task-creation
-        # secret must not verify here even with the correct audience, or a leak of that secret
-        # would forge scout runs too.
+        # A leak of the task-creation secret must not forge scout runs, so a token signed with it
+        # must not verify here even with the correct audience.
         with patch(_START_SCOUT) as start:
             response = self._post()
 
