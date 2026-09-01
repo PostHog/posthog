@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -892,9 +892,63 @@ export const FeatureFlagsActivityRetrieveQueryParams = () => zod.object({
 })
 
 /**
+ * Archive a feature flag, hiding it from the default flag list.
+ *
+ * Sets `archived` to true. An archived flag must be disabled, so an enabled flag also gets
+ * `active` set to false in the same write. Targeting, variants and payloads are left as
+ * they are, and linked experiment and survey history is preserved. Archiving an enabled
+ * flag is refused when other active flags depend on it. An already-archived flag is
+ * returned unchanged.
+ */
+export const FeatureFlagsArchiveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Get other active flags that depend on this flag.
  */
 export const FeatureFlagsDependentFlagsListParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Disable a feature flag.
+ *
+ * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. Refused when other active flags depend on this one.
+ * An already-disabled flag is returned unchanged.
+ *
+ * A disabled flag stops evaluating for every consumer, including a linked experiment or a
+ * session replay setting. Read the full definition first to report that impact.
+ */
+export const FeatureFlagsDisableCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Enable a feature flag.
+ *
+ * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. An archived flag is refused: unarchive it first. A
+ * flag whose own flag dependencies are disabled is also refused. An already-enabled flag
+ * is returned unchanged.
+ */
+export const FeatureFlagsEnableCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -949,6 +1003,21 @@ export const FeatureFlagsTestEvaluationCreateBody = () => zod.object({
         .unknown()
         .optional()
         .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
+})
+
+/**
+ * Restore an archived feature flag to the default flag list.
+ *
+ * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
+ * with a separate call. An already-unarchived flag is returned unchanged.
+ */
+export const FeatureFlagsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**
