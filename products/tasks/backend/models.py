@@ -2549,12 +2549,18 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def effective_rtk(self) -> bool | None:
-        """rtk posture for analytics: the launch-persisted effective value, falling
+    def _effective_toggle(self, name: str) -> bool | None:
+        """Toggle posture for analytics: the launch-persisted effective value, falling
         back to the user's explicit override for runs that never launched."""
         state = self.state if isinstance(self.state, dict) else {}
-        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
-        return rtk if isinstance(rtk, bool) else None
+        value = state.get(f"{name}_effective", state.get(f"{name}_enabled"))
+        return value if isinstance(value, bool) else None
+
+    def effective_rtk(self) -> bool | None:
+        return self._effective_toggle("rtk")
+
+    def effective_benjamin(self) -> bool | None:
+        return self._effective_toggle("benjamin")
 
     def _analytics_usage_properties(self) -> dict:
         """Token usage and rtk posture for analytics events.
@@ -2581,6 +2587,12 @@ class TaskRun(models.Model):
         rtk = self.effective_rtk()
         if rtk is not None:
             props["rtk_enabled"] = rtk
+        benjamin = self.effective_benjamin()
+        if benjamin is not None:
+            props["benjamin_enabled"] = benjamin
+        benjamin_version = state.get("benjamin_version")
+        if isinstance(benjamin_version, str) and benjamin_version:
+            props["benjamin_version"] = benjamin_version
         return props
 
     def capture_event(
