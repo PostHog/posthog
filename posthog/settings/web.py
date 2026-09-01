@@ -676,6 +676,8 @@ SPECTACULAR_SETTINGS = {
             None,
         ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+        # Shared by FileDownloadHogQLRequest.model and FileDownloadCountRowsRequest.model.
+        "FileDownloadHogQLModelEnum": ["hogql"],
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
