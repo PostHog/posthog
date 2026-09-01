@@ -1,10 +1,16 @@
 """Retry transient Slack Web API server errors.
 
 Slack signals a transient server-side failure as an HTTP 200 body with ``ok: false`` and one of
-the codes below, not as an HTTP 5xx. So the built-in server-error and connection handlers never
-see it, and a single blip turns a whole channel or member listing into a dead end. These handlers
-retry that specific, idempotent case a few times with backoff before the error escapes to the
-caller.
+the codes below, not as an HTTP 5xx. So the built-in server-error handler (which keys on 5xx)
+never sees it, and a single blip turns a whole channel or member listing into a dead end. These
+handlers retry any such response a few times with backoff before the error escapes to the caller.
+
+The handlers attach to the shared ``SlackWebClient``, so they retry every Slack Web API call that
+returns one of these codes, not only the listing calls that motivated them. Slack documents that
+``internal_error`` and ``fatal_error`` can follow a partial success, so a retried non-idempotent
+write such as ``chat.postMessage`` can post twice. The SDK's built-in connection-error handler
+already retries every method on a dropped connection, so this widens that behavior rather than
+introducing it.
 """
 
 from slack_sdk.http_retry import RetryHandler
