@@ -803,10 +803,15 @@ async def test_unusable_parent_falls_back_to_the_api_path(parent):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "sync_type",
-    [ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.FULL_REFRESH],
+    [
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.FULL_REFRESH,
+        ExternalDataSchema.SyncType.WEBHOOK,
+    ],
 )
 async def test_synced_parent_uses_the_warehouse_path(sync_type):
-    # Merge and full-refresh parents both hold one row per key, so both drive the reader.
+    # Every sync type here leaves one row per key, so each drives the reader. Webhook qualifies
+    # because its drains merge on the primary key rather than appending.
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
         mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
