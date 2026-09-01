@@ -94,9 +94,9 @@ Make sure to grant the following read permissions:
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Plain's API occasionally takes longer than the 60 s read timeout — a transient blip
-        # that Temporal retries at the activity level. Match the host so the pattern is scoped
-        # to Plain and doesn't suppress unrelated timeout messages.
+        # Plain's API occasionally takes longer than the 60 s read timeout, which is a transient
+        # blip that Temporal retries at the activity level. Match the host so the pattern is
+        # scoped to Plain and doesn't suppress unrelated timeout messages.
         return {
             "HTTPSConnectionPool(host='core-api.uk.plain.com', port=443)",
         }
