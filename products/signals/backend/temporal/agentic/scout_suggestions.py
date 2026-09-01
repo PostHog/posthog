@@ -91,6 +91,10 @@ class RunScoutSuggestionsInput:
     settings_json: str | None = None
     # "schedule" (coordinator) or "manual" (management command / internal endpoint).
     triggered_by: str = "schedule"
+    # The authenticated user behind a manual refresh. The scan acts as this user so an
+    # RBAC-restricted caller cannot pull a batch minted under a more privileged member;
+    # None (scheduled and command runs) falls back to the team's resolved acting user.
+    acting_user_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -152,7 +156,11 @@ async def run_scout_suggestions_activity(input: RunScoutSuggestionsInput) -> Run
     try:
         async with Heartbeater():
             result = await arun_scout_suggestions(
-                input.team_id, settings=settings, tier=input.tier, triggered_by=input.triggered_by
+                input.team_id,
+                settings=settings,
+                tier=input.tier,
+                triggered_by=input.triggered_by,
+                acting_user_id=input.acting_user_id,
             )
     except (OperationalError, InterfaceError):
         # Transient pooled-connection drop (pgbouncer recycle / failover / deploy). The coordinator
@@ -274,7 +282,7 @@ def manual_suggestions_workflow_id(team_id: int) -> str:
 
 
 @async_to_sync
-async def start_manual_scout_suggestions_run(client: Client, *, team_id: int) -> str:
+async def start_manual_scout_suggestions_run(client: Client, *, team_id: int, acting_user_id: int | None = None) -> str:
     """Dispatch one on-demand suggestion scan for a team, bypassing the planner and its cap.
 
     Single-flight at the Temporal server: `ALLOW_DUPLICATE` lets the stable id be reused once the
@@ -287,7 +295,12 @@ async def start_manual_scout_suggestions_run(client: Client, *, team_id: int) ->
     settings = read_suggestion_settings()
     await client.start_workflow(
         RunScoutSuggestionsWorkflow.run,
-        RunScoutSuggestionsInput(team_id=team_id, settings_json=_settings_to_json(settings), triggered_by="manual"),
+        RunScoutSuggestionsInput(
+            team_id=team_id,
+            settings_json=_settings_to_json(settings),
+            triggered_by="manual",
+            acting_user_id=acting_user_id,
+        ),
         id=workflow_id,
         task_queue=django_settings.VIDEO_EXPORT_TASK_QUEUE,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

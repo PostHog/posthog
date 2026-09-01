@@ -848,12 +848,16 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = None
-        if repository or origin_product not in (
+        # A repo-less signals task must carry no GitHub credential at all — team or personal.
+        # Provisioning injects whatever integration is attached, and these runs read text any
+        # member can write, so an attached token turns planted text into repository access.
+        github_resolution_allowed = bool(repository) or origin_product not in (
             Task.OriginProduct.SIGNALS_CHAT,
             Task.OriginProduct.SIGNAL_REPORT,
             Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-        ):
+        )
+        github_integration = None
+        if github_resolution_allowed:
             github_integration = (
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
@@ -876,7 +880,9 @@ class Task(DeletedMetaFields, models.Model):
             if origin_product == Task.OriginProduct.SIGNAL_REPORT
             else None,
         )
-        if authorship_mode == PrAuthorshipMode.USER:
+        if not github_resolution_allowed:
+            pass
+        elif authorship_mode == PrAuthorshipMode.USER:
             user_github_integration = resolve_user_github_integration_for_task(
                 task_stub,
                 repository=repository,

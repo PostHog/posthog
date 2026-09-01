@@ -32,6 +32,7 @@ from products.signals.backend.scout_harness.suggestions import (
     effective_status,
     enabled_skill_names,
     read_suggestion_settings,
+    reserved_scout_names,
     suggestions_allowed_for_team,
     visible_items,
 )
@@ -125,7 +126,11 @@ def _set_payload(row: SignalScoutSuggestionSet | None, *, team_id: int) -> dict[
         "generated_at": row.generated_at,
         "model": row.model,
         "fleet_snapshot": list(row.fleet_snapshot or []),
-        "items": visible_items(row, enabled_skill_names=enabled_skill_names(team_id)),
+        "items": visible_items(
+            row,
+            enabled_skill_names=enabled_skill_names(team_id),
+            reserved_names=reserved_scout_names(team_id),
+        ),
     }
 
 
@@ -136,6 +141,10 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
+    # An aggregate surface: suggestions are not `signal_scout` objects, so an object-specific
+    # grant on one scout must not open the whole project's batch (or its paid refresh) to a
+    # member whose project-level access is "none".
+    requires_resource_level_access = True
     pagination_class = None
     lookup_field = "id"
     # A single row per team; `list` is the read and the row is resolved by team, never by pk.
@@ -227,7 +236,9 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 start_manual_scout_suggestions_run,
             )
 
-            workflow_id = start_manual_scout_suggestions_run(sync_connect(), team_id=team.id)
+            workflow_id = start_manual_scout_suggestions_run(
+                sync_connect(), team_id=team.id, acting_user_id=request.user.pk
+            )
         except WorkflowAlreadyStartedError:
             # Nothing was dispatched, so the attempt goes back: retries against a running scan
             # must not spend the day's budget.

@@ -170,6 +170,7 @@ async def arun_scout_suggestions(
     settings: SuggestionSettings | None = None,
     tier: int | None = None,
     triggered_by: str = "schedule",
+    acting_user_id: int | None = None,
 ) -> SuggestionRunResult:
     """Generate one team's suggestion batch: gate, mint the headless task, validate, persist.
 
@@ -207,7 +208,11 @@ async def arun_scout_suggestions(
     skip_reason = await database_sync_to_async(_gate_skip_reason, thread_sensitive=False)(team)
     if skip_reason is not None:
         return _finish("skipped", skip_reason=skip_reason)
-    user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+    # A manual refresh runs as its authenticated caller, so the batch is minted under that
+    # caller's own access rather than a possibly more privileged resolved member.
+    user_id = acting_user_id
+    if user_id is None:
+        user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
     if user_id is None:
         return _finish("skipped", skip_reason="no_active_user")
 

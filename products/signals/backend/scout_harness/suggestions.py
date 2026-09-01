@@ -462,6 +462,21 @@ def enabled_skill_names(team_id: int) -> list[str]:
     return sorted(SignalScoutConfig.objects.for_team(team_id).filter(enabled=True).values_list("skill_name", flat=True))
 
 
+def reserved_scout_names(team_id: int) -> frozenset[str]:
+    """Names a custom draft may not take: every scout config on the project (enabled or not) and
+    every stored `signals-scout-*` skill, since create answers a differing definition with 409."""
+    reserved = set(SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
+    reserved.update(
+        LLMSkill.objects.filter(
+            team_id=resolve_effective_team_id(team_id),
+            is_latest=True,
+            deleted=False,
+            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+        ).values_list("name", flat=True)
+    )
+    return frozenset(reserved)
+
+
 def fleet_context(team_id: int) -> FleetContext:
     enabled = tuple(enabled_skill_names(team_id))
     try:
@@ -477,16 +492,9 @@ def fleet_context(team_id: int) -> FleetContext:
         for skill in canonical
         if skill.name not in enabled_set and skill.name not in withheld
     )
-    reserved = set(SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
-    reserved.update(
-        LLMSkill.objects.filter(
-            team_id=resolve_effective_team_id(team_id),
-            is_latest=True,
-            deleted=False,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-        ).values_list("name", flat=True)
+    return FleetContext(
+        enabled_skill_names=enabled, available_canonical=available, reserved_names=reserved_scout_names(team_id)
     )
-    return FleetContext(enabled_skill_names=enabled, available_canonical=available, reserved_names=frozenset(reserved))
 
 
 def build_suggestions_prompt(fleet: FleetContext) -> str:
@@ -646,11 +654,20 @@ def effective_status(row: SignalScoutSuggestionSet, *, refresh_days: int) -> str
     return row.status
 
 
-def visible_items(row: SignalScoutSuggestionSet, *, enabled_skill_names: Collection[str] = ()) -> list[dict[str, Any]]:
+def visible_items(
+    row: SignalScoutSuggestionSet,
+    *,
+    enabled_skill_names: Collection[str] = (),
+    reserved_names: Collection[str] = (),
+) -> list[dict[str, Any]]:
     """The batch minus dismissed, already-created, and already-enabled items, in stored
     (best-first) order. Pass the project's enabled names so a scout someone turned on through the
-    normal config API disappears without waiting for `mark_suggestion_created`."""
+    normal config API disappears without waiting for `mark_suggestion_created`, and its reserved
+    names so a custom draft whose name was since taken (a stored skill or a disabled config, which
+    Create answers with 409) is hidden too. Canonical items ignore `reserved_names` — a disabled
+    canonical scout is exactly what those items offer to enable."""
     enabled = set(enabled_skill_names)
+    reserved = set(reserved_names)
     return [
         record
         for record in (row.items or [])
@@ -658,6 +675,7 @@ def visible_items(row: SignalScoutSuggestionSet, *, enabled_skill_names: Collect
         and not record.get("dismissed_at")
         and not record.get("created_config_id")
         and record.get("skill_name") not in enabled
+        and not (record.get("kind") == "custom" and record.get("skill_name") in reserved)
     ]
 
 
@@ -731,6 +749,7 @@ __all__ = [
     "persist_suggestion_batch",
     "plan_suggestion_runs",
     "read_suggestion_settings",
+    "reserved_scout_names",
     "stamp_requested",
     "suggestions_allowed_for_team",
     "visible_items",

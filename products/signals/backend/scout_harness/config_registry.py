@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import structlog
-from croniter import croniter
+from croniter import CroniterError, croniter
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import (
@@ -54,7 +54,11 @@ def cron_schedule_error(value: str) -> str | None:
     if len(expr.split()) != 5 or not croniter.is_valid(expr):
         return "Not a valid five-field cron expression, e.g. '30 9 * * *' or '0 9 * * 1-5'."
     iterator = croniter(expr, datetime(2026, 1, 1, tzinfo=UTC))
-    occurrences = [iterator.get_next(datetime) for _ in range(_CRON_SAMPLE_OCCURRENCES)]
+    try:
+        occurrences = [iterator.get_next(datetime) for _ in range(_CRON_SAMPLE_OCCURRENCES)]
+    except CroniterError:
+        # `is_valid` accepts syntactically valid calendars that never occur, like '0 0 31 2 *'.
+        return "This schedule never matches a real date. Check the day and month fields."
     min_gap = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
     if min_gap < CRON_MIN_GAP_SECONDS:
         return "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes)."

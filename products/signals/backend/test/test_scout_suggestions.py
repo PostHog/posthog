@@ -15,11 +15,13 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
     ScoutSuggestionBatch,
@@ -96,6 +98,9 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("custom_no_description", _custom(description="")),
             ("custom_description_over_create_limit", _custom(description="x" * 4097)),
             ("bad_cron", _item(proposed_config={"run_cron_schedule": "every tuesday"})),
+            # Syntactically valid but never occurs; croniter only raises on enumeration, which
+            # must drop the item rather than fail the whole batch.
+            ("impossible_calendar_cron", _item(proposed_config={"run_cron_schedule": "0 0 31 2 *"})),
             ("interval_below_floor", _item(proposed_config={"run_interval_minutes": 5})),
             ("blank_title", _item(title="  ")),
             ("custom_reuses_a_stored_skill_name", _custom(skill_name="signals-scout-disabled-custom")),
@@ -421,13 +426,15 @@ async def test_runner_persists_validated_batch(asuggestion_team):
         patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
     ):
-        result = await arun_scout_suggestions(asuggestion_team.id)
+        result = await arun_scout_suggestions(asuggestion_team.id, acting_user_id=7)
 
     assert (result.status, result.suggestion_count) == ("completed", 1)
     row = await database_sync_to_async(SignalScoutSuggestionSet.all_teams.get)(team=asuggestion_team)
     assert [record["skill_name"] for record in visible_items(row)] == ["signals-scout-checkout-drop"]
     assert str(row.task_run_id) == "11111111-1111-1111-1111-111111111111"
     assert start.call_args.kwargs["context"].posthog_mcp_scopes == "read_only"
+    # The manual caller's identity wins over the resolved team member (patched to 42 above).
+    assert start.call_args.kwargs["context"].user_id == 7
     assert start.call_args.kwargs["fallback_from_text"] is None
 
 
@@ -555,6 +562,16 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         self.assertEqual(body["status"], "stale")
         self.assertEqual([item["skill_name"] for item in body["items"]], ["signals-scout-checkout-drop"])
 
+    def test_list_hides_a_custom_draft_whose_name_was_since_taken(self):
+        persist_suggestion_batch(self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[])
+        # A disabled config now holds the draft's name, so Create would answer 409. The canonical
+        # item keeps its disabled config visible — enabling it is exactly what that item offers.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout-drop", enabled=False)
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-error-tracking", enabled=False)
+
+        body = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/").json()
+        self.assertEqual([item["skill_name"] for item in body["items"]], ["signals-scout-error-tracking"])
+
     @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
     @patch(
         "products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run",
@@ -571,6 +588,8 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.json(), {"workflow_id": "wf-1"})
         mock_start.assert_called_once()
+        # The scan must act as the caller, not a resolved (possibly more privileged) member.
+        self.assertEqual(mock_start.call_args.kwargs["acting_user_id"], self.user.pk)
 
     @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
     @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
@@ -606,6 +625,42 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         mock_start.assert_not_called()
 
 
+class TestScoutSuggestionsResourceLevelAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model="m", fleet_snapshot=[])
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", enabled=False)
+        member = User.objects.create_and_join(self.organization, "scout-granted@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="signal_scout",
+            access_level="none",
+            organization_member=membership,
+        )
+        # Editor on one scout clears has_any_specific_access_for_resource at both levels, so every
+        # action below is turned away by requires_resource_level_access, not for a lesser reason.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="signal_scout",
+            resource_id=str(config.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+    @parameterized.expand([("list", "get", ""), ("dismiss", "post", "x/dismiss/"), ("refresh", "post", "refresh/")])
+    def test_a_grant_on_one_scout_does_not_open_the_project_batch(self, _name, method, suffix):
+        url = f"/api/projects/{self.team.id}/signals/scout/suggestions/{suffix}"
+        response = self.client.get(url) if method == "get" else self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+
 class TestSuggestionScanGitHubPosture(BaseTest):
     @parameterized.expand(
         [
@@ -629,3 +684,22 @@ class TestSuggestionScanGitHubPosture(BaseTest):
         )
 
         self.assertEqual(task.github_integration_id is None, expected_repo is None)
+
+    def test_a_repo_less_suggestion_scan_never_resolves_a_personal_integration(self):
+        # With no team integration, bot authorship falls back to the creator's personal GitHub
+        # integration, and a repository-less lookup accepts any of them - so the resolution
+        # itself must be bypassed, or the sandbox still gets a full personal token.
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.resolve_user_github_integration_for_task"
+        ) as resolve:
+            task = Task.create_without_run(
+                team=self.team,
+                title="t",
+                description="d",
+                origin_product=Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                user_id=self.user.id,
+                repository=None,
+            )
+
+        resolve.assert_not_called()
+        self.assertIsNone(task.github_user_integration_id)

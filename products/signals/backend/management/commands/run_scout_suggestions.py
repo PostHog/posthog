@@ -20,6 +20,7 @@ from products.signals.backend.scout_harness.suggestions import (
     enabled_skill_names,
     plan_suggestion_runs,
     read_suggestion_settings,
+    reserved_scout_names,
     stamp_requested,
     visible_items,
 )
@@ -67,7 +68,9 @@ class Command(BaseCommand):
             self.stdout.write("no stored batch")
             return
         self.stdout.write(f"status={row.status} generated_at={row.generated_at} fleet={row.fleet_snapshot}")
-        for record in visible_items(row, enabled_skill_names=enabled_skill_names(team_id)):
+        for record in visible_items(
+            row, enabled_skill_names=enabled_skill_names(team_id), reserved_names=reserved_scout_names(team_id)
+        ):
             self.stdout.write(
                 f"- [{record['kind']}/{record['confidence']}] {record['skill_name']}: {record['title']}"
                 f"{' (gap)' if record.get('gap') else ''}"
