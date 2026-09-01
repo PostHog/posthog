@@ -2,28 +2,21 @@
 // It's intended as an escape hatch for people rolling their own build pipeline - we expect most users to be
 // using the metro plugin for injecting, and then calling clone
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use walkdir::DirEntry;
 
 use crate::{
     invocation_context::context,
-    sourcemaps::{
-        args::ReleaseMode,
-        inject::{inject_impl, InjectArgs},
-    },
+    sourcemaps::inject::{inject_impl, EventReleaseSource, InjectArgs},
 };
 
 pub fn inject(args: &InjectArgs) -> Result<()> {
     context().capture_command_invoked("hermes_inject");
     args.validate()?;
-    // The rest of the Hermes pipeline (clone, upload, the RN SDK) has no event-mode support,
-    // so accepting the flag would inject a global nothing reads while upload re-binds the
-    // release anyway. Rejecting also catches a POSTHOG_RELEASE_MODE=event env var set for a
-    // web build leaking into a React Native build in the same environment.
-    if args.release_mode == ReleaseMode::Event {
-        bail!("--release-mode=event is not supported for Hermes bundles. Remove the flag (or unset POSTHOG_RELEASE_MODE) and inject again.");
-    }
-    inject_impl(args, is_metro_bundle, None)
+    // A React Native app reports its release from the app metadata it already sends. Event mode
+    // therefore injects chunk ids and nothing else here. A release id in the chunk would do
+    // nothing, because the bundle compiles to Hermes bytecode and no SDK reads the global.
+    inject_impl(args, is_metro_bundle, None, EventReleaseSource::AppMetadata)
 }
 
 pub fn is_metro_bundle(entry: &DirEntry) -> bool {

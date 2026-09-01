@@ -34,7 +34,7 @@ export interface ReasoningLevelOption {
   docsUrl?: string;
 }
 
-export interface ReasoningMenuSection {
+interface ReasoningMenuSection {
   key: string;
   label: string;
   value: string;

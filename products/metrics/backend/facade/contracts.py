@@ -32,6 +32,10 @@ MAX_CLAUSES_PER_QUERY = 10
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
 
+# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Staff-only while it is a proof of concept.
+METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
@@ -192,6 +196,27 @@ class MetricEventSample:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricErrorSpike:
+    """An Error Tracking issue spike detected in a time window.
+
+    PoC for the metrics chart's error-spike overlay: team-wide, not yet
+    scoped to a specific metric's service (Error Tracking issues carry no
+    service attribution today; scoping needs a service attribute on spikes
+    or a trace_id join against $exception events).
+
+    Deliberately narrower than error_tracking's own ErrorTrackingSpikeEvent
+    contract (fewer fields, string timestamps instead of datetime) since the
+    chart overlay only needs enough to render and link a marker. Keep it
+    narrow rather than reusing that contract directly, so metrics isn't
+    coupled to error_tracking's internal shape.
+    """
+
+    detected_at: str  # ISO 8601
+    issue_id: str
+    issue_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CompanionMetric:
     """A metric to check alongside the primary one to confirm or rule out a
     cause. `role` is a short hint ('traffic', 'saturation', 'processing') shown
@@ -307,6 +332,34 @@ class IncidentContext:
         if self.fired_at.tzinfo is None:
             raise ValueError("fired_at must be timezone-aware")
         object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsServiceOverview:
+    """One service's ingestion rollup inside the overview window."""
+
+    service_name: str
+    metric_names: int
+    series: int
+    last_seen: str  # ISO 8601
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsOverview:
+    """The landing-page answer to "is anything ingesting": how fresh the
+    newest datapoint is, plus window-scoped inventory counts per service.
+
+    `last_seen` deliberately ignores the window — when ingestion stops, the
+    window-scoped numbers go to zero but the status strip still needs to say
+    how long ago the last datapoint arrived. None means never ingested (or
+    everything aged past the series table's retention).
+    """
+
+    last_seen: str | None  # ISO 8601
+    metric_names: int
+    series: int
+    lookback_seconds: int
+    services: tuple[MetricsServiceOverview, ...]
 
 
 @dataclass(frozen=True, slots=True)

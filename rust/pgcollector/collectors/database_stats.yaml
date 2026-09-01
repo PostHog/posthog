@@ -1,0 +1,36 @@
+name: database_stats
+description: Per-database throughput, cache hit, temp files, deadlocks, xid age.
+interval: 60s
+scope: cluster
+kind: cumulative
+key: [datname]
+query: |
+  SELECT d.datname,
+         s.numbackends,
+         s.xact_commit, s.xact_rollback,
+         s.blks_read, s.blks_hit,
+         s.tup_returned, s.tup_fetched, s.tup_inserted, s.tup_updated, s.tup_deleted,
+         s.conflicts, s.temp_files, s.temp_bytes, s.deadlocks,
+         s.blk_read_time, s.blk_write_time,
+         s.stats_reset,
+         age(d.datfrozenxid)::bigint AS xid_age
+  FROM pg_stat_database s
+  JOIN pg_database d ON d.oid = s.datid
+  WHERE NOT d.datistemplate AND d.datname <> 'rdsadmin'
+variants:
+  - min_pg_version: 140000
+    query: |
+      SELECT d.datname,
+             s.numbackends,
+             s.xact_commit, s.xact_rollback,
+             s.blks_read, s.blks_hit,
+             s.tup_returned, s.tup_fetched, s.tup_inserted, s.tup_updated, s.tup_deleted,
+             s.conflicts, s.temp_files, s.temp_bytes, s.deadlocks,
+             s.blk_read_time, s.blk_write_time,
+             s.session_time, s.active_time, s.idle_in_transaction_time,
+             s.sessions, s.sessions_abandoned, s.sessions_fatal, s.sessions_killed,
+             s.stats_reset,
+             age(d.datfrozenxid)::bigint AS xid_age
+      FROM pg_stat_database s
+      JOIN pg_database d ON d.oid = s.datid
+      WHERE NOT d.datistemplate AND d.datname <> 'rdsadmin'

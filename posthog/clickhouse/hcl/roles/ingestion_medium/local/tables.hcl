@@ -286,39 +286,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_precalculated_person_properties_ws" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "condition" {
-      type = "String"
-    }
-    column "matches" {
-      type = "Bool"
-    }
-    column "source" {
-      type = "String"
-    }
-    engine "kafka" {
-      broker_list          = "warpstream_calculated_events"
-      topic_list           = "kafka_topic_list = 'clickhouse_precalculated_person_properties'"
-      group_name           = "kafka_group_name = 'clickhouse_precalculated_person_properties_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
-      num_consumers        = 1
-      max_block_size       = 1000000
-      skip_broken_messages = 100
-      poll_timeout_ms      = 1000
-      poll_max_batch_size  = 100000
-      flush_interval_ms    = 7500
-    }
-  }
-
   table "kafka_session_replay_features" {
     column "session_id" {
       type = "String"
@@ -1512,47 +1479,6 @@ SELECT
   _timestamp,
   _offset
 FROM posthog.kafka_precalculated_person_properties
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "condition" {
-      type = "String"
-    }
-    column "matches" {
-      type = "Bool"
-    }
-    column "source" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "Nullable(DateTime)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-  }
-
-  materialized_view "precalculated_person_properties_ws_mv" {
-    to_table = "posthog.writable_precalculated_person_properties"
-    query    = <<SQL
-SELECT
-  team_id,
-  distinct_id,
-  person_id,
-  condition,
-  matches,
-  source,
-  _timestamp,
-  _offset
-FROM posthog.kafka_precalculated_person_properties_ws
 SQL
 
     column "team_id" {

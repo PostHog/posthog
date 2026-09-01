@@ -4,6 +4,11 @@ from django.conf import settings
 _MAX_RANGE_SPAN = 100_000
 
 
+def _matches_every_team(raw_allowlist: str) -> bool:
+    raw_allowlist = raw_allowlist.strip()
+    return raw_allowlist == "" or raw_allowlist.lower() == "all" or raw_allowlist == "*"
+
+
 def _team_in_allowlist(raw_allowlist: str, team_id: int) -> bool:
     """Whether ``team_id`` matches a team-allowlist setting.
 
@@ -16,7 +21,7 @@ def _team_in_allowlist(raw_allowlist: str, team_id: int) -> bool:
     Malformed tokens are ignored — the Rust side rejects the whole value at startup.
     """
     raw_allowlist = raw_allowlist.strip()
-    if raw_allowlist == "" or raw_allowlist.lower() == "all" or raw_allowlist == "*":
+    if _matches_every_team(raw_allowlist):
         return True
     if raw_allowlist.lower() == "none":
         return False
@@ -35,6 +40,14 @@ def _team_in_allowlist(raw_allowlist: str, team_id: int) -> bool:
         if start <= end <= start + _MAX_RANGE_SPAN - 1 and start <= team_id <= end:
             return True
     return False
+
+
+def realtime_allowlist_matches_every_team() -> bool:
+    """Whether the realtime allowlist is one of the match-everything values.
+
+    Lets a caller skip enumerating every team to rediscover that the allowlist covers all of them.
+    """
+    return _matches_every_team(settings.REALTIME_COHORT_TEAM_ALLOWLIST)
 
 
 def is_realtime_cohort_team(team_id: int) -> bool:

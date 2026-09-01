@@ -73,6 +73,7 @@ rules:
                               |AgentToolApprovalRequest
                               |AgentTransportBinding
                               |AgentUser
+                              |AIObservabilityChecklistItemState
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -103,6 +104,9 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotProposal
+                              |ContentAutopilotRun
+                              |ContentAutopilotSiteProfile
                               |Conversation
                               |ConversationRestoreToken
                               |CoreMemory
@@ -188,6 +192,9 @@ rules:
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
+                              |GeneratedWidget
+                              |GeneratedWidgetGenerationJob
+                              |GeneratedWidgetVersion
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -228,6 +235,7 @@ rules:
                               |LogsView
                               |Loop
                               |LoopFire
+                              |NotebookWidgetInstance
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -364,6 +372,8 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |VisionAlertConfiguration
+                              |VisionAlertMatch
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -445,6 +455,7 @@ rules:
                         |AgentToolApprovalRequest
                         |AgentTransportBinding
                         |AgentUser
+                        |AIObservabilityChecklistItemState
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -475,6 +486,9 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotProposal
+                        |ContentAutopilotRun
+                        |ContentAutopilotSiteProfile
                         |Conversation
                         |ConversationRestoreToken
                         |CoreMemory
@@ -560,6 +574,9 @@ rules:
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
+                        |GeneratedWidget
+                        |GeneratedWidgetGenerationJob
+                        |GeneratedWidgetVersion
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig
@@ -596,6 +613,7 @@ rules:
                         |Loop
                         |LoopFire
                         |LoopTrigger
+                        |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptLabel
@@ -729,6 +747,8 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |VisionAlertConfiguration
+                        |VisionAlertMatch
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -834,6 +854,7 @@ rules:
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
+                              |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -908,6 +929,7 @@ rules:
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
+                        |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -1160,6 +1182,7 @@ rules:
                               |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
+                              |UserFacetSettings
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
@@ -1233,6 +1256,7 @@ rules:
                         |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
+                        |UserFacetSettings
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation

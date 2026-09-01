@@ -5,8 +5,11 @@ import { DeleteToolView } from "@posthog/ui/features/sessions/components/session
 import { EditToolView } from "@posthog/ui/features/sessions/components/session-update/EditToolView";
 import { ExecuteToolView } from "@posthog/ui/features/sessions/components/session-update/ExecuteToolView";
 import { FetchToolView } from "@posthog/ui/features/sessions/components/session-update/FetchToolView";
+import { ListToolView } from "@posthog/ui/features/sessions/components/session-update/ListToolView";
 import { MoveToolView } from "@posthog/ui/features/sessions/components/session-update/MoveToolView";
+import { PiOrchestrationToolView } from "@posthog/ui/features/sessions/components/session-update/PiOrchestrationToolView";
 import { PlanApprovalView } from "@posthog/ui/features/sessions/components/session-update/PlanApprovalView";
+import { readPiOrchestrationDetails } from "@posthog/ui/features/sessions/components/session-update/piOrchestrationDetails";
 import { QuestionToolView } from "@posthog/ui/features/sessions/components/session-update/QuestionToolView";
 import { ReadToolView } from "@posthog/ui/features/sessions/components/session-update/ReadToolView";
 import { SearchToolView } from "@posthog/ui/features/sessions/components/session-update/SearchToolView";
@@ -59,6 +62,13 @@ export function ToolCallBlock({
   }
 
   const props = { toolCall, turnCancelled, turnComplete };
+  const orchestrationView = readPiOrchestrationDetails(
+    toolCall.title,
+    toolCall.details,
+  );
+  if (orchestrationView) {
+    return <PiOrchestrationToolView {...props} view={orchestrationView} />;
+  }
 
   // An artifact is a deliverable, not a step: it takes the row rather than the
   // tool's own header, from the moment the agent starts handing it over.
@@ -132,6 +142,8 @@ export function ToolCallBlock({
         return <ExecuteToolView {...props} />;
       case "read":
         return <ReadToolView {...props} />;
+      case "list":
+        return <ListToolView {...props} />;
       case "edit":
         return <EditToolView {...props} />;
       case "delete":

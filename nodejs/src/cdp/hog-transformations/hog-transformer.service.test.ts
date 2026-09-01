@@ -11,7 +11,7 @@ import { template as geoipTemplate } from '../../../src/cdp/templates/_transform
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
@@ -24,6 +24,7 @@ import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
     executeSync: jest.fn(),
+    executeBatch: jest.fn(),
 }))
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
@@ -50,13 +51,12 @@ describe('HogTransformer', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         // Create a team first before inserting hog functions
-        const team = await getFirstTeam(hub.postgres)
+        const { team } = await createTestTeamFixture(hub.postgres)
         teamId = team.id
 
         hogTransformer = createHogTransformerService(hub, {
@@ -75,6 +75,7 @@ describe('HogTransformer', () => {
         const config: HogTransformerServiceConfig = {
             SITE_URL: hub.SITE_URL,
             CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+            CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
             MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
@@ -91,6 +92,28 @@ describe('HogTransformer', () => {
         await transformer.stop()
     })
 
+    it('prefetchHogFunctionsForTeams leaves the transformation caches warm for the event path', async () => {
+        const fn = createHogFunction({
+            type: 'transformation',
+            name: defaultTemplate.name,
+            team_id: teamId,
+            enabled: true,
+            bytecode: await compileHog(defaultTemplate.code),
+        })
+        await insertHogFunction(hub.postgres, teamId, fn)
+
+        await hogTransformer.prefetchHogFunctionsForTeams([teamId])
+
+        const querySpy = jest.spyOn(hub.postgres, 'query')
+        const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+        expect(result.invocationResults).toHaveLength(1)
+        const hogFunctionQueries = querySpy.mock.calls
+            .map((call) => call[3])
+            .filter((tag) => tag === 'fetchAllTeamHogFunctions' || tag === 'fetchHogFunctions')
+        expect(hogFunctionQueries).toEqual([])
+    })
+
     describe('transformEvent', () => {
         it('handles geoip lookup transformation', async () => {
             // Setup the hog function
@@ -102,7 +125,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: hogByteCode,
                 execution_order: 1,
-                id: 'd77e792e-0f35-431b-a983-097534aa4767',
             })
             await insertHogFunction(hub.postgres, teamId, geoIpFunction)
 
@@ -173,7 +195,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: [],
                 execution_order: 1,
-                id: 'd77e792e-0f35-431b-a983-097534aa4767',
                 hog: `
                     let returnEvent := event
                     if (event.elements_chain ilike '%button%') {
@@ -209,7 +230,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: [],
                 execution_order: 1,
-                id: 'd77e792e-0f35-431b-a983-097534aa4767',
                 hog: `
                     let returnEvent := event
                     returnEvent.distinct_id := 'modified-distinct-id'
@@ -227,7 +247,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({}, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            expect(result.event).toMatchInlineSnapshot(`
+            expect(forSnapshot(result.event, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "modified-distinct-id",
                   "event": "modified-event",
@@ -239,7 +259,7 @@ describe('HogTransformer', () => {
                     "test_property": "modified-test-value",
                   },
                   "site_url": "http://localhost",
-                  "team_id": 2,
+                  "team_id": "<REPLACED-TEAM-ID>",
                   "timestamp": "2024-01-01T00:00:00Z",
                   "uuid": "event-id",
                 }
@@ -337,7 +357,7 @@ describe('HogTransformer', () => {
                     x.value.message = 'geoip location data for ip: [REPLACED]'
                 }
             })
-            expect(forSnapshot(messages)).toMatchSnapshot()
+            expect(forSnapshot(messages, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchSnapshot()
         })
 
         it('should delete a property from previous transformation', async () => {
@@ -1006,7 +1026,6 @@ describe('HogTransformer', () => {
                 enabled: true,
                 hog: posthogFilterOutPlugin.template.code,
                 inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
-                id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
             await insertHogFunction(hub.postgres, teamId, filterOutPlugin)
@@ -1031,7 +1050,7 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result.event).toMatchInlineSnapshot(`
+            expect(forSnapshot(result.event, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
@@ -1042,7 +1061,7 @@ describe('HogTransformer', () => {
                     "$ip": "216.160.83.56",
                   },
                   "site_url": "http://localhost",
-                  "team_id": 2,
+                  "team_id": "<REPLACED-TEAM-ID>",
                   "timestamp": "2024-01-01T00:00:00Z",
                   "uuid": "event-id",
                 }
@@ -1086,7 +1105,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            expect(forSnapshot(result.event)).toMatchInlineSnapshot(`
+            expect(forSnapshot(result.event, { overrides: { team_id: '<REPLACED-TEAM-ID>' } })).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
@@ -1139,7 +1158,7 @@ describe('HogTransformer', () => {
                     },
                   },
                   "site_url": "http://localhost",
-                  "team_id": 2,
+                  "team_id": "<REPLACED-TEAM-ID>",
                   "timestamp": "2024-01-01T00:00:00Z",
                   "uuid": "event-id",
                 }
@@ -1503,7 +1522,6 @@ describe('HogTransformer', () => {
             team_id: teamId,
             enabled: true,
             bytecode: await compileHog(captureTemplate.code),
-            id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
         })
 
         await insertHogFunction(hub.postgres, teamId, hogFunction)
@@ -1534,7 +1552,6 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode,
-                id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',
             })
             await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
@@ -1575,6 +1592,29 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toMatchObject({
                 $current_url: 'https://example.com',
             })
+        })
+
+        it('routes through executeBatch instead of executeSync when batch execution is enabled', async () => {
+            hub.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED = true
+            hogTransformer = createHogTransformerService(hub, {
+                ...hub,
+                monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+            })
+            mockHogvmNode.executeBatch.mockResolvedValue([
+                {
+                    result: { properties: { from_rust_batch: true } },
+                    durationUs: 100,
+                    logs: [],
+                    logsTruncated: false,
+                },
+            ])
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeBatch.mock.calls[0][0]).toEqual(bytecode)
+            expect(result.event?.properties).toEqual({ from_rust_batch: true })
         })
     })
 })

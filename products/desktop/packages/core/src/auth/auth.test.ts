@@ -1,6 +1,6 @@
 import type { RootLogger } from "@posthog/di/logger";
 import type { IPowerManager } from "@posthog/platform/power-manager";
-import { OAUTH_SCOPE_VERSION } from "@posthog/shared";
+import { NotAuthenticatedError, OAUTH_SCOPE_VERSION } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
 import type {
@@ -153,17 +153,18 @@ describe("AuthService", () => {
 
   const stubAuthFetch = (
     options: {
-      accountKey?: string;
+      /** `null` makes the account lookup fail, as a transient 5xx would. */
+      accountKey?: string | null;
       currentOrgId?: string;
       orgs?: Record<
         string,
         { name: string; projects: { id: number; name: string }[] }
       >;
       desktopAccessResponse?: (url: string) => Response;
-      redeemInviteCodeResponse?: () => Response;
     } = {},
   ) => {
-    const accountKey = options.accountKey ?? "user-1";
+    const accountKey =
+      options.accountKey === undefined ? "user-1" : options.accountKey;
     const currentOrgId = options.currentOrgId ?? "org-1";
     const orgs = options.orgs ?? {
       "org-1": { name: "Org 1", projects: [{ id: 42, name: "Project 42" }] },
@@ -175,6 +176,13 @@ describe("AuthService", () => {
         const url = typeof input === "string" ? input : input.url;
 
         if (url.includes("/api/users/@me/")) {
+          if (accountKey === null) {
+            return {
+              ok: false,
+              status: 500,
+              json: vi.fn().mockResolvedValue({}),
+            } as unknown as Response;
+          }
           return {
             ok: true,
             json: vi.fn().mockResolvedValue({
@@ -194,13 +202,6 @@ describe("AuthService", () => {
               teams: orgs[orgId]?.projects ?? [],
             }),
           } as unknown as Response;
-        }
-
-        if (
-          url.includes("/api/code/invites/redeem/") &&
-          options.redeemInviteCodeResponse
-        ) {
-          return options.redeemInviteCodeResponse();
         }
 
         if (options.desktopAccessResponse) {
@@ -405,6 +406,46 @@ describe("AuthService", () => {
     expect(service.getState().status).toBe("authenticated");
     expect(oauthFlow.refreshToken).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { name: "a 401", status: 401, body: null, refreshes: true },
+    {
+      name: "a 403 that reports an authentication failure",
+      status: 403,
+      body: { type: "authentication_error", code: "authentication_failed" },
+      refreshes: true,
+    },
+    {
+      name: "a 403 permission denial",
+      status: 403,
+      body: {
+        type: "authentication_error",
+        code: "permission_denied",
+        detail: "You do not have permission to perform this action.",
+      },
+      refreshes: false,
+    },
+  ])(
+    "refreshes the token and retries on $name only when the token was rejected",
+    async ({ status, body, refreshes }) => {
+      seedStoredSession({ selectedProjectId: 42 });
+      stubAuthFetch();
+      oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+      await service.initialize();
+      oauthFlow.refreshToken.mockClear();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(body === null ? null : JSON.stringify(body), { status }),
+      );
+
+      const response = await service.authenticatedFetch(
+        fetch,
+        "https://us.posthog.com/api/restricted/",
+      );
+
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(refreshes ? 1 : 0);
+      expect(response.ok).toBe(refreshes);
+    },
+  );
 
   it("requires scope reauthentication when the stored scope version is stale", async () => {
     seedStoredSession({
@@ -1189,6 +1230,129 @@ describe("AuthService", () => {
       expect(sessionPort.getCurrent()).toBeNull();
     });
 
+    it("never re-presents a refresh token the server rejected", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // Storage still holds the dead token, so this must fail without a request.
+      seedStoredSession();
+      await expect(service.getValidAccessToken()).rejects.toThrow(
+        NotAuthenticatedError,
+      );
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("pauses rather than retires a token after an unclassified failure", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Something weird",
+          errorCode: "unknown_error",
+        });
+
+        await service.initialize();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // Held just under the cooldown, so the constant itself is pinned.
+        vi.setSystemTime(new Date("2026-08-24T00:00:14.900Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // And the pause lifts on its own, unlike a server rejection.
+        vi.setSystemTime(new Date("2026-08-24T00:00:15.100Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases the refusal when a new grant bumps the session generation", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      oauthFlow.startFlow.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "fresh-access-token",
+          refreshToken: "stored-refresh-token",
+        }),
+      );
+      stubAuthFetch();
+      await service.login("us");
+
+      // Same token as the refused one, so only the generation bump can release
+      // it. Otherwise signing back in leaves the user locked out.
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "rotated-access-token",
+          refreshToken: "rotated-refresh-token",
+        }),
+      );
+      await service.refreshAccessToken();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses only the token that failed", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Something weird",
+        errorCode: "unknown_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // A different token is a different credential; the pause must not widen.
+      seedStoredSession({ refreshToken: "another-refresh-token" });
+      await expect(service.getValidAccessToken()).rejects.toThrow();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses the token when retries are exhausted", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Boom",
+          errorCode: "server_error",
+        });
+
+        const restoring = service.initialize();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await restoring;
+        const spent = oauthFlow.refreshToken.mock.calls.length;
+        expect(spent).toBeGreaterThan(1);
+
+        // This exhausts the retry budget rather than failing on the first attempt.
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(spent);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps restoring after a non-retryable unknown_error", async () => {
       seedStoredSession();
       oauthFlow.refreshToken.mockResolvedValue({
@@ -1245,6 +1409,39 @@ describe("AuthService", () => {
         });
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(3);
         expect(service.getState().status).toBe("authenticated");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("raises a not-authenticated error on the rejection itself", async () => {
+      vi.useFakeTimers();
+      try {
+        oauthFlow.startFlow.mockResolvedValue(
+          mockTokenResponse({
+            accessToken: "current-access-token",
+            refreshToken: "current-refresh-token",
+          }),
+        );
+        stubAuthFetch();
+
+        await service.initialize();
+        await service.login("us");
+
+        oauthFlow.refreshToken.mockReset();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Token revoked",
+          errorCode: "auth_error",
+        });
+
+        await vi.advanceTimersByTimeAsync(3_599_500);
+
+        // Raised by the rejection that tears the session down, so callers
+        // that stop on a dead session see it here, not one trigger later.
+        await expect(service.getValidAccessToken()).rejects.toBeInstanceOf(
+          NotAuthenticatedError,
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -2115,31 +2312,176 @@ describe("AuthService", () => {
       });
     });
 
-    it("rechecks access after redeeming a legacy invite code", async () => {
-      let redeemed = false;
-      stubAuthFetch({
-        redeemInviteCodeResponse: () => {
-          redeemed = true;
-          return okBody({ success: true });
-        },
-        desktopAccessResponse: () =>
-          okBody(
-            redeemed
-              ? { allowed: true, reason: null }
-              : { allowed: false, reason: null },
-          ),
-      });
+    it.each([
+      {
+        name: "keeps the current result on screen while a refresh for the same account rechecks it",
+        bootAccountKey: "user-1" as string | null,
+        refreshedAccountKey: "user-1" as string | null,
+        statusDuringRecheck: "allowed",
+      },
+      {
+        // A failed account lookup is an unknown account, not another one.
+        name: "keeps the current result on screen while a refresh whose account lookup failed rechecks it",
+        bootAccountKey: "user-1" as string | null,
+        refreshedAccountKey: null as string | null,
+        statusDuringRecheck: "allowed",
+      },
+      {
+        // Same on the other side: a boot whose lookup failed must not turn
+        // every later refresh into a full-app remount.
+        name: "keeps the current result on screen when the boot account lookup failed and a refresh resolves one",
+        bootAccountKey: null as string | null,
+        refreshedAccountKey: "user-1" as string | null,
+        statusDuringRecheck: "allowed",
+      },
+      {
+        name: "shows checking while a refresh that lands on another account rechecks",
+        bootAccountKey: "user-1" as string | null,
+        refreshedAccountKey: "user-2" as string | null,
+        statusDuringRecheck: "checking",
+      },
+    ])(
+      "$name",
+      async ({ bootAccountKey, refreshedAccountKey, statusDuringRecheck }) => {
+        let release!: () => void;
+        const pending = new Promise<Response>((resolve) => {
+          release = () => resolve(okBody({ allowed: true, reason: null }));
+        });
+        stubAuthFetch({ accountKey: bootAccountKey });
+        await service.initialize();
+        expect(service.getState().desktopAccess.status).toBe("allowed");
 
+        let checks = 0;
+        stubAuthFetch({
+          accountKey: refreshedAccountKey,
+          desktopAccessResponse: () => {
+            checks += 1;
+            return pending as unknown as Response;
+          },
+        });
+        const refresh = service.refreshAccessToken();
+        await vi.waitFor(() => expect(checks).toBe(1));
+        expect(service.getState().desktopAccess.status).toBe(
+          statusDuringRecheck,
+        );
+
+        release();
+        await refresh;
+        expect(service.getState().desktopAccess.status).toBe("allowed");
+      },
+    );
+
+    it("keeps the live project and settled access when a refresh rebuild omits the project", async () => {
+      // One 4xx or timeout on a per-org or per-team fetch during a token
+      // refresh rebuilds the map without the project the app is showing.
+      // Adopting the fallback selection then swaps the project and unmounts
+      // the whole app. The #88289 test covers the initialize path with no
+      // live session; this one covers a refresh over a live session.
+      let release!: () => void;
+      const pending = new Promise<Response>((resolve) => {
+        release = () => resolve(okBody({ allowed: true, reason: null }));
+      });
+      stubAuthFetch();
       await service.initialize();
-      expect(service.getState().desktopAccess.status).toBe("blocked");
+      expect(service.getState().currentProjectId).toBe(42);
+      expect(service.getState().desktopAccess.status).toBe("allowed");
 
-      const state = await service.redeemInviteCode("test-code");
-
-      expect(state.desktopAccess).toEqual({
-        projectId: 42,
-        status: "allowed",
-        reason: null,
+      let checks = 0;
+      stubAuthFetch({
+        orgs: {
+          "org-1": { name: "Org 1", projects: [{ id: 7, name: "Project 7" }] },
+        },
+        desktopAccessResponse: () => {
+          checks += 1;
+          return pending as unknown as Response;
+        },
       });
+      const refresh = service.refreshAccessToken();
+      await vi.waitFor(() => expect(checks).toBe(1));
+      expect(service.getState().currentProjectId).toBe(42);
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      release();
+      await refresh;
+      expect(service.getState().currentProjectId).toBe(42);
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+    });
+
+    it.each([
+      {
+        // Dropping an allowed result because the session object rotated
+        // mid-check leaves the published state on "checking", which keeps the
+        // whole app unmounted until the rotation's own check answers.
+        name: "applies an allowed check that finished after a same-identity rotation",
+        staleResponse: () => okBody({ allowed: true, reason: null }),
+        statusAfterStale: "allowed",
+      },
+      {
+        // A timeout or a rejected old token on the stale check must not
+        // publish "error" and unmount the app while the rotation's own
+        // healthy check is still pending.
+        name: "drops a failed check that finished after a same-identity rotation",
+        staleResponse: () =>
+          ({
+            ok: false,
+            status: 500,
+            json: vi.fn().mockResolvedValue({}),
+          }) as unknown as Response,
+        statusAfterStale: "checking",
+      },
+    ])("$name", async ({ staleResponse, statusAfterStale }) => {
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      const releases: Array<(response: Response) => void> = [];
+      stubAuthFetch({
+        desktopAccessResponse: () =>
+          new Promise<Response>((resolve) => {
+            releases.push(resolve);
+          }) as unknown as Response,
+      });
+      const retry = service.retryDesktopAccess();
+      await vi.waitFor(() => expect(releases.length).toBe(1));
+      expect(service.getState().desktopAccess.status).toBe("checking");
+
+      const refresh = service.refreshAccessToken();
+      await vi.waitFor(() => expect(releases.length).toBe(2));
+
+      releases[0](staleResponse());
+      await retry;
+      expect(service.getState().desktopAccess.status).toBe(statusAfterStale);
+
+      releases[1](okBody({ allowed: true, reason: null }));
+      await refresh;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+    });
+
+    it("keeps the current result while a commit that leaves the project alone rechecks it", async () => {
+      // Background org recovery commits the project it already had. Publishing
+      // "checking" there unmounts the whole app after it finished loading.
+      let release!: () => void;
+      const pending = new Promise<Response>((resolve) => {
+        release = () => resolve(okBody({ allowed: true, reason: null }));
+      });
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      let checks = 0;
+      stubAuthFetch({
+        desktopAccessResponse: () => {
+          checks += 1;
+          return pending as unknown as Response;
+        },
+      });
+      const selection = service.selectProject(42);
+      await vi.waitFor(() => expect(checks).toBe(1));
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      release();
+      await selection;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
     });
 
     it("rechecks access after selecting an eligible project", async () => {

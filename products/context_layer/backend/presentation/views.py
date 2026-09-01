@@ -18,6 +18,8 @@ from products.context_layer.backend.presentation.serializers import (
     ChannelWikiPageSerializer,
     CommitBundleSerializer,
     ContextLayerStatusSerializer,
+    DreamRunDetailSerializer,
+    DreamRunListSerializer,
     HeadConflictSerializer,
     LintErrorSerializer,
     WikiExportSerializer,
@@ -33,22 +35,6 @@ from products.tasks.backend.facade import api as tasks_facade
 RUN_COMMITS_PER_DAY_CAP = 20
 
 
-def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
-    """The wiki is org-readable, so it goes dark the moment any project is private.
-
-    Enablement refuses orgs with private projects, but privacy can arrive later;
-    imported context must not stay readable to members the project now excludes.
-    Re-enabling access means removing the project restriction (or, later,
-    per-project partitioning).
-    """
-    if facade.organization_has_private_projects(organization_id):
-        raise PermissionDenied(
-            "This organization now has private projects, so its context wiki is unavailable. "
-            "The context layer does not support private projects yet.",
-            code="private_projects",
-        )
-
-
 def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
     """One mapping from store errors to HTTP for every action, so new writers
     added in later layers cannot drift from this contract."""
@@ -59,6 +45,8 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
     if isinstance(error, facade.RepoLockUnavailableError):
         raise Throttled(detail=str(error))
     if isinstance(error, facade.PageNotFoundError):
+        raise NotFound(str(error)) from error
+    if isinstance(error, facade.DreamNotFoundError):
         raise NotFound(str(error)) from error
     if isinstance(error, facade.HeadConflictError):
         return Response(
@@ -75,11 +63,15 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
             {"detail": "The change violates the wiki structure.", "errors": error.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if isinstance(error, facade.DependencyUnavailableError):
+        return Response(
+            {"detail": "The context layer is temporarily unavailable. Try again later."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     raise error
 
 
 def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     try:
         wiki_page = facade.get_page(organization_id, request.query_params.get("path", ""))
     except facade.ContextLayerStoreError as error:
@@ -155,7 +147,6 @@ def _assert_loop_may_create_channel_page(
 
 
 def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: bool = False) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     try:
         path = facade.resolve_channel_page(organization_id, channel_id)
         if path is None and propose_on_miss:
@@ -171,7 +162,6 @@ def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: boo
 
 
 def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     serializer = WikiPageWriteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     _assert_loop_write_in_scope(
@@ -218,7 +208,6 @@ def _assert_run_commit_cap(request: Request) -> None:
 
 
 def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
-    _assert_no_private_projects(organization_id)
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
     if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
@@ -259,7 +248,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export"]
+    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export", "dreams", "dream"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
@@ -282,8 +271,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = request.user.id if request.user and request.user.is_authenticated else None
         try:
             config = facade.enable_context_layer(self.organization.id, created_by_id=user_id)
-        except facade.RestrictedProjectsError as error:
-            raise ValidationError(str(error), code="private_projects") from error
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
         return Response(
@@ -299,7 +286,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def status(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             config = facade.get_config(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -312,7 +298,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def tree(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             wiki_tree = facade.get_tree(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -325,7 +310,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="wiki/report")
     def report(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             report = facade.get_health_report(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -386,13 +370,46 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return _land_commits(self.organization.id, request)
 
     @extend_schema(
+        operation_id="context_layer_dreams_list",
+        responses={200: DreamRunListSerializer, 404: OpenApiResponse(description="The context layer is not enabled.")},
+        summary="List dream runs",
+        description=(
+            "The active dreaming task, when present, plus every landed run newest first. A landed run is one "
+            "merge commit `dream: <date>` whose body is the summary; its changes are on the detail read."
+        ),
+    )
+    @action(methods=["GET"], detail=False)
+    def dreams(self, request: Request, **kwargs) -> Response:
+        try:
+            dream_list = facade.list_dream_runs(self.organization.id)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(DreamRunListSerializer(dream_list).data)
+
+    @extend_schema(
+        operation_id="context_layer_dreams_retrieve",
+        responses={
+            200: DreamRunDetailSerializer,
+            404: OpenApiResponse(description="No dream run at this sha, or the context layer is not enabled."),
+        },
+        summary="Read one dream run",
+        description="One dreaming run with the per-file unified patches it landed.",
+    )
+    @action(methods=["GET"], detail=False, url_path=r"dreams/(?P<sha>[0-9a-f]{40})")
+    def dream(self, request: Request, sha: str, **kwargs) -> Response:
+        try:
+            detail = facade.get_dream_run(self.organization.id, sha)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(DreamRunDetailSerializer(detail).data)
+
+    @extend_schema(
         responses={200: WikiExportSerializer},
         summary="Export the wiki",
         description="A short-lived download URL for the wiki's current bundle: the whole repo and its history, one file, standard git.",
     )
     @action(methods=["GET"], detail=False)
     def export(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
         try:
             bundle = facade.get_bundle_export(self.organization.id)
         except facade.ContextLayerStoreError as error:

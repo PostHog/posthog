@@ -1,10 +1,4 @@
-import {
-  CaretDown,
-  Lightning,
-  PiIcon,
-  Spinner,
-  Stack,
-} from "@phosphor-icons/react";
+import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -26,7 +20,12 @@ import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
+import {
+  ModelCostChip,
+  ModelCostFooter,
+} from "@posthog/ui/features/sessions/components/ModelCostChip";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 
 type PiModelOption = PiModelSelection & { name?: string };
@@ -93,7 +92,7 @@ export function PiModelSelector({
                 <span className="text-muted-foreground">
                   <PiIcon size={14} weight="bold" className="translate-y-px" />
                 </span>
-                <Spinner size={12} className="animate-spin" />
+                <Spinner size={12} />
                 Loading...
               </Button>
             }
@@ -117,7 +116,7 @@ export function PiModelSelector({
               />
             )}
             <DropdownMenuItem disabled>
-              <Spinner size={12} className="animate-spin" />
+              <Spinner size={12} />
               Loading models...
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -211,9 +210,11 @@ export function PiModelSelector({
                   closeOnClick={false}
                 >
                   <span className="whitespace-nowrap">{modelLabel(model)}</span>
+                  <ModelCostChip modelId={model.id} />
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            <ModelCostFooter />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {thinkingLevel &&

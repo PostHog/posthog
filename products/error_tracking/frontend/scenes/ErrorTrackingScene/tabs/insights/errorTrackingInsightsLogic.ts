@@ -28,6 +28,7 @@ import {
     buildAffectedUsersQuery,
     buildCrashFreeSessionsQuery,
     buildExceptionVolumeQuery,
+    buildIssuesCreatedQuery,
     InsightQueryFilters,
 } from './queries'
 
@@ -71,6 +72,7 @@ export interface errorTrackingInsightsLogicValues {
     exceptionVolumeQuery: InsightVizNode<TrendsQuery>
     insightQueryFilters: InsightQueryFilters
     insightsFilterGroup: UniversalFiltersGroup
+    issuesCreatedQuery: InsightVizNode<TrendsQuery>
     summaryStats: InsightsSummaryStats | null
     summaryStatsLoading: boolean
 }
@@ -134,6 +136,10 @@ export interface errorTrackingInsightsLogicMeta {
             filterTestAccounts: boolean
         ) => InsightQueryFilters
         exceptionVolumeQuery: (
+            effectiveDateRange: DateRange,
+            insightQueryFilters: InsightQueryFilters
+        ) => InsightVizNode<TrendsQuery>
+        issuesCreatedQuery: (
             effectiveDateRange: DateRange,
             insightQueryFilters: InsightQueryFilters
         ) => InsightVizNode<TrendsQuery>
@@ -217,6 +223,11 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             (s) => [s.effectiveDateRange, s.insightQueryFilters],
             (dateRange: DateRange, filters: InsightQueryFilters): InsightVizNode<TrendsQuery> =>
                 buildExceptionVolumeQuery(dateRange, filters),
+        ],
+        issuesCreatedQuery: [
+            (s) => [s.effectiveDateRange, s.insightQueryFilters],
+            (dateRange: DateRange, filters: InsightQueryFilters): InsightVizNode<TrendsQuery> =>
+                buildIssuesCreatedQuery(dateRange, filters),
         ],
         affectedUsersQuery: [
             (s) => [s.effectiveDateRange, s.insightQueryFilters],

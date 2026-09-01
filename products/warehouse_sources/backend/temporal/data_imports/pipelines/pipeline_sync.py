@@ -42,7 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -178,7 +182,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
@@ -280,7 +284,7 @@ async def validate_schema_and_update_table(
                     logger.debug(f"Creating table for schema: {str(schema_id)}")
                     table_created = DataWarehouseTable.objects.create(
                         external_data_source_id=job.pipeline.id,
-                        created_via=DataWarehouseTable.CreatedVia.SOURCE,
+                        created_via=DataWarehouseTableCreatedVia.SOURCE,
                         **table_params,
                     )
 
@@ -364,7 +368,7 @@ async def register_cdc_companion_table(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
@@ -436,7 +440,7 @@ async def register_cdc_companion_table(
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
                     external_data_source_id=job.pipeline.id,
-                    created_via=DataWarehouseTable.CreatedVia.SOURCE,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
                     **table_params,
                 )
 

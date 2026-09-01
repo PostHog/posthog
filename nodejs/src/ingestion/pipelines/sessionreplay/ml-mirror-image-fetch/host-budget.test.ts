@@ -22,6 +22,7 @@ function budget(overrides: Partial<HostBudgetOptions> = {}): HostBudget {
 describe('HostBudget', () => {
     it('does not reserve a token before a crawl-delay wait finishes', () => {
         const host = budget({ burst: 5 })
+        host.setCrawlDelay(ORIGIN, 1_000, 1_000)
 
         const first = host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)
         expect(first).toEqual({
@@ -112,6 +113,7 @@ describe('HostBudget', () => {
         expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 180_999, DEADLINE_MS)).toEqual({
             granted: false,
             reason: 'backoff',
+            backoffReason: 'retry_after',
             waitMs: 1,
         })
     })
@@ -124,6 +126,7 @@ describe('HostBudget', () => {
         expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 2_000, DEADLINE_MS)).toEqual({
             granted: false,
             reason: 'backoff',
+            backoffReason: 'retry_after',
             waitMs: 179_000,
         })
     })
@@ -241,6 +244,7 @@ describe('HostBudget', () => {
             granted: false,
             reason: 'deadline',
             waitMs: 600_000,
+            waitScope: 'origin_crawl_delay',
         })
     })
 })

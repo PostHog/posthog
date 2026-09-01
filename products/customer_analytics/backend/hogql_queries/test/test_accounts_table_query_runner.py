@@ -19,6 +19,7 @@ from posthog.schema import (
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
     AccountsTableAggregation,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableCountMetric,
     AccountsTableCountThresholdMetric,
@@ -30,6 +31,8 @@ from posthog.schema import (
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipFilter,
+    AccountsTableRelationshipOperator,
     AccountsTableSearchFilter,
     AccountsTableSort,
     AccountsTableSortDirection,
@@ -330,6 +333,34 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
 
+    def test_resolves_the_logo_domain_from_account_properties(self) -> None:
+        from_website_domain = create_account(
+            team_id=self.team.id,
+            name="From website domain",
+            _properties={"website_domain": "acme.example", "email_domains": ["other.example"]},
+        )
+        from_email_domains = create_account(
+            team_id=self.team.id,
+            name="From email domains",
+            _properties={"email_domains": ["globex.example"]},
+        )
+        from_external_id = create_account(team_id=self.team.id, name="From external ID", external_id="legacy.example")
+
+        page = api.query_accounts_table(
+            team_id=self.team.id,
+            user_access_control=UserAccessControl(user=self.user, team=self.team),
+            selection=contracts.AccountTableColumnSelection(),
+            filters=(),
+            sort=None,
+            offset=0,
+            limit=100,
+        )
+
+        logo_domains = {row.id: row.logo_domain for row in page.rows}
+        assert logo_domains[from_website_domain.id] == "acme.example"
+        assert logo_domains[from_email_domains.id] == "globex.example"
+        assert logo_domains[from_external_id.id] is None
+
     def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):
             self._run(AccountsTableQuery(columns=[AccountsTableTagsColumn()] * (ACCOUNTS_TABLE_MAX_COLUMNS + 1)))
@@ -417,6 +448,41 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert [row.id for row in response.results] == [str(active_account.id)]
         assert str(untagged_account.id) not in {row.id for row in response.results}
 
+    def test_filters_by_relationship_definition_and_user(self) -> None:
+        csm_account = create_account(team_id=self.team.id, name="CSM")
+        ae_account = create_account(team_id=self.team.id, name="AE")
+        csm_definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        ae_definition = AccountRelationshipDefinition.objects.unscoped().create(
+            team=self.team, name="Account executive"
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=csm_account,
+            definition=csm_definition,
+            user=self.user,
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=ae_account,
+            definition=ae_definition,
+            user=self.user,
+        )
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableRelationshipFilter(
+                        definitionId=str(csm_definition.id),
+                        operator=AccountsTableRelationshipOperator.EXACT,
+                        userIds=[self.user.id],
+                    )
+                ],
+            )
+        )
+
+        assert [row.id for row in response.results] == [str(csm_account.id)]
+
     def test_unassigned_and_account_id_filters(self) -> None:
         assigned_account = create_account(team_id=self.team.id, name="Assigned")
         unassigned_account = create_account(team_id=self.team.id, name="Unassigned")
@@ -428,6 +494,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             user=self.user,
         )
 
+        assigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableAssignedFilter()]))
         unassigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableUnassignedFilter()]))
         account_response = self._run(
             AccountsTableQuery(
@@ -436,6 +503,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
         )
 
+        assert [row.id for row in assigned_response.results] == [str(assigned_account.id)]
         assert [row.id for row in unassigned_response.results] == [str(unassigned_account.id)]
         assert [row.id for row in account_response.results] == [str(assigned_account.id)]
 

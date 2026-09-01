@@ -6,7 +6,12 @@
  * Flattening the routes took the prefix away, so the paths are listed here
  * instead — a flag-off user restoring one has to be sent somewhere they can use.
  */
-const BLUEBIRD_ONLY_ROOTS = ["/spaces", "/activity", "/feeds"] as const;
+const BLUEBIRD_ONLY_ROOTS = [
+  "/spaces",
+  "/activity",
+  "/feeds",
+  "/canvases",
+] as const;
 
 export function isBluebirdOnlyPath(pathname: string): boolean {
   return BLUEBIRD_ONLY_ROOTS.some(

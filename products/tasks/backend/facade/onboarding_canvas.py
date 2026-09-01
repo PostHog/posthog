@@ -23,8 +23,10 @@ class TeachingCanvas:
     canvas_id: UUID
 
 
-def ensure_teaching_canvas(team_id: int, channel_id: UUID, user: User) -> TeachingCanvas | None:
-    canvas_id = seed_teaching_canvas(team_id=team_id, channel_id=channel_id, user=user)
+def ensure_teaching_canvas(
+    team_id: int, channel_id: UUID, user: User, *, refresh: bool = False
+) -> TeachingCanvas | None:
+    canvas_id = seed_teaching_canvas(team_id=team_id, channel_id=channel_id, user=user, refresh=refresh)
     if canvas_id is None:
         return None
     return TeachingCanvas(channel_id=channel_id, canvas_id=canvas_id)

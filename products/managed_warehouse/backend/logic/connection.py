@@ -50,7 +50,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceCreatedVia,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -108,9 +114,11 @@ class _LifecycleSnapshot:
 
 
 def _lifecycle_snapshot(organization_id: str | UUID, *, lock: bool = False) -> _LifecycleSnapshot:
+    # The organization existence check is deliberately a plain read: FOR UPDATE on a
+    # posthog_organization row conflicts with the FK KEY SHARE every org-scoped INSERT
+    # takes, so locking it from these sweeps dams unrelated writers org-wide. The
+    # lifecycle row below is the serialization fence.
     organization_queryset = Organization.objects.only("id")
-    if lock:
-        organization_queryset = organization_queryset.select_for_update()
     if not organization_queryset.filter(id=organization_id).exists():
         return _LifecycleSnapshot(organization_exists=False, desired_active=False, generation=None)
     lifecycle_queryset = ManagedWarehouseSourceLifecycle.objects.filter(organization_id=organization_id)
@@ -150,7 +158,7 @@ def _dynamic_source_metadata(*, lifecycle_generation: int) -> dict[str, object]:
 
 
 def _set_dynamic_source_auth(source: ExternalDataSource, *, lifecycle_generation: int) -> ExternalDataSource:
-    source.access_method = ExternalDataSource.AccessMethod.DIRECT
+    source.access_method = ExternalDataSourceAccessMethod.DIRECT
     source.direct_query_enabled = True
     source.connection_metadata = _dynamic_source_metadata(lifecycle_generation=lifecycle_generation)
     source.job_inputs = {}
@@ -260,25 +268,30 @@ def _ensure_managed_source_locked(
         connection_id=str(uuid4()),
         destination_id=str(uuid4()),
         team_id=team_id,
-        status=ExternalDataSource.Status.RUNNING,
+        status=ExternalDataSourceStatus.RUNNING,
         source_type=ExternalDataSourceType.POSTGRES,
         job_inputs={},
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
-        access_method=ExternalDataSource.AccessMethod.DIRECT,
-        created_via=ExternalDataSource.CreatedVia.WEB,
+        access_method=ExternalDataSourceAccessMethod.DIRECT,
+        created_via=ExternalDataSourceCreatedVia.WEB,
         direct_query_enabled=True,
         connection_metadata=_dynamic_source_metadata(lifecycle_generation=lifecycle_generation),
     )
 
 
 def _locked_source_lifecycle(organization_id: str | UUID) -> ManagedWarehouseSourceLifecycle:
-    # The organization row serializes first-time lifecycle-row creation as well as all
-    # later generation reads/writes. This avoids relying on DuckgresServer for lifecycle
-    # coordination and gives every team in an organization one common fence.
-    organization = Organization.objects.select_for_update().only("id").get(id=organization_id)
-    lifecycle, _created = ManagedWarehouseSourceLifecycle.objects.get_or_create(organization=organization)
-    return lifecycle
+    # The lifecycle row itself is the common fence for every team in the organization:
+    # a quiet per-org singleton (OneToOne), so locking it serializes generation
+    # reads/writes without touching the hot posthog_organization row (whose FOR UPDATE
+    # would conflict with the FK KEY SHARE every org-scoped INSERT takes). First-time
+    # creation is race-safe via the OneToOne unique constraint; a freshly inserted row
+    # is already exclusively owned by this transaction.
+    organization = Organization.objects.only("id").get(id=organization_id)
+    lifecycle, created = ManagedWarehouseSourceLifecycle.objects.get_or_create(organization=organization)
+    if created:
+        return lifecycle
+    return ManagedWarehouseSourceLifecycle.objects.select_for_update().get(pk=lifecycle.pk)
 
 
 def get_active_managed_warehouse_source_generation(*, organization_id: str | UUID) -> int | None:
@@ -313,10 +326,10 @@ def deactivate_managed_warehouse_source_lifecycle(
 ) -> int | None:
     """Mark the lifecycle inactive once and return the cleanup operation generation."""
     with transaction.atomic():
-        organization = Organization.objects.select_for_update().only("id").filter(id=organization_id).first()
-        if organization is None:
+        try:
+            lifecycle = _locked_source_lifecycle(organization_id)
+        except Organization.DoesNotExist:
             return None
-        lifecycle, _created = ManagedWarehouseSourceLifecycle.objects.get_or_create(organization=organization)
         if lifecycle.generation != expected_generation:
             return None
         if lifecycle.desired_active:
@@ -339,7 +352,11 @@ def ensure_managed_warehouse_direct_source(
         lifecycle = _locked_source_lifecycle(organization_id)
         if not lifecycle.desired_active or lifecycle.generation != expected_generation:
             return None
-        Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
+        # Deliberately NOT select_for_update: FOR UPDATE on a posthog_team row blocks the
+        # FK KEY SHARE lock every team-scoped INSERT takes, so a long hold here stalls all
+        # writers for the team. The lifecycle row lock above is the serialization anchor;
+        # a plain existence check is all the team row provides here.
+        Team.objects.only("id").get(id=team_id, organization_id=organization_id)
         return _ensure_managed_source_locked(
             team_id=team_id,
             convert_active_legacy=lifecycle.legacy_conversion_generation == expected_generation,
@@ -352,7 +369,9 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
     if not lifecycle_snapshot.desired_active:
         return
     with transaction.atomic():
-        team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
+        # Plain read on purpose — see ensure_managed_warehouse_direct_source for why the
+        # team row must never be locked from these periodic sweeps.
+        team = Team.objects.only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
 
@@ -400,7 +419,10 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
     with transaction.atomic():
         if _lifecycle_snapshot(organization_id, lock=True) != lifecycle_snapshot:
             return
-        team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
+        # Plain read on purpose — this atomic block runs get_or_create loops and
+        # reconcile_postgres_schemas and can hold its locks for minutes; taking the team
+        # row here would stall every writer for the team the whole time.
+        team = Team.objects.only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
         source = (
@@ -409,7 +431,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
             .filter(
                 id=source_id,
                 deleted=False,
-                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                access_method=ExternalDataSourceAccessMethod.DIRECT,
                 direct_query_enabled=True,
             )
             .first()
@@ -498,10 +520,12 @@ def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expect
     now = timezone.now()
     cleanup_error: Exception | None = None
     with transaction.atomic():
-        organization = Organization.objects.select_for_update().only("id").filter(id=organization_id).first()
-        if organization is None:
+        # Fence on the lifecycle row, not the hot organization row (see _locked_source_lifecycle).
+        if not Organization.objects.only("id").filter(id=organization_id).exists():
             return
-        lifecycle = ManagedWarehouseSourceLifecycle.objects.filter(organization=organization).first()
+        lifecycle = (
+            ManagedWarehouseSourceLifecycle.objects.select_for_update().filter(organization_id=organization_id).first()
+        )
         if lifecycle is None or lifecycle.desired_active or lifecycle.generation != expected_generation:
             return
 
@@ -524,10 +548,13 @@ def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expect
 def soft_delete_legacy_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
     now = timezone.now()
     with transaction.atomic():
-        organization = Organization.objects.select_for_update().only("id").filter(id=organization_id).first()
-        if organization is None:
+        # Fence on the lifecycle row when present; the legacy fallback below serializes on
+        # the source rows it tombstones. Never the hot organization row.
+        if not Organization.objects.only("id").filter(id=organization_id).exists():
             return
-        lifecycle = ManagedWarehouseSourceLifecycle.objects.filter(organization=organization).first()
+        lifecycle = (
+            ManagedWarehouseSourceLifecycle.objects.select_for_update().filter(organization_id=organization_id).first()
+        )
         if lifecycle is not None:
             _soft_delete_sources_for_inactive_generation_locked(
                 organization_id=organization_id,

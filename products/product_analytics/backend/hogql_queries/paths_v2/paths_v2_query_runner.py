@@ -27,15 +27,17 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.utils import CONVERSION_WINDOW_INTERVAL_BOUNDS, conversion_window_to_seconds
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.validation.validation import QueryValidationContext, QueryValidationRule
 
+from products.product_analytics.backend.hogql_queries.funnels.utils import (
+    CONVERSION_WINDOW_INTERVAL_BOUNDS,
+    conversion_window_to_seconds,
+)
 from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
     DEFAULT_COLLAPSE_REPEATS,
     DEFAULT_CONVERSION_WINDOW_INTERVAL,
@@ -901,6 +903,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             query=query,
             team=self.team,
             user=self.user,
+            context=self.build_hogql_context(),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -912,8 +915,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
 
     def _calculate(self) -> PathsV2QueryResponse:
         query = self.to_query()
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = self._execute(query)
         assert response.results is not None

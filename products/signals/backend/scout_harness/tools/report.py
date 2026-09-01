@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from posthog.api.capture import capture_internal
 from posthog.event_usage import groups
+from posthog.git import extract_linked_repo
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -63,6 +64,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
+    INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
@@ -74,6 +76,7 @@ from products.signals.backend.scout_report import (
     record_scout_run_task_artefact,
     set_report_charts,
     set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -502,8 +505,73 @@ def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidenc
     return "\n".join(lines)
 
 
+def _connected_repositories(team_id: int) -> list[str]:
+    """The repos the team's own GitHub installation can reach, or an empty list when it has none.
+
+    Reads the cache as-is and never starts the selection sandbox, which is what keeps the gate-skipped
+    path the cheap one."""
+    from products.tasks.backend.facade.repo_selection import (
+        list_team_connected_repositories,  # noqa: PLC0415 — break worker-boot import cycle
+    )
+
+    return list_team_connected_repositories(team_id)
+
+
+def _extract_linked_repository(
+    title: str, summary: str, evidence: list[ReportEvidence], connected_repos: list[str]
+) -> str | None:
+    """Find the single connected GitHub repository linked in the report content, or None.
+
+    Report content quotes ingested project data, so a link in it is untrusted: matching against the
+    team's connected repos is what stops a linked upstream or attacker-placed repo from becoming a
+    target. Ambiguity resolves to nothing too — a report linking two connected repos names no single
+    one, and guessing between them would seed a wrong target for a later Create PR run."""
+    return extract_linked_repo("\n".join([title, summary, *(e.description for e in evidence)]), connected_repos)
+
+
+def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: ArtefactAttribution) -> None:
+    """Re-derive an inferred `repo_selection` from a report's rewritten title and summary.
+
+    An inferred target is a reading of the report's text, so a rewrite that moves the report onto a
+    different repository leaves it pointing somewhere the report no longer describes. Only a selection
+    this same inference wrote is re-derived; one the scout named or the selection agent chose is a
+    decision, not a reading, and a content edit does not overturn it.
+
+    New content that links nothing keeps the existing target. A repository the reader can override at
+    Create PR time costs less than clearing it, since a cleared selection reads as the scout's
+    deliberate no-repo and suppresses the cascade that would otherwise still find a target.
+    """
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection,  # noqa: PLC0415 — keeps the sandbox stack off this module's import path
+    )
+
+    selection = persisted_repo_selection(report_id)
+    if selection is None or selection.autostart_eligible or selection.repository is None:
+        return
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
+    if report is None:
+        return
+    linked = extract_linked_repo(
+        "\n".join([report["title"] or "", report["summary"] or ""]), _connected_repositories(team_id)
+    )
+    if linked is None or linked == selection.repository:
+        return
+    set_scout_report_inferred_repository(
+        team_id=team_id,
+        report_id=report_id,
+        repository=linked,
+        attribution=attribution,
+    )
+
+
 async def _resolve_report_repository(
-    *, team_id: int, repository: str | None, title: str, summary: str, evidence: list[ReportEvidence]
+    *,
+    team_id: int,
+    repository: str | None,
+    title: str,
+    summary: str,
+    evidence: list[ReportEvidence],
+    wants_full_selection: bool,
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
@@ -512,12 +580,30 @@ async def _resolve_report_repository(
     free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
     scout that knows its repo should pass it explicitly (see the report contract). The cheap
     `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
-    so by here an explicit repo is already well-formed; only the free-form path remains."""
+    so by here an explicit repo is already well-formed; only the free-form path remains.
+
+    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
+    surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
+    the report content for one linked connected repository instead — a cheap deterministic match that
+    seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
+    selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
+    one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
     if repository is not None:
         return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+
+    if not wants_full_selection:
+        connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
+        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
+        if linked is None:
+            return None
+        return RepoSelectionResult(
+            repository=linked,
+            reason=INFERRED_REPOSITORY_REASON,
+            autostart_eligible=False,
+        )
 
     # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
     # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
@@ -1031,9 +1117,14 @@ async def emit_report(
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         await _resolve_report_repository(
-            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+            team_id=team.id,
+            repository=repository,
+            title=title,
+            summary=summary,
+            evidence=evidence,
+            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
         )
-        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        if surfaced
         else None
     )
     persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
@@ -1155,9 +1246,14 @@ def emit_report_sync(
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         async_to_sync(_resolve_report_repository)(
-            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+            team_id=team.id,
+            repository=repository,
+            title=title,
+            summary=summary,
+            evidence=evidence,
+            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
         )
-        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        if surfaced
         else None
     )
     persisted = create_scout_report(
@@ -1253,7 +1349,6 @@ def _do_edit_report(
                 title=title,
                 summary=summary,
                 attribution=attribution,
-                author=run.skill_name,
             )
         # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
         # fix — a report authored without a reviewer (so it routes to no one) can have one added after
@@ -1295,6 +1390,15 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+    # A rewrite can move the report onto a different repository, and an inferred target is only ever a
+    # reading of that text. Outside the transaction above for the same reason autostart is: it reads
+    # the team's GitHub repo cache, which has no business holding the content write open.
+    #
+    # Ordered before autostart, because one edit can both rewrite the content and add a qualifying
+    # reviewer. Autostart reads the selection as it stands and is idempotent, so running it first
+    # would open the task against the repository the rewrite just replaced, with no second chance.
+    if updated_fields:
+        _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
@@ -1357,15 +1461,16 @@ def _do_edit_report(
             updated_fields or note_appended or reviewers_set or charts_set is not None
         )
         if report_status is not None and _surfaced(report_status) and not prompts_only:
-            # A note-only edit leaves the title and summary the Slack report message shows
+            # A note-only edit leaves the title, summary and charts the Slack report message shows
             # unchanged, so re-posting it would duplicate the message already in the channel.
             # Deliver the note itself instead; any edit that rewrote the content re-posts the
             # report as before.
+            note_only = note_appended and not updated_fields and not charts_changed
             queue_configured_scout_slack_delivery(
                 run_id=run.id,
                 output_type="report",
                 output_id=report_id,
-                edit_note=append_note if note_appended and not updated_fields else None,
+                edit_note=append_note if note_only else None,
             )
     return result
 

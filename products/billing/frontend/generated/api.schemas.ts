@@ -43,9 +43,7 @@ export interface BillingOverviewResponseApi {
     startup_program_label?: string | null
     /** @nullable */
     startup_program_label_previous?: string | null
-    /** @nullable */
     stripe_portal_url?: string | null
-    /** @nullable */
     external_billing_provider_invoices_url?: string | null
     /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
     products?: BillingOverviewResponseApiProductsItem[]
@@ -205,8 +203,8 @@ export interface BillingAlertDestinationCreateDataApi {
 
 export interface BillingAlertDestinationChangesApi {
     /**
-     * @items.minItems 4
-     * @items.maxItems 4
+     * @items.minItems 1
+     * @items.maxItems 100
      */
     delete?: string[][]
     create?: BillingAlertDestinationCreateDataApi[]
@@ -632,8 +630,8 @@ export interface BillingAlertDestinationResponseApi {
 export interface BillingAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 4
-     * @maxItems 4
+     * @minItems 1
+     * @maxItems 100
      */
     hog_function_ids: string[]
 }

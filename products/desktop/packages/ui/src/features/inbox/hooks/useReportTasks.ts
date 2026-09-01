@@ -131,7 +131,7 @@ export function getTaskPrUrl(task: Task): string | null {
  * the current signal; runs merged before it existed carry only the legacy
  * `pr_merged` flag (see feedQuery), so honor both.
  */
-export function isTaskPrMerged(task: Task): boolean {
+function isTaskPrMerged(task: Task): boolean {
   const output = task.latest_run?.output;
   if (!output) return false;
   return output.pr_state === "merged" || output.pr_merged === true;
@@ -183,4 +183,14 @@ export function findLatestDiscussionTask(
   return discussions.reduce((latest, t) =>
     t.startedAt > latest.startedAt ? t : latest,
   ).task;
+}
+
+export function findPendingStartedTaskId(
+  reportTasks: ReportTaskData[] | undefined,
+  startedTaskId: string | null,
+): string | null {
+  if (!startedTaskId) return null;
+  return reportTasks?.some(({ task }) => task.id === startedTaskId)
+    ? null
+    : startedTaskId;
 }

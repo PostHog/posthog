@@ -10,6 +10,37 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("setUserSpendLimit", () => {
+    // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
+    // unwrapped for the settings toast rather than the raw fetcher string.
+    it("surfaces the endpoint detail when the gateway rejects the limit", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ detail: "Limit must be above current spend." }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const error = await client
+        .setUserSpendLimit(10, 30 * 24 * 60 * 60)
+        .catch((e: unknown) => e);
+      // The exact clean detail, not the raw `Failed request: [400] {...}`.
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "Limit must be above current spend.",
+      );
+    });
+  });
+
   describe("getInsightDefinition", () => {
     it("loads the saved insight with a blocking refresh and returns its result", async () => {
       const fetch = vi.fn().mockResolvedValue(
@@ -83,6 +114,143 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getEvidencePreview", () => {
+    it("builds experiment presentation data from metric and exposure query responses", async () => {
+      const metricResponse = {
+        kind: "ExperimentQuery",
+        baseline: {
+          key: "control",
+          number_of_samples: 100,
+          sum: 10,
+          sum_squares: 10,
+        },
+        variant_results: [
+          {
+            key: "test",
+            method: "frequentist",
+            number_of_samples: 100,
+            sum: 12,
+            sum_squares: 12,
+            p_value: 0.04,
+            significant: true,
+            confidence_interval: [0.01, 0.39],
+          },
+        ],
+        significance_code: "significant",
+        is_cached: true,
+        last_refresh: new Date().toISOString(),
+      };
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              id: 1234,
+              name: "Checkout prompt",
+              feature_flag_key: "checkout-prompt",
+              feature_flag: { id: 3, key: "checkout-prompt" },
+              start_date: "2026-01-01T00:00:00Z",
+              metrics: [
+                {
+                  kind: "ExperimentMetric",
+                  uuid: "primary-1",
+                  name: "Checkout conversion",
+                  metric_type: "funnel",
+                },
+              ],
+              metrics_secondary: [
+                {
+                  kind: "ExperimentMetric",
+                  uuid: "secondary-1",
+                  name: "Orders per user",
+                  metric_type: "mean",
+                },
+              ],
+              saved_metrics: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              kind: "ExperimentExposureQuery",
+              timeseries: [
+                {
+                  variant: "control",
+                  days: ["2026-01-01", "2026-01-02"],
+                  exposure_counts: [45, 60],
+                },
+                {
+                  variant: "test",
+                  days: ["2026-01-01", "2026-01-02"],
+                  exposure_counts: [43, 60],
+                },
+              ],
+              total_exposures: { control: 105, test: 103 },
+              date_range: { date_from: "2026-01-01", date_to: null },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(metricResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(metricResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const preview = await client.getEvidencePreview("experiment", "1234");
+
+      expect(preview).toMatchObject({
+        chart: {
+          title: "Daily exposures by variant",
+          labels: ["2026-01-01", "2026-01-02"],
+          series: [
+            { label: "control", data: [45, 60] },
+            { label: "test", data: [43, 60] },
+          ],
+          render: "bar",
+        },
+      });
+      expect(preview?.experimentResults).toMatchObject({
+        state: "ready",
+        primaryMetrics: [
+          {
+            name: "Checkout conversion",
+            variants: [
+              expect.objectContaining({ key: "control" }),
+              expect.objectContaining({ key: "test", uplift: "+20.0%" }),
+            ],
+          },
+        ],
+        secondaryMetrics: [{ name: "Orders per user" }],
+      });
+      const queryBodies = fetch.mock.calls
+        .slice(1)
+        .map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+      expect(queryBodies.map((body) => body.query.kind)).toEqual([
+        "ExperimentExposureQuery",
+        "ExperimentQuery",
+        "ExperimentQuery",
+      ]);
+      expect(queryBodies.every((body) => body.refresh === undefined)).toBe(
+        true,
+      );
+    });
+
     it("retrieves a person by UUID instead of taking the first search result", async () => {
       const fetch = vi.fn().mockResolvedValue(
         new Response(
@@ -1548,6 +1716,41 @@ describe("PostHogAPIClient", () => {
       await expect(
         client.warmTask({ repository: null, github_integration: null }),
       ).rejects.toBe(error);
+    });
+  });
+
+  describe("getSignalReports", () => {
+    it("sends report filters to the reports endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 3, results: [] }),
+      });
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+
+      await expect(
+        client.getSignalReports({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+        }),
+      ).resolves.toEqual({ count: 3, results: [] });
+
+      const request = fetch.mock.calls[0]?.[0] as { url: URL };
+      expect(request.url.toString()).toBe(
+        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
+      );
     });
   });
 

@@ -46,6 +46,15 @@ class TestDataQualityModels(BaseTest):
         )
         assert table_subject.pk is not None
 
+    def test_a_deleted_check_frees_its_definition_for_a_new_one(self) -> None:
+        # Authoring a definition that was deleted earlier is a new check with its own id and
+        # history, not a resurrection of the row the user believes is gone.
+        deleted = self._create_check(deleted=True)
+
+        replacement = self._create_check()
+
+        assert replacement.pk != deleted.pk
+
     def test_orphaned_checks_escape_fingerprint_uniqueness(self) -> None:
         # SET_NULL orphaning must never be blocked by the constraint, even for twin fingerprints.
         self._create_check(saved_query_id=None)

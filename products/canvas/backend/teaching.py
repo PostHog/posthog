@@ -508,7 +508,7 @@ def _lock_teaching_seed(team_id: int, channel_id: UUID) -> None:
         )
 
 
-def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User) -> UUID | None:
+def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User, refresh: bool = False) -> UUID | None:
     """Get or seed the team's teaching-tour canvas in its general space.
 
     Returns ``None`` when a previously seeded tour was deleted: someone removed it
@@ -516,6 +516,10 @@ def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User) -> UUID 
     first publish failed gets its publish retried, so a transient storage outage
     heals on the next sign-in. Raises on failure; callers treat seeding as
     best-effort.
+
+    ``refresh`` is for the onboarding test tools, which reseed the same space over
+    and over: it revives a deleted tour and republishes the current source, so
+    deleting the canvas is how a tester resets it rather than how they lose it.
     """
     with transaction.atomic():
         _lock_teaching_seed(team_id, channel_id)
@@ -526,9 +530,13 @@ def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User) -> UUID 
             .first()
         )
         if existing is not None:
-            if existing.deleted:
+            if existing.deleted and not refresh:
                 return None
-            if existing.current_source_version_id is None:
+            if existing.deleted:
+                existing.deleted = False
+                existing.pinned_at = timezone.now()
+                existing.save(update_fields=["deleted", "pinned_at"])
+            if refresh or existing.current_source_version_id is None:
                 _publish_tour(existing, user)
             return existing.id
         canvas = Canvas.objects.create(

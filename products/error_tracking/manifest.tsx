@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             name: 'Error tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
+            docsHref: 'https://posthog.com/docs/error-tracking',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -56,6 +57,13 @@ export const manifest: ProductManifest = {
             configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
         '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
             configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    },
+    // Boot-time approximation of errorTrackingSetupLogic: a $exception definition
+    // existing means issues exist. The in-scene check stays the source of truth
+    // (it also reads the autocapture opt-in for the waiting state).
+    setupProbe: {
+        productKey: ProductKey.ERROR_TRACKING,
+        hasDataEvents: ['$exception'],
     },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,

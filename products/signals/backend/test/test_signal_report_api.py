@@ -11,6 +11,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -30,11 +31,12 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.artefact_schemas import ChannelAssignment
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
@@ -46,6 +48,8 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     record_report_task,
 )
+from products.signals.backend.views import classify_report_list_client
+from products.tasks.backend.facade.api import Channel
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -66,6 +70,18 @@ def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
     token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+
+class TestReportListClientClassification(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("desktop", "posthog/desktop.hog.dev; version: 0.61.84", "desktop"),
+            ("web", "Mozilla/5.0 AppleWebKit/537.36 Chrome/140.0.0.0", "web"),
+            ("other", "PostmanRuntime/7.45.0", "other"),
+        ]
+    )
+    def test_classifies_user_agent(self, _name: str, user_agent: str, expected: str) -> None:
+        assert classify_report_list_client(user_agent) == expected
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -176,6 +192,14 @@ class TestSignalReportListAPI(APIBaseTest):
             art.save()
         return art
 
+    def _assign_channel(self, report: SignalReport, channel: Channel | None) -> SignalReportArtefact:
+        return SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ChannelAssignment(channel_id=channel.id if channel else None),
+            attribution=ArtefactAttribution.system(),
+        )
+
     def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
         payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
         art = SignalReportArtefact(
@@ -256,6 +280,59 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
+
+    @parameterized.expand([("unassigned", False), ("assigned", True)])
+    def test_retrieve_includes_channel_id(self, _name, assign):
+        channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
+        report = self._create_report()
+        if channel:
+            self._assign_channel(report, channel)
+
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] == (str(channel.id) if channel else None)
+
+    def test_filter_by_channel_id_narrows_to_that_space(self):
+        channel = Channel.objects.create(team=self.team, name="Reports")
+        in_space = self._create_report(title="In space")
+        self._assign_channel(in_space, channel)
+        self._create_report(title="Unassigned")
+
+        response = self.client.get(self._list_url(channel_id=str(channel.id)))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {row["id"] for row in response.json()["results"]}
+        assert ids == {str(in_space.id)}
+
+    def test_latest_channel_assignment_wins(self):
+        first_channel = Channel.objects.create(team=self.team, name="First")
+        second_channel = Channel.objects.create(team=self.team, name="Second")
+        report = self._create_report()
+        self._assign_channel(report, first_channel)
+        self._assign_channel(report, second_channel)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] == str(second_channel.id)
+
+        first_response = self.client.get(self._list_url(channel_id=str(first_channel.id)))
+        assert first_response.status_code == status.HTTP_200_OK
+        assert all(row["id"] != str(report.id) for row in first_response.json()["results"])
+
+    def test_soft_deleted_channel_is_returned_as_unassigned(self):
+        channel = Channel.objects.create(team=self.team, name="Reports")
+        report = self._create_report()
+        self._assign_channel(report, channel)
+        channel.deleted = True
+        channel.save(update_fields=["deleted"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] is None
+
+    def test_filter_by_channel_id_rejects_non_uuid(self):
+        response = self.client.get(self._list_url(channel_id="not-a-uuid"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     # --- priority filter ---
 
@@ -917,6 +994,25 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["count"] == 3
         assert len(body["results"]) == 1
 
+    def test_filter_has_implementation_pr_count_only_skips_report_enrichment(self):
+        for i in range(3):
+            report = self._create_report(title=f"PR report {i}")
+            self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+        self._create_report(title="No PR report")
+
+        with (
+            patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products,
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_state_for_reports"
+            ) as fetch_implementation_prs,
+        ):
+            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"count": 3, "next": None, "previous": None, "results": []}
+        fetch_source_products.assert_not_called()
+        fetch_implementation_prs.assert_not_called()
+
     def test_filter_has_implementation_pr_empty_value_is_noop(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
@@ -1487,6 +1583,12 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("resolve_with_reason", {"state": "resolved", "dismissal_reason": "already_fixed"}, "already_fixed"),
+            (
+                "resolve_fixed_outside_posthog",
+                {"state": "resolved", "dismissal_reason": "fixed_outside_posthog"},
+                "fixed_outside_posthog",
+            ),
+            ("resolve_pr_merged", {"state": "resolved", "dismissal_reason": "pr_merged"}, "pr_merged"),
             # A resolve carrying no feedback must not pick a reason up from anywhere.
             ("resolve_without_reason", {"state": "resolved"}, None),
         ]
@@ -1509,6 +1611,20 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert label["properties"]["status"] == SignalReport.Status.RESOLVED
         assert label["properties"]["dismissal_reason"] == expected_reason
+
+    def test_resolve_via_state_api_closes_the_open_implementation_pr(self):
+        # The inbox PR is superseded by a fix that landed elsewhere, so the receiver must close it
+        # with the resolve-specific comment rather than leave it open.
+        report = self._create_report()
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._state_url(str(report.id)),
+                    data=json.dumps({"state": "resolved", "dismissal_reason": "fixed_outside_posthog"}),
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, reason="resolved")
 
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()
@@ -1578,9 +1694,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_snooze_for_delays_repromotion(self):
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT),
+            ("failed", SignalReport.Status.FAILED),
+        ]
+    )
+    def test_snooze_for_delays_repromotion(self, _name, initial_status):
         report = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5
+            team=self.team, status=initial_status, title="t", summary="s", signal_count=5
         )
         response = self.client.post(
             self._state_url(str(report.id)),

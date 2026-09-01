@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { ProxyRecord, proxyLogic } from './proxyLogic'
+import { ProxyRecord, canConfigureRootRedirect, proxyLogic } from './proxyLogic'
 
 const MOCK_IMPERSONATED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
@@ -21,6 +21,12 @@ const mockProxyRecord = (overrides: Partial<ProxyRecord> = {}): ProxyRecord => (
     domain: 't.example.com',
     status: 'valid',
     target_cname: 'proxy.posthog.com',
+    root_redirect_url: null,
+    root_redirect_supported: true,
+    message: null,
+    created_at: '2026-08-24T00:00:00Z',
+    updated_at: '2026-08-24T00:00:00Z',
+    created_by: 1,
     ...overrides,
 })
 
@@ -132,5 +138,44 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
             cloudflareOptInAcknowledged: true,
             shouldShowCloudflareOptIn: false,
         })
+    })
+})
+
+describe('proxyLogic — root redirect', () => {
+    it.each<[string, boolean, ProxyRecord, boolean]>([
+        ['supported valid proxy', true, mockProxyRecord(), true],
+        ['supported warning proxy', true, mockProxyRecord({ status: 'warning' }), true],
+        ['legacy proxy', true, mockProxyRecord({ root_redirect_supported: false }), false],
+        ['disabled feature', false, mockProxyRecord(), false],
+        ['proxy that is not ready', true, mockProxyRecord({ status: 'waiting' }), false],
+    ])('allows configuration for a %s when expected', (_name, featureEnabled, record, expected) => {
+        expect(canConfigureRootRedirect(record, featureEnabled)).toBe(expected)
+    })
+
+    it('updates the record from the PATCH response', async () => {
+        const record = mockProxyRecord()
+        const updatedRecord = mockProxyRecord({ root_redirect_url: 'https://www.example.com/' })
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+            },
+            patch: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: updatedRecord,
+            },
+        })
+        initKeaTests()
+        organizationLogic.mount()
+
+        const logic = proxyLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.updateRootRedirect({ id: record.id, rootRedirectUrl: 'https://www.example.com/' })
+        })
+            .toDispatchActions(['updateRootRedirectSuccess'])
+            .toMatchValues({ proxyRecords: [updatedRecord] })
+
+        logic.unmount()
     })
 })

@@ -215,6 +215,85 @@ export interface _ErrorResponseApi {
     detail: string
 }
 
+/**
+ * * `sessions` - sessions
+ * * `tool_calls` - tool_calls
+ * * `user_identity` - user_identity
+ * * `trace_structure` - trace_structure
+ */
+export type AIObservabilityInstrumentationCheckEnumApi =
+    (typeof AIObservabilityInstrumentationCheckEnumApi)[keyof typeof AIObservabilityInstrumentationCheckEnumApi]
+
+export const AIObservabilityInstrumentationCheckEnumApi = {
+    Sessions: 'sessions',
+    ToolCalls: 'tool_calls',
+    UserIdentity: 'user_identity',
+    TraceStructure: 'trace_structure',
+} as const
+
+/**
+ * * `ok` - ok
+ * * `warning` - warning
+ * * `pending` - pending
+ * * `dismissed` - dismissed
+ */
+export type InstrumentationCheckStatusEnumApi =
+    (typeof InstrumentationCheckStatusEnumApi)[keyof typeof InstrumentationCheckStatusEnumApi]
+
+export const InstrumentationCheckStatusEnumApi = {
+    Ok: 'ok',
+    Warning: 'warning',
+    Pending: 'pending',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+ */
+export type InstrumentationCheckApiStats = { [key: string]: number }
+
+export interface InstrumentationCheckApi {
+    /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    key: AIObservabilityInstrumentationCheckEnumApi
+    /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+     *
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed */
+    status: InstrumentationCheckStatusEnumApi
+    /** Short label for the check, the same for every status. */
+    title: string
+    /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+    detail: string
+    /** Documentation page covering how to send the missing instrumentation. */
+    docs_url: string
+    /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+    stats: InstrumentationCheckApiStats
+}
+
+export interface InstrumentationChecklistApi {
+    /** Length in days of the event window the checks were graded over. */
+    window_days: number
+    /** Every check, graded. Checks are always all returned, including the ones that pass. */
+    checks: InstrumentationCheckApi[]
+}
+
+export interface InstrumentationCheckActionApi {
+    /** Key of the check to dismiss or restore.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    check: AIObservabilityInstrumentationCheckEnumApi
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**

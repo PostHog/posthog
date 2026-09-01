@@ -37,16 +37,9 @@ export function deriveSessionViewState(
   const isCloudRunNotTerminal = effectiveIsCloud && !isCloudRunTerminal;
 
   const hasError = session?.status === "error" && !session?.idleKilled;
-  const handoffInProgress = session?.handoffInProgress ?? false;
-
-  let isRunning = false;
-  if (!handoffInProgress) {
-    if (effectiveIsCloud) {
-      isRunning = !hasError;
-    } else {
-      isRunning = session?.status === "connected";
-    }
-  }
+  const isRunning = effectiveIsCloud
+    ? !hasError
+    : session?.status === "connected";
 
   const events = session?.events ?? [];
   const isPromptPending = session?.isPromptPending ?? false;

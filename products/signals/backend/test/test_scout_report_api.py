@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 from django.apps import apps
 from django.test import SimpleTestCase
 
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -24,15 +25,19 @@ from products.signals.backend.scout_harness.tools.report import (
     EditReportResult,
     InvalidScoutReportError,
     ReportChartInput,
+    ReportEvidence,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
+    _extract_linked_repository,
     _report_classification_props,
+    _resolve_report_repository,
     _wants_repo_selection,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
+from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
@@ -41,6 +46,8 @@ AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_repor
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
+CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
+_CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
@@ -145,6 +152,21 @@ class TestScoutReportAPI(APIBaseTest):
                 data={"report_id": report_id, "summary": "Rewritten summary", "append_note": "And a note"},
                 format="json",
             )
+            charted = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "append_note": "Added a chart",
+                    "charts": [
+                        {
+                            "chart_id": "signups",
+                            "title": "Daily signups",
+                            "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+                        }
+                    ],
+                },
+                format="json",
+            )
             prompted = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": report_id, "suggested_prompts": ["Which teams are affected?"]},
@@ -154,10 +176,11 @@ class TestScoutReportAPI(APIBaseTest):
         assert emitted.status_code == status.HTTP_200_OK, emitted.json()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         assert rewritten.status_code == status.HTTP_200_OK, rewritten.json()
+        assert charted.status_code == status.HTTP_200_OK, charted.json()
         assert prompted.status_code == status.HTTP_200_OK, prompted.json()
         # The prompt-only edit delivers nothing: the questions render in the inbox and nowhere in the
         # Slack message, so posting it would repeat the report the channel already has, byte for byte.
-        assert enqueue.call_count == 3
+        assert enqueue.call_count == 4
         for call in enqueue.call_args_list:
             assert call.kwargs["team_id"] == self.team.id
             assert call.kwargs["output_type"] == "report"
@@ -169,10 +192,12 @@ class TestScoutReportAPI(APIBaseTest):
         assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
         assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
         # Only the note-only edit delivers as a note; an emit and a content rewrite post the report
-        # message, even when the rewrite also appended a note.
+        # message, even when the rewrite also appended a note. Charts are content the message shows,
+        # so a chart change with a note re-posts the report too.
         assert enqueue.call_args_list[0].kwargs["edit_note"] is None
         assert enqueue.call_args_list[1].kwargs["edit_note"] == "Re-validated on the next run"
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
+        assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
         run = _make_run(self.team)
@@ -342,6 +367,71 @@ class TestScoutReportAPI(APIBaseTest):
         return (
             SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first()
         )
+
+    @parameterized.expand(
+        [
+            ("inferred_target_follows_the_rewrite", None, "acme/gadgets"),
+            # A repo the scout named is a decision, not a reading of the prose, so a rewrite never moves it.
+            ("scout_named_target_is_not_overturned", "acme/widgets", "acme/widgets"),
+        ]
+    )
+    def test_content_rewrite_refreshes_only_an_inferred_repository(
+        self, _name: str, repository: str | None, expected: str
+    ) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
+        if repository is not None:
+            payload["repository"] = repository
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+        ):
+            created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "Actually https://github.com/acme/gadgets/pull/2"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert artefact is not None
+        assert json.loads(artefact.content)["repository"] == expected
+
+    def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(self) -> None:
+        # One edit can both move the report onto a new repository and add the reviewer that lets an
+        # inferred target autostart. Autostart reads the selection as it stands and is idempotent, so
+        # refreshing after it would open the implementation task against the repository the same edit
+        # just replaced, with no second chance to correct it.
+        run = _make_run(self.team)
+        payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+        ):
+            created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            repository_at_autostart: list[str | None] = []
+
+            async def _capture(**kwargs) -> None:
+                artefact = await sync_to_async(self._latest_artefact)(
+                    created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION
+                )
+                repository_at_autostart.append(json.loads(artefact.content)["repository"] if artefact else None)
+
+            with patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_capture)) as autostart:
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={
+                        "report_id": created["report_id"],
+                        "summary": "Actually https://github.com/acme/gadgets/pull/2",
+                        "suggested_reviewers": [{"github_login": "octocat"}],
+                    },
+                    format="json",
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        autostart.assert_awaited_once()
+        assert repository_at_autostart == ["acme/gadgets"]
 
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
@@ -1114,6 +1204,76 @@ class TestWantsRepoSelection(SimpleTestCase):
         expected: bool,
     ) -> None:
         assert _wants_repo_selection(repository, priority, reviewers) is expected
+
+
+def _evidence(*descriptions: str) -> list[ReportEvidence]:
+    return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
+
+
+class TestExtractLinkedRepository(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("root_url", "", "See https://github.com/acme/widgets for context", (), "acme/widgets"),
+            ("deep_pull_link", "", "Broke in https://github.com/acme/widgets/pull/12", (), "acme/widgets"),
+            ("case_and_git_suffix", "", "https://github.com/Acme/Widgets.git broke", (), "acme/widgets"),
+            ("trailing_period", "", "Fixed in https://github.com/acme/widgets.", (), "acme/widgets"),
+            ("clone_url_ending_a_sentence", "", "Clone https://github.com/acme/widgets.git.", (), "acme/widgets"),
+            ("from_evidence", "", "no link here", ("https://github.com/acme/widgets/blob/main/x.py",), "acme/widgets"),
+            # A report summary is markdown, so its links usually arrive labelled rather than bare.
+            ("markdown_link", "", "Broke in [PR 12](https://github.com/acme/widgets/pull/12)", (), "acme/widgets"),
+            (
+                "same_repo_twice",
+                "https://github.com/acme/widgets",
+                "and https://github.com/acme/widgets/pull/1",
+                (),
+                "acme/widgets",
+            ),
+            (
+                "two_distinct_repos",
+                "https://github.com/acme/widgets",
+                "vs https://github.com/acme/gadgets",
+                (),
+                None,
+            ),
+            ("no_link", "A plain title", "Users hit read/write errors in acme/widgets", (), None),
+            ("unconnected_upstream_repo", "", "Upstream bug: https://github.com/other/sdk/issues/3", (), None),
+            ("feature_path_not_repo", "", "Configured at https://github.com/apps/dependabot", (), None),
+        ]
+    )
+    def test_extract_linked_repository(
+        self, _name: str, title: str, summary: str, evidence_descriptions: tuple[str, ...], expected: str | None
+    ) -> None:
+        assert (
+            _extract_linked_repository(title, summary, _evidence(*evidence_descriptions), _CONNECTED_REPOS) == expected
+        )
+
+    def test_no_connected_repos_resolves_nothing(self) -> None:
+        assert _extract_linked_repository("", "https://github.com/acme/widgets", _evidence(), []) is None
+
+
+class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
+    def _resolve(self, summary: str) -> RepoSelectionResult | None:
+        with patch(
+            "products.signals.backend.scout_harness.tools.report._connected_repositories",
+            return_value=_CONNECTED_REPOS,
+        ):
+            return async_to_sync(_resolve_report_repository)(
+                team_id=1,
+                repository=None,
+                title="Crash on upload",
+                summary=summary,
+                evidence=_evidence(),
+                wants_full_selection=False,
+            )
+
+    def test_linked_repo_seeds_a_manual_only_target(self) -> None:
+        result = self._resolve("Traced to https://github.com/acme/widgets/pull/7")
+        assert result is not None
+        assert result.repository == "acme/widgets"
+        assert result.autostart_eligible is False
+
+    def test_no_linked_repo_writes_nothing(self) -> None:
+        assert self._resolve("No repository named here") is None
 
 
 class TestReportClassificationProps(SimpleTestCase):

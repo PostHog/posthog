@@ -5,13 +5,18 @@ export const marketplaceSkillRef = z.object({
   source: z.string(),
   /** Skill directory name inside the repository. */
   skillId: z.string(),
+  /**
+   * Commit SHA, tag, or branch to fetch instead of HEAD. Curated installs pin
+   * a SHA so the content someone vetted is the content that lands.
+   */
+  ref: z.string().optional(),
 });
 
 export const marketplaceSearchInput = z.object({
   query: z.string(),
 });
 
-export const marketplaceSearchResult = z.object({
+const marketplaceSearchResult = z.object({
   id: z.string(),
   skillId: z.string(),
   name: z.string(),

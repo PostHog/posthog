@@ -1,3 +1,4 @@
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -51,6 +52,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPMissingCapabilitiesQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -91,6 +93,7 @@ from posthog.schema import (
     TrendsQuery,
     UsageMetricsQuery,
     VectorSearchQuery,
+    WebAgentAnalyticsQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
@@ -103,7 +106,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
@@ -143,9 +146,10 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.query_cache import QueryCache, count_query_cache_hit
+from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
@@ -471,6 +475,7 @@ RunnableQueryNode = Union[
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
+    MCPMissingCapabilitiesQuery,
 ]
 
 
@@ -597,7 +602,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelsQuery":
-        from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
         return FunnelsQueryRunner(
             query=cast(FunnelsQuery | dict[str, Any], query),
@@ -608,7 +613,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "RetentionQuery":
-        from .insights.retention.retention_query_runner import RetentionQueryRunner
+        from products.product_analytics.backend.facade.queries import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -664,7 +669,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+        from products.product_analytics.backend.facade.queries import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
@@ -772,7 +777,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelCorrelationQuery":
-        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
 
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | dict[str, Any], query),
@@ -869,6 +874,18 @@ def get_query_runner(
 
         return WebBotsTableQueryRunner(
             query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "WebAgentAnalyticsQuery":
+        from products.web_analytics.backend.hogql_queries.web_agent_analytics import WebAgentAnalyticsQueryRunner
+
+        return WebAgentAnalyticsQueryRunner(
+            query=cast(WebAgentAnalyticsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             modifiers=modifiers,
@@ -1019,6 +1036,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "ErrorTrackingReleasesQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingReleasesQueryRunner
+
+        return ErrorTrackingReleasesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "ExperimentFunnelsQuery":
         from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import (
             ExperimentFunnelsQueryRunner,
@@ -1133,6 +1162,17 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPMissingCapabilitiesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPMissingCapabilitiesQueryRunner
+
+        return MCPMissingCapabilitiesQueryRunner(
+            query=cast(MCPMissingCapabilitiesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1394,6 +1434,20 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
+            MarketingAnalyticsRetentionQueryRunner,
+        )
+
+        return MarketingAnalyticsRetentionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
             NonIntegratedConversionsTableQueryRunner,
@@ -1635,10 +1689,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.team = team
         self.user = user
         self.timings = timings or HogQLTimings()
+        self._shared_database: Optional[Database] = None
+        self._shared_database_build_lock = threading.Lock()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -1669,9 +1726,62 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _on_user_changed(self) -> None:
         """Hook called by run() when self.user is updated after construction.
 
-        Subclasses can override to rebuild any user-dependent state (e.g. a
-        cached HogQLContext / Database that was created with a stale user)."""
-        pass
+        Drops the lazily built shared database so the next access rebuilds it for the new
+        user. Subclasses that override this to rebuild their own user-dependent state (e.g.
+        a cached HogQLContext / Database) must call super()._on_user_changed()."""
+        self._shared_database = None
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        """Access-control snapshot the shared database is built with. None here; overridden by
+        AnalyticsQueryRunner with a lazily built, per-run instance so the cache fingerprint and
+        the database resolve access from the same rows."""
+        return None
+
+    @property
+    def shared_database(self) -> Database:
+        """One Database for every query this runner executes and for the response SQL printer.
+
+        Building the database is the dominant compile cost on teams with many warehouse
+        tables, and it is identical for every query in one run. Built lazily so cache hits
+        never pay for it; dropped by _on_user_changed so access control follows the user."""
+        if not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            # Kill switch: build per access so query threads never share schema state. No timings
+            # measure here because concurrent threads reach this path and HogQLTimings is not
+            # thread-safe.
+            return Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                modifiers=self.modifiers,
+                trigger="shared_kill_switch",
+            )
+        if self._shared_database is None:
+            # Concurrent query threads (funnels compare mode) can first-touch this property at the
+            # same time. The lock makes the build run once, and keeps the measure on the single
+            # builder thread because HogQLTimings is not thread-safe.
+            with self._shared_database_build_lock:
+                if self._shared_database is None:
+                    with self.timings.measure("build_shared_database"):
+                        self._shared_database = Database.create_for(
+                            team=self.team,
+                            user=self.user,
+                            user_access_control=self.user_access_control,
+                            modifiers=self.modifiers,
+                            timings=self.timings,
+                            trigger="shared",
+                        )
+        return self._shared_database
+
+    def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
+        """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
+        return HogQLContext(team_id=self.team.pk, user=self.user, database=self.shared_database, **kwargs)
+
+    def response_hogql(self, query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        """Display-only HogQL for the response payload (never executed).
+
+        Prints against the shared database so the printer does not build a second one."""
+        return to_printed_hogql(query, self.team, database=self.shared_database)
 
     @property
     def query_type(self) -> Any:
@@ -2131,6 +2241,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
+                        ttl=retention_ttl(
+                            insight_id=insight_id,
+                            dashboard_id=dashboard_id,
+                            access_method=get_query_tag_value("access_method"),
+                        ),
                     )
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
@@ -2530,19 +2645,35 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
         }
 
-    def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
-        """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.
+    def _get_property_access_restrictions(self) -> list[dict[str, str | int | None]] | None:
+        """Returns sorted restricted property metadata for the current user, or None if unrestricted.
 
         The underlying ``get_restricted_properties_for_team`` memoizes per request,
         so rendering a dashboard with N insights issues one PropertyAccessControl
         lookup per (team, user) pair instead of N.
         """
-        from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+        from products.access_control.backend.property_access_control import (
+            get_restricted_properties_with_group_type_index_for_team,
+        )
 
-        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
+        restricted = get_restricted_properties_with_group_type_index_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
-        return sorted(restricted)
+        return [
+            {
+                "name": restriction.name,
+                "property_type": restriction.property_type,
+                "group_type_index": restriction.group_type_index,
+            }
+            for restriction in sorted(
+                restricted,
+                key=lambda restriction: (
+                    restriction.name,
+                    restriction.property_type,
+                    restriction.group_type_index if restriction.group_type_index is not None else -1,
+                ),
+            )
+        ]
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
@@ -2864,6 +2995,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
+        if (
+            self._user_access_control is not None
+            and isinstance(self.user, User)
+            and self._user_access_control.user.pk == self.user.pk
+        ):
+            return
         self._user_access_control = None
 
     @property
@@ -2993,12 +3130,13 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user)
+        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
+        super()._on_user_changed()
         self._build_hogql_context_for_user(self.user)
 
     @property

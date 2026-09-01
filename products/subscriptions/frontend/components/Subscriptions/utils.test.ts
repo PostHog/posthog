@@ -2,8 +2,10 @@ import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 
 import {
     canNudgeToSubscribe,
+    formatSubscriptionSchedule,
     getAiSubscriptionGate,
     getNextDeliveryDate,
+    getSubscriptionAdvancedSettings,
     selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
     toggleSelectedDay,
@@ -37,6 +39,31 @@ describe('day picker values', () => {
         ['removes a selected day', ['tuesday', 'wednesday'], 'tuesday', ['wednesday']],
     ] as const)('%s without replacing the other selections', (_label, selectedDays, day, expected) => {
         expect(toggleSelectedDay([...selectedDays], day)).toEqual(expected)
+    })
+})
+
+describe('formatSubscriptionSchedule', () => {
+    it('includes every selected delivery day in a weekly schedule summary', () => {
+        expect(
+            formatSubscriptionSchedule({
+                frequency: 'weekly',
+                interval: 1,
+                start_date: '2024-01-01T09:00:00Z',
+                byweekday: ['monday', 'wednesday'],
+            })
+        ).toBe('Every 1 week on Monday and Wednesday at 9:00 AM')
+    })
+})
+
+describe('getSubscriptionAdvancedSettings', () => {
+    it('lists only delivery settings that differ from the default flow', () => {
+        expect(
+            getSubscriptionAdvancedSettings({
+                summary_enabled: true,
+                summary_prompt_guide: 'Prioritize activation changes',
+                send_test_now: false,
+            })
+        ).toEqual(['Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
     })
 })
 

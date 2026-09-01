@@ -1,40 +1,39 @@
-import {
-  CloudArrowUp,
-  DownloadSimple,
-  FilePlus,
-  Folder,
-  HandTap,
-  LockSimple,
-  PencilSimple,
-  Trash,
-  Warning,
-  X,
-} from "@phosphor-icons/react";
+import { DownloadSimpleIcon, WarningIcon } from "@phosphor-icons/react";
 import type { SkillIssue } from "@posthog/core/skills/analyzeSkills";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenuCheckboxItem,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  Input,
+} from "@posthog/quill";
 import type { SkillInfo } from "@posthog/shared";
 import { stripFrontmatter } from "@posthog/shared";
 import { CodeMirrorEditor } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  AlertDialog,
-  Badge,
-  Box,
-  Button,
-  Callout,
-  Dialog,
-  Flex,
-  ScrollArea,
-  Text,
-  TextField,
-  Tooltip,
-} from "@radix-ui/themes";
 import { useState } from "react";
 import { ReplaceSkillDialog } from "./ReplaceSkillDialog";
 import { SOURCE_CONFIG } from "./SkillCard";
 import { SkillFileEditor } from "./SkillFileEditor";
 import { SkillFileTree } from "./SkillFileTree";
 import { SkillManifestEditor } from "./SkillManifestEditor";
+import { SkillChip, SkillPanelHeader } from "./SkillPanelHeader";
+import { SkillBodySkeleton } from "./SkillSkeletons";
 import { isSkillExistsError, skillErrorDescription } from "./skillErrors";
 import { useSkillContents, useSkillFile } from "./useSkillContents";
 import {
@@ -43,6 +42,7 @@ import {
   useImportCodexSkill,
   useRenameSkillFile,
   useSaveSkillFile,
+  useSaveSkillManifest,
 } from "./useSkillMutations";
 import { usePublishSkill } from "./useTeamSkillMutations";
 
@@ -80,6 +80,7 @@ export function SkillDetailPanel({
   );
 
   const saveFile = useSaveSkillFile();
+  const saveManifest = useSaveSkillManifest();
   const renameFile = useRenameSkillFile();
   const deleteFile = useDeleteSkillFile();
   const deleteSkill = useDeleteSkill();
@@ -89,6 +90,33 @@ export function SkillDetailPanel({
   const files = contents?.files ?? [];
   const isSkillMd = selectedFile === "SKILL.md";
   const body = isSkillMd && fileContent ? stripFrontmatter(fileContent) : null;
+  const isMarkdown = selectedFile.toLowerCase().endsWith(".md");
+  const preview = isSkillMd ? body : fileContent;
+  const canEditManifest = skill.editable && body !== null && !isEditing;
+
+  const writeManifest = async (fields: {
+    name?: string;
+    description?: string;
+    disableModelInvocation?: boolean;
+  }) => {
+    if (body === null) return;
+    try {
+      await saveManifest.mutateAsync({
+        skillPath: skill.path,
+        name: fields.name ?? skill.name,
+        description: fields.description ?? skill.description,
+        body,
+        disableModelInvocation:
+          fields.disableModelInvocation ??
+          skill.disableModelInvocation ??
+          false,
+      });
+    } catch (error) {
+      toast.error("Failed to save the skill", {
+        description: skillErrorDescription(error),
+      });
+    }
+  };
 
   const handleAddFile = async () => {
     const filePath = newFilePath.trim();
@@ -198,162 +226,104 @@ export function SkillDetailPanel({
   };
 
   return (
-    <>
-      <Flex
-        direction="column"
-        gap="2"
-        px="3"
-        py="2"
-        className="shrink-0 border-b border-b-(--gray-5)"
-      >
-        <Flex align="start" justify="between" gap="2">
-          <Text className="block min-w-0 break-words font-medium text-[13px]">
-            {skill.name}
-          </Text>
-          <Flex align="center" gap="1" className="shrink-0">
-            {skill.editable && !isEditing && (
-              <>
-                {canPublish && (
-                  <Tooltip content="Publish to team">
-                    <button
-                      type="button"
-                      aria-label="Publish to team"
-                      onClick={() => setPublishOpen(true)}
-                      className="rounded p-0.5 text-gray-11 hover:bg-gray-3 hover:text-gray-12"
-                    >
-                      <CloudArrowUp size={14} />
-                    </button>
-                  </Tooltip>
-                )}
-                <Tooltip content="Edit skill">
-                  <button
-                    type="button"
-                    aria-label="Edit skill"
-                    onClick={() => setIsEditing(true)}
-                    disabled={isLoading || fileContent == null}
-                    className="rounded p-0.5 text-gray-11 hover:bg-gray-3 hover:text-gray-12"
-                  >
-                    <PencilSimple size={14} />
-                  </button>
-                </Tooltip>
-                <Tooltip content="Add file">
-                  <button
-                    type="button"
-                    aria-label="Add file"
-                    onClick={() => setAddFileOpen(true)}
-                    className="rounded p-0.5 text-gray-11 hover:bg-gray-3 hover:text-gray-12"
-                  >
-                    <FilePlus size={14} />
-                  </button>
-                </Tooltip>
-                <Tooltip content="Delete skill">
-                  <button
-                    type="button"
-                    aria-label="Delete skill"
-                    onClick={() => setDeleteSkillOpen(true)}
-                    className="rounded p-0.5 text-gray-11 hover:bg-gray-3 hover:text-red-11"
-                  >
-                    <Trash size={14} />
-                  </button>
-                </Tooltip>
-              </>
-            )}
-            <Tooltip content="Close">
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={onClose}
-                className="rounded p-0.5 text-gray-11 hover:bg-gray-3 hover:text-gray-12"
-              >
-                <X size={14} />
-              </button>
-            </Tooltip>
-          </Flex>
-        </Flex>
-
-        <Flex align="center" gap="2" wrap="wrap">
-          <Badge size="1" variant="soft" color="gray">
-            {config?.label ?? skill.source}
-          </Badge>
-          {skill.repoName && (
-            <Badge size="1" variant="soft" color="gray">
-              <Folder size={10} className="text-gray-9" />
-              {skill.repoName}
-            </Badge>
-          )}
-          {!skill.editable && (
-            <Badge size="1" variant="soft" color="gray">
-              <LockSimple size={10} className="text-gray-9" />
-              Read-only
-            </Badge>
-          )}
-          {skill.disableModelInvocation && (
-            <Tooltip content="The agent won't use this skill on its own. It runs only when you invoke it">
-              <Badge size="1" variant="soft" color="gray">
-                <HandTap size={10} className="text-gray-9" />
-                Manual-only
-              </Badge>
-            </Tooltip>
-          )}
-          {skill.source === "codex" && (
+    <div className="flex h-full min-h-0 flex-col">
+      <SkillPanelHeader
+        name={skill.name}
+        description={skill.description}
+        onEdit={
+          canEditManifest ? (fields) => void writeManifest(fields) : undefined
+        }
+        saving={saveManifest.isPending}
+        onClose={onClose}
+        actions={
+          skill.source === "codex" ? (
             <Button
-              size="1"
-              variant="solid"
-              onClick={() => void handleImport(false)}
+              type="button"
+              variant="primary"
+              size="sm"
+              loading={importCodexSkill.isPending}
               disabled={importCodexSkill.isPending}
+              onClick={() => void handleImport(false)}
             >
-              <DownloadSimple size={12} />
+              <DownloadSimpleIcon size={12} />
               Import
             </Button>
-          )}
-        </Flex>
-
-        {issues.length > 0 && (
-          <Flex direction="column" gap="1">
-            {issues.map((issue) => (
-              <Callout.Root
-                key={issue.type}
-                size="1"
-                color="amber"
-                variant="surface"
+          ) : null
+        }
+        menuItems={
+          skill.editable && !isEditing ? (
+            <>
+              <DropdownMenuCheckboxItem
+                checked={skill.disableModelInvocation ?? false}
+                disabled={body === null}
+                onCheckedChange={(checked: boolean) =>
+                  void writeManifest({ disableModelInvocation: checked })
+                }
               >
-                <Callout.Icon>
-                  <Warning size={12} />
-                </Callout.Icon>
-                <Callout.Text className="text-[12px]">
-                  {issue.message}
-                </Callout.Text>
-              </Callout.Root>
-            ))}
-          </Flex>
-        )}
-      </Flex>
+                Manual invocation only
+              </DropdownMenuCheckboxItem>
+              {canPublish ? (
+                <DropdownMenuItem onClick={() => setPublishOpen(true)}>
+                  Publish to team
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setDeleteSkillOpen(true)}>
+                Delete skill
+              </DropdownMenuItem>
+            </>
+          ) : null
+        }
+        badges={
+          <>
+            <SkillChip>
+              <span
+                className={`size-1.5 rounded-full ${config?.dotClass ?? "bg-gray-9"}`}
+              />
+              {config?.label ?? skill.source}
+            </SkillChip>
+            {skill.repoName ? <SkillChip>{skill.repoName}</SkillChip> : null}
+            {skill.editable ? null : <SkillChip>Read-only</SkillChip>}
+            {skill.disableModelInvocation ? (
+              <SkillChip>Manual only</SkillChip>
+            ) : null}
+            {skill.enabled === false ? <SkillChip>Off</SkillChip> : null}
+          </>
+        }
+      />
 
-      {files.length > 1 && (
-        <Box className="max-h-[40%] shrink-0 overflow-y-auto border-b border-b-(--gray-5) py-1">
-          <SkillFileTree
-            files={files}
-            selectedPath={selectedFile}
-            onSelect={(path) => {
-              setSelectedFile(path);
-              setIsEditing(false);
-            }}
-            onRenameFile={
-              skill.editable
-                ? (path) => {
-                    setRenameFrom(path);
-                    setRenameTo(path);
-                  }
-                : undefined
-            }
-            onDeleteFile={
-              skill.editable ? (path) => setDeleteFileTarget(path) : undefined
-            }
-          />
-        </Box>
-      )}
+      <div className="max-h-[40%] shrink-0 overflow-y-auto border-gray-4 border-b">
+        <SkillFileTree
+          files={files}
+          selectedPath={selectedFile}
+          onSelect={(path) => {
+            setSelectedFile(path);
+            setIsEditing(false);
+          }}
+          onEditFile={
+            skill.editable
+              ? (path) => {
+                  setSelectedFile(path);
+                  setIsEditing(true);
+                }
+              : undefined
+          }
+          onRenameFile={
+            skill.editable
+              ? (path) => {
+                  setRenameFrom(path);
+                  setRenameTo(path);
+                }
+              : undefined
+          }
+          onDeleteFile={
+            skill.editable ? (path) => setDeleteFileTarget(path) : undefined
+          }
+          onAddFile={skill.editable ? () => setAddFileOpen(true) : undefined}
+        />
+      </div>
 
-      <Box className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         {isEditing && isSkillMd ? (
           <SkillManifestEditor
             skill={skill}
@@ -370,155 +340,147 @@ export function SkillDetailPanel({
             onCancel={() => setIsEditing(false)}
             onSaved={() => setIsEditing(false)}
           />
-        ) : isSkillMd ? (
-          <ScrollArea
-            type="auto"
-            scrollbars="vertical"
-            className="scroll-area-constrain-width h-full"
-          >
-            <Flex direction="column" gap="3" p="3">
-              {skill.description && (
-                <Text className="text-[12px] text-gray-10">
-                  {skill.description}
-                </Text>
-              )}
-
-              {isLoading ? (
-                <Text className="text-[12px] text-gray-9">Loading...</Text>
-              ) : body ? (
-                <Box className="rounded border border-gray-5 bg-gray-1 px-4 py-3 text-[13px]">
-                  <MarkdownRenderer content={body} />
-                </Box>
-              ) : (
-                <Text className="text-[12px] text-gray-9">
-                  No content in SKILL.md
-                </Text>
-              )}
-            </Flex>
-          </ScrollArea>
+        ) : isMarkdown ? (
+          <div className="flex h-full flex-col gap-2 overflow-y-auto px-3 py-2.5">
+            {issues.map((issue) => (
+              <div
+                key={issue.type}
+                className="flex items-start gap-1.5 rounded-md bg-amber-3 px-2 py-1.5 text-[12px] text-amber-11"
+              >
+                <WarningIcon size={13} className="mt-0.5 shrink-0" />
+                {issue.message}
+              </div>
+            ))}
+            {isLoading ? (
+              <SkillBodySkeleton />
+            ) : preview ? (
+              <div className="text-[13px]">
+                <MarkdownRenderer content={preview} />
+              </div>
+            ) : (
+              <p className="text-[12px] text-gray-9">{selectedFile} is empty</p>
+            )}
+          </div>
         ) : isLoading ? (
-          <Box p="3">
-            <Text className="text-[12px] text-gray-9">Loading...</Text>
-          </Box>
+          <SkillBodySkeleton />
         ) : fileContent != null ? (
           <CodeMirrorEditor
             content={fileContent}
             filePath={`${skill.path}/${selectedFile}`}
-            relativePath={selectedFile}
             readOnly
           />
         ) : (
-          <Box p="3">
-            <Text className="text-[12px] text-gray-9">
-              Unable to display this file
-            </Text>
-          </Box>
+          <p className="p-3 text-[12px] text-gray-9">
+            Unable to display this file
+          </p>
         )}
-      </Box>
+      </div>
 
-      <Dialog.Root open={addFileOpen} onOpenChange={setAddFileOpen}>
-        <Dialog.Content maxWidth="380px" size="2">
-          <Dialog.Title size="3">Add file</Dialog.Title>
-          <Dialog.Description size="1" color="gray">
-            Path relative to the skill directory
-          </Dialog.Description>
-          <Flex direction="column" gap="3" mt="3">
-            <TextField.Root
-              size="2"
+      <Dialog open={addFileOpen} onOpenChange={setAddFileOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add file</DialogTitle>
+            <DialogDescription>
+              Path relative to the skill directory
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <Input
               autoFocus
               value={newFilePath}
-              onChange={(e) => setNewFilePath(e.target.value)}
+              onChange={(event) => setNewFilePath(event.currentTarget.value)}
               placeholder="references/guide.md"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleAddFile();
+              aria-label="File path"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleAddFile();
               }}
             />
-            <Flex justify="end" gap="2">
-              <Dialog.Close>
-                <Button size="1" variant="soft" color="gray">
-                  Cancel
-                </Button>
-              </Dialog.Close>
-              <Button
-                size="1"
-                variant="solid"
-                onClick={handleAddFile}
-                disabled={saveFile.isPending || !newFilePath.trim()}
-              >
-                Add
-              </Button>
-            </Flex>
-          </Flex>
-        </Dialog.Content>
-      </Dialog.Root>
+          </DialogBody>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void handleAddFile()}
+              disabled={saveFile.isPending || !newFilePath.trim()}
+            >
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Dialog.Root
+      <Dialog
         open={renameFrom !== null}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           if (!open) setRenameFrom(null);
         }}
       >
-        <Dialog.Content maxWidth="380px" size="2">
-          <Dialog.Title size="3">Rename file</Dialog.Title>
-          <Flex direction="column" gap="3" mt="3">
-            <TextField.Root
-              size="2"
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename file</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <Input
               autoFocus
               value={renameTo}
-              onChange={(e) => setRenameTo(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleRenameFile();
+              aria-label="New file path"
+              onChange={(event) => setRenameTo(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleRenameFile();
               }}
             />
-            <Flex justify="end" gap="2">
-              <Dialog.Close>
-                <Button size="1" variant="soft" color="gray">
-                  Cancel
-                </Button>
-              </Dialog.Close>
-              <Button
-                size="1"
-                variant="solid"
-                onClick={handleRenameFile}
-                disabled={renameFile.isPending || !renameTo.trim()}
-              >
-                Rename
-              </Button>
-            </Flex>
-          </Flex>
-        </Dialog.Content>
-      </Dialog.Root>
+          </DialogBody>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void handleRenameFile()}
+              disabled={renameFile.isPending || !renameTo.trim()}
+            >
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <AlertDialog.Root
+      <AlertDialog
         open={deleteFileTarget !== null}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           if (!open) setDeleteFileTarget(null);
         }}
       >
-        <AlertDialog.Content maxWidth="420px" size="2">
-          <AlertDialog.Title size="3">Delete file</AlertDialog.Title>
-          <AlertDialog.Description size="1">
-            Delete "{deleteFileTarget}" from this skill? This cannot be undone.
-          </AlertDialog.Description>
-          <Flex justify="end" gap="2" mt="4">
-            <AlertDialog.Cancel>
-              <Button size="1" variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <Button
-                size="1"
-                variant="solid"
-                color="red"
-                onClick={handleDeleteFile}
-              >
-                Delete
-              </Button>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete file</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete "{deleteFileTarget}" from this skill? This cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteFileTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDeleteFile()}
+            >
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ReplaceSkillDialog
         open={confirmImportOverwrite}
@@ -528,59 +490,64 @@ export function SkillDetailPanel({
         onConfirm={() => void handleImport(true)}
       />
 
-      <AlertDialog.Root open={publishOpen} onOpenChange={setPublishOpen}>
-        <AlertDialog.Content maxWidth="420px" size="2">
-          <AlertDialog.Title size="3">Publish to team</AlertDialog.Title>
-          <AlertDialog.Description size="1">
-            Publish "{skill.name}" to your team? Teammates will be able to view
-            and install it. Re-publishing creates a new version.
-          </AlertDialog.Description>
-          <Flex justify="end" gap="2" mt="4">
-            <AlertDialog.Cancel>
-              <Button size="1" variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
+      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish to team</AlertDialogTitle>
+            <AlertDialogDescription>
+              Publish "{skill.name}" to your team? Teammates will be able to
+              view and install it. Re-publishing creates a new version.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
             <Button
-              size="1"
-              variant="solid"
-              onClick={handlePublish}
+              type="button"
+              variant="outline"
+              onClick={() => setPublishOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              loading={publishSkill.isPending}
               disabled={publishSkill.isPending}
+              onClick={() => void handlePublish()}
             >
               Publish
             </Button>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <AlertDialog.Root
-        open={deleteSkillOpen}
-        onOpenChange={setDeleteSkillOpen}
-      >
-        <AlertDialog.Content maxWidth="420px" size="2">
-          <AlertDialog.Title size="3">Delete skill</AlertDialog.Title>
-          <AlertDialog.Description size="1">
-            Delete "{skill.name}" and all of its files? This cannot be undone.
-          </AlertDialog.Description>
-          <Flex justify="end" gap="2" mt="4">
-            <AlertDialog.Cancel>
-              <Button size="1" variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <Button
-                size="1"
-                variant="solid"
-                color="red"
-                onClick={handleDeleteSkill}
-              >
-                Delete
-              </Button>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
-    </>
+      <AlertDialog open={deleteSkillOpen} onOpenChange={setDeleteSkillOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete skill</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete "{skill.name}" and all of its files? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteSkillOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              loading={deleteSkill.isPending}
+              disabled={deleteSkill.isPending}
+              onClick={() => void handleDeleteSkill()}
+            >
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

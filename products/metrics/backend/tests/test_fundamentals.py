@@ -87,8 +87,9 @@ class TestTemporalReduction:
         # 100 -> 120 is +20; the drop to 5 is a restart, so 5 itself is the increase; 5 -> 25 is +20.
         assert reduce_temporal(_samples(100, 120, 5, 25), TemporalReducer.INCREASE) == 45
 
-    def test_increase_ignores_history_before_the_first_sample(self) -> None:
-        assert reduce_temporal(_samples(100), TemporalReducer.INCREASE) == 0
+    def test_increase_of_a_lone_sample_is_unknown_not_zero(self) -> None:
+        # One reading has no predecessor to diff against; 0 would read as "flat".
+        assert reduce_temporal(_samples(100), TemporalReducer.INCREASE) is None
 
     def test_avg_over_time_keeps_the_whole_bucket_not_just_the_tail(self) -> None:
         # A queue that spiked to 240 and settled at 8 did not average 8.
@@ -118,6 +119,14 @@ class TestSpatialReduction:
         # The runner returns no row for an empty bucket, so a reference that
         # returned 0 here would report every empty bucket as a disagreement.
         assert reduce_spatial([], reducer) is None
+
+    def test_unknown_series_values_drop_out_rather_than_zeroing_the_bucket(self) -> None:
+        plan = plan_reduction(aggregation="increase", metric_type="sum", temporality="cumulative")
+        # A lone-sample series adds nothing to the total, and a bucket holding
+        # only such series has no value at all — mirroring the runner, which
+        # drops the bucket instead of plotting 0.
+        assert apply_plan({"a": _samples(100), "b": _samples(10, 25)}, plan) == 15.0
+        assert apply_plan({"a": _samples(100)}, plan) is None
 
 
 class TestPooledQuantile:

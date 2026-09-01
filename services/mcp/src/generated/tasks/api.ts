@@ -845,7 +845,7 @@ export const TaskChannelsInstructionsUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.
  * @summary List tasks
  */
 export const TasksListParams = /* @__PURE__ */ zod.object({
@@ -915,6 +915,10 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
         ),
+    hog_flow_id: zod
+        .string()
+        .optional()
+        .describe("Filter tasks to the runs spawned by this workflow's 'Create AI task' action."),
     internal: zod
         .enum(['true', 'false', 'all'])
         .optional()
@@ -1097,6 +1101,19 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
             ),
         pending_user_message: zod
             .string()
