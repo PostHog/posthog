@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
 
@@ -211,6 +213,8 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
         assert args[0] == "error-tracking-alert-delivery"
         assert args[1].notification_id == "notif-1"
         assert kwargs["id"] == "error-tracking-alert-delivery-notif-1"
+        # Delivery must never ride the lifecycle fleet: slow Slack retries would starve issue-state work.
+        assert kwargs["task_queue"] == settings.ERROR_TRACKING_ALERTS_TASK_QUEUE
         # A redelivered start after completion must be rejected, not rerun.
         assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
 
