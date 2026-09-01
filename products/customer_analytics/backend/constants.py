@@ -10,9 +10,10 @@ CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
 CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG = "customer-analytics-feature-requests"
 CUSTOMER_ANALYTICS_TRACK_RULES_FLAG = "customer-analytics-track-rules"
 
-# Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
-# properties feature: creating person-target custom property sources (API + UI), staging rows during
-# syncs, and the post-sync upsert workflow.
+# Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> profile
+# properties feature for both person and group targets: creating custom property sources (API + UI),
+# staging rows during syncs, and the post-sync upsert workflow. The flag key keeps its person-era name
+# for backward compatibility.
 WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
 
 # Mirrors frontend `BILLING_INSIGHT_SHORT_IDS` in accountBillingLogic.ts. These saved insights read
