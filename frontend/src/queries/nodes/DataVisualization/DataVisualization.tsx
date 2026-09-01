@@ -7,6 +7,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { analysisEngagementKey, resolveAnalysisSurface, useAnalysisEngagement } from 'lib/hooks/useAnalysisEngagement'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -14,6 +15,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
@@ -24,7 +26,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { hasNonEmptyQueryResponse, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
@@ -195,6 +197,19 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
+    // Only a settled, non-empty result counts. Shared and exported views are left out because they
+    // render without a signed-in user, and an export renders in PostHog's own headless browser.
+    const engagementRef = useAnalysisEngagement(
+        !isSharedView() && !responseLoading && !responseError && hasNonEmptyQueryResponse(response)
+            ? {
+                  key: analysisEngagementKey(null, query.source),
+                  surface: resolveAnalysisSurface(props.context, dashboardId),
+                  query,
+                  dashboardId: dashboardId ?? null,
+              }
+            : null
+    )
+
     // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
     // insight (the SQL editor and other unsaved contexts have no alerts to show). Deliberately maps
     // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
@@ -328,11 +343,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     if (props.embedded) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div ref={engagementRef} className="DataVisualization InsightCard__viz">
+                {component}
+            </div>
+        )
     }
 
     return (
         <div
+            ref={engagementRef}
             className={clsx('DataVisualization flex flex-1 gap-2', {
                 'h-full': effectiveVisualizationType !== ChartDisplayType.ActionsTable,
             })}

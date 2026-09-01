@@ -233,6 +233,7 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
+            context={{ analysisSurface: 'notebook' }}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({

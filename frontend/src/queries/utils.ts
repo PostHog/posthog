@@ -549,6 +549,27 @@ export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean 
     return classifyQueryVizCanvas(query) === 'canvas'
 }
 
+/**
+ * Whether a query response carries any rows.
+ *
+ * Responses hold their rows under `results` or `result` depending on the node, and a successful but
+ * empty response is an empty array rather than null, so the length is what separates "we found
+ * nothing" from "we found something". This reads the envelope only. A trends response whose series
+ * all hold zeroes still counts as non-empty, because judging that needs the per-display logic each
+ * chart applies to its own indexed results.
+ */
+export function hasNonEmptyQueryResponse(response: unknown): boolean {
+    if (!response || typeof response !== 'object') {
+        return false
+    }
+    const record = response as Record<string, unknown>
+    const rows = 'results' in record ? record.results : 'result' in record ? record.result : undefined
+    if (Array.isArray(rows)) {
+        return rows.length > 0
+    }
+    return rows != null
+}
+
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return (

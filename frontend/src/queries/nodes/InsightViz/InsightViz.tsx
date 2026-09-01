@@ -1,20 +1,23 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 // InsightViz renders the .InsightCard__viz wrapper whose styles live in InsightCard.scss.
 // Import it here so the viz is sized correctly wherever it renders, not only inside an InsightCard.
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
+import { analysisEngagementKey, resolveAnalysisSurface, useAnalysisEngagement } from 'lib/hooks/useAnalysisEngagement'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { hasNonEmptyQueryResponse } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -117,6 +120,35 @@ export function InsightViz({
     useAttachedLogic(insightDataLogic(insightProps as InsightLogicProps), attachTo)
     useAttachedLogic(insightVizDataLogic(insightProps as InsightLogicProps), attachTo)
 
+    const { insight } = useValues(insightLogic(insightProps as InsightLogicProps))
+    const { insightData, insightDataLoading, erroredQueryId, timedOutQueryId, validationError } = useValues(
+        insightVizDataLogic(insightProps as InsightLogicProps)
+    )
+
+    // Only a settled, non-empty result counts. Shared and exported views are left out because they
+    // render without a signed-in user, and an export renders in PostHog's own headless browser.
+    const resultIsAnalyzable =
+        !isSharedView() &&
+        !insightDataLoading &&
+        !erroredQueryId &&
+        !timedOutQueryId &&
+        !validationError &&
+        hasNonEmptyQueryResponse(insightData)
+
+    const engagementRef = useAnalysisEngagement(
+        resultIsAnalyzable
+            ? {
+                  key: analysisEngagementKey(insight?.short_id, query.source),
+                  surface: resolveAnalysisSurface(context, insightProps.dashboardId),
+                  query,
+                  insightShortId: insight?.short_id ?? null,
+                  dashboardId: insightProps.dashboardId ?? null,
+                  isSaved: insight?.saved,
+                  createdByUuid: insight?.created_by?.uuid ?? null,
+              }
+            : null
+    )
+
     return (
         <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
             <BindLogic logic={insightLogic} props={insightProps}>
@@ -124,6 +156,7 @@ export function InsightViz({
                     <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                         <BindLogic logic={insightVizDataLogic} props={insightProps}>
                             <div
+                                ref={engagementRef}
                                 className={
                                     !isEmbedded
                                         ? clsx('InsightViz InsightViz--horizontal', {
