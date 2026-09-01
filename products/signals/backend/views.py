@@ -71,6 +71,7 @@ from products.data_warehouse.backend.facade.api import trigger_external_data_wor
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
+    DISMISSAL_REPOSITORY_MAX_LENGTH,
     NON_WRITABLE_ARTEFACT_TYPES,
     SIGNALS_PRODUCT,
     ArtefactContentValidationError,
@@ -487,8 +488,9 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
-# GitHub caps owners at 39 characters and repository names at 100; 'owner/repo' fits in 140.
-_CORRECTED_REPOSITORY_MAX_LENGTH = 140
+# Same bound as the stored dismissal artefact, so the state API and the generic artefacts
+# endpoint reject the same over-long repository values.
+_CORRECTED_REPOSITORY_MAX_LENGTH = DISMISSAL_REPOSITORY_MAX_LENGTH
 _CORRECTED_REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 

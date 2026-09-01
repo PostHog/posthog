@@ -233,8 +233,8 @@ DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
 # unbounded row is a cost on every repository selection, not just on the write.
 DISMISSAL_NOTE_MAX_LENGTH = 4000
 DISMISSAL_REASON_MAX_LENGTH = 128
-# GitHub caps owners at 39 and repositories at 100 characters.
-DISMISSAL_REPOSITORY_MAX_LENGTH = 512
+# GitHub caps owners at 39 characters and repository names at 100; 'owner/repo' fits in 140.
+DISMISSAL_REPOSITORY_MAX_LENGTH = 140
 DISMISSAL_IDENTITY_MAX_LENGTH = 128
 
 
