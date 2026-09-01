@@ -18882,10 +18882,10 @@ export namespace Schemas {
      * * `exported` - Exported
      * * `failed` - Failed
      */
-    export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
+    export type ContentAutopilotProposalStatusEnum = typeof ContentAutopilotProposalStatusEnum[keyof typeof ContentAutopilotProposalStatusEnum];
 
 
-    export const LifecycleStatusEnum = {
+    export const ContentAutopilotProposalStatusEnum = {
       Generating: 'generating',
       ReadyForReview: 'ready_for_review',
       Rejected: 'rejected',
@@ -18929,7 +18929,7 @@ export namespace Schemas {
        * * `rejected` - Rejected
        * * `exported` - Exported
        * * `failed` - Failed */
-      readonly lifecycle_status: LifecycleStatusEnum;
+      readonly lifecycle_status: ContentAutopilotProposalStatusEnum;
       /** Review title for this proposal. */
       readonly title: string;
       /** Primary query or topic targeted by this proposal. */
@@ -18964,7 +18964,7 @@ export namespace Schemas {
       readonly id: string;
       readonly run_id: string;
       readonly proposal_type: ProposalTypeEnum;
-      readonly lifecycle_status: LifecycleStatusEnum;
+      readonly lifecycle_status: ContentAutopilotProposalStatusEnum;
       readonly title: string;
       readonly target_query: string;
       /** Performance evidence for this proposal. */
@@ -47868,26 +47868,6 @@ export namespace Schemas {
       ExpiringSoon: 'expiring_soon',
       InGrace: 'in_grace',
       Overdue: 'overdue',
-    } as const;
-
-    /**
-     * * `awaiting_generation` - awaiting_generation
-     * * `generating` - generating
-     * * `building` - building
-     * * `ready` - ready
-     * * `failed` - failed
-     * * `incompatible` - incompatible
-     */
-    export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
-
-
-    export const LifecycleStatusEnum = {
-      AwaitingGeneration: 'awaiting_generation',
-      Generating: 'generating',
-      Building: 'building',
-      Ready: 'ready',
-      Failed: 'failed',
-      Incompatible: 'incompatible',
     } as const;
 
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
@@ -87129,6 +87109,26 @@ export namespace Schemas {
       source: string;
     }
 
+    /**
+     * * `awaiting_generation` - awaiting_generation
+     * * `generating` - generating
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `incompatible` - incompatible
+     */
+    export type WidgetStatusLifecycleStatusEnum = typeof WidgetStatusLifecycleStatusEnum[keyof typeof WidgetStatusLifecycleStatusEnum];
+
+
+    export const WidgetStatusLifecycleStatusEnum = {
+      AwaitingGeneration: 'awaiting_generation',
+      Generating: 'generating',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+      Incompatible: 'incompatible',
+    } as const;
+
     export interface WidgetStatus {
       /** Current widget and preview state.
        *
@@ -87138,7 +87138,7 @@ export namespace Schemas {
        * * `ready` - ready
        * * `failed` - failed
        * * `incompatible` - incompatible */
-      lifecycle_status: LifecycleStatusEnum;
+      lifecycle_status: WidgetStatusLifecycleStatusEnum;
       /**
          * Actionable failure detail.
          * @nullable

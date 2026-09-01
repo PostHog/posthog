@@ -788,9 +788,10 @@ export const ProposalTypeEnumApi = {
  * * `exported` - Exported
  * * `failed` - Failed
  */
-export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
+export type ContentAutopilotProposalStatusEnumApi =
+    (typeof ContentAutopilotProposalStatusEnumApi)[keyof typeof ContentAutopilotProposalStatusEnumApi]
 
-export const LifecycleStatusEnumApi = {
+export const ContentAutopilotProposalStatusEnumApi = {
     Generating: 'generating',
     ReadyForReview: 'ready_for_review',
     Rejected: 'rejected',
@@ -856,7 +857,7 @@ export interface ContentAutopilotProposalListApi {
     readonly id: string
     readonly run_id: string
     readonly proposal_type: ProposalTypeEnumApi
-    readonly lifecycle_status: LifecycleStatusEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalStatusEnumApi
     readonly title: string
     readonly target_query: string
     /** Performance evidence for this proposal. */
@@ -918,7 +919,7 @@ export interface ContentAutopilotProposalApi {
      * * `rejected` - Rejected
      * * `exported` - Exported
      * * `failed` - Failed */
-    readonly lifecycle_status: LifecycleStatusEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalStatusEnumApi
     /** Review title for this proposal. */
     readonly title: string
     /** Primary query or topic targeted by this proposal. */

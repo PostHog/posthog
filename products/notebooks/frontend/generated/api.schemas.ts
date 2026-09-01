@@ -732,9 +732,10 @@ export interface WidgetGenerateRequestApi {
  * * `failed` - failed
  * * `incompatible` - incompatible
  */
-export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
+export type WidgetStatusLifecycleStatusEnumApi =
+    (typeof WidgetStatusLifecycleStatusEnumApi)[keyof typeof WidgetStatusLifecycleStatusEnumApi]
 
-export const LifecycleStatusEnumApi = {
+export const WidgetStatusLifecycleStatusEnumApi = {
     AwaitingGeneration: 'awaiting_generation',
     Generating: 'generating',
     Building: 'building',
@@ -856,7 +857,7 @@ export interface WidgetStatusApi {
      * * `ready` - ready
      * * `failed` - failed
      * * `incompatible` - incompatible */
-    lifecycle_status: LifecycleStatusEnumApi
+    lifecycle_status: WidgetStatusLifecycleStatusEnumApi
     /**
      * Actionable failure detail.
      * @nullable
