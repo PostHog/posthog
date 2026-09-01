@@ -513,10 +513,12 @@ def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
 def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     """Record whose OAuth token the sandbox's live MCP session holds.
 
-    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
-    entry always reads as "must refresh". Best-effort: an absent entry is safe,
-    and this is written from the agent-server-launch activity, which must not
-    fail after the server is already running.
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS — half the token
+    lifetime — so an absent entry reads as "must refresh" and can still hide a
+    live session bound to an earlier actor. Written best-effort: this runs in the
+    agent-server-launch activity, which must not fail after the server is already
+    running, and a dropped write only reaches the same unknown-binding state that
+    expiry reaches on its own.
     """
     _mark_sandbox_identity("mcp-session", scope, user_id, best_effort=True)
 
