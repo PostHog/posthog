@@ -15,7 +15,7 @@ The registry endpoint returns a paginated list:
 GET /api/projects/{project_id}/wizard/registry/?limit=100&offset=0
 ```
 
-Each program contains an ID, display metadata, Wizard command arguments, tags, prerequisite program IDs, and supported run environments.
+Each program contains an ID, display metadata, a pinned Wizard version, Wizard command arguments, tags, prerequisite program IDs, and supported run environments.
 
 Creating a run requires the selected `program_id`:
 
