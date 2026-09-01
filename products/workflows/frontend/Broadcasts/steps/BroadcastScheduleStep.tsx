@@ -3,10 +3,8 @@ import { useMemo } from 'react'
 
 import { LemonCalendarSelectInput, LemonSearchableSelect } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -14,16 +12,9 @@ import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/comp
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
-function SendingRateLimit(): JSX.Element | null {
+function SendingRateLimit(): JSX.Element {
     const { emailRateLimit } = useValues(broadcastWizardLogic)
     const { setEmailRateLimit } = useActions(broadcastWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    // Flag-gated rollout, but a broadcast that already carries a limit keeps the control after a
-    // flag dial-down so the limit stays visible and removable.
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_RATE_LIMIT] && !emailRateLimit) {
-        return null
-    }
 
     return (
         <div className="max-w-160">
