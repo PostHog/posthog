@@ -60,6 +60,13 @@ _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_gener
 _EXECUTE_HOGQL_PATH = "products.replay_vision.backend.search.execute_hogql_query"
 
 
+def _recordings_exist(existing: set[str]):
+    return patch(
+        "products.replay_vision.backend.max_tools.SessionReplayEvents.batch_exists",
+        side_effect=lambda session_ids, team: {sid: sid in existing for sid in session_ids},
+    )
+
+
 class TestDraftReplayVisionScannerPromptTool(BaseTest):
     def _tool(self, context: dict | None = None) -> DraftReplayVisionScannerPromptTool:
         configurable: dict = {"team": self.team, "user": self.user}
@@ -566,7 +573,10 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
         # Without the sentence and the metric, the user just sees fewer scans started and nothing
         # records that the scanner's own limit was the reason.
         scanner = await sync_to_async(self._capped_scanner)()
-        with patch("products.replay_vision.backend.max_tools.record_scanner_limit_reached") as record:
+        with (
+            patch("products.replay_vision.backend.max_tools.record_scanner_limit_reached") as record,
+            _recordings_exist({"s1", "s2"}),
+        ):
             content, artifact = await self._tool()._arun_impl(session_ids=["s1", "s2"], scanner_id=str(scanner.id))
 
         assert {r["scan_outcome"] for r in artifact["results"]} == {"skipped_scanner_limit"}
@@ -589,12 +599,60 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
             patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
             patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
             patch("products.replay_vision.backend.max_tools.record_scanner_limit_reached") as record,
+            _recordings_exist({"s1"}),
         ):
             content, artifact = await self._tool()._arun_impl(session_ids=["s1"], scanner_id=str(scanner.id))
 
         assert [r["scan_outcome"] for r in artifact["results"]] == ["started"]
         assert "credit limit" not in content
         record.assert_not_called()
+
+
+class TestScanReplayVisionSessionsExistence(BaseTest):
+    """Ids the model guessed (or that lost their recording) must fail here, not minutes later in the workflow."""
+
+    def _tool(self) -> ScanReplayVisionSessionsTool:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return ScanReplayVisionSessionsTool(team=self.team, user=self.user, config=config)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_ids_without_recordings_start_nothing(self):
+        start = MagicMock()
+        with (
+            patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+            _recordings_exist(set()),
+        ):
+            content, artifact = await self._tool()._arun_impl(session_ids=["s1", "s2"], prompt="did it fail?")
+
+        assert artifact["error"] == "no_recordings_found"
+        assert artifact["unknown_session_ids"] == ["s1", "s2"]
+        assert "s1, s2" in content
+        start.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_only_ids_with_recordings_are_scanned(self):
+        scanner = await sync_to_async(ReplayScanner.objects.create)(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+        )
+        start = MagicMock(return_value=MagicMock())
+        with (
+            patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+            _recordings_exist({"s1"}),
+        ):
+            content, artifact = await self._tool()._arun_impl(session_ids=["s1", "s2"], scanner_id=str(scanner.id))
+
+        assert [r["session_id"] for r in artifact["results"]] == ["s1"]
+        assert artifact["unknown_session_ids"] == ["s2"]
+        assert "s2" in content
+        assert start.call_count == 1
 
 
 class TestCreateReplayVisionScannerTool(BaseTest):
@@ -897,6 +955,7 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
                 "ee.hogai.tool.interrupt",
                 return_value=self._resume("approve", payload={"session_ids": ["s1"], "scanner_id": str(scanner.id)}),
             ),
+            _recordings_exist({"s1", "s2", "s3"}),
         ):
             _, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_with_context(
                 session_ids=["s1", "s2", "s3"], scanner_id=str(scanner.id)

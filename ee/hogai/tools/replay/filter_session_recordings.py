@@ -211,6 +211,12 @@ class FilterSessionRecordingsTool(MaxTool):
 
         parts = []
 
+        # The id is what downstream tools (e.g. scan_replay_vision_sessions) take as input, so the
+        # model must see it here rather than invent one.
+        session_id = recording.get("session_id")
+        if session_id:
+            parts.append(f"ID: {session_id}")
+
         # Person/distinct_id
         distinct_id = recording.get("distinct_id", "Unknown")
         parts.append(f"User: {distinct_id}")

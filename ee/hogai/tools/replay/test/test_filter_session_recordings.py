@@ -281,6 +281,7 @@ class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
 
         tool = FilterSessionRecordingsTool(team=self.team, user=self.user)
         recording = {
+            "session_id": "0195e1c0-0000-7000-8000-000000000000",
             "distinct_id": "test_user",
             "start_time": datetime(2025, 1, 15, 10, 30, 0),
             "duration": 3665,  # 1h 1m 5s
@@ -295,6 +296,7 @@ class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_recording_metadata(recording)
 
+        self.assertIn("ID: 0195e1c0-0000-7000-8000-000000000000", result)
         self.assertIn("User: test_user", result)
         self.assertIn("Started: 2025-01-15 10:30:00 UTC", result)
         self.assertIn("Duration: 1h 1m 5s", result)

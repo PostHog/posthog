@@ -16,6 +16,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -620,6 +621,13 @@ def _dedup(session_ids: list[str]) -> list[str]:
     return [s for s in dict.fromkeys(sid.strip() for sid in session_ids) if s]
 
 
+def _missing_sessions_sentence(missing: list[str]) -> str:
+    return (
+        f"{len(missing)} session id(s) have no recording in this project and were not scanned: "
+        f"{', '.join(missing)}. Only pass ids from a recordings list, page context, or the user."
+    )
+
+
 def _truncate(text: str, limit: int = 120) -> str:
     collapsed = " ".join(text.split())
     return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "\u2026"
@@ -676,9 +684,14 @@ SCAN_SESSIONS_TOOL_DESCRIPTION = """
 Use this tool to have Replay Vision watch specific session recordings and answer a question about them.
 
 # When to use
-- The user has recordings in hand (from search_session_recordings, from context, or as explicit ids) and
-  asks what happened in them, whether something occurred, or to classify or score them
+- The user has recordings in hand (ids from a filter_session_recordings result, from page context, or
+  given explicitly by the user) and asks what happened in them, whether something occurred, or to
+  classify or score them
 - The user asks to run an existing scanner against particular sessions
+
+# Session ids
+Only pass ids you were given: from a recordings list result, from page context, or from the user.
+Never construct or guess ids. Ids with no recording behind them are rejected without being scanned.
 
 # How it works
 Each session is scanned by an LLM that watches the recording. Scanning costs credits from the project's
@@ -697,7 +710,10 @@ search_replay_vision_observations afterwards to read them.
 
 class ScanSessionsArgs(BaseModel):
     session_ids: list[str] = Field(
-        description="Session recording ids to scan. Ask the user rather than guessing if you don't have them."
+        description=(
+            "Session recording ids to scan. Only use ids you were given (a recordings list result, "
+            "page context, or the user); never construct or guess them. Ask the user if you have none."
+        )
     )
     prompt: str | None = Field(
         default=None,
@@ -777,10 +793,18 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             scanner = self._scanner_for(scanner_id)
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+            sessions, missing = self._split_by_recording_existence(sessions)
+            if not sessions:
+                return f"Nothing started. {_missing_sessions_sentence(missing)}", {
+                    "error": "no_recordings_found",
+                    "unknown_session_ids": missing,
+                }
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
             if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
                 record_scanner_limit_reached("max_tool")
-            return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
+            return self._with_missing(
+                _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}, missing
+            )
 
         if not prompt or not prompt.strip():
             return "Pass either a prompt or a scanner_id.", {"error": "no_prompt"}
@@ -794,6 +818,12 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         message = scanner_config_error(ScannerType(resolved_type), config)
         if message is not None:
             return message, {"error": "invalid_config"}
+        sessions, missing = self._split_by_recording_existence(sessions)
+        if not sessions:
+            return f"Nothing started. {_missing_sessions_sentence(missing)}", {
+                "error": "no_recordings_found",
+                "unknown_session_ids": missing,
+            }
         scan = run_inline_scan(
             team=self._team,
             user=self._user,
@@ -807,7 +837,24 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 "Nothing started: this project's monthly Replay Vision credits are used up.",
                 {"error": "quota_exhausted"},
             )
-        return _scan_summary(scan.started, scan.results), {"scan_id": str(scan.scanner.id), "results": scan.results}
+        return self._with_missing(
+            _scan_summary(scan.started, scan.results),
+            {"scan_id": str(scan.scanner.id), "results": scan.results},
+            missing,
+        )
+
+    def _split_by_recording_existence(self, sessions: list[str]) -> tuple[list[str], list[str]]:
+        """Checked here rather than trusted, because the model supplies the ids: a guessed or stale id
+        would otherwise start a workflow that fails minutes later as no_recording."""
+        existence = SessionReplayEvents().batch_exists(sessions, self._team)
+        return [s for s in sessions if existence.get(s)], [s for s in sessions if not existence.get(s)]
+
+    @staticmethod
+    def _with_missing(summary: str, artifact: dict[str, Any], missing: list[str]) -> tuple[str, dict[str, Any]]:
+        if missing:
+            summary = f"{summary} {_missing_sessions_sentence(missing)}"
+            artifact["unknown_session_ids"] = missing
+        return summary, artifact
 
 
 QUOTA_TOOL_DESCRIPTION = """
