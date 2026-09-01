@@ -7,6 +7,7 @@ jest.mock('~/queries/query', () => ({
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -37,6 +38,10 @@ import { insightDataLogic } from './insightDataLogic'
 const mockedPerformQuery = performQuery as jest.MockedFunction<typeof performQuery>
 
 const Insight123 = '123' as InsightShortId
+
+function capturesOf(event: string): any[][] {
+    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+}
 
 describe('insightDataLogic', () => {
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
@@ -623,6 +628,7 @@ describe('insightDataLogic', () => {
         let patchFails: boolean
 
         beforeEach(() => {
+            ;(posthog.capture as jest.Mock).mockClear()
             patchBodies = []
             savedQuery = latestQuery
             patchFails = false
@@ -686,14 +692,23 @@ describe('insightDataLogic', () => {
                     showLegend: false,
                 },
             })
+            expect(capturesOf('dashboard_sql_visualization_changed')).toEqual([
+                [
+                    'dashboard_sql_visualization_changed',
+                    { insight_id: insightId, type: 'chart-type', display: 'ActionsLineGraph' },
+                ],
+            ])
         })
 
-        it('does not save when the latest SQL result no longer supports the picked chart', async () => {
-            logic.actions.setInsightData({
-                columns: ['country'],
-                types: [['country', 'String']],
-                results: [['NL']],
-            })
+        it.each([
+            ['has no columns', { columns: [], types: [], results: [] }, 'no_columns'],
+            [
+                'no longer supports the picked chart',
+                { columns: ['country'], types: [['country', 'String']], results: [['NL']] },
+                'unsupported',
+            ],
+        ])('does not save when the latest SQL result %s', async (_condition, response, reason) => {
+            logic.actions.setInsightData(response)
 
             await expectLogic(logic, () => {
                 logic.actions.persistSqlVisualization({
@@ -703,7 +718,10 @@ describe('insightDataLogic', () => {
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingSqlVisualization).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([
+                ['dashboard_sql_visualization_failed', { insight_id: insightId, type: 'chart-type', reason }],
+            ])
         })
 
         it('does not combine a changed saved query with the loaded tile schema', async () => {
@@ -720,7 +738,13 @@ describe('insightDataLogic', () => {
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingSqlVisualization).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([
+                [
+                    'dashboard_sql_visualization_failed',
+                    { insight_id: insightId, type: 'chart-type', reason: 'mismatch' },
+                ],
+            ])
         })
 
         it('does not overwrite an insight that changed away from SQL', async () => {
@@ -734,7 +758,7 @@ describe('insightDataLogic', () => {
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingSqlVisualization).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBeNull()
         })
 
         it('persists only the last display edit against the latest clean SQL query', async () => {
@@ -765,7 +789,7 @@ describe('insightDataLogic', () => {
                     chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
                 },
             })
-            expect(logic.values.savingSqlVisualization).toBe(true)
+            expect(logic.values.savingSqlVisualization).toBe('display-options')
 
             await expectLogic(logic).toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
 
@@ -774,7 +798,13 @@ describe('insightDataLogic', () => {
                 ...savedQuery,
                 chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
             })
-            expect(logic.values.savingSqlVisualization).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_changed')).toEqual([
+                [
+                    'dashboard_sql_visualization_changed',
+                    { insight_id: insightId, type: 'display-options', display: 'ActionsTable' },
+                ],
+            ])
         })
 
         it('does not persist display settings from a stale chart type', async () => {
@@ -810,7 +840,13 @@ describe('insightDataLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.sqlVisualizationVersion).toBe(1)
-            expect(logic.values.savingSqlVisualization).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([
+                [
+                    'dashboard_sql_visualization_failed',
+                    { insight_id: insightId, type: 'display-options', reason: 'error' },
+                ],
+            ])
         })
     })
 

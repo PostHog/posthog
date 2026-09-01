@@ -92,21 +92,22 @@ function DashboardSqlChartTypeControl({
             sqlVisualizationDisabledReason(display, query, columns, rowCount, autoVisualizationType),
         [query, columns, rowCount, autoVisualizationType]
     )
+    let chartTypeDisabledReason = disabledReason
+    if (chartTypeDisabledReason === undefined) {
+        if (saving) {
+            chartTypeDisabledReason = 'Saving chart type'
+        } else if (loading) {
+            chartTypeDisabledReason = 'Waiting for this insight to load'
+        } else if (columns.length === 0) {
+            chartTypeDisabledReason = 'This insight returned no columns to visualize'
+        }
+    }
 
     return (
         <div className="pb-2 px-2">
             <TableDisplay
                 dataAttr="dashboard-insight-visualization-picker"
-                disabledReason={
-                    disabledReason ??
-                    (saving
-                        ? 'Saving chart type'
-                        : loading
-                          ? 'Waiting for this insight to load'
-                          : columns.length
-                            ? undefined
-                            : 'This insight returned no columns to visualize')
-                }
+                disabledReason={chartTypeDisabledReason}
                 disabledReasonFor={disabledReasonFor}
                 fullWidth
                 loading={saving}

@@ -12,7 +12,7 @@ import { ChartDisplayType } from '~/types'
 import { DashboardSqlChartType, DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
 
 export interface DashboardSqlVisualizationPersistence {
-    saving: boolean
+    saving: 'chart-type' | 'display-options' | null
     version: number
     persistChartType: (display: ChartDisplayType) => void
     persistDisplayOptions: (query: DataVisualizationNode) => void
@@ -43,7 +43,7 @@ export function useDashboardVisualizationOptions({
         cachedResults: insightData,
         variablesOverride,
         loading,
-        saving: persistence?.saving,
+        saving: persistence?.saving === 'chart-type',
         version: persistence?.version,
         overriddenVariable,
         persistChartType: persistence?.persistChartType,
@@ -95,7 +95,7 @@ export function useDashboardVisualizationOptions({
                 cachedResults={props.cachedResults}
                 variablesOverride={props.variablesOverride}
                 persistDisplayOptions={props.persistence!.persistDisplayOptions}
-                disabled={props.persistence!.saving}
+                disabled={props.persistence!.saving === 'chart-type'}
             />
         )
     }, [])

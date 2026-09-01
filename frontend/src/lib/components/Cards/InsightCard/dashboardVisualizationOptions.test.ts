@@ -103,7 +103,7 @@ describe('dashboardVisualizationOptions', () => {
             query: lineQuery,
             insightData,
             persistence: {
-                saving: false,
+                saving: null,
                 version: 0,
                 persistChartType: jest.fn(),
                 persistDisplayOptions: jest.fn(),
@@ -251,7 +251,7 @@ describe('dashboardVisualizationOptions', () => {
                 ...baseProps,
                 persistence: {
                     ...baseProps.persistence!,
-                    saving: true,
+                    saving: 'display-options',
                     persistDisplayOptions: persistSqlDisplayOptions,
                 },
             })
@@ -276,7 +276,7 @@ describe('dashboardVisualizationOptions', () => {
             const { result } = renderHook(() =>
                 useDashboardVisualizationOptions({
                     ...baseProps,
-                    persistence: { ...baseProps.persistence!, saving: true },
+                    persistence: { ...baseProps.persistence!, saving: 'display-options' },
                 })
             )
 
@@ -288,11 +288,24 @@ describe('dashboardVisualizationOptions', () => {
             expect(screen.getByRole('status')).toHaveTextContent('Saving')
         })
 
-        it('makes display controls inert while SQL visualization settings are being saved', () => {
+        it('keeps display controls interactive while display options are being saved', () => {
             const { result } = renderHook(() =>
                 useDashboardVisualizationOptions({
                     ...baseProps,
-                    persistence: { ...baseProps.persistence!, saving: true },
+                    persistence: { ...baseProps.persistence!, saving: 'display-options' },
+                })
+            )
+
+            const { container } = render(displayOptionsElement(result.current))
+
+            expect(container.firstChild).not.toHaveAttribute('inert')
+        })
+
+        it('makes display controls inert while the chart type is being saved', () => {
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    ...baseProps,
+                    persistence: { ...baseProps.persistence!, saving: 'chart-type' },
                 })
             )
 

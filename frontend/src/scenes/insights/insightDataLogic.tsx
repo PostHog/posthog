@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -161,7 +162,7 @@ export interface insightDataLogicValues {
     query: Node | null
     queryChanged: boolean
     queryFromUrl: boolean
-    savingSqlVisualization: boolean
+    savingSqlVisualization: SqlVisualizationUpdate['type'] | null
     showDebugPanel: boolean
     showQueryEditor: boolean
     sqlVisualizationVersion: number
@@ -547,11 +548,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     reducers({
         savingSqlVisualization: [
-            false,
+            null as SqlVisualizationUpdate['type'] | null,
             {
-                persistSqlVisualization: () => true,
-                persistSqlVisualizationFailed: () => false,
-                persistSqlVisualizationSettled: () => false,
+                persistSqlVisualization: (_, { update }) => update.type,
+                persistSqlVisualizationFailed: () => null,
+                persistSqlVisualizationSettled: () => null,
             },
         ],
         sqlVisualizationVersion: [
@@ -816,8 +817,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
 
         persistSqlVisualization: async ({ update }, breakpoint) => {
-            const fail = (): void => {
+            const fail = (reason: 'mismatch' | 'unsupported' | 'no_columns' | 'error'): void => {
                 actions.persistSqlVisualizationFailed(update)
+                posthog.capture('dashboard_sql_visualization_failed', {
+                    insight_id: values.insight.id,
+                    type: update.type,
+                    reason,
+                })
                 lemonToast.error(
                     update.type === 'chart-type'
                         ? "Couldn't update chart type. Refresh the dashboard and try again."
@@ -841,7 +847,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
                 const savedQuery = (await insightsApi.getByShortId(shortId, true))?.query
                 if (!isMatchingSqlQuery(savedQuery, values.query)) {
-                    fail()
+                    fail('mismatch')
                     return
                 }
 
@@ -850,8 +856,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     const columns = columnsFromResponse(values.insightData)
                     const rowCount = rowCountFromResponse(values.insightData)
                     const autoVisualizationType = getAutoVisualizationType(columns, rowCount)
+                    if (columns.length === 0) {
+                        fail('no_columns')
+                        return
+                    }
                     if (
-                        columns.length === 0 ||
                         sqlVisualizationDisabledReason(
                             update.display,
                             savedQuery,
@@ -860,7 +869,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                             autoVisualizationType
                         )
                     ) {
-                        fail()
+                        fail('unsupported')
                         return
                     }
                     nextQuery = applyVisualizationType(savedQuery, update.display, columns, rowCount)
@@ -869,7 +878,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         !isMatchingSqlQuery(update.query, values.query) ||
                         savedQuery.display !== update.query.display
                     ) {
-                        fail()
+                        fail('mismatch')
                         return
                     }
                     nextQuery = { ...savedQuery, chartSettings: update.query.chartSettings }
@@ -884,10 +893,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 await breakpoint(0)
                 actions.renameInsightSuccess(updatedItem)
                 actions.persistSqlVisualizationSettled()
+                posthog.capture('dashboard_sql_visualization_changed', {
+                    insight_id: insightId,
+                    type: update.type,
+                    display: update.type === 'chart-type' ? update.display : update.query.display,
+                })
                 lemonToast.success('Insight updated')
             } catch (e) {
                 if (!isBreakpoint(e as Error)) {
-                    fail()
+                    fail('error')
                 }
             }
         },
