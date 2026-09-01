@@ -193,6 +193,11 @@ KNOWLEDGE BASE RESULTS:
 
 TICKET TYPE: {input.ticket_type} — {TICKET_TYPE_HINTS.get(input.ticket_type, "")}
 {data_safety_block}{diagnostic_block}
+SUPPORT POLICY:
+- PostHog support is async-first. Do NOT offer to "hop on a call" or book a meeting, and do NOT suggest a live/synchronous session.
+- If the customer asks for a call or live help, keep the conversation on the ticket. Point them to the paid 30-minute onboarding consultation (https://shop.posthog.com/products/30-min-onboarding-consultation) for a scheduled session, and offer to keep going over email.
+- Close with a short note that we are here for any follow-up.
+
 INSTRUCTIONS:
 - Draft a helpful, accurate reply to the customer's question. Lead with the answer, be concise and friendly.
 - The KNOWLEDGE BASE RESULTS above are a starting point, not a ceiling. Use your tools to search for additional information:
