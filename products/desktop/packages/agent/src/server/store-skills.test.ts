@@ -2,17 +2,19 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zipSync } from "fflate";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildStoreSkillsInstructions,
   getStoreSkillRoots,
   installStoreSkillsArchive,
+  listStoreSkillStubs,
   removeStoreSkillStubs,
 } from "./store-skills";
 
 const directories: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     directories
       .splice(0)
@@ -114,6 +116,22 @@ describe("store skills", () => {
     ]);
   });
 
+  it.each([
+    ["set", "/cfg/claude", "/cfg/claude/skills"],
+    [
+      "empty, which the Claude adapter treats as unset",
+      "",
+      "/home/u/.claude/skills",
+    ],
+  ])(
+    "reads CLAUDE_CONFIG_DIR from the environment when %s",
+    (_label, value, claudeRoot) => {
+      vi.stubEnv("CLAUDE_CONFIG_DIR", value);
+
+      expect(getStoreSkillRoots({ home: "/home/u" })[0]).toBe(claudeRoot);
+    },
+  );
+
   it("never replaces a bundled skill with a stub of the same name, but refreshes its own stubs", async () => {
     const home = await temporaryHome();
     const [claudeRoot, agentsRoot] = rootsFor(home);
@@ -133,22 +151,31 @@ describe("store skills", () => {
       "release-notes",
       stubSkillMd("release-notes").replace("version: '3'", "version: '1'"),
     );
+    // A directory with no SKILL.md yet is somebody's work in progress, not an empty slot.
+    const inProgress = join(agentsRoot, "half-written");
+    await mkdir(inProgress, { recursive: true });
+    await writeFile(join(inProgress, "notes.md"), "draft");
 
     const result = await installStoreSkillsArchive(
       bundle({
         "querying-posthog-data/SKILL.md": stubSkillMd("querying-posthog-data"),
         "release-notes/SKILL.md": stubSkillMd("release-notes"),
+        "half-written/SKILL.md": stubSkillMd("half-written"),
       }),
       [claudeRoot, agentsRoot],
     );
 
     expect(result).toEqual({
-      installed: ["querying-posthog-data", "release-notes"],
-      collisions: ["querying-posthog-data", "release-notes"],
+      installed: ["querying-posthog-data", "release-notes", "half-written"],
+      collisions: ["querying-posthog-data", "release-notes", "half-written"],
       removed: [],
       rejected: 0,
       errors: [],
     });
+    await expect(readFile(join(inProgress, "notes.md"), "utf-8")).resolves.toBe(
+      "draft",
+    );
+    await expect(exists(join(inProgress, "SKILL.md"))).resolves.toBe(false);
     await expect(
       readFile(join(bundledSkill, "SKILL.md"), "utf-8"),
     ).resolves.toContain("The real skill.");
@@ -190,6 +217,23 @@ describe("store skills", () => {
         exists(join(root, "bundled-skill", "SKILL.md")),
       ).resolves.toBe(true);
     }
+  });
+
+  it("lists the stubs on disk so a session that keeps them still gets the pointer guidance", async () => {
+    const home = await temporaryHome();
+    const [claudeRoot, agentsRoot] = rootsFor(home);
+    await writeSkill(claudeRoot, "kept-stub", stubSkillMd("kept-stub"));
+    await writeSkill(agentsRoot, "kept-stub", stubSkillMd("kept-stub"));
+    await writeSkill(agentsRoot, "other-stub", stubSkillMd("other-stub"));
+    await writeSkill(
+      claudeRoot,
+      "bundled-skill",
+      "---\nname: bundled-skill\n---\nShipped by the image.",
+    );
+
+    await expect(
+      listStoreSkillStubs([claudeRoot, agentsRoot]),
+    ).resolves.toEqual(["kept-stub", "other-stub"]);
   });
 
   it("removes every stub when the store is off for the user, and leaves real skills", async () => {

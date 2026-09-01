@@ -139,6 +139,7 @@ import {
   buildStoreSkillsInstructions,
   getStoreSkillRoots,
   installStoreSkillsArchive,
+  listStoreSkillStubs,
   removeStoreSkillStubs,
   STORE_SKILLS_BUNDLE_LIMIT,
 } from "./store-skills";
@@ -3799,11 +3800,15 @@ export class AgentServer {
       );
       if (result.kind === "error") {
         // Stubs from an earlier session stay: a transient failure says nothing
-        // about what the user can still access.
+        // about what the user can still access. The harness still lists them,
+        // so the pointer instructions must stay in the prompt too.
+        const retained = await listStoreSkillStubs(getStoreSkillRoots());
+        this.storeSkillsInstalledCount = retained.length;
         this.logger.warn("Skills store bundle fetch failed", {
           ...context,
           status: result.status,
           ...(result.message && { error: result.message }),
+          retained,
         });
         return;
       }

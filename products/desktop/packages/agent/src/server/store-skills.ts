@@ -1,4 +1,11 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { unzipSync } from "fflate";
@@ -51,10 +58,10 @@ export function getStoreSkillRoots(
   options: StoreSkillRootsOptions = {},
 ): string[] {
   const home = options.home ?? homedir();
+  // `||`, not `??`: the Claude adapter treats an empty CLAUDE_CONFIG_DIR as unset, and so must this.
   const claudeConfigDir =
     options.claudeConfigDir ??
-    process.env.CLAUDE_CONFIG_DIR ??
-    join(home, ".claude");
+    (process.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
   return [join(claudeConfigDir, "skills"), join(home, ".agents", "skills")];
 }
 
@@ -137,6 +144,23 @@ export async function removeStoreSkillStubs(
   return { removed: [...removed].sort(), errors };
 }
 
+/** Names of the store stubs on disk across the roots, for a session that keeps the previous install. */
+export async function listStoreSkillStubs(
+  skillRoots: string[],
+): Promise<string[]> {
+  const names = new Set<string>();
+  for (const root of skillRoots) {
+    try {
+      for (const name of await listStoreStubs(root)) {
+        names.add(name);
+      }
+    } catch {
+      // A root that cannot be read has no stubs to report.
+    }
+  }
+  return [...names].sort();
+}
+
 export function buildStoreSkillsInstructions(installedCount: number): string {
   if (installedCount === 0) {
     return "";
@@ -211,6 +235,19 @@ async function pruneStaleStubs(
   root: string,
   keep: ReadonlyMap<string, unknown>,
 ): Promise<string[]> {
+  const removed: string[] = [];
+  for (const name of await listStoreStubs(root)) {
+    if (keep.has(name)) {
+      continue;
+    }
+    await rm(join(root, name), { recursive: true, force: true });
+    removed.push(name);
+  }
+  return removed;
+}
+
+/** Names of the directories under `root` whose SKILL.md carries the store marker. */
+async function listStoreStubs(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true }).catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
@@ -219,24 +256,25 @@ async function pruneStaleStubs(
       throw error;
     },
   );
-  const removed: string[] = [];
+  const names: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || keep.has(entry.name)) {
-      continue;
-    }
-    const skillDir = join(root, entry.name);
-    if (await isStoreStub(skillDir)) {
-      await rm(skillDir, { recursive: true, force: true });
-      removed.push(entry.name);
+    if (entry.isDirectory() && (await isStoreStub(join(root, entry.name)))) {
+      names.push(entry.name);
     }
   }
-  return removed;
+  return names;
 }
 
-/** True when nothing is there, or when what is there is a stub the store wrote earlier. */
+/**
+ * True when nothing is there, or when what is there is a stub the store wrote
+ * earlier. A directory with no SKILL.md is somebody else's and is kept.
+ */
 async function isReplaceable(skillDir: string): Promise<boolean> {
-  const existing = await readSkillMd(skillDir);
-  return existing === null || hasStoreMarker(existing);
+  const present = await stat(skillDir).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => error.code !== "ENOENT",
+  );
+  return !present || (await isStoreStub(skillDir));
 }
 
 async function isStoreStub(skillDir: string): Promise<boolean> {
