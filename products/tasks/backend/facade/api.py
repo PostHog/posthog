@@ -40,6 +40,7 @@ from django.db.models import (
     Func,
     IntegerField,
     Min,
+    Model,
     OuterRef,
     Q,
     QuerySet,
@@ -7234,20 +7235,20 @@ def _slack_queue_workflow_id(slack_workspace_id: str | None, channel: str, threa
     """The per-conversation queue workflow (`slack-app-mention-…`) that fronts every
     per-message mention workflow. A message can stall or be deduped there before any
     run exists, so the debug view links it at the thread level."""
-    from posthog.temporal.ai.slack_app.slack_app_mention import (  # noqa: PLC0415 — keeps temporalio off the import path
-        slack_app_mention_queue_workflow_id,
-    )
+    from products.slack_app.backend.helpers import slack_app_mention_queue_workflow_id  # noqa: PLC0415
 
     if not slack_workspace_id:
         return None
     return slack_app_mention_queue_workflow_id(slack_workspace_id, channel, thread_ts)
 
 
-def _admin_change_url(app_label: str, model_name: str, pk: Any, *, build_url) -> str:
-    """Django admin change-page URL, built from the stable admin URL layout instead of
-    `reverse` — the admin URLconf is only mounted when ``ADMIN_PORTAL_ENABLED``, and this
-    endpoint only serves PostHog Cloud US, where the portal is always on."""
-    return build_url(f"/admin/{app_label}/{model_name}/{pk}/change/")
+def _admin_change_url(instance: Model, *, build_url) -> str:
+    """Django admin change-page URL for a model row, built from the stable admin URL
+    layout instead of `reverse` — the admin URLconf is only mounted when
+    ``ADMIN_PORTAL_ENABLED``, and this endpoint only serves PostHog Cloud US, where the
+    portal is always on."""
+    meta = instance._meta
+    return build_url(f"/admin/{meta.app_label}/{meta.model_name}/{instance.pk}/change/")
 
 
 def _slack_repo_research_dto(
@@ -7378,7 +7379,7 @@ def resolve_slack_thread_context(
                 repo_research=_slack_repo_research_dto(
                     task.team_id, state, repo_research_runs_by_id, build_task_view_url=build_url
                 ),
-                admin_url=_admin_change_url("tasks", "taskrun", run.id, build_url=build_url),
+                admin_url=_admin_change_url(run, build_url=build_url),
             )
         )
 
@@ -7392,7 +7393,7 @@ def resolve_slack_thread_context(
             mentioning_slack_user_id=mapping.mentioning_slack_user_id,
             queue_workflow_id=queue_workflow_id,
             queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
-            mapping_admin_url=_admin_change_url("slack_app", "slackthreadtaskmapping", mapping.id, build_url=build_url),
+            mapping_admin_url=_admin_change_url(mapping, build_url=build_url),
         ),
         task=contracts.SlackThreadContextTaskDTO(
             id=str(task.id),
@@ -7402,7 +7403,7 @@ def resolve_slack_thread_context(
             origin_product=task.origin_product,
             created_at=task.created_at,
             url=task_url,
-            admin_url=_admin_change_url("tasks", "task", task.id, build_url=build_url),
+            admin_url=_admin_change_url(task, build_url=build_url),
         ),
         runs=run_dtos,
     )

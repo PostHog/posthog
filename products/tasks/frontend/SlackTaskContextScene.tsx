@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SlackThreadContextRepoResearchApi, SlackThreadContextRunApi } from './generated/api.schemas'
-import { slackTaskContextSceneLogic } from './logics/slackTaskContextSceneLogic'
+import { SlackTaskContextSubmissionError, slackTaskContextSceneLogic } from './logics/slackTaskContextSceneLogic'
 
 export const scene: SceneExport = {
     component: SlackTaskContextScene,
@@ -66,25 +66,7 @@ export function SlackTaskContextScene(): JSX.Element {
 
             {submissionError ? (
                 <LemonBanner type="error">
-                    {submissionError.status === 403 ? (
-                        'This endpoint is restricted to PostHog-internal debugging (team 2).'
-                    ) : submissionError.status === 404 ? (
-                        <div className="space-y-1">
-                            <div>No Slack → task mapping found for that thread.</div>
-                            {submissionError.queueWorkflowId ? (
-                                <div className="text-sm font-normal">
-                                    The message may still be queued (or was dropped) before a task was created. Check
-                                    the mention queue workflow:{' '}
-                                    <WorkflowLink
-                                        id={submissionError.queueWorkflowId}
-                                        url={submissionError.queueWorkflowUrl ?? null}
-                                    />
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : (
-                        submissionError.detail || 'Request failed.'
-                    )}
+                    <SubmissionErrorContent error={submissionError} />
                 </LemonBanner>
             ) : null}
 
@@ -97,6 +79,26 @@ export function SlackTaskContextScene(): JSX.Element {
             {result ? <SlackTaskContextResult result={result} /> : null}
         </SceneContent>
     )
+}
+
+function SubmissionErrorContent({ error }: { error: SlackTaskContextSubmissionError }): JSX.Element {
+    if (error.status === 403) {
+        return <>This endpoint is restricted to PostHog-internal debugging (team 2).</>
+    }
+    if (error.status === 404) {
+        return (
+            <div className="space-y-1">
+                <div>No Slack → task mapping found for that thread.</div>
+                {error.queueWorkflowId ? (
+                    <div className="text-sm font-normal">
+                        The message may still be queued (or was dropped) before a task was created. Check the mention
+                        queue workflow: <WorkflowLink id={error.queueWorkflowId} url={error.queueWorkflowUrl ?? null} />
+                    </div>
+                ) : null}
+            </div>
+        )
+    }
+    return <>{error.detail || 'Request failed.'}</>
 }
 
 function SlackTaskContextResult({

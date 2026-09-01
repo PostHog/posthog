@@ -77354,11 +77354,8 @@ export namespace Schemas {
       created_at: string;
       /** Absolute URL to the task detail page in the PostHog app. */
       url: string;
-      /**
-         * Absolute URL to the Task row in Django admin.
-         * @nullable
-         */
-      admin_url: string | null;
+      /** Absolute URL to the Task row in Django admin. */
+      admin_url: string;
     }
 
     /**
@@ -77417,11 +77414,8 @@ export namespace Schemas {
       log_url: string | null;
       /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
       repo_research: SlackThreadContextRepoResearch | null;
-      /**
-         * Absolute URL to the TaskRun row in Django admin (includes a log download action).
-         * @nullable
-         */
-      admin_url: string | null;
+      /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */
+      admin_url: string;
     }
 
     /**

@@ -134,14 +134,12 @@ export const slackTaskContextSceneLogic = kea<slackTaskContextSceneLogicType>([
                                 : typeof e?.response?.status === 'number'
                                   ? e.response.status
                                   : null
-                        const detail: string =
-                            e?.data?.detail ?? e?.response?.data?.detail ?? e?.message ?? 'Request failed.'
-                        const errorThread = e?.data?.thread ?? e?.response?.data?.thread
+                        const errorBody = e?.data ?? e?.response?.data
                         actions.setSubmissionError({
                             status,
-                            detail,
-                            queueWorkflowId: errorThread?.queue_workflow_id ?? null,
-                            queueWorkflowUrl: errorThread?.queue_workflow_url ?? null,
+                            detail: errorBody?.detail ?? e?.message ?? 'Request failed.',
+                            queueWorkflowId: errorBody?.thread?.queue_workflow_id ?? null,
+                            queueWorkflowUrl: errorBody?.thread?.queue_workflow_url ?? null,
                         })
                         return null
                     }

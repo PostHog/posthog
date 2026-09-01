@@ -4114,10 +4114,7 @@ class SlackThreadContextTaskSerializer(serializers.Serializer):
     origin_product = serializers.CharField(help_text="`Task.OriginProduct` (`slack` for slack-originated tasks).")
     created_at = serializers.DateTimeField(help_text="When the task was created (server-side timestamp).")
     url = serializers.CharField(help_text="Absolute URL to the task detail page in the PostHog app.")
-    admin_url = serializers.CharField(
-        allow_null=True,
-        help_text="Absolute URL to the Task row in Django admin.",
-    )
+    admin_url = serializers.CharField(help_text="Absolute URL to the Task row in Django admin.")
 
 
 class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
@@ -4211,7 +4208,6 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         help_text="The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous.",
     )
     admin_url = serializers.CharField(
-        allow_null=True,
         help_text="Absolute URL to the TaskRun row in Django admin (includes a log download action).",
     )
 

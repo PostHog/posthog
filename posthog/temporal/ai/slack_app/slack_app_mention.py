@@ -20,6 +20,8 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.slack_app.backend.helpers import slack_app_mention_queue_workflow_id
+
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
@@ -46,15 +48,6 @@ SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
 # only keeps their marker compatible across the deploy that removes the gate, and comes
 # out on the same lifecycle as the seeding patch above.
 SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH = "slack-app-mention-child-timeout"
-
-
-def slack_app_mention_queue_workflow_id(slack_team_id: str, channel: str, thread_ts: str) -> str:
-    """Conversation-scoped queue workflow ID: one per thread (or DM thread).
-
-    Also derivable after the fact from a ``SlackThreadTaskMapping`` row, which is how
-    the slack-thread debug endpoint reconstructs the queue workflow for a thread.
-    """
-    return f"slack-app-mention-{slack_team_id}:{channel}:{thread_ts}"
 
 
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:

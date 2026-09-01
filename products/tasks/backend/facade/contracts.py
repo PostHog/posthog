@@ -492,8 +492,8 @@ class SlackThreadContextRunDTO:
     mention_workflow_url: str | None
     task_view_url: str
     log_url: str | None
+    admin_url: str
     repo_research: SlackThreadContextRepoResearchDTO | None = None
-    admin_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -505,8 +505,9 @@ class SlackThreadContextThreadDTO:
     thread_ts: str
     slack_workspace_id: str | None
     mentioning_slack_user_id: str | None
-    queue_workflow_id: str | None = None
-    queue_workflow_url: str | None = None
+    queue_workflow_id: str | None
+    queue_workflow_url: str | None
+    # Null on the no-mapping path, where there is no row to link.
     mapping_admin_url: str | None = None
 
 
@@ -521,7 +522,7 @@ class SlackThreadContextTaskDTO:
     origin_product: str
     created_at: datetime | None
     url: str
-    admin_url: str | None = None
+    admin_url: str
 
 
 @dataclass(frozen=True)
