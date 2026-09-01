@@ -961,6 +961,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.startPolling()
             }
         },
+        selectedTab: () => {
+            // Switching tabs inside an already-open panel changes the support surface without
+            // touching sidePanelOpen, so re-evaluate the cadence — otherwise the timer keeps its
+            // previous interval until it next fires (e.g. entering Support still polls at 60s).
+            actions.startPolling()
+        },
         isEmailFormOpen: (open: boolean) => {
             if (open) {
                 actions.startTicketFromSupportForm()
