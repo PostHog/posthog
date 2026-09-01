@@ -594,6 +594,95 @@ def test_verify_queued_request_keeps_status_when_events_remain(cluster: Clickhou
 
 
 @pytest.mark.django_db
+def test_verify_queued_request_promotes_property_removal_when_property_gone(cluster: ClickhouseCluster):
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    now = datetime.now()
+    cluster.any_host(_truncate_writable_events).result()
+    # Events stay after property removal; they match the event criteria but no longer carry "email".
+    stripped = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), json.dumps({"keep": "yes"})) for i in range(3)
+    ]
+    cluster.any_host(partial(_insert_events_with_person_properties, stripped)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    outcome = verify_queued_request(request)
+
+    assert outcome.remaining == 0
+    assert outcome.promoted is True
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_verify_queued_request_keeps_property_removal_when_property_present(cluster: ClickhouseCluster):
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    now = datetime.now()
+    cluster.any_host(_truncate_writable_events).result()
+    carrying = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), json.dumps({"email": "user@example.com"}))
+        for i in range(3)
+    ]
+    cluster.any_host(partial(_insert_events_with_person_properties, carrying)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    outcome = verify_queued_request(request)
+
+    assert outcome.remaining == 3
+    assert outcome.promoted is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_verify_queued_request_never_promotes_person_removal():
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    outcome = verify_queued_request(request)
+
+    assert outcome.remaining is None
+    assert outcome.promoted is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+
+@pytest.mark.django_db
 def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseCluster):
     from django.utils import timezone
 

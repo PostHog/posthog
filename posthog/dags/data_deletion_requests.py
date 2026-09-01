@@ -1649,9 +1649,12 @@ def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, conf
         if outcome.promoted:
             promoted += 1
             context.log.info(f"Deletion request {request.pk} promoted QUEUED → COMPLETED.")
+        elif outcome.remaining is None:
+            still_queued += 1
+            context.log.info(f"Deletion request {request.pk}: no automated verification, kept QUEUED.")
         else:
             still_queued += 1
-            context.log.info(f"Deletion request {request.pk}: {outcome.remaining} matching events remain, kept QUEUED.")
+            context.log.info(f"Deletion request {request.pk}: {outcome.remaining} matching rows remain, kept QUEUED.")
     context.add_output_metadata(
         {
             "promoted": dagster.MetadataValue.int(promoted),

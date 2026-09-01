@@ -936,7 +936,7 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
 
 @dataclass
 class VerifyOutcome:
-    remaining: int
+    remaining: int | None
     promoted: bool
 
 
@@ -948,14 +948,17 @@ VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 
 
 def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
-    """Verify an event-removal request and promote it to COMPLETED when its events are gone.
+    """Verify a deletion request and promote it to COMPLETED when its remaining rows are gone.
 
-    Counts events still matching the request in ClickHouse. When zero remain and the request is in a
-    verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED via a status-guarded
-    update. Idempotent; safe to call from both the Dagster sweep job and the Django admin button.
+    Counts rows still matching the request in ClickHouse, dispatching by request type: matching
+    events for event removal, events still carrying the target property for property removal.
+    Person removal has no automated remaining-count, so it is never promoted here. When zero remain
+    and the request is in a verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED
+    via a status-guarded update. Idempotent; safe to call from both the Dagster sweep job and the
+    Django admin button.
     """
-    remaining = count_remaining_matching_events(request)
-    if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
+    remaining = count_remaining_for_request(request)
+    if remaining is None or remaining > 0 or request.status not in VERIFIABLE_STATUSES:
         return VerifyOutcome(remaining=remaining, promoted=False)
     promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(
         status=RequestStatus.COMPLETED, updated_at=timezone.now()
