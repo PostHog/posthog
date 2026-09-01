@@ -190,13 +190,16 @@ def build_report_body(
     if not metrics:
         raise RoktAdsError(f"Rokt account grants none of the metrics {endpoint_name} reports on.")
 
+    # No `orderBys`: the Query API only sorts on a requested dimension or metric slug, and
+    # `datetime` is a response-only interval marker rather than a slug, so ordering by it makes
+    # Rokt reject the whole report with a 400. Row order does not matter here anyway - the
+    # incremental cursor takes the max `datetime` over each window and resume is window-based.
     body: dict[str, Any] = {
         "interval": REPORT_INTERVAL,
         "startDate": window.start.isoformat(),
         "endDate": window.end.isoformat(),
         "metrics": metrics,
         "dimensions": endpoint["dimensions"],
-        "orderBys": [{"column": "datetime", "direction": "asc"}],
     }
     if timezone_variation:
         body["timezoneVariation"] = timezone_variation
