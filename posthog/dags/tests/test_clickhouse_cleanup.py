@@ -11,6 +11,7 @@ from unittest.mock import patch
 import dagster
 import psycopg2
 from clickhouse_driver import Client
+from psycopg2 import OperationalError
 
 from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_DELETED_PERSONS_TABLE,
@@ -56,7 +57,7 @@ def persons_database() -> Iterator[psycopg2.extensions.connection]:
 def run_job(cluster: ClickhouseCluster, persons_database, run_config=RUN_FOR_REAL, raise_on_error=True):
     return clickhouse_deletion_sweep_job.execute_in_process(
         run_config=run_config,
-        resources={"cluster": cluster, "persons_database": persons_database},
+        resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
         raise_on_error=raise_on_error,
     )
 
@@ -340,6 +341,42 @@ def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster,
 
 
 @pytest.mark.django_db
+def test_a_dry_run_never_dials_postgres(cluster: ClickhouseCluster, persons_database):
+    # The EU dry run failed at Postgres resource init on a network path a dry run never needed.
+    # Connecting inside the op, after the dry-run return, keeps a dry run ClickHouse-only.
+    run = clickhouse_cleanup.CleanupRun.for_run("dry_run_no_pg", clickhouse_cleanup.CleanupConfig(dry_run=True))
+    with patch.object(clickhouse_cleanup.psycopg2, "connect", side_effect=AssertionError("dialed postgres")):
+        clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, "postgres://unused", run)
+
+
+@pytest.mark.django_db
+def test_a_postgres_connect_failure_drops_the_dictionaries(cluster: ClickhouseCluster, persons_database):
+    # A connect failure at resource init happens before the step exists, so the failure hook
+    # never ran and the run's dictionaries survived on every host. Connecting inside the op
+    # makes it a step failure, and the hook must clean up.
+    create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+
+    real_connect = psycopg2.connect
+
+    def refuse_dsn_connects(*args, **kwargs):
+
+        # Only the op passes a single DSN string; Django's own connections use kwargs and must
+
+        # keep working, or the cohort op fails first and the wrong step trips the hook.
+
+        if args and isinstance(args[0], str):
+            raise OperationalError("connection timed out")
+
+        return real_connect(*args, **kwargs)
+
+    with patch.object(clickhouse_cleanup.psycopg2, "connect", side_effect=refuse_dsn_connects):
+        result = run_job(cluster, persons_database, raise_on_error=False)
+
+    assert not result.success
+    assert cluster.any_host(dictionaries_for_run(result.run_id)).result() == 0
+
+
+@pytest.mark.django_db
 def test_a_capped_run_deletes_a_slice_and_the_next_run_drains_the_rest(cluster: ClickhouseCluster, persons_database):
     # max_persons bounds one run's blast radius; correctness across runs holds because whatever
     # the cap excludes keeps its tombstones. Dropping the cap plumbing or making the capped
@@ -401,10 +438,10 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
             [row] = cursor.fetchall()
             return row
 
-    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     first = queue_row()
 
-    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     assert queue_row() == first
 
     # A drained row must still be re-armed even when deleted_at matches, or the second deletion
@@ -412,7 +449,7 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     with persons_database.cursor() as cursor:
         cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET cleaned_at = now()")
     persons_database.commit()
-    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     rearmed = queue_row()
     assert rearmed[2] is None
     assert rearmed[0] != first[0]
