@@ -163,6 +163,7 @@ function AppliedOutcome({
                             {reading ? (
                                 <>
                                     <MetricReading reading={reading.target} />
+                                    <MetricReading reading={reading.click_through} />
                                     {reading.guardrails.map((guardrail) => (
                                         <MetricReading key={guardrail.metric} reading={guardrail} />
                                     ))}
