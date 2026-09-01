@@ -41,6 +41,7 @@ from posthog.permissions import get_authenticator_scoped_team_ids
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.scout_authorship import resolve_authoring_skill_names
 from products.signals.backend.scout_harness.tools.notes import leave_note
 
@@ -284,8 +285,13 @@ def _repository_feedback(reports: Sequence[SignalReport], dismissals: Mapping[st
     recorded = [dismissals[str(report.id)] for report in reports if str(report.id) in dismissals]
     if not recorded:
         return ""
-    wrong = sorted({dismissal.selected_repository for dismissal in recorded if dismissal.selected_repository})
-    corrected = next((dismissal.corrected_repository for dismissal in recorded if dismissal.corrected_repository), None)
+    # These fields are writable through the generic artefacts API with no format constraint, and a
+    # crafted value could close the backtick span and fake a section every scout reads. Shape-check
+    # them the same way the selection-prompt renderer does; anything malformed drops out here.
+    wrong = sorted({repo for dismissal in recorded if (repo := sanitized_repository(dismissal.selected_repository))})
+    corrected = next(
+        (repo for dismissal in recorded if (repo := sanitized_repository(dismissal.corrected_repository))), None
+    )
     if len(reports) == 1:
         sentence = (
             f"The report targeted `{wrong[0]}`, which was the wrong repository. Do not pick it again for work like this."

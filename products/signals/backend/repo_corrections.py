@@ -103,7 +103,7 @@ def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
         if content.reason != DISMISSAL_REASON_WRONG_REPO:
             continue
         report_id = str(artefact.report_id)
-        lesson = (_repo_or_none(content.selected_repository), _repo_or_none(content.corrected_repository))
+        lesson = (sanitized_repository(content.selected_repository), sanitized_repository(content.corrected_repository))
         if report_id in seen_reports or lesson in seen_lessons:
             continue
         seen_reports.add(report_id)
@@ -124,8 +124,8 @@ def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
     return [
         RepoCorrection(
             report_title=titles.get(report_id),
-            selected_repository=_repo_or_none(content.selected_repository),
-            corrected_repository=_repo_or_none(content.corrected_repository),
+            selected_repository=sanitized_repository(content.selected_repository),
+            corrected_repository=sanitized_repository(content.corrected_repository),
             note=_clean(content.note),
             dismissed_on=dismissed_on,
         )
@@ -157,9 +157,16 @@ def _render(correction: RepoCorrection) -> str:
     return f"- {correction.dismissed_on}: a report{title_clause} selected {selected}; {verdict}.{note_clause}"
 
 
-def _repo_or_none(value: str | None) -> str | None:
-    # Lowercased to match the candidate list the selection agent sees. The state API already
-    # lowercases on write, but the generic artefacts API does not normalize these fields.
+def sanitized_repository(value: str | None) -> str | None:
+    """An 'owner/repo' value safe to render into a prompt, or None when it fails the shape check.
+
+    Shared by every path that renders a stored repository field into an LLM prompt, so the
+    shape gate has one definition. Lowercased to match the candidate list the selection agent
+    sees. The state API already lowercases and shape-checks on write, but dismissal and
+    repo_selection artefacts are also writable through the generic artefacts POST API with no
+    format constraint, and these values land in a prompt where a newline could fake extra list
+    entries or a fabricated section.
+    """
     cleaned = (value or "").strip().lower()
     if not cleaned or len(cleaned) > _MAX_REPO_CHARS or not _REPO_SHAPE_RE.match(cleaned):
         return None
