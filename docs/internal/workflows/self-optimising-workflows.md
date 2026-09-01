@@ -1,7 +1,12 @@
 # Self-optimising workflows
 
 An agent suggests a change to a workflow, a person approves it, and it reaches anyone only through the normal publish.
-Design in the internal RFC [requests-for-comments-internal#1108](https://github.com/PostHog/requests-for-comments-internal/pull/1108); progress in [#92154](https://github.com/PostHog/posthog/issues/92154).
+
+- **What a customer sees**: [Workflow suggestions](https://posthog.com/docs/workflows/suggestions) (PostHog/posthog.com#19863, draft until the rollout starts).
+- **Design**: the internal RFC [requests-for-comments-internal#1108](https://github.com/PostHog/requests-for-comments-internal/pull/1108).
+- **Progress**: [#92154](https://github.com/PostHog/posthog/issues/92154).
+
+This page is the operational half: how to turn it on, what it costs us, and what to query. Anything a customer needs belongs in the public page above.
 
 Everything below is behind the `self-optimising-workflows` feature flag, and off per workflow until someone turns it on.
 
