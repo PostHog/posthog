@@ -9,9 +9,9 @@ import structlog
 import posthoganalytics
 import redis.exceptions
 from django_redis.exceptions import ConnectionInterrupted
-from posthoganalytics import capture_exception
 
 from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
+from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client, get_client
 
 logger = structlog.get_logger(__name__)
@@ -97,7 +97,12 @@ def _note_cache_failure(operation: str, error: Exception) -> None:
         if now < _next_capture_at:
             return
         _next_capture_at = now + _CAPTURE_INTERVAL_SECONDS
-    capture_exception(error)
+    # The failing frame's locals hold the value being cached, and for the log URL cache that value
+    # is a live presigned URL. Code-variable capture attaches those locals whatever properties the
+    # call passes, so it is off here.
+    with posthoganalytics.new_context():
+        posthoganalytics.set_capture_exception_code_variables_context(False)
+        capture_exception(error, additional_properties={"operation": operation})
 
 
 # Per-process stand-in for the shared dedup/cooldown guards while redis is unavailable. A
