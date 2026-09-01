@@ -275,6 +275,9 @@ export interface workflowLogicActions {
     archiveWorkflow: (workflow: HogFlow) => {
         workflow: HogFlow
     } // workflowsLogic
+    workflowCreated: (workflow: HogFlow) => {
+        workflow: HogFlow
+    } // workflowsLogic
     autoSaveWorkflow: () => {
         value: true
     }
@@ -2991,7 +2994,7 @@ export const workflowLogic = kea<workflowLogicType>([
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
-        actions: [workflowsLogic, ['archiveWorkflow'], resourceEditedLogic, ['resourceEdited']],
+        actions: [workflowsLogic, ['archiveWorkflow', 'workflowCreated'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
@@ -4072,6 +4075,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 if (props.id === 'new' && originalWorkflow.id) {
+                    // Tells the index which row its next list read has to contain, so a read that
+                    // doesn't see the create yet doesn't leave the user staring at a list without
+                    // the workflow they just made.
+                    actions.workflowCreated(originalWorkflow)
                     router.actions.replace(
                         urls.workflow(
                             originalWorkflow.id,

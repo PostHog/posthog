@@ -118,15 +118,32 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
         blastRadius: [
             null as BlastRadiusApi | null,
             {
-                loadBlastRadius: async () => {
+                loadBlastRadius: async (_, breakpoint) => {
+                    // The workflow arrives after the panel mounts, so `dedupeKey` and `sendsEmail`
+                    // settle a beat after the first request goes out, and every filter edit queues
+                    // another. Those requests count different things (persons vs deduped sends)
+                    // against different limits, so let the debounce collapse the burst and drop
+                    // anything a later request has superseded — otherwise whichever response is
+                    // slowest wins and the panel shows a count for filters that are no longer set.
+                    await breakpoint(300)
                     if (!props.filters) {
                         return null
                     }
-                    return await api.hogFlows.getBatchTriggerBlastRadius(
-                        props.filters,
-                        props.dedupeKey,
-                        props.sendsEmail
-                    )
+                    let response: BlastRadiusApi
+                    try {
+                        response = await api.hogFlows.getBatchTriggerBlastRadius(
+                            props.filters,
+                            props.dedupeKey,
+                            props.sendsEmail
+                        )
+                    } catch (error) {
+                        // Same for a rejection: filters that are no longer set must not raise the
+                        // "couldn't validate audience size" warning over a count that did resolve.
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
+                    return response
                 },
             },
         ],

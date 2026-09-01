@@ -107,6 +107,7 @@ export function WorkflowsTable(): JSX.Element {
         workflows,
         pagination,
         hasLoadedWorkflows,
+        pendingCreatedWorkflowId,
         filters,
         selectedArchivedWorkflowIds,
         allArchivedSelected,
@@ -353,6 +354,9 @@ export function WorkflowsTable(): JSX.Element {
         hasLoadedWorkflows &&
         !workflowsLoading &&
         workflows.results.length === 0 &&
+        // A workflow was just created but this response missed it; a retry is on its way. Offering
+        // onboarding here would tell someone who just made their first workflow that they have none.
+        !pendingCreatedWorkflowId &&
         !filters.search &&
         !filters.createdBy &&
         filters.status === 'all' &&
