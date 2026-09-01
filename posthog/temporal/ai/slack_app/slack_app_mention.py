@@ -20,6 +20,8 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.slack_app.backend.helpers import slack_app_mention_queue_workflow_id
+
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
@@ -61,7 +63,7 @@ def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflow
     anchor = event.get("thread_ts") or event.get("ts")
     if not channel or not anchor:
         return None
-    return f"slack-app-mention-{inputs.slack_team_id}:{channel}:{anchor}"
+    return slack_app_mention_queue_workflow_id(inputs.slack_team_id, channel, anchor)
 
 
 @workflow.defn(name="slack-app-mention")

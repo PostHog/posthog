@@ -914,7 +914,7 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
     Inbox: {
-        name: 'Inbox',
+        name: 'Self-driving inbox',
         projectBased: true,
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
         docsHref: 'https://posthog.com/docs/self-driving/inbox',
@@ -2270,6 +2270,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Inbox',
+        displayLabel: 'Self-driving inbox',
         intents: [],
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,
