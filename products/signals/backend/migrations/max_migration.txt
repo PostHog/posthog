@@ -1,1 +1,1 @@
-0109_signal_scout_suggestion_set
+0110_signalreportartefact_team_type_recent_idx
