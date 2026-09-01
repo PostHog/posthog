@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
+    EPOCH_RFC_3339,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
     _format_rfc3339,
@@ -116,7 +117,7 @@ class TestMetronomeResources:
         assert "incremental" not in resource["endpoint"]
         assert "starting_on" not in resource["endpoint"]["params"]
 
-    @parameterized.expand([("customers",), ("products",), ("packages",), ("billable_metrics",)])
+    @parameterized.expand([("customers",), ("products",), ("packages",), ("billable_metrics",), ("plans",), ("usage",)])
     def test_endpoints_without_a_time_filter_never_go_incremental(self, endpoint) -> None:
         # Metronome exposes no created/updated filter on these, so an "incremental" sync would
         # still fetch every page and cost the same as a full refresh.
@@ -145,6 +146,17 @@ class TestMetronomeResources:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint, should_use_incremental_field=False)
 
+    def test_usage_resource_sends_the_full_window_in_the_body(self) -> None:
+        # `POST /v1/usage` rejects the request unless the body carries `window_size`, `starting_on`
+        # and `ending_before`. `ending_before` is the sync time, so it can't be a static default.
+        resource = cast(dict[str, Any], get_resource("usage", should_use_incremental_field=False))
+
+        assert resource["endpoint"]["method"] == "post"
+        body = resource["endpoint"]["json"]
+        assert body["window_size"] == "none"
+        assert body["starting_on"] == EPOCH_RFC_3339
+        assert body["ending_before"] > EPOCH_RFC_3339
+
 
 class TestMetronomeSourceResponse:
     @parameterized.expand(
@@ -152,6 +164,8 @@ class TestMetronomeSourceResponse:
             ("customers", ["id"], "created_at"),
             ("audit_logs", ["id"], "timestamp"),
             ("pricing_units", ["id"], None),
+            ("plans", ["id"], None),
+            ("usage", ["customer_id", "billable_metric_id"], None),
         ]
     )
     @patch(f"{TRANSPORT}.rest_api_resource")

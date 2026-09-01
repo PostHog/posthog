@@ -1,5 +1,6 @@
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
@@ -182,7 +183,13 @@ def get_resource(
     # The POST list endpoints take their filters as a body. Two of them accept no filters at all,
     # and still expect a JSON document rather than an empty request.
     if config.method == "post":
-        endpoint_config["json"] = dict(config.json_body)
+        json_body = dict(config.json_body)
+        if config.window_body:
+            # `starting_on` at the epoch means "all usage the account has"; `ending_before` is the
+            # sync time, so each run sees usage through now.
+            json_body["starting_on"] = EPOCH_RFC_3339
+            json_body["ending_before"] = _format_rfc3339(datetime.now(UTC))
+        endpoint_config["json"] = json_body
 
     incremental = _incremental_window(config, incremental_field_name or config.default_incremental_field or "")
     use_incremental = should_use_incremental_field and incremental is not None
