@@ -400,19 +400,19 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
     })
 })
 
-describe('buildStreamItems — intermediate assistant narration collapses, final answer stays', () => {
+describe('buildStreamItems — assistant tool activity: narration collapses, a turn-ending ask bubbles', () => {
     const toolRole = (text: string): CompatMessage => ({ role: 'tool', content: text }) as unknown as CompatMessage
-    const toolCall = (name: string): CompatMessage =>
+    const toolCall = (name: string, args: unknown = {}): CompatMessage =>
         ({
             role: 'assistant',
             content: '',
-            tool_calls: [{ type: 'function', id: 'toolu_1', function: { name, arguments: {} } }],
+            tool_calls: [{ type: 'function', id: 'toolu_1', function: { name, arguments: args } }],
         }) as unknown as CompatMessage
-    const assistantWithToolCall = (text: string, name: string): CompatMessage =>
+    const assistantWithToolCall = (text: string, name: string, args: unknown = {}): CompatMessage =>
         ({
             role: 'assistant',
             content: text,
-            tool_calls: [{ type: 'function', id: 'toolu_1', function: { name, arguments: {} } }],
+            tool_calls: [{ type: 'function', id: 'toolu_1', function: { name, arguments: args } }],
         }) as unknown as CompatMessage
 
     it('collapses Anthropic-style narration (split text msg) that precedes a tool result', () => {
@@ -492,6 +492,102 @@ describe('buildStreamItems — intermediate assistant narration collapses, final
         ])
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble', 'bubble'])
     })
+
+    it.each<[string, CompatMessage[], string]>([
+        [
+            'object arguments nested Desktop-style ({questions: [{question}]})',
+            [
+                userText('Set up my workspace'),
+                thinking('deciding what to ask'),
+                toolCall('AskUserQuestion', {
+                    questions: [{ question: 'Which workspace should I use?', options: ['a', 'b'] }],
+                }),
+            ],
+            'Which workspace should I use?',
+        ],
+        [
+            'truncated string arguments (partial JSON), trimmed',
+            [userText('Deploy this'), toolCall('ask_user_question', '{"question": "  Which region?  ", "singleSel')],
+            'Which region?',
+        ],
+        [
+            'whitespace-only own text falling back to the arguments',
+            [userText('Deploy this'), assistantWithToolCall('   ', 'ask_user', { question: 'Which region?' })],
+            'Which region?',
+        ],
+        [
+            'a parallel sibling call whose payload must not shadow the question',
+            [
+                userText('Assign it'),
+                toolCall('ask_user_question', { question: 'Who should own this?' }),
+                toolCall('log_progress', { message: 'internal note' }),
+            ],
+            'Who should own this?',
+        ],
+        [
+            'trailing non-substantive messages after the ask',
+            [
+                userText('Assign it'),
+                toolCall('ask_user_question', { question: 'Who should own this?' }),
+                assistant(''),
+                userText('<system_reminder>context refreshed</system_reminder>'),
+            ],
+            'Who should own this?',
+        ],
+    ])('bubbles a turn-ending ask with %s', (_label, messages, expected) => {
+        const items = buildStreamItems(messages)
+        const bubbles = items.flatMap((item) => (item.kind === 'bubble' ? [item] : []))
+        // Exactly the user's message and the ask — no shadowed payloads, no blank extras.
+        expect(bubbles.map((item) => item.text)).toEqual([messages[0].content, expected])
+        expect(bubbles[1].nonText).toBe(false)
+    })
+
+    it("bubbles the assistant's spoken words for an Anthropic-split ask (text and tool_use as siblings)", () => {
+        const items = buildStreamItems([
+            userText('Deploy this'),
+            assistant('Which region should I deploy to?'),
+            toolCall('ask_user', { options: ['eu', 'us'] }),
+        ])
+        // The spoken text is the bubble, not a demoted "reasoning" pill, and not duplicated.
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble'])
+        expect(items[1]).toMatchObject({ text: 'Which region should I deploy to?' })
+    })
+
+    it("never renders a routine trailing tool call's payload as assistant speech", () => {
+        const items = buildStreamItems([
+            userText('Fix the bug'),
+            toolCall('git_commit', { message: 'fix: adjust the gate' }),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble'])
+    })
+
+    it('keeps trailing narration internal when its tool call is not an ask', () => {
+        const items = buildStreamItems([
+            userText('Fix the bug'),
+            assistantWithToolCall('Committing the fix now.', 'git_commit', { message: 'fix: adjust' }),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['reasoning'])
+        }
+    })
+
+    it('does not resurface an ask that a tool result already answered', () => {
+        const items = buildStreamItems([
+            userText('Deploy'),
+            toolCall('ask_user', { question: 'Which region?' }),
+            toolResult('eu'),
+            assistant('Done, deployed to EU.'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        expect(items[2]).toMatchObject({ text: 'Done, deployed to EU.' })
+        expect(items.some((i) => i.kind === 'bubble' && i.text.includes('Which region?'))).toBe(false)
+    })
+
+    it('renders nothing extra when a trailing ask carries no readable text', () => {
+        const items = buildStreamItems([userText('Deploy'), toolCall('ask_user', {})])
+        expect(items.map((i) => i.kind)).toEqual(['bubble'])
+    })
 })
 
 describe('captureUnrenderableMessageOnce', () => {
@@ -524,48 +620,5 @@ describe('captureUnrenderableMessageOnce', () => {
         captureUnrenderableMessageOnce(imageMessage('a'), seen)
         captureUnrenderableMessageOnce(imageMessage('b'), seen)
         expect(mockedCapture).toHaveBeenCalledTimes(2)
-    })
-})
-
-describe('buildStreamItems — turn-ending tool call', () => {
-    const askUserToolCall = (args: Record<string, unknown>, text = ''): CompatMessage =>
-        ({
-            role: 'assistant',
-            content: text,
-            tool_calls: [{ id: 'call_1', function: { name: 'ask_user_question', arguments: JSON.stringify(args) } }],
-        }) as unknown as CompatMessage
-
-    it('renders the question from the call arguments when the turn ends on the call', () => {
-        const items = buildStreamItems([
-            thinking('deciding who to ask'),
-            askUserToolCall({ question: 'Which workspace should I use?', singleSelect: true }),
-        ])
-
-        expect(items.map((item) => item.kind)).toEqual(['internal-group', 'bubble'])
-        expect(items[1]).toMatchObject({ kind: 'bubble', text: 'Which workspace should I use?' })
-    })
-
-    it('prefers the message own text over the call arguments', () => {
-        const items = buildStreamItems([askUserToolCall({ question: 'From args' }, 'Which one do you prefer?')])
-
-        expect(items).toHaveLength(1)
-        expect(items[0]).toMatchObject({ kind: 'bubble', text: 'Which one do you prefer?' })
-    })
-
-    it('keeps a mid-turn tool call internal when a result follows', () => {
-        const items = buildStreamItems([
-            askUserToolCall({ question: 'Which region?' }),
-            toolResult('eu'),
-            assistant('Done, deployed to EU.'),
-        ])
-
-        expect(items.map((item) => item.kind)).toEqual(['internal-group', 'bubble'])
-        expect(items[1]).toMatchObject({ kind: 'bubble', text: 'Done, deployed to EU.' })
-    })
-
-    it('changes nothing when the trailing call carries no readable text', () => {
-        const items = buildStreamItems([askUserToolCall({ options: [1, 2, 3] })])
-
-        expect(items).toEqual([])
     })
 })

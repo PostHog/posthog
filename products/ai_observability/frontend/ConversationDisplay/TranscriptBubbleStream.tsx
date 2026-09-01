@@ -19,6 +19,7 @@ import {
     getInternalTagName,
     isInternalToolResultUserMessage,
     isToolStepItem,
+    parseToolArgumentsForDisplay,
 } from '../utils'
 
 // Roles that carry no user-visible content in a chat-app view. System prompts
@@ -155,45 +156,101 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
 }
 
-// Structured ask-the-user tools carry the text shown to the user inside the call arguments.
-const TOOL_CALL_TEXT_ARG_KEYS = ['question', 'prompt', 'message', 'text']
+// The gate is the tool's NAME: only a tool whose purpose is to put a question to the user
+// (Desktop's AskUserQuestion, ask_user_question, ask_followup_question, request_user_input)
+// may render its payload as assistant speech. Gating on argument shape instead would bubble
+// routine trailing calls — git_commit(message=…), create_file(text=…), a subagent prompt=… —
+// whenever a trace ends on one, which is normal for errored or truncated traces.
+const ASK_TOOL_NAME_REGEX = /ask|question|user_input/i
 
-function parsedToolCallArguments(args: unknown): unknown {
-    if (typeof args !== 'string') {
-        return args
-    }
-    try {
-        return JSON.parse(args)
-    } catch {
-        return undefined
-    }
-}
+// Keys that carry the user-facing text inside an ask tool's arguments, in priority order.
+const ASK_ARG_TEXT_KEYS = ['question', 'prompt', 'message', 'text']
 
-function toolCallArgumentText(message: CompatMessage): string {
-    return (
-        (message.tool_calls ?? [])
-            .map((call) => parsedToolCallArguments(call.function?.arguments))
-            .filter(isObject)
-            .flatMap((args) => TOOL_CALL_TEXT_ARG_KEYS.map((key) => args[key]))
-            .find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? ''
+function hasAskLikeCall(message: CompatMessage): boolean {
+    return (message.tool_calls ?? []).some(
+        (call) => typeof call.function?.name === 'string' && ASK_TOOL_NAME_REGEX.test(call.function.name)
     )
 }
 
-// A tool call the stream ends on is the assistant handing the turn to the user, for example
-// asking a question through a structured tool, so it is the turn's content rather than an
-// intermediate step. Any later substantive message means the turn moved on past the call.
-function isTurnEndingToolCall(messages: CompatMessage[], index: number): boolean {
-    const message = messages[index]
-    return (
-        message.role === 'assistant' &&
-        isToolCallMessage(message) &&
-        messages
-            .slice(index + 1)
-            .every((later) => HIDDEN_ROLES.has(later.role) || later.role === INTERNAL_THINKING_ROLE)
+function askQuestionText(message: CompatMessage): string {
+    const argObjects = (message.tool_calls ?? [])
+        .filter((call) => typeof call.function?.name === 'string' && ASK_TOOL_NAME_REGEX.test(call.function.name))
+        .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
+        .flatMap((parsed) => (parsed.kind === 'parsed' && isObject(parsed.value) ? [parsed.value] : []))
+    // Desktop's AskUserQuestion nests the text one level down ({ questions: [{ question: … }] }),
+    // so scan the top level of every ask call first, then one level into object and array children.
+    const nested = argObjects.flatMap((args) =>
+        Object.values(args).flatMap((child) =>
+            Array.isArray(child) ? child.filter(isObject) : isObject(child) ? [child] : []
+        )
     )
+    return (
+        [argObjects, nested]
+            .flatMap((objects) => ASK_ARG_TEXT_KEYS.flatMap((key) => objects.map((args) => args[key])))
+            .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            ?.trim() ?? ''
+    )
+}
+
+function isPlainAssistant(message: CompatMessage): boolean {
+    return message.role === 'assistant' && getInternalLabel(message) === undefined
+}
+
+// Messages that do not end the assistant's turn when they trail it: hidden roles, thinking,
+// tag wrappers, and messages that render nothing. A tool result is NOT skippable — a result
+// arriving after a call means the call was answered and the turn moved on.
+function isTailSkippable(message: CompatMessage): boolean {
+    if (isToolResultEntry(message)) {
+        return false
+    }
+    if (HIDDEN_ROLES.has(message.role) || getInternalLabel(message) !== undefined) {
+        return true
+    }
+    return extractText(message).trim().length === 0 && !hasNonTextContent(message) && !isToolCallMessage(message)
+}
+
+interface TrailingAsk {
+    anchorIndex: number
+    text: string
+    consumedIndices: Set<number>
+}
+
+// A turn that ends on an ask-like tool call is the assistant handing the turn to the user, so
+// it is the turn's content rather than an intermediate step. Providers split one turn
+// differently — OpenAI keeps text and tool calls on one message, Anthropic splits them into
+// sibling messages, and parallel calls arrive as siblings too — so the unit of analysis is the
+// whole trailing run of assistant-side messages, not a single message. The assistant's own
+// words win; the question from the ask call's arguments is the fallback.
+function findTrailingAsk(messages: CompatMessage[]): TrailingAsk | null {
+    const tailStart = messages.findLastIndex((message) => !isPlainAssistant(message) && !isTailSkippable(message)) + 1
+    const assistantEntries = messages
+        .slice(tailStart)
+        .map((message, offset) => ({ message, index: tailStart + offset }))
+        .filter(({ message }) => isPlainAssistant(message))
+    if (!assistantEntries.some(({ message }) => hasAskLikeCall(message))) {
+        return null
+    }
+    const spoken = assistantEntries
+        .map(({ message }) => extractText(message).trim())
+        .filter((text) => text.length > 0)
+        .join('\n\n')
+    const text =
+        spoken || assistantEntries.map(({ message }) => askQuestionText(message)).find((t) => t.length > 0) || ''
+    if (!text) {
+        return null
+    }
+    const consumed = assistantEntries.filter(
+        ({ message }) => hasAskLikeCall(message) || extractText(message).trim().length > 0
+    )
+    return {
+        anchorIndex: consumed[consumed.length - 1].index,
+        text,
+        consumedIndices: new Set(consumed.map(({ index }) => index)),
+    }
 }
 
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
+    const trailingAsk = findTrailingAsk(messages)
     const result: SessionEntry[] = []
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i]
@@ -205,15 +262,17 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
             result.push({ kind: 'internal', message, label: internalLabel })
             continue
         }
+        if (trailingAsk !== null && i === trailingAsk.anchorIndex) {
+            // nonText stays false: the ask is rendered, so the attachments caption and the
+            // unrenderable capture would misreport a message we just displayed.
+            result.push({ kind: 'bubble', message, text: trailingAsk.text, nonText: false })
+            continue
+        }
+        if (trailingAsk?.consumedIndices.has(i)) {
+            continue
+        }
         const text = extractText(message)
         const nonText = hasNonTextContent(message)
-        if (isTurnEndingToolCall(messages, i)) {
-            const bubbleText = text || toolCallArgumentText(message)
-            if (bubbleText) {
-                result.push({ kind: 'bubble', message, text: bubbleText, nonText })
-                continue
-            }
-        }
         if (text.length === 0 && !nonText) {
             continue
         }
