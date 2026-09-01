@@ -13,6 +13,7 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
@@ -325,6 +326,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
     assert call_kwargs["internal"] is True
+    # The description's memory protocol is rendered from this same posture, so a posture that stops
+    # granting the scratchpad would leave the run told to remember with no tool to remember with.
+    assert grants_scratchpad_write(call_kwargs["posthog_mcp_scopes"])
     # The server-generated head branch is the unforgeable end of the run->PR link the review
     # carve-out matches on; dropping the stamp or the description instruction silently kills
     # self-driving reviews (the agent pushes to a name the server never stamped).

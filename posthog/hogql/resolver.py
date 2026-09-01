@@ -2139,7 +2139,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
@@ -2154,14 +2154,14 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect not in {"clickhouse", "trino"}:
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)

@@ -489,10 +489,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                 except Exception:
-                    workflow.logger.warning(
-                        "Failed to clean up staging files",
-                        staging_uri=staging_uri,
-                    )
+                    workflow.logger.warning("Failed to clean up staging files", extra={"staging_uri": staging_uri})
 
         if not failed:
             get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)

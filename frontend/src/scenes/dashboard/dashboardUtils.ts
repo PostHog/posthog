@@ -32,6 +32,7 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 
 export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
     const queryStatus = insight.query_status
@@ -453,6 +454,23 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     }
 
     return encodedFilters
+}
+
+/**
+ * Search params for a dashboard filter change. A filter that constrains nothing drops the param instead
+ * of writing an empty one, so clearing the last filter doesn't leave the dashboard looking overridden on
+ * its next load. Spreading the encoded filter can't do this — it never removes a key already in the URL.
+ */
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    if (isDashboardFilterEmpty(filters)) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(filters) }
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {

@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { fn } from 'storybook/test'
 
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
 import { NotebookCollaborationConflict } from './types'
@@ -112,6 +116,7 @@ const meta: Meta<StoryArgs> = {
     args: {
         showDebug: true,
         onInteractionStateChange: () => {},
+        onCaretChange: fn(),
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
@@ -287,6 +292,23 @@ export const MermaidDiagram: Story = {
     // so the snapshot isn't captured mid-render.
     parameters: {
         testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramEditor: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'edit',
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="notebook-mermaid-editor"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const editButton = await canvas.findByLabelText('Edit diagram')
+        editButton.focus()
+        await userEvent.keyboard('{Enter}')
+        await screen.findByLabelText('Mermaid definition')
     },
 }
 

@@ -334,6 +334,12 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                type: 'github-event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 type: 'slack-message'
                             }
                           | {
@@ -459,6 +465,12 @@ export interface hogFlowEditorTestLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                type: 'github-event'
                             }
                           | {
                                 filters: {

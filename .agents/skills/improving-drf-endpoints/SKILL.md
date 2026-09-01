@@ -53,7 +53,7 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
+6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front. A product enum's entry must point at a re-export in the product's `backend/facade/enums.py`, never at an internal module — an internal target goes stale invisibly when the product refactors (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
 7. **Read vs write serializers are separate** when input shape differs from output
 8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 

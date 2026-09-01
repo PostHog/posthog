@@ -12,6 +12,7 @@ concurrency:
 jobs:
     release:
         name: Publish agent to npm
+        # npm provenance requires a github-hosted runner; Depot registers as self-hosted
         runs-on: ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -66,7 +67,7 @@ jobs:
     rebuild-sandbox-images:
         name: Rebuild tasks sandbox base images
         needs: release
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read

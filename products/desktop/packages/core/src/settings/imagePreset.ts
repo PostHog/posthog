@@ -472,7 +472,7 @@ export function imagePresetBrief(
  * browser or dependency install lands at the version the repository pins and
  * its cache is baked in.
  */
-export type SetupCommandGroup = "dependencies" | "toolchains" | "project";
+type SetupCommandGroup = "dependencies" | "toolchains" | "project";
 
 export const SETUP_COMMAND_GROUPS: readonly {
   id: SetupCommandGroup;
@@ -483,7 +483,7 @@ export const SETUP_COMMAND_GROUPS: readonly {
   { id: "project", label: "Project setup" },
 ];
 
-export interface SetupCommandSuggestion {
+interface SetupCommandSuggestion {
   id: string;
   group: SetupCommandGroup;
   label: string;

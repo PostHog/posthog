@@ -711,6 +711,82 @@ _NOT_OUR_STORAGE = (
 )
 
 
+# Every Django setting naming a bucket the ClickHouse node role can read, so a table's
+# url_pattern must never resolve to one - see _posthog_owned_bucket_names below.
+# test_bucket_settings_are_all_triaged in test_util.py enumerates every "*_BUCKET" setting that
+# exists and fails if one isn't listed here or in _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE,
+# so a newly added "*_BUCKET" setting can't silently miss this check the way this one originally
+# did. BUCKET_PATH and BUCKET_URL are the two names here that don't follow that suffix, so they
+# have to stay listed by hand; the test can't discover either on its own. BUCKET_URL is the
+# warehouse pipelines' actual storage root (an `s3://bucket` URI, not a bare name - see the
+# s3:// handling in _posthog_owned_bucket_names) and is configured independently of
+# DATAWAREHOUSE_BUCKET/BUCKET_PATH, so a deployment that points it at a different bucket was
+# reachable through a table's url_pattern until this line was added.
+#
+# CLICKHOUSE_BACKUPS_BUCKET, DICTIONARY_STAGING_S3_BUCKET, IDENTITY_MATCHING_S3_BUCKET,
+# NOTEBOOKS_FRAME_STORE_S3_BUCKET, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET, and
+# QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
+# `s3(...)` / `BACKUP ... TO S3(...)` with no explicit access key in the query, the same credential-less
+# shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
+#
+# DICTIONARY_STAGING_S3_BUCKET and NOTEBOOKS_FRAME_STORE_S3_BUCKET both fall back to
+# OBJECT_STORAGE_BUCKET, so they widen this set only on a deployment that points either one at a
+# bucket of its own, which cloud does for frames. Both writers (posthog/dags/common/staged_dictionary.py
+# and notebooks' frame_materialize.py) omit credentials whenever their own endpoint setting is empty,
+# and it is empty on prod, so ClickHouse reaches the object through its node role.
+#
+# BATCH_EXPORT_INTERNAL_STAGING_BUCKET is the same shape: internal_stage.py's get_s3_function_call
+# omits credentials whenever _get_s3_credentials() returns None, which it does on every cloud
+# deployment (_uses_object_storage_endpoint() is false there) - "we omit credentials and ClickHouse
+# uses the default credential provider chain" per that function's own docstring. That every team's
+# batch-export data lands there under aioboto3 elsewhere doesn't change that ClickHouse itself
+# writes there keylessly first.
+_POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
+    "BATCH_EXPORT_INTERNAL_STAGING_BUCKET",
+    "BUCKET_PATH",
+    "BUCKET_URL",
+    "CLICKHOUSE_BACKUPS_BUCKET",
+    "DATAWAREHOUSE_BUCKET",
+    "DICTIONARY_STAGING_S3_BUCKET",
+    "IDENTITY_MATCHING_S3_BUCKET",
+    "NOTEBOOKS_FRAME_STORE_S3_BUCKET",
+    "OBJECT_STORAGE_BUCKET",
+    "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",
+    "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET",
+    "SESSION_RECORDING_V2_S3_BUCKET",
+)
+
+# "*_BUCKET" settings checked and found to be read only through a Python process's own boto3/aioboto3
+# client (a different IAM identity than the ClickHouse node role) or to have no reader in this
+# codebase at all - never through ClickHouse's `s3(...)`/`BACKUP...S3(...)`, the credential-less
+# access pattern that makes a bucket reachable by the node role. Each reason names what was actually
+# checked; "no reader found" means exactly that, not a claim that none exists in a non-Python service.
+#
+# This registry can only ever cover buckets a Django setting names. A bucket the node role can read
+# but whose name comes from elsewhere - a database row, a control-plane API call - is invisible to
+# it by construction; posthog/dags/events_backfill_to_duckling.py resolves a per-organization bucket
+# that way, with the same "ClickHouse uses its EC2 instance role, no credentials needed" shape. The
+# load-bearing control against that class is TableSerializer requiring a credential whenever
+# url_pattern is set or changed (products/data_warehouse/backend/presentation/views/table.py), not
+# this list - this registry only backstops the credential-less-by-design tables PostHog's own code
+# creates (self-managed uploads, pipeline syncs), where the URL is known in advance.
+_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
+    "AGENT_BUNDLES_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
+    "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "written via a pre-signed URL over an assumed STS role, and read via aioboto3 - never by ClickHouse",
+    "BILLING_USAGE_REPORTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by posthog/temporal/usage_report/storage.py",
+    "DAGSTER_AI_EVALS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/posthog_ai/dags/utils.py",
+    "DAGSTER_FAVICONS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/web_analytics/dags/cache_favicons.py",
+    "DAGSTER_S3_BUCKET": "read via Dagster's own S3Resource (boto3), the pickle io-manager's storage",
+    "INBOX_RANKING_DATASET_S3_BUCKET": "read via boto3 by products/signals/dags/inbox_ranking/common.py",
+    "MANAGED_MIGRATIONS_TRIAL_S3_BUCKET": "read via boto3 by products/managed_migrations/backend/trial_storage.py",
+    "POSTHOG_JS_S3_BUCKET": "read via boto3 by posthog/models/js_snippet_versioning.py",
+    "QUERY_CACHE_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET": "no reader found in this codebase",
+    "VIDEO_SEGMENT_CLUSTERING_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+}
+
+
 def _posthog_owned_bucket_names() -> set[str]:
     """Buckets PostHog owns, so a table must never be pointed at one.
 
@@ -718,14 +794,18 @@ def _posthog_owned_bucket_names() -> set[str]:
     table carries no credential. These are the buckets that role can reach, and they hold every
     team's data, so reading one across the API would cross the tenant boundary.
     """
-    names = {
-        settings.DATAWAREHOUSE_BUCKET,
-        settings.BUCKET_PATH,
-        settings.OBJECT_STORAGE_BUCKET,
-        settings.SESSION_RECORDING_V2_S3_BUCKET,
-    }
-    # A couple of these settings are configured as `bucket/prefix`; only the bucket identifies storage.
-    return {str(name).strip("/").split("/", 1)[0] for name in names if name}
+    owned: set[str] = set()
+    for setting_name in _POSTHOG_OWNED_BUCKET_SETTING_NAMES:
+        value = getattr(settings, setting_name, None)
+        if not value:
+            continue
+        value = str(value)
+        # BUCKET_URL is a full `s3://bucket` URI rather than a bare bucket name; the rest are
+        # sometimes configured as `bucket/prefix`, where only the leading segment is the bucket.
+        bucket = urlparse(value).netloc if value.startswith("s3://") else value.strip("/").split("/", 1)[0]
+        if bucket:
+            owned.add(bucket)
+    return owned
 
 
 def _validate_url_pattern_is_not_posthog_storage(

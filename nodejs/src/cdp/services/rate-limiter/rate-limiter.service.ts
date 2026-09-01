@@ -95,6 +95,55 @@ redis.call('expire', key, ttlSeconds)
 return granted
 `
 
+// Atomic all-or-nothing claim across two buckets. Same refill math as CLAIM_UP_TO_LUA per bucket,
+// but the claim succeeds only when BOTH buckets can cover the full request, and a denial writes
+// nothing at all — no partial consumption, no timestamp refresh. Without that, a caller retrying a
+// multi-token claim would burn each bucket's partial refill on every attempt and could keep a
+// shared bucket empty without ever succeeding.
+//   KEYS[1..2]   = the two bucket hash keys
+//   ARGV[1]      = requested tokens (integer)
+//   ARGV[2..4]   = capacity, refill/sec, TTL seconds for KEYS[1]
+//   ARGV[5..7]   = capacity, refill/sec, TTL seconds for KEYS[2]
+// Returns {1, 0} on success, {0, i} when bucket i (1-based) is the first that cannot cover it.
+const CLAIM_ALL_OR_NOTHING_PAIR_LUA = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local requested = tonumber(ARGV[1])
+
+local available = {}
+for i = 1, 2 do
+    local capacity = tonumber(ARGV[(i - 1) * 3 + 2])
+    local refillPerSecond = tonumber(ARGV[(i - 1) * 3 + 3])
+    local existing = redis.call('hmget', KEYS[i], 'ts', 'pool')
+    local avail
+    if existing[1] == false then
+        avail = capacity
+    else
+        local elapsedMs = now - tonumber(existing[1])
+        if elapsedMs < 0 then
+            elapsedMs = 0
+        end
+        local currentTokens = capacity
+        if existing[2] ~= false then
+            currentTokens = tonumber(existing[2])
+        end
+        avail = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
+    end
+    if avail < requested then
+        return {0, i}
+    end
+    available[i] = avail
+end
+
+for i = 1, 2 do
+    local ttlSeconds = tonumber(ARGV[(i - 1) * 3 + 4])
+    redis.call('hset', KEYS[i], 'ts', now, 'pool', available[i] - requested)
+    redis.call('expire', KEYS[i], ttlSeconds)
+end
+
+return {1, 0}
+`
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
@@ -181,6 +230,62 @@ export class RateLimiterService {
             })
             claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
             return 0
+        } finally {
+            endTimer()
+        }
+    }
+
+    /**
+     * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes
+     * nothing, so a caller that retries a multi-token claim cannot drain the buckets while never
+     * succeeding. Returns which bucket denied (index into `buckets`), or null when granted.
+     * Runtime errors deny with `deniedIndex: null` — fail-closed, like claimUpTo.
+     */
+    public async claimAllOrNothingPair(
+        buckets: [Omit<ClaimRequest, 'requested'>, Omit<ClaimRequest, 'requested'>],
+        requested: number
+    ): Promise<{ granted: boolean; deniedIndex: 0 | 1 | null }> {
+        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
+        try {
+            const result = await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:claimPair`, timeout: 1000 },
+                (client) =>
+                    client.eval(
+                        CLAIM_ALL_OR_NOTHING_PAIR_LUA,
+                        2,
+                        buckets[0].key,
+                        buckets[1].key,
+                        String(requested),
+                        String(buckets[0].capacity),
+                        String(buckets[0].refillPerSecond),
+                        String(buckets[0].ttlSeconds ?? 3600),
+                        String(buckets[1].capacity),
+                        String(buckets[1].refillPerSecond),
+                        String(buckets[1].ttlSeconds ?? 3600)
+                    )
+            )
+
+            const [granted, deniedBucket] = Array.isArray(result) ? result.map(Number) : [NaN, NaN]
+            if (granted !== 0 && granted !== 1) {
+                logger.warn('🪙', `RateLimiterService(${this.config.name}) pair claim returned invalid result`, {
+                    keys: [buckets[0].key, buckets[1].key],
+                    raw: result,
+                })
+                claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+                return { granted: false, deniedIndex: null }
+            }
+
+            claimCounter.inc({ limiter: this.config.name, result: granted === 1 ? 'granted_full' : 'denied' })
+            return granted === 1
+                ? { granted: true, deniedIndex: null }
+                : { granted: false, deniedIndex: deniedBucket === 2 ? 1 : 0 }
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) pair claim threw`, {
+                keys: [buckets[0].key, buckets[1].key],
+                error: String(err),
+            })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return { granted: false, deniedIndex: null }
         } finally {
             endTimer()
         }
