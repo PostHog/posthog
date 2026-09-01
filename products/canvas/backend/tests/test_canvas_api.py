@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -5,6 +7,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -18,13 +21,16 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
+from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
@@ -34,9 +40,11 @@ class InMemoryStorage:
 
     def __init__(self):
         self.objects: dict[str, bytes] = {}
+        self.extras: dict[str, dict] = {}
 
     def write(self, key, content, extras=None):
         self.objects[key] = content
+        self.extras[key] = extras or {}
 
     def read_bytes(self, key, missing_ok=False):
         return self.objects.get(key)
@@ -44,13 +52,26 @@ class InMemoryStorage:
     def delete_objects(self, keys):
         for key in keys:
             self.objects.pop(key, None)
+        # Matches the real client: returns the keys it could not delete (none here).
+        return []
+
+    def head_object(self, key, bucket=None):
+        if key not in self.objects:
+            return None
+        return {"ContentLength": len(self.objects[key]), "ContentType": self.extras.get(key, {}).get("ContentType")}
+
+    def list_objects(self, prefix, bucket=None):
+        return sorted(key for key in self.objects if key.startswith(prefix)) or None
+
+    def tag(self, key, tags):
+        pass
 
 
 class CanvasAPIBaseTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.storage = InMemoryStorage()
-        for attribute in ("write", "read_bytes", "delete_objects"):
+        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag", "list_objects"):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -1240,6 +1261,390 @@ class TestCanvasDraftBuilds(CanvasAPIBaseTest):
 
         builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
         assert builds["current_version_id"] == head_id
+
+
+PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+class TestCanvasAssets(CanvasAPIBaseTest):
+    def _upload(self, canvas_id: str, data: bytes, name: str = "pixel.png"):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/",
+            {"file": SimpleUploadedFile(name, data)},
+            format="multipart",
+        )
+
+    def _object_ref_project(self, sha256: str, size_bytes: int) -> dict[str, Any]:
+        project = self._project()
+        project["files"]["index.html"] = synthetic_source_project(None)["files"]["index.html"].replace(
+            "<body>", '<body><img src="./assets/pixel.png" />'
+        )
+        project["assets"] = {
+            "assets/pixel.png": {
+                "encoding": "objectRef",
+                "contentType": "image/png",
+                "sha256": sha256,
+                "sizeBytes": size_bytes,
+            }
+        }
+        return project
+
+    def test_uploaded_asset_can_be_referenced_and_read_back(self):
+        canvas_id = self._create_canvas()
+        response = self._upload(canvas_id, PIXEL_PNG)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+        assert body["content_type"] == "image/png"
+        assert body["size_bytes"] == len(PIXEL_PNG)
+
+        # Idempotent: the same bytes land on the same content-addressed key.
+        assert self._upload(canvas_id, PIXEL_PNG).json()["sha256"] == body["sha256"]
+
+        publish = self._publish(canvas_id, project=self._object_ref_project(body["sha256"], body["size_bytes"]))
+        assert publish.status_code == status.HTTP_200_OK, publish.json()
+
+        read = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{body['sha256']}")
+        assert read.status_code == status.HTTP_200_OK
+        assert read.content == PIXEL_PNG
+        assert read["Content-Type"] == "application/octet-stream"
+        assert read["X-Content-Type-Options"] == "nosniff"
+        assert read["Content-Disposition"] == "attachment"
+        assert read["X-Canvas-Asset-Content-Type"] == "image/png"
+
+    @parameterized.expand(
+        [
+            ("not_an_image", b"just some text"),
+            ("html_masquerading", b"<html><body>hello</body></html>"),
+            ("truncated_png", b"\x89PNG\r\n\x1a\n0000"),
+            ("empty", b""),
+        ]
+    )
+    def test_upload_rejects_invalid_content(self, _name: str, data: bytes):
+        canvas_id = self._create_canvas()
+        response = self._upload(canvas_id, data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_with_unknown_object_ref_is_rejected(self):
+        canvas_id = self._create_canvas()
+        response = self._publish(canvas_id, project=self._object_ref_project("ab" * 32, 12))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["diagnostics"][0]["code"] == "asset_missing"
+
+    def _validate(self, canvas_id: str, project: dict):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/validate/",
+            {"project": project},
+            format="json",
+        )
+
+    def test_validate_rejects_unknown_object_ref(self):
+        # validate must predict publish: a structurally valid objectRef whose object is absent is
+        # invalid, matching test_publish_with_unknown_object_ref_is_rejected.
+        canvas_id = self._create_canvas()
+        response = self._validate(canvas_id, self._object_ref_project("ab" * 32, 12))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["valid"] is False
+        assert any(diagnostic["code"] == "asset_missing" for diagnostic in body["diagnostics"])
+
+    def test_validate_accepts_a_present_object_ref(self):
+        canvas_id = self._create_canvas()
+        uploaded = self._upload(canvas_id, PIXEL_PNG).json()
+
+        response = self._validate(canvas_id, self._object_ref_project(uploaded["sha256"], uploaded["size_bytes"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["valid"] is True, response.json()
+
+    def test_asset_read_missing_returns_404(self):
+        canvas_id = self._create_canvas()
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{'ab' * 32}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_asset_read_returns_503_when_storage_unavailable(self):
+        canvas_id = self._create_canvas()
+        with patch.object(build_service.object_storage, "read_bytes", side_effect=ObjectStorageError("read failed")):
+            response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{'ab' * 32}")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_attach_copies_a_task_attachment_into_the_store(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+            storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+            run.artifacts = [{"id": "abc123", "name": "pixel.png", "storage_path": storage_path}]
+            run.save(update_fields=["artifacts"])
+        self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "storage_path": storage_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_by_file_name_uses_the_agents_own_task(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+            storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run.id}/ab12_pixel.png"
+            run.artifacts = [{"id": "ab12", "name": "pixel.png", "storage_path": storage_path}]
+            run.save(update_fields=["artifacts"])
+        self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        client = self._sandbox_client(task.id)
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"file_name": "pixel.png"},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_rejects_a_different_task_named_by_a_sandbox(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            own_task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Own task",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            other_task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Other task",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        other_storage_path = f"tasks/artifacts/team_{self.team.id}/task_{other_task.id}/staged/abc123/pixel.png"
+        self.storage.write(other_storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        client = self._sandbox_client(own_task.id)
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(other_task.id), "storage_path": other_storage_path},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(own_task.id),
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    def test_attach_by_file_name_falls_back_to_a_pending_staged_upload(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.IN_PROGRESS,
+                state={"pending_user_artifact_ids": ["abc123"]},
+            )
+        staged_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+        self.storage.write(staged_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+        tasks_facade.finalize_task_staged_artifacts(
+            task.id,
+            self.team.id,
+            self.user.id,
+            artifacts=[
+                {
+                    "id": "abc123",
+                    "name": "pixel.png",
+                    "type": "user_attachment",
+                    "content_type": "image/png",
+                    "storage_path": staged_path,
+                }
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "file_name": "pixel.png"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_by_file_name_ignores_untracked_staged_objects(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        # Bytes sit under the staging prefix (e.g. an upload the user withdrew before sending),
+        # but nothing records it as an attachment the user actually sent.
+        staged_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+        self.storage.write(staged_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "file_name": "pixel.png"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    def test_attach_rejects_paths_outside_the_tasks_prefix(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        secret_path = f"canvas_source/team_{self.team.id + 1}/other/secret.json.gz"
+        self.storage.write(secret_path, b"secret")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "storage_path": secret_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_attach_rejects_an_untracked_object_under_the_tasks_own_prefix(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        # Object sits under this task's own prefix, satisfying the prefix check, but it is not
+        # named by any run manifest or the staged-artifact cache — for example, an abandoned
+        # upload the caller merely knows the path of.
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/untracked/pixel.png"
+        self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "storage_path": storage_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_attach_rejects_an_oversized_attachment_without_reading_it(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/big.png"
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+            run.artifacts = [{"id": "abc123", "name": "big.png", "storage_path": storage_path}]
+            run.save(update_fields=["artifacts"])
+        oversized = contract_limits()["maxAssetFileBytes"] + 1
+        with (
+            patch.object(
+                build_service.object_storage,
+                "head_object",
+                return_value={"ContentLength": oversized, "ContentType": "image/png"},
+            ),
+            patch.object(build_service.object_storage, "read_bytes", return_value=None) as read_bytes,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+                {"task_id": str(task.id), "storage_path": storage_path},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        read_bytes.assert_not_called()
+
+    def test_edit_operation_can_set_and_delete_an_asset_reference(self):
+        canvas_id = self._create_canvas()
+        publish = self._publish(canvas_id)
+        assert publish.status_code == status.HTTP_200_OK, publish.json()
+        version_id = publish.json()["current_version_id"]
+        uploaded = self._upload(canvas_id, PIXEL_PNG).json()
+
+        edit = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [
+                    {
+                        "path": "assets/pixel.png",
+                        "asset": {
+                            "sha256": uploaded["sha256"],
+                            "contentType": uploaded["content_type"],
+                            "sizeBytes": uploaded["size_bytes"],
+                        },
+                    }
+                ],
+                "expected_current_version_id": version_id,
+            },
+            format="json",
+        )
+        assert edit.status_code == status.HTTP_200_OK, edit.json()
+
+        source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
+        assert source["project"]["assets"]["assets/pixel.png"]["encoding"] == "objectRef"
+        assert source["project"]["assets"]["assets/pixel.png"]["sha256"] == uploaded["sha256"]
+
+        delete = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [{"path": "assets/pixel.png"}],
+                "expected_current_version_id": edit.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert delete.status_code == status.HTTP_200_OK, delete.json()
+        source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
+        assert source["project"]["assets"] == {}
 
 
 class TestCanvasState(CanvasAPIBaseTest):

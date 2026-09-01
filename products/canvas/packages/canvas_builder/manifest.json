@@ -55,10 +55,13 @@
         "papaparse"
     ],
     "csp": "sandbox allow-scripts; default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; frame-src 'none'; worker-src 'self' blob:",
+    "imageAssetContentTypes": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml"],
     "limits": {
         "maxSourceFiles": 64,
         "maxSourceFileBytes": 524288,
         "maxSourceTotalBytes": 2097152,
+        "maxAssetFileBytes": 4194304,
+        "maxAssetTotalBytes": 8388608,
         "maxArtifactFiles": 256,
         "maxArtifactFileBytes": 4194304,
         "maxArtifactTotalBytes": 12582912,

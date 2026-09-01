@@ -16,6 +16,7 @@ const admitted = Object.fromEntries(
 )
 const runtimeImports = contract.runtimeImports
 const csp = contract.csp
+const imageContentTypes = new Set(contract.imageAssetContentTypes)
 const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
 const builderRequire = createRequire(import.meta.url)
 const htmlTag = /<(script|link)\b[^>]*>/gi
@@ -269,6 +270,18 @@ function sha256(content) {
     return createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
+// Image assets reach the builder either inline (base64 content) or as
+// metadata only (sha256/sizeBytes precomputed by the build service, which
+// side-loads the bytes into the artifact after the build). Either way the
+// manifest entry must describe the raw bytes, not the base64 text.
+function imageAssetMeta(asset) {
+    if (typeof asset.content === 'string') {
+        const bytes = Buffer.from(asset.content, 'base64')
+        return { contentHash: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.byteLength }
+    }
+    return { contentHash: asset.sha256, sizeBytes: asset.sizeBytes }
+}
+
 function normalize(value) {
     return value.replace(/^\.?\//, '')
 }
@@ -383,9 +396,16 @@ async function bundleEntry(project, entry) {
                         return { path: resolved, namespace: workerImport ? 'canvas-worker' : 'canvas' }
                     }
                     const asset = resolveFile(project.assets ?? {}, args.importer, specifier)
-                    return asset
-                        ? { path: asset, namespace: 'canvas-asset' }
-                        : { errors: [{ text: `cannot resolve "${args.path}"` }] }
+                    if (!asset) {
+                        return { errors: [{ text: `cannot resolve "${args.path}"` }] }
+                    }
+                    // A CSS url() token cannot load a JS module. Image assets are
+                    // emitted as artifact files at their source path, so point the
+                    // token at that file, rebased from the stylesheet's assets/ dir.
+                    if (args.kind === 'url-token' && imageContentTypes.has(project.assets[asset].contentType)) {
+                        return { path: path.posix.relative('assets', asset), external: true }
+                    }
+                    return { path: asset, namespace: 'canvas-asset' }
                 }
                 const name = packageName(args.path)
                 if (!Object.hasOwn(project.dependencies, name) || !Object.hasOwn(admitted, name)) {
@@ -407,12 +427,18 @@ async function bundleEntry(project, entry) {
             }))
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-asset' }, (args) => {
                 const asset = project.assets?.[args.path]
-                return asset
-                    ? {
-                          contents: Uint8Array.from(Buffer.from(asset.content, 'base64')),
-                          loader: assetLoader(asset.contentType),
-                      }
-                    : null
+                if (!asset) {
+                    return null
+                }
+                // Images are emitted as artifact files at their source path, so
+                // an import resolves to that URL instead of inlining the bytes.
+                if (imageContentTypes.has(asset.contentType)) {
+                    return { contents: `export default ${JSON.stringify(`./${args.path}`)}`, loader: 'js' }
+                }
+                return {
+                    contents: Uint8Array.from(Buffer.from(asset.content, 'base64')),
+                    loader: assetLoader(asset.contentType),
+                }
             })
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-worker' }, async (args) => {
                 const source = files[args.path]
@@ -541,6 +567,78 @@ async function buildCanvas(project) {
     const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
     files.push(artifact(cssPath, platformCss))
     files.push(artifact(runtimePath, `${runtime}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`))
+    // Image assets become artifact files at their source-relative path, so a
+    // plain <img src="./assets/x.png"> resolves against the entry document with
+    // no HTML rewriting. Every declared image is listed (imported or not) —
+    // the build service side-loads the bytes after the build.
+    const imageAssets = Object.entries(project.assets ?? {}).filter(([, asset]) =>
+        imageContentTypes.has(asset.contentType)
+    )
+    const emittedPaths = new Set([project.entryHtml, ...files.map((file) => file.path)])
+    for (const [assetPath] of imageAssets) {
+        if (emittedPaths.has(assetPath)) {
+            return {
+                contractVersion: 1,
+                status: 'failed',
+                diagnostics: [
+                    diagnostic(
+                        'asset_path_conflict',
+                        `asset "${assetPath}" collides with a build output path`,
+                        assetPath
+                    ),
+                ],
+            }
+        }
+    }
+    // A static <img src> resolves against the artifact origin, so warn when it names a path the
+    // artifact will not carry. Scan the entry HTML and every source file that can hold literal
+    // markup, because a React canvas keeps its <img> tags in TSX, not the synthetic entry shell.
+    // Treat a reference as declared only when it maps to an emitted artifact or a declared image
+    // asset: a source file in project.files is bundled, not emitted at its own path. A dynamic
+    // src={expr} cannot be matched and is left unflagged. These warnings never fail a build.
+    const warnings = []
+    const declaredArtifactPaths = new Set([...emittedPaths, ...imageAssets.map(([assetPath]) => assetPath)])
+    const scannedImageReferences = new Set()
+    for (const [filePath, content] of Object.entries(project.files)) {
+        if (typeof content !== 'string' || !/\.(html?|tsx|jsx)$/i.test(filePath)) {
+            continue
+        }
+        for (const match of content.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+            const reference = match[1]
+            if (scannedImageReferences.has(reference)) {
+                continue
+            }
+            scannedImageReferences.add(reference)
+            if (/^[a-z][a-z0-9+.-]*:/i.test(reference) || reference.startsWith('//')) {
+                continue
+            }
+            if (reference.startsWith('/')) {
+                // A root-relative URL keeps its leading slash in the output and resolves outside
+                // /canvas-artifacts/<token>/, so it 404s even when the target exists. A tag
+                // compiled into the JS bundle cannot be rewritten here, so warn either way.
+                warnings.push({
+                    ...diagnostic(
+                        'asset_not_declared',
+                        `<img src="${reference}"> is root-relative, so it resolves outside the canvas and will render broken — use a relative path like "./${normalize(reference)}"`,
+                        filePath
+                    ),
+                    severity: 'warning',
+                })
+                continue
+            }
+            if (!declaredArtifactPaths.has(normalize(reference))) {
+                warnings.push({
+                    ...diagnostic(
+                        'asset_not_declared',
+                        `<img src="${reference}"> matches no declared asset, so it will render broken — add the file to project.assets`,
+                        filePath
+                    ),
+                    severity: 'warning',
+                })
+            }
+        }
+    }
+    const assetRefs = imageAssets.map(([assetPath]) => ({ path: assetPath }))
     const networkOrigins = project.capabilities?.network?.origins ?? []
     const externalSources = networkOrigins.join(' ')
     const projectCsp = externalSources
@@ -557,7 +655,14 @@ async function buildCanvas(project) {
     files.unshift(artifact(project.entryHtml, html))
     const manifest = {
         entryHtml: project.entryHtml,
-        assets: files.map(({ path, contentHash, sizeBytes }) => ({ path, contentHash, sizeBytes })),
+        assets: [
+            ...files.map(({ path, contentHash, sizeBytes }) => ({ path, contentHash, sizeBytes })),
+            ...imageAssets.map(([assetPath, asset]) => ({
+                path: assetPath,
+                ...imageAssetMeta(asset),
+                contentType: asset.contentType,
+            })),
+        ],
         dependencies: project.dependencies,
         canvasSdkVersion: project.canvasSdkVersion,
         capabilities: project.capabilities ?? {
@@ -570,7 +675,7 @@ async function buildCanvas(project) {
         ...(project.component ? { component: project.component } : {}),
         ...legacy,
     }
-    return { contractVersion: 1, status: 'ready', diagnostics: [], manifest, files }
+    return { contractVersion: 1, status: 'ready', diagnostics: warnings, manifest, files, assetRefs }
 }
 
 let input = ''

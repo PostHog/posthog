@@ -1,4 +1,5 @@
 import os
+import base64
 import hashlib
 import tempfile
 import subprocess
@@ -84,11 +85,11 @@ class TestCanvasCloudBuilder(SimpleTestCase):
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
 
-        files, manifest, diagnostics = validate_builder_output(result)
-        self.assertEqual(diagnostics, [])
-        self.assertEqual(manifest["entryHtml"], "index.html")
-        self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
-        self.assertTrue(any(file["path"].endswith(".js") for file in files))
+        output = validate_builder_output(result)
+        self.assertEqual(output.diagnostics, [])
+        self.assertEqual(output.manifest["entryHtml"], "index.html")
+        self.assertFalse(output.manifest["capabilities"]["posthog"]["inlineQueries"])
+        self.assertTrue(any(file["path"].endswith(".js") for file in output.files))
 
     def test_bundles_every_allowlisted_platform_library(self) -> None:
         # Transitive versions are not pinned, so a caret range can drift onto a
@@ -479,10 +480,10 @@ bridge.port1.close();
             "network": {"origins": ["https://api.example.com"]},
         }
 
-        files, manifest, _ = validate_builder_output(run_cloud_builder(project))
+        output = validate_builder_output(run_cloud_builder(project))
 
-        self.assertEqual(manifest["capabilities"], project["capabilities"])
-        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertEqual(output.manifest["capabilities"], project["capabilities"])
+        html = next(file["content"] for file in output.files if file["path"] == "index.html")
         self.assertIn("connect-src https://api.example.com", html)
         self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
         self.assertIn("img-src 'self' data: blob: https://api.example.com", html)
@@ -502,10 +503,10 @@ bridge.port1.close();
             "network": {"origins": ["https://styles.example.com"]},
         }
 
-        files, _, diagnostics = validate_builder_output(run_cloud_builder(project))
+        output = validate_builder_output(run_cloud_builder(project))
 
-        self.assertEqual(diagnostics, [])
-        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertEqual(output.diagnostics, [])
+        html = next(file["content"] for file in output.files if file["path"] == "index.html")
         # A declared remote stylesheet is not a local build entry, so it stays in
         # the HTML and loads at runtime under the widened style-src CSP, instead
         # of failing the build with entry_not_found.
@@ -570,7 +571,131 @@ bridge.port1.close();
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
         self.assertIn("new Blob", javascript)
-        self.assertIn("data:image/png;base64", javascript)
+        # Image imports resolve to the emitted artifact file, not an inline data URL.
+        self.assertIn("./assets/pixel.png", javascript)
+        self.assertNotIn("data:image/png", javascript)
+        self.assertEqual(result["assetRefs"], [{"path": "assets/pixel.png"}])
+        pixel_bytes = base64.b64decode("iVBORw0KGgo=")
+        manifest_entry = next(asset for asset in result["manifest"]["assets"] if asset["path"] == "assets/pixel.png")
+        self.assertEqual(manifest_entry["contentHash"], hashlib.sha256(pixel_bytes).hexdigest())
+        self.assertEqual(manifest_entry["sizeBytes"], len(pixel_bytes))
+        self.assertEqual(manifest_entry["contentType"], "image/png")
+        validate_builder_output(result)
+
+    def test_emits_metadata_only_image_assets_for_plain_img_tags(self) -> None:
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="./assets/logo.png" /><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["assets"] = {
+            "assets/logo.png": {"encoding": "meta", "contentType": "image/png", "sizeBytes": 8, "sha256": "ab" * 32}
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        self.assertEqual(result["diagnostics"], [])
+        self.assertEqual(result["assetRefs"], [{"path": "assets/logo.png"}])
+        manifest_entry = next(asset for asset in result["manifest"]["assets"] if asset["path"] == "assets/logo.png")
+        self.assertEqual(manifest_entry["contentHash"], "ab" * 32)
+        self.assertEqual(manifest_entry["sizeBytes"], 8)
+
+    def test_builds_css_url_image_references_against_the_emitted_stylesheet(self) -> None:
+        payload = self._project('document.body.dataset.ok = "1"')
+        payload["files"]["index.html"] = (
+            '<link rel="stylesheet" href="/src/styles.css" />'
+            '<div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["files"]["src/styles.css"] = 'body { background-image: url("./logo.png"); }'
+        payload["assets"] = {
+            "src/logo.png": {"encoding": "meta", "contentType": "image/png", "sizeBytes": 8, "sha256": "ab" * 32}
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        self.assertEqual(result["diagnostics"], [])
+        stylesheet = next(file["content"] for file in result["files"] if "background-image" in file["content"])
+        # The stylesheet lands under assets/ while the image is emitted at its
+        # source path, so the url() is rebased up one level, not inlined and not
+        # left pointing at the internal asset namespace.
+        self.assertIn("url(../src/logo.png)", stylesheet)
+        self.assertNotIn("data:image", stylesheet)
+        self.assertNotIn("canvas-asset", stylesheet)
+        self.assertEqual(result["assetRefs"], [{"path": "src/logo.png"}])
+
+    def test_warns_on_img_src_with_no_declared_asset(self) -> None:
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="./assets/missing.png" /><script type="module" src="/src/main.ts"></script>'
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_warns_on_img_src_in_component_source(self) -> None:
+        # A React canvas keeps its markup in TSX, not the synthetic entry shell, so the scan has
+        # to reach source files, not only entryHtml.
+        payload = synthetic_source_project(
+            'import React from "react";\nexport default function Canvas() { return <img src="./assets/missing.png" /> }'
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_warns_on_img_src_pointing_at_a_source_file(self) -> None:
+        # A source file is bundled, not emitted at its own path, so an <img> that names it 404s and
+        # must warn even though the path exists in project.files.
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="./src/logo.svg" /><div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["files"]["src/logo.svg"] = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_warns_on_root_relative_img_src_even_when_declared(self) -> None:
+        # A root-relative URL keeps its leading slash in the output and resolves outside the
+        # artifact's token prefix, so it 404s even though the asset is declared.
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="/assets/logo.png" /><div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["assets"] = {
+            "assets/logo.png": {"encoding": "meta", "contentType": "image/png", "sizeBytes": 8, "sha256": "ab" * 32}
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_fails_on_asset_path_colliding_with_build_output(self) -> None:
+        payload = self._project("")
+        payload["assets"] = {
+            "assets/canvas-runtime.js": {
+                "encoding": "meta",
+                "contentType": "image/png",
+                "sizeBytes": 8,
+                "sha256": "ab" * 32,
+            }
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["diagnostics"][0]["code"], "asset_path_conflict")
 
     def test_bundles_worker_imports_into_the_blob(self) -> None:
         payload = self._project('import workerUrl from "./worker.ts?worker"; new Worker(workerUrl, { type: "module" })')
@@ -597,20 +722,36 @@ bridge.port1.close();
         self.assertNotIn('from"dayjs"', javascript)
 
     def test_source_contract_rejects_active_or_malformed_assets(self) -> None:
-        for content, content_type in (("%%%", "image/png"), ("PGgxLz4=", "text/html")):
+        for asset in (
+            {"encoding": "base64", "contentType": "image/png", "content": "%%%"},
+            {"encoding": "base64", "contentType": "text/html", "content": "PGgxLz4="},
+            {"encoding": "base64", "contentType": "image/png"},
+            {"encoding": "objectRef", "contentType": "image/png"},
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": "not-a-hash", "sizeBytes": 5},
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": "ab" * 32},
+        ):
             payload = self._project("")
-            payload["assets"] = {
-                "assets/file.bin": {
-                    "encoding": "base64",
-                    "contentType": content_type,
-                    "content": content,
-                }
-            }
+            payload["assets"] = {"assets/file.bin": asset}
 
             serializer = CanvasSourceProjectSerializer(data=payload)
 
-            self.assertFalse(serializer.is_valid())
+            self.assertFalse(serializer.is_valid(), asset)
             self.assertIn("assets", serializer.errors)
+
+    def test_source_contract_accepts_object_ref_assets(self) -> None:
+        payload = self._project("")
+        payload["assets"] = {
+            "assets/logo.png": {
+                "encoding": "objectRef",
+                "contentType": "image/png",
+                "sha256": "ab" * 32,
+                "sizeBytes": 128,
+            }
+        }
+
+        serializer = CanvasSourceProjectSerializer(data=payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
 
     def test_rejects_artifact_content_that_does_not_match_manifest(self) -> None:
         result = {

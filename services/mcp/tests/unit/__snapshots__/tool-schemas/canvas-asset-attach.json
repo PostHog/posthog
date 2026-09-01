@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "file_name": {
+            "description": "The attached file's name exactly as it appears in the conversation (e.g. \"photo.png\").",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the canvas to attach the image to.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "file_name"],
+    "type": "object"
+}

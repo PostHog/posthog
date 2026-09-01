@@ -25,6 +25,7 @@ from products.canvas.backend.contract import (
     canonical_network_origin,
     canvas_sdk_version,
     contract_limits,
+    image_asset_content_types,
     platform_dependencies,
 )
 
@@ -143,6 +144,7 @@ _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"'](
 _PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def diagnostic(
@@ -184,28 +186,39 @@ def apply_source_edits(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Apply per-file set/delete operations to a source project.
 
-    Returns the edited project (input untouched) and diagnostics; any
-    diagnostic means the edit set could not be applied atomically.
+    An operation sets a file's content, sets a stored-asset reference, or
+    (with neither) deletes whichever of the two the path names. Returns the
+    edited project (input untouched) and diagnostics; any diagnostic means
+    the edit set could not be applied atomically.
     """
     project = {**project, "files": dict(project["files"])}
+    assets = dict(project.get("assets") or {})
     diagnostics: list[dict[str, Any]] = []
     for operation in operations:
         path = operation["path"]
         content = operation.get("content")
-        if content is None:
-            if path not in project["files"]:
-                diagnostics.append(
-                    diagnostic(
-                        "error",
-                        "edit_target_missing",
-                        f"cannot delete {path} — the project has no file at that path",
-                        path=path,
-                    )
-                )
-                continue
-            del project["files"][path]
-        else:
+        asset = operation.get("asset")
+        if asset is not None:
+            assets[path] = {"encoding": "objectRef", **asset}
+            project["files"].pop(path, None)
+        elif content is not None:
             project["files"][path] = content
+            assets.pop(path, None)
+        elif path in project["files"]:
+            del project["files"][path]
+        elif path in assets:
+            del assets[path]
+        else:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "edit_target_missing",
+                    f"cannot delete {path} — the project has no file or asset at that path",
+                    path=path,
+                )
+            )
+    if assets or "assets" in project:
+        project["assets"] = assets
     return project, diagnostics
 
 
@@ -640,6 +653,17 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
     assets = project.get("assets") or {}
     if project.get("entryHtml") not in files:
         diagnostics.append(diagnostic("error", "missing_entry", "entryHtml must name a file present in files"))
+    for path in sorted(set(files) & set(assets)):
+        # The builder resolves files before assets, so an overlap would silently
+        # serve the file and ignore the asset. A path holds one kind, never both.
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "path_conflict",
+                f"{path} is set as both a file and an asset — a path may hold only one",
+                path=path,
+            )
+        )
     capabilities = project.get("capabilities") or {}
     network_origins = (capabilities.get("network") or {}).get("origins") or []
     for origin in network_origins:
@@ -685,10 +709,49 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                     path=path,
                 )
             )
+    asset_ref_total = 0
     for path, asset in assets.items():
         path_problem = validate_relative_path(path)
         if path_problem is not None:
             diagnostics.append(diagnostic("error", "invalid_path", path_problem, path=path))
+            continue
+        if asset.get("encoding") == "objectRef":
+            # Referenced assets carry metadata only; the bytes live in the
+            # canvas asset store, so they are budgeted separately from source.
+            if asset.get("contentType") not in image_asset_content_types():
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "asset_encoding_unsupported",
+                        "objectRef assets must be images — inline other asset types as base64",
+                        path=path,
+                    )
+                )
+            if not isinstance(asset.get("sha256"), str) or _SHA256_RE.fullmatch(asset["sha256"]) is None:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "invalid_asset",
+                        "objectRef assets must carry the stored object's hex sha256",
+                        path=path,
+                    )
+                )
+            size = asset.get("sizeBytes")
+            if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+                diagnostics.append(
+                    diagnostic("error", "invalid_asset", "objectRef assets must carry a positive sizeBytes", path=path)
+                )
+                continue
+            if size > limits["maxAssetFileBytes"]:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "file_too_large",
+                        f"asset exceeds the {limits['maxAssetFileBytes'] // (1024 * 1024)} MB per-asset limit",
+                        path=path,
+                    )
+                )
+            asset_ref_total += size
             continue
         size = (len(asset.get("content", "")) * 3) // 4
         total_bytes += size
@@ -701,6 +764,14 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                     path=path,
                 )
             )
+    if asset_ref_total > limits["maxAssetTotalBytes"]:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "assets_too_large",
+                f"referenced assets exceed the {limits['maxAssetTotalBytes'] // (1024 * 1024)} MB total limit",
+            )
+        )
     canonical_size = len(json.dumps(project, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     if total_bytes > limits["maxSourceTotalBytes"] or canonical_size > limits["maxSourceTotalBytes"]:
         diagnostics.append(

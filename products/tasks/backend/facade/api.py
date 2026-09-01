@@ -261,6 +261,7 @@ __all__ = [
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
+    "read_task_attachment",
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
@@ -3711,6 +3712,141 @@ def read_task_run_artifact(
     if content is None:
         return None, artifact, "content_missing"
     return content, artifact, None
+
+
+def _task_attachment_path_is_tracked(task: Task, team_id: int, storage_path: str, prefix: str) -> bool:
+    """True when a caller-named ``storage_path`` matches a known attachment.
+
+    Belonging to the task's own prefix is not enough: an abandoned staged upload or another
+    unmanifested object beneath the same prefix would pass that check too. This looks the path
+    up the same two trusted sources ``read_task_attachment``'s ``file_name`` branch resolves
+    from — the staged-artifact cache and the run artifact manifests — instead.
+    """
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_staged_artifacts,
+    )
+    from products.tasks.backend.logic.services.task_comments import (  # noqa: PLC0415 — matches the lazy task_comments imports elsewhere in this module
+        LEGACY_TASK_RUN_LIMIT,
+    )
+
+    staged_prefix = f"{prefix}staged/"
+    if storage_path.startswith(staged_prefix):
+        artifact_id = storage_path[len(staged_prefix) :].split("/", 1)[0]
+        if artifact_id:
+            staged_artifacts, _missing_ids = get_task_staged_artifacts(task, [artifact_id])
+            if any(artifact.get("storage_path") == storage_path for artifact in staged_artifacts):
+                return True
+    manifests = (
+        TaskRun.objects.filter(task_id=task.id, team_id=team_id)
+        .order_by("-created_at", "-id")
+        .values_list("artifacts", flat=True)[:LEGACY_TASK_RUN_LIMIT]
+    )
+    return any(
+        isinstance(artifact, dict) and artifact.get("storage_path") == storage_path
+        for manifest in manifests
+        for artifact in (manifest or [])
+    )
+
+
+def read_task_attachment(
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    storage_path: str | None = None,
+    file_name: str | None = None,
+    max_bytes: int | None = None,
+) -> tuple[bytes, str] | None:
+    """Read one of a task's attachments (staged conversation uploads or run outputs).
+
+    Address it by ``storage_path``, or by ``file_name`` — which resolves against the task's run
+    artifact manifests (newest run first) and then the staged attachments a user has actually
+    sent but a run has not yet consumed, so an agent can name a conversation attachment without
+    knowing where it is stored. Returns ``(content, content_type)``, or ``None`` when the task
+    is not visible, nothing matches, or the object is missing. The prefix check alone only
+    proves a caller-supplied ``storage_path`` belongs to this task, not that it names a tracked
+    attachment, so that case is additionally checked against the run manifests and the staged
+    attachment cache.
+
+    When ``max_bytes`` is set, the object's length is checked from its metadata before the
+    bytes are read, and ``TaskAttachmentTooLarge`` is raised for an oversized object so the
+    caller never loads it into memory.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return None
+    prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/"
+    is_explicit_storage_path = storage_path is not None
+    if storage_path is None:
+        if not file_name:
+            return None
+        from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+            get_task_staged_artifacts,
+        )
+        from products.tasks.backend.logic.services.task_comments import (  # noqa: PLC0415 — matches the lazy task_comments imports elsewhere in this module
+            LEGACY_TASK_RUN_LIMIT,
+        )
+
+        # Project only the artifact manifests and pending-attachment state, and bound the scan
+        # to the newest runs, matching list_artifacts. Loading whole TaskRun rows decrypts an
+        # encrypted column per row.
+        runs = (
+            TaskRun.objects.filter(task_id=task.id, team_id=team_id)
+            .order_by("-created_at", "-id")
+            .values("artifacts", "state")[:LEGACY_TASK_RUN_LIMIT]
+        )
+        pending_artifact_ids: list[str] = []
+        for run in runs:
+            for artifact in reversed(run["artifacts"] or []):
+                if artifact.get("name") == file_name and isinstance(artifact.get("storage_path"), str):
+                    storage_path = artifact["storage_path"]
+                    break
+            if storage_path is not None:
+                break
+            state = run["state"]
+            if isinstance(state, dict):
+                pending_artifact_ids.extend(
+                    str(artifact_id) for artifact_id in state.get("pending_user_artifact_ids") or []
+                )
+        if storage_path is None and pending_artifact_ids:
+            # Resolve only from attachments a user actually sent (tracked by id on a run's
+            # pending state), never from every object under the staging prefix — an abandoned
+            # or withdrawn upload has no such record and must not be attachable.
+            staged_artifacts, _missing_ids = get_task_staged_artifacts(task, pending_artifact_ids)
+            match = next(
+                (
+                    artifact
+                    for artifact in staged_artifacts
+                    if artifact.get("name") == file_name and isinstance(artifact.get("storage_path"), str)
+                ),
+                None,
+            )
+            if match is not None:
+                storage_path = match["storage_path"]
+        if storage_path is None:
+            return None
+    if not storage_path.startswith(prefix):
+        return None
+    if is_explicit_storage_path and not _task_attachment_path_is_tracked(task, team_id, storage_path, prefix):
+        return None
+    head = object_storage.head_object(storage_path)
+    if max_bytes is not None:
+        # Reject an oversized object from its metadata before reading the bytes. A missing head
+        # means the object is absent or unreadable — fall through and let the read return None.
+        size = (head or {}).get("ContentLength")
+        if isinstance(size, int) and size > max_bytes:
+            raise contracts.TaskAttachmentTooLarge(f"The attachment exceeds the {max_bytes} byte limit.")
+    try:
+        content = object_storage.read_bytes(storage_path, missing_ok=True)
+    except Exception:
+        logger.exception("task.attachment_read_failed", extra={"task_id": str(task.id), "storage_path": storage_path})
+        return None
+    if content is None:
+        return None
+    content_type = (head or {}).get("ContentType") or "application/octet-stream"
+    return content, content_type
 
 
 def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int) -> tuple[str, bool] | None:

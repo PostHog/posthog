@@ -5,6 +5,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.http import HttpResponse
 from django.utils import timezone
 
 import structlog
@@ -13,6 +14,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
@@ -26,7 +28,7 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.canvas.backend import build_service, error_reports
+from products.canvas.backend import asset_store, build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -45,6 +47,9 @@ from products.canvas.backend.presentation.serializers import (
     CanvasActionsResponseSerializer,
     CanvasAgentRequestResultSerializer,
     CanvasAgentRequestSerializer,
+    CanvasAssetAttachSerializer,
+    CanvasAssetSerializer,
+    CanvasAssetUploadSerializer,
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
@@ -83,6 +88,7 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskAttachmentTooLarge
 
 logger = structlog.get_logger(__name__)
 
@@ -208,6 +214,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "validate",
         "state",
         "layout",
+        "asset",
     ]
     scope_object_write_actions = [
         "create",
@@ -228,6 +235,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "publish_layout",
         "patch_layout",
         "home",
+        "assets",
+        "attach_asset",
     ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -262,6 +271,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "build_action",
         "publish_layout",
         "patch_layout",
+        "assets",
+        "attach_asset",
     }
 
     @extend_schema(
@@ -559,7 +570,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         payload = CanvasValidateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        diagnostics = validate_source_project(payload.validated_data["project"], kind=canvas.kind)
+        project = payload.validated_data["project"]
+        diagnostics = validate_source_project(project, kind=canvas.kind)
+        if not has_errors(diagnostics):
+            # Match publish and draft: a structurally valid objectRef still needs its stored bytes,
+            # so validate predicts the publish its contract advertises.
+            diagnostics = [*diagnostics, *asset_store.verify_referenced_assets(self.team_id, canvas.id, project)]
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
 
     @extend_schema(
@@ -704,6 +720,165 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             expected_version_id=payload.validated_data["expected_current_version_id"],
         )
 
+    @extend_schema(
+        operation_id="canvases_assets_create",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": (
+                            "The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. "
+                            "The type is detected from the bytes."
+                        ),
+                    },
+                },
+                "required": ["file"],
+            }
+        },
+        responses={
+            201: CanvasAssetSerializer,
+            400: OpenApiResponse(description="The file is empty, too large, or not a supported image."),
+        },
+    )
+    @action(methods=["POST"], detail=True, parser_classes=[MultiPartParser])
+    def assets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Upload one image into the canvas's asset store.
+
+        The response's sha256 identifies the stored bytes. Reference it from a
+        source project as an objectRef `assets` entry (or an edit operation's
+        `asset`), and the published canvas serves it at that path — a plain
+        `<img src="./assets/x.png">` works. Content-addressed and idempotent:
+        re-uploading the same bytes returns the same sha256.
+        """
+        canvas = self.get_object()
+        payload = CanvasAssetUploadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        upload = payload.validated_data["file"]
+        # Reject on the declared size before reading the stream into memory.
+        if upload.size and upload.size > contract_limits()["maxAssetFileBytes"]:
+            return Response(
+                {
+                    "detail": f"Images may be at most {contract_limits()['maxAssetFileBytes'] // (1024 * 1024)} MB.",
+                    "code": "invalid_asset",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return self._store_asset(canvas, upload.read())
+
+    @extend_schema(
+        operation_id="canvases_assets_attach_create",
+        request=CanvasAssetAttachSerializer,
+        responses={
+            201: CanvasAssetSerializer,
+            400: OpenApiResponse(description="The attachment is not a supported image, or is too large."),
+            404: OpenApiResponse(description="The task or attachment was not found in this project."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="assets/attach", required_scopes=["canvas:write", "task:read"])
+    def attach_asset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy an image attached to a task conversation into the canvas's asset store.
+
+        Use this for images a user uploaded into the conversation, instead of
+        re-encoding them as base64: name the attached file, and reference the
+        returned sha256 from the source project as an objectRef asset.
+        """
+        canvas = self.get_object()
+        payload = CanvasAssetAttachSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        body_task_id = payload.validated_data.get("task_id")
+        if self._is_sandbox_authenticated(request):
+            # A sandbox credential is bound to one task; the request body must not
+            # be able to widen that to another task the calling user can merely see.
+            task_id = self._sandbox_task_id(request)
+            if task_id is None:
+                return Response(
+                    {"detail": "This sandbox credential is not bound to a task.", "code": "invalid_input"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if body_task_id is not None and body_task_id != task_id:
+                raise NotFound("The task attachment was not found.")
+        else:
+            task_id = body_task_id
+            if task_id is None:
+                return Response(
+                    {"detail": "Pass task_id: this credential is not bound to a task.", "code": "invalid_input"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        user = self._request_user()
+        max_asset_bytes = contract_limits()["maxAssetFileBytes"]
+        try:
+            attachment = tasks_facade.read_task_attachment(
+                task_id,
+                self.team_id,
+                user.id if user else None,
+                storage_path=payload.validated_data.get("storage_path"),
+                file_name=payload.validated_data.get("file_name"),
+                max_bytes=max_asset_bytes,
+            )
+        except TaskAttachmentTooLarge:
+            return Response(
+                {"detail": f"Images may be at most {max_asset_bytes // (1024 * 1024)} MB.", "code": "invalid_asset"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if attachment is None:
+            raise NotFound("The task attachment was not found.")
+        data, _claimed_content_type = attachment
+        return self._store_asset(canvas, data)
+
+    def _store_asset(self, canvas: Canvas, data: bytes) -> Response:
+        try:
+            stored = asset_store.store_canvas_asset(self.team_id, canvas.id, data)
+        except asset_store.InvalidCanvasAsset as error:
+            return Response({"detail": str(error), "code": "invalid_asset"}, status=status.HTTP_400_BAD_REQUEST)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas asset storage is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas asset stored", canvas, content_type=stored.content_type, size_bytes=stored.size_bytes
+        )
+        return Response(CanvasAssetSerializer(stored).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        operation_id="canvases_asset_retrieve",
+        request=None,
+        responses={
+            (200, "application/octet-stream"): OpenApiTypes.BINARY,
+            404: OpenApiResponse(description="No such asset in this canvas's store."),
+            503: OpenApiResponse(description="Canvas asset storage is temporarily unavailable."),
+        },
+    )
+    @action(methods=["GET"], detail=True, url_path=r"assets/(?P<sha256>[0-9a-f]{64})")
+    def asset(self, request: Request, *args: Any, sha256: str = "", **kwargs: Any) -> HttpResponse:
+        """Read a stored asset's bytes (for editor previews).
+
+        Served as an opaque attachment: the real content type is in the
+        X-Canvas-Asset-Content-Type header, so user-supplied SVG can never
+        execute on the application origin.
+        """
+        canvas = self.get_object()
+        try:
+            data = asset_store.read_canvas_asset(self.team_id, canvas.id, sha256)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas asset storage is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        if data is None:
+            raise NotFound("No such asset in this canvas's store.")
+        response = HttpResponse(data, content_type="application/octet-stream")
+        response["Content-Disposition"] = "attachment"
+        response["X-Content-Type-Options"] = "nosniff"
+        response["X-Canvas-Asset-Content-Type"] = (
+            asset_store.sniff_image_content_type(data) or "application/octet-stream"
+        )
+        response["Cache-Control"] = "private, max-age=31536000, immutable"
+        return response
+
     def _publish(
         self,
         request: Request,
@@ -716,6 +891,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         expected_version_id: str | None,
     ) -> Response:
         diagnostics = validate_source_project(project, kind=canvas.kind)
+        if not has_errors(diagnostics):
+            diagnostics = [*diagnostics, *asset_store.verify_referenced_assets(self.team_id, canvas.id, project)]
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
@@ -842,6 +1019,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         project = payload.validated_data["project"]
         diagnostics = validate_source_project(project, kind=canvas.kind)
+        if not has_errors(diagnostics):
+            diagnostics = [*diagnostics, *asset_store.verify_referenced_assets(self.team_id, canvas.id, project)]
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
         task_id = self._sandbox_task_id(request)

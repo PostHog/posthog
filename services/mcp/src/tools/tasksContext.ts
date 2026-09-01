@@ -7,6 +7,10 @@ export const TASKS_CONTEXT_TOOL_NAMES = [
     'tasks-artifacts-list',
     'tasks-comments-list',
     'tasks-comments-retrieve',
+    // Resolves a conversation attachment from the inbound task context, so it is usable only
+    // by a task-bound sandbox client. Hidden otherwise to keep it out of the catalog for clients
+    // that would always get a 400.
+    'canvas-asset-attach',
 ] as const
 
 async function requestTaskResource<TResult>(

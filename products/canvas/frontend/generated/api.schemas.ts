@@ -269,6 +269,36 @@ export interface CanvasActionResultApi {
 }
 
 /**
+ * A stored canvas image asset. Reference it from a source project as an objectRef assets entry.
+ */
+export interface CanvasAssetApi {
+    /** Content hash identifying the asset. Pass it as the objectRef entry's sha256. */
+    sha256: string
+    /** MIME type detected from the stored bytes. */
+    content_type: string
+    /** Byte size of the stored bytes. */
+    size_bytes: number
+}
+
+/**
+ * Copy an image attached to a task conversation into the canvas's asset store.
+ */
+export interface CanvasAssetAttachApi {
+    /**
+     * Name of the attached file as it appears in the conversation (e.g. 'logo.png').
+     * @maxLength 255
+     */
+    file_name?: string
+    /** Task the file was attached to. Omit to use the calling agent's own task. */
+    task_id?: string
+    /**
+     * The attachment's exact storage path. Pass file_name instead when you only know the name.
+     * @maxLength 1024
+     */
+    storage_path?: string
+}
+
+/**
  * * `queued` - queued
  * * `building` - building
  * * `ready` - ready
@@ -453,11 +483,13 @@ export interface CanvasBuildActionApi {
 
 /**
  * * `base64` - base64
+ * * `objectRef` - objectRef
  */
 export type EncodingEnumApi = (typeof EncodingEnumApi)[keyof typeof EncodingEnumApi]
 
 export const EncodingEnumApi = {
     Base64: 'base64',
+    ObjectRef: 'objectRef',
 } as const
 
 /**
@@ -465,19 +497,22 @@ export const EncodingEnumApi = {
  * * `image/jpeg` - image/jpeg
  * * `image/gif` - image/gif
  * * `image/webp` - image/webp
+ * * `image/avif` - image/avif
  * * `image/svg+xml` - image/svg+xml
  * * `font/woff` - font/woff
  * * `font/woff2` - font/woff2
  * * `application/wasm` - application/wasm
  * * `application/octet-stream` - application/octet-stream
  */
-export type ContentTypeEnumApi = (typeof ContentTypeEnumApi)[keyof typeof ContentTypeEnumApi]
+export type CanvasSourceAssetContentTypeEnumApi =
+    (typeof CanvasSourceAssetContentTypeEnumApi)[keyof typeof CanvasSourceAssetContentTypeEnumApi]
 
-export const ContentTypeEnumApi = {
+export const CanvasSourceAssetContentTypeEnumApi = {
     ImagePng: 'image/png',
     ImageJpeg: 'image/jpeg',
     ImageGif: 'image/gif',
     ImageWebp: 'image/webp',
+    ImageAvif: 'image/avif',
     ImageSvgXml: 'image/svg+xml',
     FontWoff: 'font/woff',
     FontWoff2: 'font/woff2',
@@ -485,14 +520,44 @@ export const ContentTypeEnumApi = {
     ApplicationOctetStream: 'application/octet-stream',
 } as const
 
+/**
+ * One binary asset: inline base64 bytes, or a reference to an uploaded canvas asset.
+ */
 export interface CanvasSourceAssetApi {
+    /** How the bytes are carried: "base64" inline in `content`, or "objectRef" naming an asset already uploaded to this canvas's asset store by its sha256 (images only).
+     *
+     * * `base64` - base64
+     * * `objectRef` - objectRef */
     encoding: EncodingEnumApi
-    contentType: ContentTypeEnumApi
+    /** MIME type of the asset bytes. Image types are emitted as artifact files a plain <img> tag can reference.
+     *
+     * * `image/png` - image/png
+     * * `image/jpeg` - image/jpeg
+     * * `image/gif` - image/gif
+     * * `image/webp` - image/webp
+     * * `image/avif` - image/avif
+     * * `image/svg+xml` - image/svg+xml
+     * * `font/woff` - font/woff
+     * * `font/woff2` - font/woff2
+     * * `application/wasm` - application/wasm
+     * * `application/octet-stream` - application/octet-stream */
+    contentType: CanvasSourceAssetContentTypeEnumApi
     /**
+     * Base64-encoded bytes. Required for base64 encoding.
      * @maxLength 2796204
      * @pattern ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
      */
-    content: string
+    content?: string
+    /**
+     * Hex sha256 identifying the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256?: string
+    /**
+     * Byte size of the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.
+     * @minimum 1
+     */
+    sizeBytes?: number
 }
 
 /**
@@ -681,16 +746,63 @@ export interface PaginatedCanvasDraftListApi {
 }
 
 /**
- * One per-file edit: set a file's content, or delete it.
+ * * `image/png` - image/png
+ * * `image/jpeg` - image/jpeg
+ * * `image/gif` - image/gif
+ * * `image/webp` - image/webp
+ * * `image/avif` - image/avif
+ * * `image/svg+xml` - image/svg+xml
+ */
+export type CanvasSourceEditAssetContentTypeEnumApi =
+    (typeof CanvasSourceEditAssetContentTypeEnumApi)[keyof typeof CanvasSourceEditAssetContentTypeEnumApi]
+
+export const CanvasSourceEditAssetContentTypeEnumApi = {
+    ImagePng: 'image/png',
+    ImageJpeg: 'image/jpeg',
+    ImageGif: 'image/gif',
+    ImageWebp: 'image/webp',
+    ImageAvif: 'image/avif',
+    ImageSvgXml: 'image/svg+xml',
+} as const
+
+/**
+ * A stored-asset reference, exactly as returned by the canvas asset upload endpoints.
+ */
+export interface CanvasSourceEditAssetApi {
+    /**
+     * Hex sha256 identifying the uploaded asset, from the upload or attach response.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /** MIME type of the uploaded asset, from the upload or attach response.
+     *
+     * * `image/png` - image/png
+     * * `image/jpeg` - image/jpeg
+     * * `image/gif` - image/gif
+     * * `image/webp` - image/webp
+     * * `image/avif` - image/avif
+     * * `image/svg+xml` - image/svg+xml */
+    contentType: CanvasSourceEditAssetContentTypeEnumApi
+    /**
+     * Byte size of the uploaded asset, from the upload or attach response.
+     * @minimum 1
+     */
+    sizeBytes: number
+}
+
+/**
+ * One per-path edit: set a file's content, set a stored-asset reference, or delete.
  */
 export interface CanvasSourceEditOperationApi {
-    /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+    /** Project-relative path of the file or asset to write or delete (e.g. "src/canvas.tsx"). */
     path: string
     /**
-     * The file's complete new content. Null (or omitted) deletes the file.
+     * The file's complete new content. With no content and no asset, the path is deleted.
      * @nullable
      */
     content?: string | null
+    /** Set this path to an image asset uploaded to the canvas's asset store, so <img> tags and imports can reference it. Mutually exclusive with content. */
+    asset?: CanvasSourceEditAssetApi
 }
 
 /**
@@ -1429,6 +1541,11 @@ export const CanvasesListKind = {
     Freeform: 'freeform',
     Grid: 'grid',
 } as const
+
+export type CanvasesAssetsCreateBody = {
+    /** The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes. */
+    file: Blob
+}
 
 export type CanvasesBuildsRetrieveParams = {
     /**

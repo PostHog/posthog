@@ -9,6 +9,33 @@ feature: canvas
 url_prefix: /
 ui_apps: {}
 tools:
+    canvas-asset-attach:
+        operation: canvases_assets_attach_create
+        enabled: true
+        scopes:
+            - canvas:write
+            - task:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Attach a conversation image to a canvas
+        description: >
+            Copy an image the user attached to this conversation into the canvas's asset store, by file name. Returns
+            `sha256`, `content_type`, and `size_bytes` — reference them from the project as an `assets` entry
+            `{"encoding": "objectRef", "contentType": ..., "sha256": ..., "sizeBytes": ...}` at a path like
+            "assets/photo.png", then `<img src="./assets/photo.png">` works in the published canvas. This is the way to
+            get image bytes into a canvas: the bytes move server-side, so never re-encode an attached image as base64.
+            Content-addressed and idempotent: attaching the same file again returns the same sha256.
+        exclude_params:
+            - task_id
+            - storage_path
+        param_overrides:
+            id:
+                description: ID of the canvas to attach the image to.
+            file_name:
+                description: The attached file's name exactly as it appears in the conversation (e.g. "photo.png").
+                required: true
     canvas-builds-retrieve:
         operation: canvases_builds_retrieve
         enabled: true
@@ -361,6 +388,12 @@ tools:
         enabled: false
     canvases-actions-retrieve:
         operation: canvases_actions_retrieve
+        enabled: false
+    canvases-asset-retrieve:
+        operation: canvases_asset_retrieve
+        enabled: false
+    canvases-assets-create:
+        operation: canvases_assets_create
         enabled: false
     canvases-build-action-create:
         operation: canvases_build_action_create

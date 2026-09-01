@@ -1,3 +1,4 @@
+import base64
 import hashlib
 from datetime import timedelta
 
@@ -18,18 +19,22 @@ from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
 from products.tasks.backend.models import Channel, Task, TaskThreadMessage
 
 
-def _builder_result(files: dict[str, str], capabilities: dict | None = None) -> dict:
+def _builder_result(
+    files: dict[str, str], capabilities: dict | None = None, image_assets: list[dict] | None = None
+) -> dict:
     manifest_assets = []
     emitted = []
     for path, content in files.items():
         digest = hashlib.sha256(content.encode()).hexdigest()
         manifest_assets.append({"path": path, "contentHash": digest, "sizeBytes": len(content.encode())})
         emitted.append({"path": path, "content": content, "contentHash": digest, "sizeBytes": len(content.encode())})
+    manifest_assets.extend(image_assets or [])
     return {
         "contractVersion": 1,
         "status": "ready",
         "diagnostics": [],
         "files": emitted,
+        "assetRefs": [{"path": entry["path"]} for entry in image_assets or []],
         "manifest": {
             "entryHtml": "index.html",
             "assets": manifest_assets,
@@ -45,7 +50,7 @@ class BuildServiceBaseTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.storage = InMemoryStorage()
-        for attribute in ("write", "read_bytes", "delete_objects"):
+        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag", "list_objects"):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -309,6 +314,170 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert properties["outcome"] == outcome
         assert properties["error_codes"] == error_codes
         assert properties["build_id"] == str(build.id)
+
+
+PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+PIXEL_SHA256 = hashlib.sha256(PIXEL_PNG).hexdigest()
+PIXEL_MANIFEST_ENTRY = {
+    "path": "assets/pixel.png",
+    "contentHash": PIXEL_SHA256,
+    "sizeBytes": len(PIXEL_PNG),
+    "contentType": "image/png",
+}
+
+
+class TestAssetSideLoading(BuildServiceBaseTest):
+    def _publish_with_asset(self, asset: dict) -> CanvasBuild:
+        project = {
+            "schemaVersion": 1,
+            "files": {
+                "index.html": '<img src="./assets/pixel.png" /><script type="module" src="/src/main.ts"></script>',
+                "src/main.ts": "",
+            },
+            "assets": {"assets/pixel.png": asset},
+            "entryHtml": "index.html",
+            "dependencies": {},
+            "canvasSdkVersion": "0.1.0",
+        }
+        _, _, build, _ = build_service.publish_source_project(
+            self.canvas,
+            project=project,
+            prompt=None,
+            name=None,
+            has_expected_version=False,
+            expected_version_id=None,
+            task_id=None,
+            created_by=None,
+        )
+        return build
+
+    def _run(self, build: CanvasBuild) -> None:
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value=_builder_result({"index.html": "<html></html>"}, image_assets=[PIXEL_MANIFEST_ENTRY]),
+        ):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+        build.refresh_from_db()
+
+    def test_inline_image_asset_is_side_loaded_into_the_artifact(self):
+        build = self._publish_with_asset(
+            {"encoding": "base64", "contentType": "image/png", "content": base64.b64encode(PIXEL_PNG).decode()}
+        )
+        self._run(build)
+
+        assert build.status == CanvasBuild.STATUS_READY, build.diagnostics
+        key = f"{build.artifact_object_prefix}/assets/pixel.png"
+        assert self.storage.objects[key] == PIXEL_PNG
+        assert self.storage.extras[key]["ContentType"] == "image/png"
+        assert build.manifest is not None
+        manifest_entry = next(asset for asset in build.manifest["assets"] if asset["path"] == "assets/pixel.png")
+        assert manifest_entry["contentType"] == "image/png"
+        assert manifest_entry["contentHash"] == PIXEL_SHA256
+
+    def test_object_ref_asset_is_side_loaded_from_the_asset_store(self):
+        self.storage.write(
+            build_service.canvas_asset_object_key(self.team.id, self.canvas.id, PIXEL_SHA256),
+            PIXEL_PNG,
+            extras={"ContentType": "image/png"},
+        )
+        build = self._publish_with_asset(
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": PIXEL_SHA256, "sizeBytes": len(PIXEL_PNG)}
+        )
+        self._run(build)
+
+        assert build.status == CanvasBuild.STATUS_READY, build.diagnostics
+        assert self.storage.objects[f"{build.artifact_object_prefix}/assets/pixel.png"] == PIXEL_PNG
+
+    def test_missing_object_ref_fails_the_build_and_cleans_uploads(self):
+        build = self._publish_with_asset(
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": PIXEL_SHA256, "sizeBytes": len(PIXEL_PNG)}
+        )
+        self._run(build)
+
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "asset_missing"
+        assert not any(key.startswith("canvas_artifact/") for key in self.storage.objects)
+
+    def test_tampered_object_ref_fails_the_build(self):
+        self.storage.write(
+            build_service.canvas_asset_object_key(self.team.id, self.canvas.id, PIXEL_SHA256),
+            b"not the pixel",
+        )
+        build = self._publish_with_asset(
+            {"encoding": "objectRef", "contentType": "image/png", "sha256": PIXEL_SHA256, "sizeBytes": len(PIXEL_PNG)}
+        )
+        self._run(build)
+
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "asset_missing"
+
+    def test_mislabeled_content_type_fails_the_build(self):
+        # Bytes are a valid PNG, but the asset (and the matching manifest) declare JPEG. Hash and
+        # size line up, so only sniffing the bytes catches the wrong served type.
+        self.storage.write(
+            build_service.canvas_asset_object_key(self.team.id, self.canvas.id, PIXEL_SHA256),
+            PIXEL_PNG,
+            extras={"ContentType": "image/png"},
+        )
+        build = self._publish_with_asset(
+            {"encoding": "objectRef", "contentType": "image/jpeg", "sha256": PIXEL_SHA256, "sizeBytes": len(PIXEL_PNG)}
+        )
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value=_builder_result(
+                {"index.html": "<html></html>"},
+                image_assets=[{**PIXEL_MANIFEST_ENTRY, "contentType": "image/jpeg"}],
+            ),
+        ):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+        build.refresh_from_db()
+
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "asset_type_mismatch"
+        assert not any(key.startswith("canvas_artifact/") for key in self.storage.objects)
+
+    @parameterized.expand(
+        [
+            ("forged_hash", {**PIXEL_MANIFEST_ENTRY, "contentHash": "ff" * 32}),
+            ("forged_size", {**PIXEL_MANIFEST_ENTRY, "sizeBytes": 1}),
+            ("forged_content_type", {**PIXEL_MANIFEST_ENTRY, "contentType": "text/html"}),
+            ("undeclared_path", {**PIXEL_MANIFEST_ENTRY, "path": "assets/other.png"}),
+        ]
+    )
+    def test_forged_builder_asset_metadata_fails_the_build(self, _name: str, entry: dict):
+        build = self._publish_with_asset(
+            {"encoding": "base64", "contentType": "image/png", "content": base64.b64encode(PIXEL_PNG).decode()}
+        )
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value=_builder_result({"index.html": "<html></html>"}, image_assets=[entry]),
+        ):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+        build.refresh_from_db()
+
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "build_unavailable"
+
+    def test_cleanup_logs_when_delete_objects_leaves_keys(self):
+        # delete_objects reports leftover keys instead of raising, so cleanup must read the
+        # result: a failed build never records its prefix, so a leftover object is unreachable.
+        build = self._publish()
+        keys = ["canvas_artifact/leftover.png"]
+        with patch.object(build_service, "logger") as mock_logger:
+            with patch.object(build_service.object_storage, "delete_objects", return_value=[]):
+                build_service._cleanup_artifact_objects(build, keys)
+            mock_logger.warning.assert_not_called()
+
+            with patch.object(build_service.object_storage, "delete_objects", return_value=keys):
+                build_service._cleanup_artifact_objects(build, keys)
+            mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "canvas_artifact_cleanup_failed"
+        assert mock_logger.warning.call_args.kwargs["failed_count"] == 1
 
 
 class TestBuildDispatch(BuildServiceBaseTest):

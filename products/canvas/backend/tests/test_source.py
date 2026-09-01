@@ -9,6 +9,7 @@ from products.canvas.backend.source import (
     CANVAS_COMPONENT_PATH,
     CANVAS_ENTRY_HTML,
     MAX_CONFIG_SCHEMA_DEPTH,
+    apply_source_edits,
     has_errors,
     synthetic_source_project,
     validate_source_project,
@@ -158,12 +159,133 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 ),
                 "too_many_files",
             ),
+            (
+                "object_ref_non_image",
+                project(
+                    assets={
+                        "assets/blob.wasm": {
+                            "encoding": "objectRef",
+                            "contentType": "application/wasm",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 8,
+                        }
+                    }
+                ),
+                "asset_encoding_unsupported",
+            ),
+            (
+                "object_ref_malformed_hash",
+                project(
+                    assets={
+                        "assets/a.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "nope",
+                            "sizeBytes": 8,
+                        }
+                    }
+                ),
+                "invalid_asset",
+            ),
+            (
+                "object_ref_over_per_asset_cap",
+                project(
+                    assets={
+                        "assets/a.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 4 * 1024 * 1024 + 1,
+                        }
+                    }
+                ),
+                "file_too_large",
+            ),
+            (
+                "object_refs_over_total_budget",
+                project(
+                    assets={
+                        f"assets/{i}.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 3 * 1024 * 1024,
+                        }
+                        for i in range(3)
+                    }
+                ),
+                "assets_too_large",
+            ),
+            (
+                "file_and_asset_share_a_path",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE, "assets/logo.png": "stale"},
+                    assets={
+                        "assets/logo.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 8,
+                        }
+                    },
+                ),
+                "path_conflict",
+            ),
         ]
     )
     def test_invalid_projects_produce_error_diagnostics(self, _name, candidate, expected_code):
         diagnostics = validate_source_project(candidate)
         self.assertTrue(has_errors(diagnostics), diagnostics)
         self.assertIn(expected_code, [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            (
+                "asset_over_file",
+                {
+                    "path": "assets/logo.png",
+                    "asset": {"sha256": "ab" * 32, "contentType": "image/png", "sizeBytes": 8},
+                },
+                "assets",
+            ),
+            ("content_over_asset", {"path": "assets/logo.png", "content": "now a file"}, "files"),
+        ]
+    )
+    def test_edit_switching_a_paths_kind_clears_the_counterpart(self, _name, operation, surviving):
+        # Start with both kinds at one path, then switch it. Only the new kind
+        # may remain — a leftover counterpart is silently served by the builder.
+        base = project(
+            files={CANVAS_COMPONENT_PATH: CODE, "assets/logo.png": "stale file"},
+            assets={
+                "assets/logo.png": {
+                    "encoding": "objectRef",
+                    "contentType": "image/png",
+                    "sha256": "cd" * 32,
+                    "sizeBytes": 8,
+                }
+            },
+        )
+        edited, diagnostics = apply_source_edits(base, [operation])
+        other = "files" if surviving == "assets" else "assets"
+        self.assertEqual(diagnostics, [])
+        self.assertIn("assets/logo.png", edited[surviving])
+        self.assertNotIn("assets/logo.png", edited.get(other, {}))
+
+    def test_object_ref_assets_do_not_count_against_the_source_cap(self):
+        # 2.5 MB per reference is over the whole-project source cap but inside
+        # the separate asset budget — the bytes live in the asset store.
+        candidate = project(
+            assets={
+                f"assets/{i}.png": {
+                    "encoding": "objectRef",
+                    "contentType": "image/png",
+                    "sha256": "ab" * 32,
+                    "sizeBytes": int(2.5 * 1024 * 1024),
+                }
+                for i in range(3)
+            }
+        )
+        self.assertEqual(validate_source_project(candidate), [])
 
     @parameterized.expand(
         [

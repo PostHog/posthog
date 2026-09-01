@@ -223,24 +223,59 @@ class CanvasUpdateSerializer(serializers.Serializer):
 
 
 class CanvasSourceAssetSerializer(serializers.Serializer):
-    encoding = serializers.ChoiceField(choices=["base64"])
+    """One binary asset: inline base64 bytes, or a reference to an uploaded canvas asset."""
+
+    encoding = serializers.ChoiceField(
+        choices=["base64", "objectRef"],
+        help_text=(
+            'How the bytes are carried: "base64" inline in `content`, or "objectRef" naming an asset '
+            "already uploaded to this canvas's asset store by its sha256 (images only)."
+        ),
+    )
     contentType = serializers.ChoiceField(
         choices=[
             "image/png",
             "image/jpeg",
             "image/gif",
             "image/webp",
+            "image/avif",
             "image/svg+xml",
             "font/woff",
             "font/woff2",
             "application/wasm",
             "application/octet-stream",
-        ]
+        ],
+        help_text="MIME type of the asset bytes. Image types are emitted as artifact files a plain <img> tag can reference.",
     )
     content = serializers.RegexField(
         regex=r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
         max_length=_MAX_ASSET_BASE64_LENGTH,
+        required=False,
+        help_text="Base64-encoded bytes. Required for base64 encoding.",
     )
+    sha256 = serializers.RegexField(
+        regex=r"^[0-9a-f]{64}$",
+        required=False,
+        help_text=(
+            "Hex sha256 identifying the uploaded asset, as returned by the asset upload endpoint. "
+            "Required for objectRef encoding."
+        ),
+    )
+    sizeBytes = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Byte size of the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["encoding"] == "base64":
+            if "content" not in attrs:
+                raise serializers.ValidationError({"content": "base64 assets must carry their content."})
+        elif "sha256" not in attrs or "sizeBytes" not in attrs:
+            raise serializers.ValidationError(
+                {"encoding": "objectRef assets must carry the uploaded asset's sha256 and sizeBytes."}
+            )
+        return attrs
 
 
 class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
@@ -673,19 +708,48 @@ class CanvasSourcePublishSerializer(serializers.Serializer):
     )
 
 
+class CanvasSourceEditAssetSerializer(serializers.Serializer):
+    """A stored-asset reference, exactly as returned by the canvas asset upload endpoints."""
+
+    sha256 = serializers.RegexField(
+        regex=r"^[0-9a-f]{64}$",
+        help_text="Hex sha256 identifying the uploaded asset, from the upload or attach response.",
+    )
+    contentType = serializers.ChoiceField(
+        choices=["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml"],
+        help_text="MIME type of the uploaded asset, from the upload or attach response.",
+    )
+    sizeBytes = serializers.IntegerField(
+        min_value=1,
+        help_text="Byte size of the uploaded asset, from the upload or attach response.",
+    )
+
+
 class CanvasSourceEditOperationSerializer(serializers.Serializer):
-    """One per-file edit: set a file's content, or delete it."""
+    """One per-path edit: set a file's content, set a stored-asset reference, or delete."""
 
     path = serializers.CharField(
-        help_text='Project-relative path of the file to write or delete (e.g. "src/canvas.tsx").'
+        help_text='Project-relative path of the file or asset to write or delete (e.g. "src/canvas.tsx").'
     )
     content = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="The file's complete new content. Null (or omitted) deletes the file.",
+        help_text="The file's complete new content. With no content and no asset, the path is deleted.",
     )
+    asset = CanvasSourceEditAssetSerializer(
+        required=False,
+        help_text=(
+            "Set this path to an image asset uploaded to the canvas's asset store, so <img> tags and imports "
+            "can reference it. Mutually exclusive with content."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("content") is not None and attrs.get("asset") is not None:
+            raise serializers.ValidationError("An operation sets content or an asset, not both.")
+        return attrs
 
 
 class CanvasSourceEditSerializer(serializers.Serializer):
@@ -717,6 +781,48 @@ class CanvasSourceEditSerializer(serializers.Serializer):
             "version_conflict — they cannot be published unguarded."
         ),
     )
+
+
+class CanvasAssetUploadSerializer(serializers.Serializer):
+    """Multipart payload for uploading one image into the canvas's asset store."""
+
+    file = serializers.FileField(
+        help_text="The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes."
+    )
+
+
+class CanvasAssetAttachSerializer(serializers.Serializer):
+    """Copy an image attached to a task conversation into the canvas's asset store."""
+
+    file_name = serializers.CharField(
+        required=False,
+        max_length=255,
+        help_text="Name of the attached file as it appears in the conversation (e.g. 'logo.png').",
+    )
+    task_id = serializers.UUIDField(
+        required=False,
+        help_text="Task the file was attached to. Omit to use the calling agent's own task.",
+    )
+    storage_path = serializers.CharField(
+        required=False,
+        max_length=1024,
+        help_text="The attachment's exact storage path. Pass file_name instead when you only know the name.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs.get("file_name") and not attrs.get("storage_path"):
+            raise serializers.ValidationError("Pass file_name (or storage_path) to identify the attachment.")
+        return attrs
+
+
+class CanvasAssetSerializer(serializers.Serializer):
+    """A stored canvas image asset. Reference it from a source project as an objectRef assets entry."""
+
+    sha256 = serializers.CharField(
+        help_text="Content hash identifying the asset. Pass it as the objectRef entry's sha256."
+    )
+    content_type = serializers.CharField(help_text="MIME type detected from the stored bytes.")
+    size_bytes = serializers.IntegerField(help_text="Byte size of the stored bytes.")
 
 
 class CanvasPublishCurrentVersionSerializer(serializers.Serializer):
