@@ -20,6 +20,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
+    SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
@@ -199,7 +200,8 @@ async def deliver_slack(
     except ApplicationError:
         raise
     except Exception as exc:
-        slack_error_code = exc.response.get("error") if isinstance(exc, SlackApiError) else None
+        slack_response = exc.response if isinstance(exc, SlackApiError) else {}
+        slack_error_code = slack_response.get("error")
         _capture_delivery_failed_event(subscription, exc)
         LOGGER.error(
             "deliver_subscription.slack_failed",
@@ -212,9 +214,15 @@ async def deliver_slack(
         capture_exception(exc)
         if slack_error_code in SLACK_USER_CONFIG_ERRORS:
             # Won't self-heal without user action — auto-disable so it stops re-firing.
-            return await auto_disable_and_return(
-                subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
+            needed_scopes = {
+                scope.strip() for scope in str(slack_response.get("needed") or "").split(",") if scope.strip()
+            }
+            reason = (
+                SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON
+                if "files:write" in needed_scopes
+                else SLACK_PERMISSION_REVOKED_DISABLE_REASON
             )
+            return await auto_disable_and_return(subscription, reason, recipient_results)
         raise  # Transient Slack errors — let Temporal retry
 
     if result.is_complete_success:

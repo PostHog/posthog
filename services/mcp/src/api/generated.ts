@@ -27153,6 +27153,14 @@ export namespace Schemas {
     }
 
     /**
+     * Typed view over the Subscription.delivery_config JSON blob.
+     */
+    export interface DeliveryConfig {
+      /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
+      post_all_insights_in_main_message?: boolean;
+    }
+
+    /**
      * * `open_to_gate` - OPEN_TO_GATE
      * * `gate_to_merge` - GATE_TO_MERGE
      */
@@ -46458,6 +46466,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable: boolean;
       /**
          * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
          * @nullable
@@ -57163,6 +57173,8 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      delivery_config?: DeliveryConfig;
     }
 
     export interface PaginatedSubscriptionList {
@@ -63237,6 +63249,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable?: boolean;
       /**
          * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
          * @nullable
@@ -66145,6 +66159,8 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      delivery_config?: DeliveryConfig;
     }
 
     /**
@@ -77494,6 +77510,21 @@ export namespace Schemas {
          * @nullable
          */
       mentioning_slack_user_id: string | null;
+      /**
+         * Temporal workflow id of the per-conversation mention queue (`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's messages before any run exists. Null when the workspace id cannot be resolved.
+         * @nullable
+         */
+      queue_workflow_id: string | null;
+      /**
+         * Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.
+         * @nullable
+         */
+      queue_workflow_url: string | null;
+      /**
+         * Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.
+         * @nullable
+         */
+      mapping_admin_url: string | null;
     }
 
     /**
@@ -77517,6 +77548,8 @@ export namespace Schemas {
       created_at: string;
       /** Absolute URL to the task detail page in the PostHog app. */
       url: string;
+      /** Absolute URL to the Task row in Django admin. */
+      admin_url: string;
     }
 
     /**
@@ -77575,6 +77608,8 @@ export namespace Schemas {
       log_url: string | null;
       /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
       repo_research: SlackThreadContextRepoResearch | null;
+      /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */
+      admin_url: string;
     }
 
     /**
