@@ -55,8 +55,8 @@ fn is_safe_tag_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | ':' | '.')
 }
 
-/// A header value becomes a metric label, so an unbounded or hostile one becomes unbounded
-/// cardinality. Anything outside the safe set collapses to `unknown`.
+/// A caller-controlled value becomes a metric label, so an unbounded or hostile one becomes
+/// unbounded cardinality. Anything outside the safe set collapses to `unknown`.
 fn sanitize_header_tag(raw: &str) -> &str {
     let value = if raw.len() > MAX_HEADER_TAG_LEN {
         &raw[..MAX_HEADER_TAG_LEN]
@@ -84,14 +84,17 @@ fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
 /// Extract the method name from a gRPC URI path, which looks like
 /// `/package.Service/MethodName`.
 ///
-/// Cardinality is bounded because tonic rejects requests to unknown methods before they
-/// reach this middleware.
-fn extract_grpc_method(path: &str) -> String {
-    path.rsplit_once('/')
+/// `Server::layer` wraps tonic's router, so this runs before routing and sees the path of a
+/// request no method will serve. The value is therefore caller-controlled and goes through
+/// the same sanitizer as a header, or one client calling a wrong path mints a series per
+/// path it tries.
+fn extract_grpc_method(path: &str) -> &str {
+    let method = path
+        .rsplit_once('/')
         .map(|(_, method)| method)
         .filter(|method| !method.is_empty())
-        .unwrap_or("unknown")
-        .to_string()
+        .unwrap_or("unknown");
+    sanitize_header_tag(method)
 }
 
 /// The `code` label for a response, in the [`code_as_str`] vocabulary.
@@ -364,6 +367,16 @@ mod tests {
         );
         assert_eq!(extract_grpc_method("/"), "unknown");
         assert_eq!(extract_grpc_method(""), "unknown");
+    }
+
+    #[test]
+    fn a_method_that_would_blow_up_cardinality_becomes_unknown() {
+        // This layer sits above tonic's router, so it labels paths no method will serve.
+        assert_eq!(extract_grpc_method("/pkg.Svc/not a method"), "unknown");
+        assert_eq!(
+            extract_grpc_method(&format!("/pkg.Svc/{}", "a".repeat(8192))).len(),
+            MAX_HEADER_TAG_LEN
+        );
     }
 
     #[test]

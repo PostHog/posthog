@@ -42,22 +42,29 @@ impl UsageIngestionService {
     async fn prepare(
         &self,
         record: BillingUsageRecord,
-        resolved: &mut HashMap<i64, Uuid>,
+        resolved: &mut HashMap<i64, Result<Uuid, &'static str>>,
     ) -> Result<KafkaBillingUsageRecord, PrepareError> {
         if record.team_id <= 0 || record.team_id > i64::from(i32::MAX) {
             return Err(PrepareError::Rejected("invalid_team_id"));
         }
+        // A rejection is memoized alongside a success, so a batch of 500 records from one
+        // unmapped team costs one resolver call rather than 500 cache reads counted as hits.
         let organization_id = match resolved.get(&record.team_id) {
-            Some(value) => *value,
-            None => {
-                let value = self
-                    .resolver
-                    .resolve(record.team_id)
-                    .await
-                    .map_err(prepare_error)?;
-                resolved.insert(record.team_id, value);
-                value
-            }
+            Some(Ok(value)) => *value,
+            Some(Err(reason)) => return Err(PrepareError::Rejected(reason)),
+            None => match self.resolver.resolve(record.team_id).await {
+                Ok(value) => {
+                    resolved.insert(record.team_id, Ok(value));
+                    value
+                }
+                Err(error) => {
+                    let error = prepare_error(error);
+                    if let PrepareError::Rejected(reason) = error {
+                        resolved.insert(record.team_id, Err(reason));
+                    }
+                    return Err(error);
+                }
+            },
         };
 
         KafkaBillingUsageRecord::from_proto(record, organization_id, Utc::now())
@@ -186,6 +193,8 @@ fn prepare_error(error: ResolveError) -> PrepareError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use async_trait::async_trait;
     use common_liveness::SyncLivenessReporter;
     use rdkafka::ClientConfig;
@@ -212,14 +221,17 @@ mod tests {
     }
 
     /// Resolves every team except `unmapped`, which stands in for a team whose organization
-    /// row is gone.
+    /// row is gone. Counts its calls, so a test can pin how often a batch asks.
+    #[derive(Default)]
     struct PartialResolver {
         unmapped: i64,
+        calls: AtomicUsize,
     }
 
     #[async_trait]
     impl OrganizationResolver for PartialResolver {
         async fn resolve(&self, team_id: i64) -> Result<Uuid, ResolveError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
             if team_id == self.unmapped {
                 return Err(ResolveError::Missing);
             }
@@ -284,7 +296,11 @@ mod tests {
 
     #[tokio::test]
     async fn an_unattributable_team_does_not_discard_the_rest_of_the_batch() {
-        let service = service_with(Arc::new(PartialResolver { unmapped: 11 }));
+        let resolver = Arc::new(PartialResolver {
+            unmapped: 11,
+            ..Default::default()
+        });
+        let service = service_with(resolver.clone());
 
         let (prepared, rejected) = service
             .prepare_batch(vec![record_for(10), record_for(11), record_for(12)])
@@ -302,6 +318,23 @@ mod tests {
                 reason: "organization_missing"
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn a_batch_asks_the_resolver_once_per_team_even_when_it_says_no() {
+        let resolver = Arc::new(PartialResolver {
+            unmapped: 11,
+            ..Default::default()
+        });
+        let service = service_with(resolver.clone());
+        let records = (0..4).map(|_| record_for(11)).collect();
+
+        let (prepared, rejected) = service.prepare_batch(records).await.unwrap();
+
+        assert!(prepared.is_empty());
+        // One lead per team, and one lookup, however many of its records the batch held.
+        assert_eq!(rejected.len(), 1);
+        assert_eq!(resolver.calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]

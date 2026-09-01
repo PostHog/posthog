@@ -152,12 +152,12 @@ async fn run_sender(
 /// plus the nightly report stay authoritative for what a team owes.
 async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsageRecord]) {
     let count = chunk.len() as u64;
-    let request = IngestBillingUsageRequest {
+    let message = IngestBillingUsageRequest {
         records: chunk.to_vec(),
     };
     for attempt in 1..=SEND_ATTEMPTS {
         let mut client = client.clone();
-        match client.ingest_billing_usage(request.clone()).await {
+        match client.ingest_billing_usage(tagged(message.clone())).await {
             Ok(response) => {
                 let accepted = response.into_inner().accepted_record_ids;
                 inc(FLAGS_USAGE_RECORDS_SENT, &[], accepted.len() as u64);
@@ -195,6 +195,17 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
             }
         }
     }
+}
+
+/// Names this producer in the service's own request metrics, which otherwise aggregate every
+/// caller into one series.
+fn tagged(message: IngestBillingUsageRequest) -> tonic::Request<IngestBillingUsageRequest> {
+    let mut request = tonic::Request::new(message);
+    request.metadata_mut().insert(
+        "x-client-name",
+        tonic::metadata::MetadataValue::from_static(PRODUCER_ID),
+    );
+    request
 }
 
 /// The teams behind the records the service did not accept, deduplicated so a chunk that
@@ -386,6 +397,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_request_names_this_producer_to_the_service() {
+        // Without the header the service's request metrics read client=unknown for everyone.
+        let service = RecordingIngestion::default();
+        let reporter = reporter_for(serve(service.clone()).await).await;
+
+        reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
+        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+        assert_eq!(service.client_names(), vec![Some(PRODUCER_ID.to_string())]);
+    }
+
+    #[tokio::test]
     async fn retries_a_transient_failure_with_the_same_record_id() {
         let service = RecordingIngestion::default();
         service.fail_next(Code::Unavailable);
@@ -401,27 +424,73 @@ mod tests {
         assert_eq!(requests[0][0].record_id, requests[1][0].record_id);
     }
 
-    #[tokio::test]
-    async fn a_partially_accepted_batch_names_only_the_rejected_teams() {
-        let service = RecordingIngestion::default();
-        service.reject_team(8);
-        let reporter = reporter_for(serve(service.clone()).await).await;
+    /// Counter totals by name, captured while the reporter ran. The recorder is
+    /// thread-scoped, so the sender task has to be driven on this thread.
+    fn counted(run: impl FnOnce(&tokio::runtime::Runtime)) -> Vec<(String, u64)> {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
 
-        reporter.report(
-            &[(key(7, None), 1), (key(8, None), 1), (key(9, None), 1)],
-            1_700_000_000_000,
-        );
-        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+        metrics::with_local_recorder(&recorder, || run(&runtime));
 
-        let sent = &service.requests()[0];
-        let accepted = sent
-            .iter()
-            .filter(|record| record.team_id != 8)
-            .map(|record| record.record_id.clone())
+        let mut totals = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match value {
+                metrics_util::debugging::DebugValue::Counter(count) => {
+                    Some((key.key().name().to_string(), count))
+                }
+                _ => None,
+            })
             .collect::<Vec<_>>();
-        assert_eq!(rejected_teams(sent, &accepted), vec![8]);
-        // The service already decided; re-sending the batch would drop the same record again.
-        assert_eq!(service.requests().len(), 1);
+        totals.sort();
+        totals
+    }
+
+    #[test]
+    fn a_partially_accepted_batch_counts_only_what_the_service_took() {
+        let totals = counted(|runtime| {
+            runtime.block_on(async {
+                let service = RecordingIngestion::default();
+                service.reject_team(8);
+                let reporter = reporter_for(serve(service.clone()).await).await;
+
+                reporter.report(
+                    &[(key(7, None), 1), (key(8, None), 1), (key(9, None), 1)],
+                    1_700_000_000_000,
+                );
+                reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+                // The service already decided; re-sending would drop the same record again.
+                assert_eq!(service.requests().len(), 1);
+            });
+        });
+
+        assert_eq!(
+            totals,
+            vec![
+                (FLAGS_USAGE_RECORDS_FAILED.to_string(), 1),
+                (FLAGS_USAGE_RECORDS_SENT.to_string(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_fully_accepted_batch_counts_nothing_as_failed() {
+        let totals = counted(|runtime| {
+            runtime.block_on(async {
+                let reporter = reporter_for(serve(RecordingIngestion::default()).await).await;
+
+                reporter.report(&[(key(7, None), 1), (key(8, None), 1)], 1_700_000_000_000);
+                reporter.shutdown(std::time::Duration::from_secs(5)).await;
+            });
+        });
+
+        assert_eq!(totals, vec![(FLAGS_USAGE_RECORDS_SENT.to_string(), 2)]);
     }
 
     #[tokio::test]
