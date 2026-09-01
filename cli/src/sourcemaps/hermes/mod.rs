@@ -93,6 +93,13 @@ mod tests {
             panic!("expected the upload subcommand");
         };
         assert_eq!(upload.release_mode, ReleaseMode::Event);
+
+        // `hermes inject` shares InjectArgs with `sourcemap inject`, so it takes the same default.
+        let HermesSubcommand::Inject(inject) = parse(&["hermes", "inject", "--directory", "dist"])
+        else {
+            panic!("expected the inject subcommand");
+        };
+        assert_eq!(inject.release_mode, ReleaseMode::Event);
     }
 
     #[test]
@@ -122,5 +129,17 @@ mod tests {
             panic!("expected the upload subcommand");
         };
         assert_eq!(upload.release_mode, ReleaseMode::SymbolSet);
+
+        let HermesSubcommand::Inject(inject) = parse(&[
+            "hermes",
+            "inject",
+            "--directory",
+            "dist",
+            "--release-mode",
+            "symbol-set",
+        ]) else {
+            panic!("expected the inject subcommand");
+        };
+        assert_eq!(inject.release_mode, ReleaseMode::SymbolSet);
     }
 }
