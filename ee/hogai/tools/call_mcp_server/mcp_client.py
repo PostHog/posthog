@@ -9,6 +9,8 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import TextContent
 
+from products.mcp_store.backend.url_policy import trust_environment_proxy
+
 
 class MCPClientError(Exception):
     pass
@@ -20,9 +22,10 @@ CLIENT_TIMEOUT = 60.0
 class MCPClient:
     """MCP client wrapping the official SDK with Streamable HTTP → SSE fallback."""
 
-    def __init__(self, server_url: str, headers: dict[str, str] | None = None):
+    def __init__(self, server_url: str, headers: dict[str, str] | None = None, team_id: int | None = None):
         self._server_url = server_url
         self._headers = headers
+        self._team_id = team_id
         self._stack = AsyncExitStack()
         self._session: ClientSession | None = None
 
@@ -42,7 +45,11 @@ class MCPClient:
 
     async def _connect_streamable_http(self) -> None:
         http_client = await self._stack.enter_async_context(
-            httpx.AsyncClient(headers=self._headers, timeout=CLIENT_TIMEOUT)
+            httpx.AsyncClient(
+                headers=self._headers,
+                timeout=CLIENT_TIMEOUT,
+                trust_env=trust_environment_proxy(self._server_url, self._team_id),
+            )
         )
         read, write, _get_session_id = await self._stack.enter_async_context(
             streamable_http_client(self._server_url, http_client=http_client)
