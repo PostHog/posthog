@@ -46,6 +46,7 @@ import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { SubscriptionDayPicker } from '../SubscriptionDayPicker'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
+import { SubscriptionTimePicker } from '../SubscriptionTimePicker'
 import {
     bysetposOptions,
     frequencyOptionsPlural,
@@ -56,7 +57,6 @@ import {
     monthlyWeekdayOptions,
     shouldShowDayPicker,
     targetTypeOptions,
-    timeOptions,
     WEEKDAYS,
     weekdayOptions,
     isFreeTierCreateAtLimit,
@@ -644,19 +644,7 @@ function EditSubscriptionForm({
                                     <span>at</span>
                                     <LemonField name="start_date">
                                         {({ value, onChange }) => (
-                                            <LemonSelect
-                                                options={timeOptions}
-                                                value={dayjs(value).hour().toString()}
-                                                onChange={(val) => {
-                                                    onChange(
-                                                        dayjs()
-                                                            .hour(Number(val ?? 0))
-                                                            .minute(0)
-                                                            .second(0)
-                                                            .toISOString()
-                                                    )
-                                                }}
-                                            />
+                                            <SubscriptionTimePicker value={value} onChange={onChange} />
                                         )}
                                     </LemonField>
                                 </div>

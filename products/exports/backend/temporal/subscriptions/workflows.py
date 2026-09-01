@@ -240,8 +240,8 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     },
                 ),
             )
-            # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
-            # overlapping-duplicate guarantee per type.
+            # AI-prompt subs run a dedicated workflow. Deterministic subscription IDs
+            # prevent two overlapping schedule sweeps from starting the same child.
             workflow: Callable[..., Coroutine[Any, Any, None]]
             if sub.resource_type == AI_PROMPT_RESOURCE_TYPE:
                 workflow = ProcessAISubscriptionWorkflow.run

@@ -242,7 +242,7 @@ export interface SubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. The UI offers :00 and :30 times; API clients may use any minute for backward compatibility. */
     start_date: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -390,7 +390,7 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. The UI offers :00 and :30 times; API clients may use any minute for backward compatibility. */
     start_date?: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.

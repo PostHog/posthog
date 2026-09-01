@@ -1,0 +1,20 @@
+import '@testing-library/jest-dom'
+
+import { fireEvent, render, screen } from '@testing-library/react'
+
+import { SubscriptionTimePicker } from './SubscriptionTimePicker'
+
+describe('SubscriptionTimePicker', () => {
+    it('only offers half-hour delivery times and preserves the selected minute', () => {
+        const onChange = jest.fn()
+
+        render(<SubscriptionTimePicker value="2026-08-31T09:00:00Z" onChange={onChange} />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Delivery time' }))
+
+        expect(screen.queryByText('9:15 AM')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('9:30 AM'))
+
+        expect(onChange).toHaveBeenCalledWith('2026-08-31T09:30:00.000Z')
+    })
+})

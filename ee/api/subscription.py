@@ -385,7 +385,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
             },
             "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
-            "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
+            "start_date": {
+                "help_text": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. The UI offers :00 and :30 times; API clients may use any minute for backward compatibility."
+            },
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},

@@ -230,11 +230,6 @@ export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> =
     { value: '-1', label: 'last' },
 ]
 
-export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
-    value: String(x),
-    label: `${x % 12 || 12}:00 ${x < 12 ? 'AM' : 'PM'}`,
-}))
-
 const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
     monday: RRule.MO,
     tuesday: RRule.TU,

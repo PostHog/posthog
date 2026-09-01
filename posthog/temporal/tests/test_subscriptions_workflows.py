@@ -65,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     DeliveryStatus,
+    DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
@@ -161,6 +162,31 @@ async def test_subscription_slo_failure_summary_counts_unclassified_assets() -> 
     assert summary["failed_asset_count"] == 2
     assert summary["failure_category_count"] == 0
     assert summary["unclassified_failed_asset_count"] == 2
+
+
+async def test_scheduler_keeps_legacy_child_workflow_id_for_rollout_compatibility() -> None:
+    due_subscription = DueSubscription(
+        subscription_id=42,
+        team_id=7,
+        distinct_id="test-user",
+        next_delivery_date="2026-09-01T09:30:00+00:00",
+        resource_type=Subscription.ResourceType.INSIGHT,
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[due_subscription]),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_child_workflow",
+            new=AsyncMock(return_value=None),
+        ) as execute_child_workflow,
+    ):
+        await ScheduleAllSubscriptionsWorkflow().run(ScheduleAllSubscriptionsWorkflowInputs())
+
+    assert execute_child_workflow.call_args.kwargs["id"] == "process-subscription-42"
+    assert "id_reuse_policy" not in execute_child_workflow.call_args.kwargs
 
 
 async def test_email_delivery_error_is_non_retryable(team, user) -> None:

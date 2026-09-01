@@ -214,6 +214,11 @@ class Subscription(ModelActivityMixin, models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+            models.Index(
+                fields=["next_delivery_date"],
+                condition=models.Q(deleted=False, enabled=True),
+                name="posthog_sub_due_enabled_idx",
+            ),
         ]
         db_table = "posthog_subscription"
 

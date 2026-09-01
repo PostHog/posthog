@@ -156,6 +156,18 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
 
+    def test_can_create_subscription_for_half_hour_delivery(self):
+        start_date = (timezone.now() + timedelta(days=1)).replace(minute=30, second=0, microsecond=0)
+        response = self._create_subscription(
+            frequency="daily",
+            start_date=start_date.isoformat(),
+            send_test_now=False,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert datetime.fromisoformat(response.json()["start_date"]) == start_date
+        assert datetime.fromisoformat(response.json()["next_delivery_date"]) == start_date
+
     @parameterized.expand(
         [
             ("default_fires", None, True),

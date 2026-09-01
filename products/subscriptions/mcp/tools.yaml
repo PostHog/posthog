@@ -36,6 +36,10 @@ tools:
 
             Delivery is set by `target_type` — `email` or `slack`.
 
+            Set `start_date` to an ISO 8601 datetime. Its date anchors the recurrence and may be in the past. The UI
+            offers delivery times at :00 and :30; API clients can use any valid minute for backward compatibility, for
+            example a value ending in `T16:30:00Z`.
+
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
             rejected.
 
