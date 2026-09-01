@@ -26,7 +26,7 @@ You produce **at most one suggestion per workflow per run**. A queue of five sug
 
 ## Quick close-out: is anyone asking?
 
-Call `workflows-list` with `optimisation_enabled=true`. This is the whole work list: workflows whose owner turned on "Suggest improvements". If it comes back empty, nobody has asked for this on this project. Write one scratchpad entry:
+Call `workflows-list` with `optimisation_enabled=true` — the whole work list, the workflows whose owner turned on "Suggest improvements". Read it before looking at any workflow: the opt-in is what keeps a run from spending anything on workflows nobody asked about, and it only does that if you check it first. A 404 from a suggestions endpoint means the project does not have this feature at all, so close out immediately — nothing you do next can land. If the list is empty, nobody has asked for this here. Write one scratchpad entry:
 
 - key: `not-in-use:workflow-suggestions`
 - content: brief note ("checked at {timestamp}, no workflow opted in")
@@ -54,7 +54,7 @@ Per workflow, `workflows-stats` with `version=<the workflow's current version>`,
 | `email_link_clicked`             | Clicks. Same denominator as opens                                        |
 | `email_bounced`, `email_blocked` | The counter-metrics. Read them before proposing anything about copy      |
 
-**Engagement metrics split by version only for sends made after the versioned tracking code shipped.** A version whose sends predate it reads zero opens, which is a measurement gap, not a bad subject line. If opens are zero and sends are healthy, check whether the version is older than the workflow's most recent publish before believing it.
+**Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here. So treat it as unreadable rather than bad: write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on. If a later run sees opens on that step, the gap has closed and the numbers are usable.
 
 ### Profile shape
 
@@ -101,6 +101,7 @@ So the suggestion is the notification. It lands on the workflow page for the per
 Do not file a suggestion when:
 
 - The workflow is not on the opted-in list. Someone turned this off, or never turned it on.
+- The workflow is archived or draft. Its metrics are history, and a suggestion about it changes nothing that runs.
 - A suggestion for this workflow is still waiting on a person.
 - The same idea was rejected before. A rejection is an answer.
 - The step is transactional — a receipt, a password reset, a verification code. Open rates there are not a campaign metric, and the copy is usually load-bearing.
