@@ -17,9 +17,10 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
-from django.db import InterfaceError, OperationalError, close_old_connections
+from django.db import InterfaceError, InternalError, OperationalError, close_old_connections
 from django.utils import timezone
 
+import psycopg.errors
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
@@ -134,6 +135,22 @@ def _rewrite_deadline(activity_started: float) -> float | None:
 
 def _is_transient_infra_error(error: Exception) -> bool:
     if isinstance(error, OperationalError | InterfaceError):
+        return True
+    # A primary-DB failover briefly routes one of the rewrite's own writes (checkpoint, swap marker,
+    # scheme persist) onto a connection that has become a read-only standby: Postgres raises
+    # ReadOnlySqlTransaction (SQLSTATE 25006), which psycopg classifies under InternalError rather than
+    # OperationalError, so it needs its own check. Matched on the cause, not a bare InternalError
+    # isinstance, so real corruption errors sharing the base class are still reported. Mirrors the same
+    # classification in delta.errors.is_transient_maintenance_error.
+    if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
+        return True
+    # s3fs collapses every S3 auth-failure response code (AccessDenied, ExpiredToken, InvalidAccessKeyId)
+    # into a bare PermissionError, and a 403 carries no code in its body to tell them apart. The rewrite
+    # only ever touches our own instance-role-authenticated data-warehouse bucket, so a denial here is
+    # the same transient IMDS/STS credential-resolution race already recognized as retryable in
+    # delta.table._is_retryable_purge_error — not a customer credential problem. Retrying on the next
+    # sync self-heals it; burning an attempt and reporting it instead abandons the table after the cap.
+    if isinstance(error, PermissionError):
         return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)

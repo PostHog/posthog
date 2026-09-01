@@ -3,9 +3,14 @@ import {
   type IAppLifecycle,
 } from "@posthog/platform/app-lifecycle";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
+import {
+  type IStoragePaths,
+  STORAGE_PATHS_SERVICE,
+} from "@posthog/platform/storage-paths";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { DATABASE_SERVICE } from "@posthog/workspace-server/db/identifiers";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
+import { cleanupAllCodexHomes } from "@posthog/workspace-server/services/agent/codex-home";
 import { PROCESS_TRACKING_SERVICE } from "@posthog/workspace-server/services/process-tracking/identifiers";
 import type { ProcessTrackingService } from "@posthog/workspace-server/services/process-tracking/process-tracking";
 import { SUSPENSION_SERVICE } from "@posthog/workspace-server/services/suspension/identifiers";
@@ -49,6 +54,8 @@ export class AppLifecycleService {
     private readonly processTracking: ProcessTrackingService,
     @inject(WORKSPACE_SERVICE)
     private readonly workspaceService: WorkspaceService,
+    @inject(STORAGE_PATHS_SERVICE)
+    private readonly storagePaths: IStoragePaths,
     @inject(MAIN_WINDOW_SERVICE)
     private readonly mainWindow: ElectronMainWindow,
   ) {}
@@ -260,6 +267,12 @@ export class AppLifecycleService {
       }
     } catch (error) {
       log.warn("Failed to kill tracked processes", error);
+    }
+
+    try {
+      await cleanupAllCodexHomes(this.storagePaths.appDataPath);
+    } catch (error) {
+      log.warn("Failed to clean Codex state", error);
     }
 
     // Drain pending native callbacks (e.g. @parcel/watcher ThreadSafeFunction)

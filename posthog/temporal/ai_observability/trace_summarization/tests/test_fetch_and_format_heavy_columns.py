@@ -115,6 +115,18 @@ class TestFetchAndFormatGenerationHeavyColumns:
                 return isinstance(tail, str) and "model" in tail
 
             assert "model" in select_aliases or any(_field_chain_tail_is_model(s) for s in select.select)
+            # Chat-format SDKs record the result in `output_choices` and leave `output` empty,
+            # so the projection must prefer `output_choices`. Preferring `output` would empty
+            # most generation summaries.
+            output_alias = next(s for s in select.select if isinstance(s, ast.Alias) and s.alias == "output")
+            coalesce_call = output_alias.expr
+            assert isinstance(coalesce_call, ast.Call) and coalesce_call.name == "coalesce"
+            preferred = coalesce_call.args[0]
+            assert isinstance(preferred, ast.Call) and preferred.name == "nullIf"
+            preferred_field = preferred.args[0]
+            assert isinstance(preferred_field, ast.Field) and preferred_field.chain[-1] == "output_choices"
+            fallback_field = coalesce_call.args[1]
+            assert isinstance(fallback_field, ast.Field) and fallback_field.chain[-1] == "output"
             # query_type is set so observability dashboards can group by it.
             assert kwargs["query_type"] == "GenerationForSummarization"
             # trace_id flows into the WHERE so the lookup hits the

@@ -29,7 +29,7 @@ from .compiler import compile_check, related_subject_ref
 from .contracts import CompiledCheck, Evaluation
 from .notifications import notify_check_started_failing
 from .staged_audit import StagedSubjectOverride, build_staged_database
-from .subject_access import check_type_reads_beyond_subject
+from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
 from .subjects import resolve_subject
 
 QUERY_TYPE = "data_quality_check"
@@ -137,17 +137,18 @@ def _authorize(check: DataQualityCheck, suite_run: DataQualitySuiteRun) -> _Auth
     - Automated runs (materialization, source sync) have no initiator. A check constrained to only
       its declared subject exposes nothing the definition doesn't already name, so the service
       bypass is safe. A check that reads a further subject has no such guarantee, so it executes as
-      the check's author; with no author there is nobody to authorize against, and returning
-      ``None`` errors the run rather than bypassing the ACL over a subject the author may since
-      have lost access to.
+      whoever last authored the definition -- the creator only until someone edits it, since after
+      an edit it is the editor who was authorized against what it now reads. With nobody to
+      authorize against, returning ``None`` errors the run rather than bypassing the ACL.
     """
     if suite_run.trigger == SuiteRunTrigger.MANUAL:
         return _Authorization(run_as=suite_run.created_by, bypass=suite_run.created_by is None)
     if not check_type_reads_beyond_subject(check.check_type):
         return _Authorization(run_as=None, bypass=True)
-    if check.created_by is None:
+    principal = check.definition_author or check.created_by
+    if principal is None:
         return None
-    return _Authorization(run_as=check.created_by, bypass=False)
+    return _Authorization(run_as=principal, bypass=False)
 
 
 def _staged_database(
@@ -327,6 +328,9 @@ def _record_run(
         check_type=check.check_type,
         check_fingerprint=check.fingerprint,
         column_name=check.column_name,
+        check_config=check.config,
+        check_severity=check.severity,
+        referenced_subjects=pin_referenced_subjects(check.team_id, check.check_type, check.config),
         status=outcome.status,
         failed_row_count=outcome.failed_row_count,
         observed_value=outcome.observed_value,
@@ -341,4 +345,11 @@ def _record_run(
 def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
     check.last_status = outcome.status
     check.last_run_at = datetime.now(UTC)
-    check.save(update_fields=["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"])
+    updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
+    if outcome.status is CheckRunStatus.PASSED:
+        check.last_succeeded_at = check.last_run_at
+        # Written only by the run that earned it. A failing run holds whatever this row said when its
+        # batch loaded it, so listing the column unconditionally would let it overwrite a success a
+        # concurrent run committed in between.
+        updated.append("last_succeeded_at")
+    check.save(update_fields=updated)

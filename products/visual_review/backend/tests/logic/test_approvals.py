@@ -9,6 +9,7 @@ from products.visual_review.backend.facade.enums import ReviewState, RunType, Sn
 from products.visual_review.backend.logic import (
     approvals,
     artifact_store,
+    baselines,
     ci_status,
     errors,
     repos,
@@ -16,6 +17,7 @@ from products.visual_review.backend.logic import (
     runs,
     toleration,
 )
+from products.visual_review.backend.models import QuarantinedIdentifier
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -153,6 +155,62 @@ class TestApproveRun:
 
         assert delay.called is True
         assert delay.call_args.args[2] is add_images
+
+    @pytest.mark.parametrize(
+        ("result", "approve_all", "expect_committed"),
+        [
+            ("new", False, True),
+            ("changed", False, False),
+            ("new", True, False),
+        ],
+    )
+    def test_finalize_commits_quarantined_new_only_when_approved_by_identifier(
+        self, repo, user, mocker, result, approve_all, expect_committed
+    ):
+        # A quarantined NEW snapshot has no entry to protect, so an explicit approval lands in the
+        # commit. A quarantined CHANGED one keeps its entry, and approve_all never touches quarantine.
+        run = self._completed_quarantined_run(repo, mocker, result)
+        if not approve_all:
+            approvals.approve_snapshots(
+                run_id=run.id, user_id=user.id, approved_snapshots=[{"identifier": "Q", "new_hash": "hq"}]
+            )
+        commit = mocker.patch.object(baselines, "_commit_baseline_to_github")
+        mocker.patch.object(ci_status, "_post_commit_status")
+
+        updated = approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=approve_all)
+
+        assert updated.approved is True
+        if expect_committed:
+            assert commit.call_args.args[2] == [{"identifier": "Q", "new_hash": "hq"}]
+        else:
+            assert commit.called is False
+
+    def _completed_quarantined_run(self, repo, mocker, result):
+        artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="hq", storage_path="p/q")
+        baseline = {} if result == "new" else {"Q": "oldq"}
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=7,
+                snapshots=[SnapshotManifestItem(identifier="Q", content_hash="hq")],
+                baseline_hashes=baseline,
+            ),
+            team_id=repo.team_id,
+        )
+        QuarantinedIdentifier.objects.create(
+            repo=repo, team_id=repo.team_id, identifier="Q", run_type=RunType.STORYBOOK, reason="test"
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+            return_value=(baseline, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        runs.complete_run(run.id)
+        runs.finish_processing(run.id)
+        return run
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

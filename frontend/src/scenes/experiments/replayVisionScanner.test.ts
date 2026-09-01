@@ -1,6 +1,7 @@
 import type { Experiment } from '~/types'
 
-import { NEW_EXPERIMENT } from './constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
 import { experimentScannerPrompt } from './replayVisionScanner'
 
 describe('experimentScannerPrompt', () => {

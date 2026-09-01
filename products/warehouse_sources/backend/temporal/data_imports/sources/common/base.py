@@ -157,6 +157,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # Direct-only connectors opt out so API clients cannot create a source that is accepted by
+    # discovery but can never run a scheduled import.
+    supports_scheduled_sync: bool = True
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.

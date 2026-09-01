@@ -5,8 +5,9 @@ import contextvars
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.exceptions_capture import ambient_exception_properties
@@ -43,6 +44,14 @@ PENDING_TARGET = {
     "trigger_reason": "proactive_threshold",
     "attempts": 0,
 }
+
+
+def _read_only_transaction_error() -> InternalError:
+    # Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: the driver exception
+    # (carrying SQLSTATE 25006) becomes __cause__.
+    error = InternalError("cannot execute UPDATE in a read-only transaction")
+    error.__cause__ = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    return error
 
 
 def _schema(
@@ -544,6 +553,10 @@ class TestTransientObjectStoreFailure:
                 ),
             ),
             ("interface_error", InterfaceError("connection already closed")),
+            # A primary-DB failover routes a rewrite write onto a read-only standby mid-run: psycopg
+            # raises ReadOnlySqlTransaction (25006), wrapped by Django as InternalError. It clears on
+            # the next sync, so it must stand down like the other infra blips, not burn an attempt.
+            ("read_only_transaction_failover", _read_only_transaction_error()),
         ]
     )
     @patch(f"{MODULE}.capture_exception")
@@ -580,6 +593,46 @@ class TestTransientObjectStoreFailure:
         )
 
         mock_capture_exception.assert_not_called()
+        skip_calls = [c for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        assert any(c.args[1].get("reason") == "transient_infra_error" for c in skip_calls)
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_s3_permission_error_stands_down_without_burning_an_attempt(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        # s3fs raises a bare PermissionError for a transient credential-resolution race against our own
+        # data-warehouse bucket. It must stand down like the other infra blips, not burn an attempt or
+        # report a failure — otherwise a flagged table loses its whole retry budget to a self-healing
+        # blip and is abandoned at the cap.
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending={**PENDING_TARGET, "attempts": 0})
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = PermissionError("Access Denied")
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_capture_exception.assert_not_called()
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        # Charged before the rewrite and refunded on stand-down, so the retry budget is untouched.
+        assert schema.repartition_pending["attempts"] == 0
         skip_calls = [c for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
         assert any(c.args[1].get("reason") == "transient_infra_error" for c in skip_calls)
 

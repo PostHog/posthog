@@ -57,7 +57,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -520,7 +520,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     const isAccountAudience = filters?.audience_type === 'accounts'
     // Account audiences carry no person, so email dedup never applies to them.
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey })
+    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
@@ -561,9 +561,11 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
                 </div>
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
-                        Batch size exceeds the limit of {humanFriendlyNumber(limit)}{' '}
-                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will
-                        be loosened in the future.
+                        Your audience is above this project's batch limit of {humanFriendlyNumber(limit)}{' '}
+                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it.
+                        {hogFlowSendsEmail(workflow)
+                            ? ' The limit rises as the project builds a clean sending history.'
+                            : ''}
                     </div>
                 )}
             </div>
@@ -983,7 +985,6 @@ function ConversionGoalSection(): JSX.Element {
 function SendingRateLimitSection(): JSX.Element | null {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const rateLimit = workflow.email_sending_rate_limit ?? null
     // Mirror the count locally so clearing the field doesn't snap back to the committed value
@@ -992,12 +993,6 @@ function SendingRateLimitSection(): JSX.Element | null {
     useEffect(() => {
         setDisplayCount(rateLimit?.count)
     }, [rateLimit?.count])
-
-    // Flag-gated rollout, but a workflow that already carries a limit keeps the section after a
-    // flag dial-down so the limit stays visible and removable.
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_RATE_LIMIT] && !rateLimit) {
-        return null
-    }
 
     const hasEmailAction = workflow.actions.some((action) => action.type === 'function_email')
     // Stay visible while a limit is set even without an email step, so it can still be removed.

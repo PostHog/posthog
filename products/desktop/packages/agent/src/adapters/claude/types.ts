@@ -12,6 +12,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
+import type { SteerDeclineCause } from "../../acp-extensions";
 import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
 import type { Pushable } from "../../utils/streams";
@@ -46,7 +47,7 @@ export type BackgroundTerminal =
 export type PendingSteer = {
   /** Set when the SDK echoes the message back, i.e. it entered the turn. */
   consumed: boolean;
-  settle: (reachedModel: boolean) => void;
+  settle: (reachedModel: boolean, cause?: SteerDeclineCause) => void;
 };
 
 /** One in-flight `prompt()` call, settled by the session's consumer. */
@@ -61,6 +62,15 @@ export type Turn = {
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
   pendingInput?: SDKUserMessage;
+  /** `performance.now()` at the moment the prompt entered the SDK input
+   *  stream. The SDK emits nothing while it prepares a turn, so this is the
+   *  only anchor for measuring that silent window. */
+  dispatchedAt?: number;
+  /** Set once the first SDK message for this turn has been timed, so the
+   *  measurement is reported once instead of on every message. */
+  firstMessageTimed?: boolean;
+  /** Set once the first assistant message for this turn has been timed. */
+  firstOutputTimed?: boolean;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -126,6 +136,13 @@ export type Session = BaseSession & {
    * cancel and the other swap path refuse during it, and a second swap is
    * rejected — the swap must never be raced. */
   querySwap?: Promise<void>;
+  /** Tracks whether we're inside a compaction. The SDK emits the terminal
+   * `status` (compact_result success/failed) twice for a single failed
+   * compaction, and the two messages are indistinguishable, so we report the
+   * outcome only while a compaction is in progress, then clear this. A fresh
+   * `compacting` status sets it again, so every distinct compaction (e.g.
+   * repeated auto-compactions in a long turn) is still shown. */
+  compacting?: boolean;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
@@ -230,6 +247,8 @@ export type NewSessionMeta = {
    */
   channelMode?: boolean;
   taskOriginProduct?: string;
+  /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
+  endRunWhenDone?: boolean;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud

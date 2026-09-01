@@ -6,7 +6,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertHogFlow } from '../../_tests/fixtures-hogflows'
@@ -24,13 +24,11 @@ describe('HogFlowManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new HogFlowManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
 
-        const team = await getTeam(hub.postgres, 2)
-
-        teamId1 = await createTeam(hub.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.postgres, team!.organization_id)
+        const { organizationId, team } = await createTestTeamFixture(hub.postgres)
+        teamId1 = team.id
+        teamId2 = await createTeam(hub.postgres, organizationId)
 
         hogFlows = []
 
@@ -77,13 +75,17 @@ describe('HogFlowManager', () => {
         expect(items.map((item) => item.team_id)).toEqual([teamId1, teamId1])
 
         expect(
-            forSnapshot(items, {
-                overrides: {
-                    team_id: 'TEAM_ID',
-                    created_at: 'CREATED_AT',
-                    updated_at: 'UPDATED_AT',
-                },
-            })
+            // The manager's queries are unordered, so sort before snapshotting.
+            forSnapshot(
+                [...items].sort((a, b) => a.name.localeCompare(b.name)),
+                {
+                    overrides: {
+                        team_id: 'TEAM_ID',
+                        created_at: 'CREATED_AT',
+                        updated_at: 'UPDATED_AT',
+                    },
+                }
+            )
         ).toMatchSnapshot()
 
         await hub.postgres.query(

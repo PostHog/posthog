@@ -394,6 +394,134 @@
                     },
                     "required": ["type", "config"],
                     "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a Redshift batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "copy_inputs": {
+                                    "description": "S3 staging configuration, required when mode is 'COPY'.",
+                                    "properties": {
+                                        "authorization": {
+                                            "anyOf": [
+                                                {
+                                                    "description": "ID of an aws-s3-kind Integration.",
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "description": "ARN of an IAM role attached to the Redshift cluster.",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "aws_access_key_id": {
+                                                            "type": "string"
+                                                        },
+                                                        "aws_secret_access_key": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["aws_access_key_id", "aws_secret_access_key"],
+                                                    "type": "object"
+                                                }
+                                            ],
+                                            "description": "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
+                                        },
+                                        "bucket_credentials": {
+                                            "anyOf": [
+                                                {
+                                                    "description": "ID of an aws-s3-kind Integration.",
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "aws_access_key_id": {
+                                                            "type": "string"
+                                                        },
+                                                        "aws_secret_access_key": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["aws_access_key_id", "aws_secret_access_key"],
+                                                    "type": "object"
+                                                }
+                                            ],
+                                            "description": "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration."
+                                        },
+                                        "region_name": {
+                                            "description": "AWS region of the staging S3 bucket.",
+                                            "type": "string"
+                                        },
+                                        "s3_bucket": {
+                                            "description": "S3 bucket where files are staged before the Redshift COPY.",
+                                            "type": "string"
+                                        },
+                                        "s3_key_prefix": {
+                                            "description": "Key prefix for staged files in the S3 bucket.",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "s3_bucket",
+                                        "region_name",
+                                        "s3_key_prefix",
+                                        "authorization",
+                                        "bucket_credentials"
+                                    ],
+                                    "type": "object"
+                                },
+                                "database": {
+                                    "description": "Redshift database name to connect to.",
+                                    "type": "string"
+                                },
+                                "host": {
+                                    "description": "Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.",
+                                    "type": "string"
+                                },
+                                "mode": {
+                                    "default": "INSERT",
+                                    "description": "How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n* `INSERT` - INSERT\n* `COPY` - COPY",
+                                    "enum": ["INSERT", "COPY"],
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "default": 5439,
+                                    "description": "Port the Redshift server listens on.",
+                                    "type": "number"
+                                },
+                                "properties_data_type": {
+                                    "default": "varchar",
+                                    "description": "Data type used for JSON-like columns such as event properties.\n\n* `varchar` - varchar\n* `super` - super",
+                                    "enum": ["varchar", "super"],
+                                    "type": "string"
+                                },
+                                "schema": {
+                                    "default": "public",
+                                    "description": "Redshift schema name containing the destination table.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "default": "events",
+                                    "description": "Redshift table name to write exported rows into.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["database"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Redshift"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "config"],
+                    "type": "object"
                 }
             ],
             "description": "Destination configuration. Required integration_id is enforced per destination type."

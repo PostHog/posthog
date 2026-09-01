@@ -17,6 +17,7 @@ from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
@@ -377,6 +378,9 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
                 "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
             ),
+            # Our own error for a view whose pipeline drops _id. Retrying reads the same _id-less
+            # documents forever, so it must be classified non-retryable.
+            ("document_missing_id", MONGO_DOCUMENT_MISSING_ID_ERROR),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # pymongo InvalidURI raised before any network call when credentials in the connection
@@ -459,6 +463,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("unreachable_topology", "Topology Description:", "allowlist"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
+            ("document_missing_id", "one of its documents has no _id field", "view"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -770,6 +775,17 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
         # cursors[2] is the read reopened after CursorNotFound; assert it resumes _id-ordered.
         assert collection.cursors[2].sorted_by == ["_id", 1]
+
+    def test_document_without_id_raises_actionable_error(self):
+        # A view whose pipeline drops _id yields documents with no _id, which the importer can't key
+        # on. Regression: get_rows used to crash on doc["_id"] with a bare KeyError('_id'). It must
+        # raise the actionable, non-retryable message instead.
+        collection = _FakeCollection([{"name": "no id here"}])
+
+        with self.assertRaises(ValueError) as ctx:
+            self._run_get_rows(collection)
+
+        assert str(ctx.exception) == MONGO_DOCUMENT_MISSING_ID_ERROR
 
     def test_fallback_cursor_that_expires_without_progress_is_not_retried_forever(self):
         # Resuming re-runs the same query, so a cursor that dies before yielding anything would

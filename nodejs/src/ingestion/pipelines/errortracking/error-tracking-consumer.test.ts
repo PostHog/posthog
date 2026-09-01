@@ -8,10 +8,11 @@ import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { PipelineEvent, Team } from '~/types'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
@@ -196,6 +197,7 @@ describe('ErrorTrackingConsumer', () => {
             cookielessManager: infra.cookielessManager,
             redisPool: infra.redisPool,
             personRepository: createMockPersonRepository(),
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
         // Replace Kafka consumer with mock to avoid actual connections
@@ -234,9 +236,8 @@ describe('ErrorTrackingConsumer', () => {
         jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
-        team = await getFirstTeam(infra.postgres)
+        team = (await createTestTeamFixture(infra.postgres)).team
 
         consumer = await createConsumer(infra)
     })

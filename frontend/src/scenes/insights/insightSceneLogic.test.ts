@@ -475,7 +475,7 @@ describe('insightSceneLogic', () => {
     })
 
     it.each([
-        ['new subscription', 'new', 'new'],
+        ['new subscription', 'new', null],
         ['a specific subscription', '5', 5],
     ])(
         'updates itemId when navigating from subscriptions list to %s',

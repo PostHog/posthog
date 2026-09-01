@@ -454,7 +454,7 @@ export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string
 }
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
  */
 export const notebooksSqlV2RunCreate = async (
     projectId: string,

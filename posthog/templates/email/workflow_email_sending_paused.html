@@ -1,38 +1,37 @@
-{% extends "email/base.html" %} {% load posthog_assets %}
+{% extends "email/base.html" %}
+{% load posthog_assets %}
 {% block heading %}Email sending is paused for one workflow{% endblock %}
 {% block section %}
-<!-- prettier-ignore -->
-<p>
-    We paused email sending for the workflow <b>{{ hog_flow_name }}</b> in project <b>{{ team }}</b>. Its other steps still run, and every other workflow in the project keeps sending.
-</p>
-<p>
-    Why: <b>{{ reason }}</b>
-</p>
-<p>
-    Spam complaints and emails to addresses that do not exist tell mailbox providers that a sender is not worth delivering, and that judgment follows every PostHog customer sharing our sending reputation. Pausing one workflow keeps the rest of your email delivering.
-</p>
-<p>
-    What to do next: remove old, bought or scraped addresses from this workflow's audience, stop sending to people who never open anything, and check that the content matches what recipients signed up for. Then resume sending from the workflow page.
-</p>
-<p>
-    Sending pauses again automatically if the problem continues, so there is no need to wait on support before resuming.
-</p>
-<div class="mb mt text-center">
-    <a class="button" href="{% absolute_uri workflow_path %}">Open workflow</a>
-</div>
-<div class="mt">
+    <!-- prettier-ignore -->
     <p>
-        If the button above doesn't work, paste this link into your browser:<br />
-        <a href="{% absolute_uri workflow_path %}">{% absolute_uri workflow_path %}</a>
+        We paused email sending for the workflow <b>{{ hog_flow_name }}</b> in project <b>{{ team }}</b>. Its other steps still run, and every other workflow in the project keeps sending.
     </p>
-</div>
+    <p>
+        Why: <b>{{ reason }}</b>
+    </p>
+    <p>
+        Spam complaints and emails to addresses that do not exist tell mailbox providers that a sender is not worth delivering, and that judgment follows every PostHog customer sharing our sending reputation. Pausing one workflow keeps the rest of your email delivering.
+    </p>
+    <p>
+        What to do next: remove old, bought or scraped addresses from this workflow's audience, stop sending to people who never open anything, and check that the content matches what recipients signed up for. Then resume sending from the workflow page.
+    </p>
+    <p>
+        Sending pauses again automatically if the problem continues, so there is no need to wait on support before resuming.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri workflow_path %}">Open workflow</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri workflow_path %}">{% absolute_uri workflow_path %}</a>
+        </p>
+    </div>
 {% endblock %}
-
 {% block footer %}
-Need a hand cleaning up your list?
-<a href="https://posthog.com/questions?{{ utm_tags }}"
-    target="_blank"><b>Contact support</b></a>
-or
-<a href="https://posthog.com/docs?{{ utm_tags }}"
-    target="_blank"><b>read our documentation</b></a>.
+    Need a hand cleaning up your list?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Contact support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.
 {% endblock %}

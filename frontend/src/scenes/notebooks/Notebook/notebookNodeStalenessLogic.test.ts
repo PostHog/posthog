@@ -78,7 +78,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.nodeRunFinished('a', 'done', content)
         await expectLogic(stalenessLogic).toFinishAllListeners()
         // b reads a directly; c reads b, so staleness must propagate transitively.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: true, c: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'upstream', c: 'upstream' })
         // The finished cell is remembered as the last run with its still-stale downstream,
         // which is what surfaces the "run downstream cells" button on it.
         expect(stalenessLogic.values.lastRunNodeId).toEqual('a')
@@ -97,7 +97,7 @@ describe('notebookNodeStalenessLogic', () => {
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
         expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b', 'c'])
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ x: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ x: 'upstream' })
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
 
@@ -151,7 +151,7 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b'])
         expect(stalenessLogic.values.chainQueue).toEqual([])
         // The unmounted cell keeps its flag — it was never re-run.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
     })
 
     it('the chain stops when a cell does not finish successfully', async () => {
@@ -167,7 +167,41 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy).toHaveBeenCalledTimes(1)
         expect(stalenessLogic.values.chainQueue).toEqual([])
         // The failed cell stays stale so the user can see what still needs a successful run.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: true, c: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'upstream', c: 'upstream' })
+    })
+
+    it('changing a variable marks the cells that read it, and their downstream, stale', async () => {
+        // Without this the cell keeps showing a result computed from the old value, with
+        // nothing on screen saying so. `b` reads {threshold}; `c` reads b's frame.
+        const variableContent: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'a', returnVariable: 'sql_df', code: 'select 1' } },
+                {
+                    type: NotebookNodeType.PythonV2,
+                    attrs: { nodeId: 'b', returnVariable: 'new_events', code: 'new_events = sql_df.head(threshold)' },
+                },
+                {
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId: 'c', returnVariable: 'joined', code: 'select * from new_events' },
+                },
+                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'x', returnVariable: 'other_df', code: 'select 2' } },
+            ],
+        }
+
+        stalenessLogic.actions.variablesChanged(['threshold'], variableContent)
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        // `a` does not read it and `x` is unrelated, so neither is disturbed. The reason rides
+        // along so the cell's banner names the variable rather than an upstream re-run.
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'variable', c: 'variable' })
+    })
+
+    it('changing a variable no cell reads marks nothing stale', async () => {
+        stalenessLogic.actions.variablesChanged(['unused'], content)
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(stalenessLogic.values.staleNodeIds).toEqual({})
     })
 
     it('a second runStaleChain while one is active is refused', async () => {

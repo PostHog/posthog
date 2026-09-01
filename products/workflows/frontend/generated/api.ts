@@ -22,6 +22,8 @@ import type {
     HogFlowPublishResponseApi,
     HogFlowRevisionApi,
     HogFlowRevisionRestoreRequestApi,
+    HogFlowRunRequestApi,
+    HogFlowRunResponseApi,
     HogFlowScheduleApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
@@ -864,6 +866,36 @@ export const hogFlowsRevisionsRestoreCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowRevisionRestoreRequestApi),
+    })
+}
+
+export const getHogFlowsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/run/`
+}
+
+/**
+ * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ *
+ * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
+ * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
+ * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
+ * the scheduler itself applies in `internal_process_due_schedules`.
+ *
+ * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
+ * after a timed-out request): a repeat with the same key returns the first call's result
+ * instead of firing a second AI task. Without the header, every call fires a new run.
+ */
+export const hogFlowsRunCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowRunRequestApi?: HogFlowRunRequestApi,
+    options?: RequestInit
+): Promise<HogFlowRunResponseApi> => {
+    return apiMutator<HogFlowRunResponseApi>(getHogFlowsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowRunRequestApi),
     })
 }
 

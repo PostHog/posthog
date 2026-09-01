@@ -1911,6 +1911,45 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('connection state across runs', () => {
+        // A follow-up on a finished run opens a successor with a stream of its own. The finished
+        // run's sentinel flag and resume cursor must not carry into it: the flag gates the drop
+        // handler, and the cursor addresses a different Redis stream.
+        it("opens a successor run on fresh connection state, not the finished run's", async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2', startLatest: false })
+
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            await MockStream.latest().emitOpen()
+
+            const opened = MockStream.connections.length
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            expect(logic.values.sseStatus).toEqual('reconnecting')
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.connections.length).toEqual(opened + 1)
+            jest.useRealTimers()
+        })
+
+        it('leaves a dead stream closed when a follow-up starts a turn', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+            expect(logic.values.sseStatus).toEqual('closed')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
+        })
+    })
+
     describe('connection teardown', () => {
         // The keyed log store makes duplicate ingestion idempotent, so correctness no longer depends
         // on closing the exact connection a hot reload orphaned (the old EventSource registry is

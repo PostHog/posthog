@@ -290,17 +290,27 @@ def get_cohort_dependents(cohort: Cohort | int) -> list[int]:
 def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
     """
     Preloads the cohort dependencies and dependents cache for a given team.
+
+    Uses keyset pagination on id instead of .iterator(), which opens a named
+    server-side cursor that can be invalidated by connection recycling between
+    batches (e.g. behind a pooler) and raises InvalidCursorName mid-scan.
     """
     dependents_map: dict[str, list[int]] = {}
-    for cohort in Cohort.objects.filter(team_id=team_id, deleted=False).iterator(chunk_size=batch_size):
-        # Any invalidated dependencies cache is rebuilt here
-        dependents_map.setdefault(_cohort_dependents_key(cohort.id), [])
-        dependencies = get_cohort_dependencies(cohort, _warming=True)
-        # Dependency keys aren't fully invalidated; make sure they don't expire.
-        cache.touch(_cohort_dependencies_key(cohort.id), timeout=DEPENDENCY_CACHE_TIMEOUT)
-        # Build reverse map
-        for dep_id in dependencies:
-            dependents_map.setdefault(_cohort_dependents_key(dep_id), []).append(cohort.id)
+    last_id = 0
+    while True:
+        batch = list(Cohort.objects.filter(team_id=team_id, deleted=False, id__gt=last_id).order_by("id")[:batch_size])
+        if not batch:
+            break
+        for cohort in batch:
+            # Any invalidated dependencies cache is rebuilt here
+            dependents_map.setdefault(_cohort_dependents_key(cohort.id), [])
+            dependencies = get_cohort_dependencies(cohort, _warming=True)
+            # Dependency keys aren't fully invalidated; make sure they don't expire.
+            cache.touch(_cohort_dependencies_key(cohort.id), timeout=DEPENDENCY_CACHE_TIMEOUT)
+            # Build reverse map
+            for dep_id in dependencies:
+                dependents_map.setdefault(_cohort_dependents_key(dep_id), []).append(cohort.id)
+        last_id = batch[-1].id
     cache.set_many(dependents_map, timeout=DEPENDENCY_CACHE_TIMEOUT)
 
 

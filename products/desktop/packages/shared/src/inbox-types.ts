@@ -21,7 +21,7 @@ export type SignalRecordKind =
  * backend emitter and, if it uses OAuth, a bespoke setup form). `setup: "dynamic"` renders
  * the generic credential form; the three legacy special-cased flows keep their own key.
  */
-export interface ExternalInboxSource {
+interface ExternalInboxSource {
   /**
    * Backend `source_product` (lowercase). Declared as `string` here so the registry can
    * define the universe: `ExternalInboxSourceProduct` is derived from the literal values

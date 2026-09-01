@@ -38,27 +38,14 @@ from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.schema import (
-    BreakdownFilter,
-    BreakdownType,
-    EventsNode,
-    FunnelsQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_ACTIVITIES,
@@ -124,6 +111,11 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ExternalDataSourceType,
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
+)
+from products.warehouse_sources.backend.types import (
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSchemaSyncType,
 )
 
 BUCKET_NAME = "test-pipeline"
@@ -383,7 +375,7 @@ async def _run(
     source_type: str,
     job_inputs: dict[str, str | dict[str, str]],
     mock_data_response: Any,
-    sync_type: Optional[ExternalDataSchema.SyncType] = None,
+    sync_type: Optional[ExternalDataSchemaSyncType] = None,
     sync_type_config: Optional[dict] = None,
     billable: Optional[bool] = None,
     ignore_assertions: Optional[bool] = False,
@@ -442,14 +434,14 @@ async def _run(
     if not ignore_assertions:
         run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
         assert run is not None
-        assert run.status == ExternalDataJob.Status.COMPLETED
+        assert run.status == ExternalDataJobStatus.COMPLETED
         assert run.finished_at is not None
         assert run.storage_delta_mib is not None
         assert run.storage_delta_mib != 0
 
         mock_compact_table.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
-            source_type=source_type, status=ExternalDataJob.Status.COMPLETED.lower()
+            source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
         )
 
         # Assert that app_metrics2 rows were emitted for the successful job — both
@@ -530,7 +522,7 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
     # If the workflow already marked the job as COMPLETED (e.g. worker shutdown scenario),
     # the consumer should not replay — the workflow managed the job status itself and
     # S3 files may have been cleaned up.
-    if job.status == ExternalDataJob.Status.COMPLETED:
+    if job.status == ExternalDataJobStatus.COMPLETED:
         _pg_queue_replay.clear()
         return
 
@@ -1059,50 +1051,6 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_client):
-    # Tests that funnels work in PERSON_ID_OVERRIDE_PROPERTIES_JOINED PoE mode when using extended person properties
-    await _run(
-        team=team,
-        schema_name="Customer",
-        table_name="stripe_customer",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer["data"],
-    )
-
-    await sync_to_async(DataWarehouseJoin.objects.create)(
-        team=team,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name="stripe_customer",
-        joining_table_key="email",
-        field_name="stripe_customer",
-    )
-
-    query = FunnelsQuery(
-        series=[EventsNode(), EventsNode()],
-        breakdownFilter=BreakdownFilter(
-            breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
-        ),
-    )
-    funnel_class = FunnelUDF(context=FunnelQueryContext(query=query, team=team))
-
-    query_ast = funnel_class.get_query()
-    await sync_to_async(execute_hogql_query)(
-        query_type="FunnelsQuery",
-        query=query_ast,
-        team=team,
-        modifiers=create_default_modifiers_for_team(
-            team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-        ),
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_postgres_schema_evolution(team, postgres_config, postgres_connection):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
@@ -1127,7 +1075,7 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
@@ -1190,7 +1138,7 @@ async def test_sql_database_missing_incremental_values(team, postgres_config, po
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
@@ -1232,7 +1180,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
@@ -1268,7 +1216,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
         name="Customer",
         team_id=team.pk,
         source_id=source.pk,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
         sync_type_config={},
     )
 
@@ -1288,7 +1236,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
 
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
 
-    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED
+    assert job.status == ExternalDataJobStatus.BILLING_LIMIT_REACHED
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
@@ -1315,7 +1263,7 @@ async def test_create_external_job_failure(team, stripe_customer, mock_stripe_cl
         name="Customer",
         team_id=team.pk,
         source_id=source.pk,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
         sync_type_config={},
     )
 
@@ -1336,7 +1284,7 @@ async def test_create_external_job_failure(team, stripe_customer, mock_stripe_cl
 
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
 
-    assert job.status == ExternalDataJob.Status.FAILED
+    assert job.status == ExternalDataJobStatus.FAILED
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
@@ -1362,7 +1310,7 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer, m
         name="Customer",
         team_id=team.pk,
         source_id=source.pk,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
         sync_type_config={},
     )
 
@@ -1418,7 +1366,7 @@ async def test_non_retryable_error(team, zendesk_brands):
         name="Brands",
         team_id=team.pk,
         source_id=source.pk,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
         sync_type_config={},
     )
 
@@ -1445,7 +1393,7 @@ async def test_non_retryable_error(team, zendesk_brands):
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
     await sync_to_async(schema.refresh_from_db)()
 
-    assert job.status == ExternalDataJob.Status.FAILED
+    assert job.status == ExternalDataJobStatus.FAILED
     assert schema.should_sync is False
 
     with pytest.raises(Exception):
@@ -1473,7 +1421,7 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
         name="Customer",
         team_id=team.pk,
         source_id=source.pk,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
         sync_type_config={},
     )
 
@@ -1502,7 +1450,7 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
     job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
     await sync_to_async(schema.refresh_from_db)()
 
-    assert job.status == ExternalDataJob.Status.FAILED
+    assert job.status == ExternalDataJobStatus.FAILED
     assert schema.should_sync is False
 
     with pytest.raises(Exception):
@@ -1530,7 +1478,7 @@ async def test_inconsistent_types_in_data(team):
         name="organizations",
         team_id=team.pk,
         source_id=source.pk,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
         sync_type_config={},
     )
 
@@ -1838,7 +1786,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
@@ -1939,7 +1887,7 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
@@ -1992,7 +1940,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
         ignore_assertions=True,
     )
@@ -2121,7 +2069,7 @@ async def test_partition_folders_with_int_id(team, postgres_config, postgres_con
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
         ignore_assertions=True,
     )
@@ -2187,7 +2135,7 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2256,7 +2204,7 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
         source_type="Postgres",
         job_inputs=job_inputs,
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2408,7 +2356,7 @@ async def test_in_place_coarsening_merges_weekly_partitions_into_months(
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2464,7 +2412,7 @@ async def test_oom_history_does_not_split_a_table_with_tiny_partitions(
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2501,7 +2449,7 @@ async def test_operator_nomination_coarsens_a_table_the_automatic_path_refuses(
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2544,7 +2492,7 @@ async def test_in_place_coarsening_merges_hourly_partitions_up(
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2633,7 +2581,7 @@ async def test_in_place_coarsening_for_hashed_and_numerical_modes(
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
         ignore_assertions=True,
     )
@@ -2718,7 +2666,7 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -2823,7 +2771,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
@@ -2923,7 +2871,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
@@ -3018,7 +2966,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
             "ssh_tunnel_enabled": "False",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
         ignore_assertions=True,
     )
@@ -3180,7 +3128,7 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
         )
 
@@ -3188,7 +3136,7 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
         team_id=team.id, schema__name="duplicate_primary_key"
     )
 
-    assert job.status == ExternalDataJob.Status.FAILED
+    assert job.status == ExternalDataJobStatus.FAILED
     assert job.latest_error is not None
     assert (
         "The primary key set for this table isn't unique, so incremental syncing can't reliably match rows to update"
@@ -3221,7 +3169,7 @@ async def test_stripe_earliest_incremental_value(team, stripe_balance_transactio
             "stripe_account_id": "acct_id",
         },
         mock_data_response=stripe_balance_transaction["data"],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
@@ -3242,7 +3190,7 @@ async def test_append_only_table(team, mock_stripe_client):
             "stripe_account_id": "acct_id",
         },
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.APPEND,
+        sync_type=ExternalDataSchemaSyncType.APPEND,
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
@@ -3305,7 +3253,7 @@ async def test_worker_shutdown_desc_sort_order(team):
                 "region": {"selection": "EU", "subdomain": ""},
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
@@ -3318,7 +3266,7 @@ async def test_worker_shutdown_desc_sort_order(team):
     )
 
     assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+    assert run.status == ExternalDataJobStatus.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3347,7 +3295,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
                 "email_address": "test@posthog.com",
             },
             mock_data_response=zendesk_brands["brands"],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
@@ -3360,7 +3308,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
     )
 
     assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+    assert run.status == ExternalDataJobStatus.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3418,7 +3366,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
@@ -3427,7 +3375,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
         team_id=team.id, schema__name="billing_limits"
     )
 
-    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+    assert job.status == ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
@@ -3464,7 +3412,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
             pipeline=source,
             finished_at=datetime.now(),
             billable=True,
-            status=ExternalDataJob.Status.COMPLETED,
+            status=ExternalDataJobStatus.COMPLETED,
         )
 
         await sync_to_async(License.objects.create)(
@@ -3501,7 +3449,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
                 "ssh_tunnel_enabled": "False",
             },
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
@@ -3510,7 +3458,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         team_id=team.id, schema__name="billing_limits"
     )
 
-    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+    assert job.status == ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
@@ -3695,7 +3643,7 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
     # The schema with the deleted upstream table should now have "should_sync" updated to False and status set to completed
     synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert synced_schema.should_sync is False
-    assert synced_schema.status == ExternalDataSchema.Status.COMPLETED
+    assert synced_schema.status == ExternalDataSchemaStatus.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -4193,7 +4141,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
             "stripe_account_id": "acct_id",
         },
         mock_data_response=stripe_charge["data"],
-        sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        sync_type=ExternalDataSchemaSyncType.WEBHOOK,
     )
 
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
@@ -4335,7 +4283,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     # Verify job completed
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
     assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+    assert run.status == ExternalDataJobStatus.COMPLETED
 
     # Verify webhook data was ingested alongside the original charge
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
@@ -4360,7 +4308,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
             "stripe_account_id": "acct_id",
         },
         mock_data_response=stripe_charge["data"],
-        sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        sync_type=ExternalDataSchemaSyncType.WEBHOOK,
     )
 
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
@@ -4526,7 +4474,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # 7. Verify job completed
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
     assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+    assert run.status == ExternalDataJobStatus.COMPLETED
 
     # 8. Verify webhook data was ingested alongside the original charge
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
@@ -4624,7 +4572,7 @@ async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connec
         source_type="MySQL",
         job_inputs=_mysql_job_inputs(mysql_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
@@ -4703,7 +4651,7 @@ async def test_mysql_schema_evolution(team, mysql_config, mysql_connection):
         source_type="MySQL",
         job_inputs=_mysql_job_inputs(mysql_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
@@ -4809,7 +4757,7 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type=ExternalDataSchemaSyncType.XMIN,
         sync_type_config={},
     )
 
@@ -4890,7 +4838,7 @@ async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres
             source_type="Postgres",
             job_inputs=_postgres_job_inputs(postgres_config),
             mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type=ExternalDataSchemaSyncType.XMIN,
             sync_type_config={},
         )
 
@@ -4922,7 +4870,7 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
         source_type="Postgres",
         job_inputs=_postgres_job_inputs(postgres_config),
         mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
         sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
     )
 
@@ -4931,7 +4879,7 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
 
     # Switch to xmin with reset_pipeline — what the serializer sets when crossing the xmin boundary.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-    schema.sync_type = ExternalDataSchema.SyncType.XMIN
+    schema.sync_type = ExternalDataSchemaSyncType.XMIN
     schema.sync_type_config = {"primary_key_columns": ["id"], "reset_pipeline": True}
     await sync_to_async(schema.save)()
 

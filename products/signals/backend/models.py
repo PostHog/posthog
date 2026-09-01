@@ -23,6 +23,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ArtefactContent,
     ArtefactContentValidationError,
+    ChannelAssignment,
     Dismissal,
     LogArtefactContent,
     RelatedTo,
@@ -189,8 +190,9 @@ class SignalUserAutonomyConfig(UUIDModel):
         related_name="+",
     )
     slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
-    # When null, all priorities (including reports with no priority) notify.
-    # When set, only reports with a priority at or above this value (P0 highest) notify.
+    # When set, only reports at or above this priority (P0 highest) notify.
+    # When null, every prioritized report notifies. A report with no priority then
+    # notifies only on the reviewer-added path (see slack_inbox_notifications).
     slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -367,8 +369,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
-            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
+            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:
@@ -773,6 +775,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
         COMMIT = "commit"
@@ -786,7 +789,7 @@ class SignalReportArtefact(UUIDModel):
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
     #   - status artefacts describe the report's current state (judgments, repo selection,
-    #     suggested reviewers). They are appended on each (re)assessment via `append_status`; the
+    #     suggested reviewers, channel assignments). They are appended on each change; the
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
     #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
     #   - log artefacts record discrete work done on a report (code references, commits,
@@ -801,6 +804,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
+            ArtefactType.CHANNEL_ASSIGNMENT,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -831,6 +835,15 @@ class SignalReportArtefact(UUIDModel):
     # destroying the report's work log.
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    channel = models.ForeignKey(
+        "tasks.Channel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
 
     class Meta:
         indexes = [
@@ -840,6 +853,7 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            models.Index(fields=["channel"], name="signals_sig_channel_idx"),
         ]
 
     @classmethod
@@ -867,6 +881,7 @@ class SignalReportArtefact(UUIDModel):
             content=content.model_dump_json(),
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
+            channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
         )
 
     @classmethod
@@ -1031,7 +1046,11 @@ class SignalReportArtefact(UUIDModel):
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
         self.content = parsed.model_dump_json()
-        self.save(update_fields=["content", "updated_at"])
+        update_fields = ["content", "updated_at"]
+        if isinstance(parsed, ChannelAssignment):
+            self.channel_id = parsed.channel_id
+            update_fields.append("channel_id")
+        self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
@@ -1441,8 +1460,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
-    # config columns. A Slack destination is active only when both its integration and channel
-    # are present; the UI may persist the integration first while the user chooses a channel.
+    # config columns. A Slack destination is active only when its integration and a target — a channel,
+    # or a member to DM — are present; the UI may persist the integration first while the user chooses.
     output_destinations = models.JSONField(default=dict, db_default={})
     # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
     # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
@@ -1957,6 +1976,11 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="scratchpads_created",
     )
+    # Who wrote the entry when `created_by_run` cannot say. A scout run names its skill through
+    # the FK; a report-pipeline stage has no `SignalScoutRun` row, so it stamps a `pipeline:*`
+    # identity here instead (see `scout_harness/note_targets.py`). Written on create only, so an
+    # upsert by a later writer keeps the original creator — same rule as `created_by_run`.
+    created_by_identity = models.CharField(max_length=64, null=True, blank=True)
     # Null = durable (the default). Set to drop the entry out of scout searches once
     # its shelf life is up. Mirrors `SignalScoutNote.expires_at`.
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -1981,7 +2005,10 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     steering channel for feedback and pointers that don't warrant editing a scout's skill
     body — "look into X", "stop flagging Y", "we shipped Z on Tuesday". A note targets one
     scout (`skill_name`) or the whole fleet (blank `skill_name`); each run lists the notes
-    addressed to it as prior context and weighs them like any other input.
+    addressed to it as prior context and weighs them like any other input. A stage of the
+    report pipeline can be addressed too, through a reserved `pipeline:*` audience that rides
+    the same column (see `PIPELINE_AUDIENCES` in `scout_harness/note_targets.py`); no scout ever
+    reads one, because the run-time list matches `skill_name` exactly.
 
     Trust model: scouts read note content verbatim while holding privileged sandbox tools,
     so writing a note is gated to skill-authoring-level authorization — API keys need
@@ -2029,8 +2056,9 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         related_name="signal_scout_notes",
     )
-    # Target scout's skill name (`signals-scout-*`). Blank = a general note addressed to the
-    # whole fleet — every scout's run sees it alongside its own skill-scoped notes.
+    # Who the note is addressed to: a scout's skill name (`signals-scout-*`), a reserved
+    # pipeline audience (`pipeline:*`), or blank for the whole fleet. A blank target is seen by
+    # every reader alongside its own targeted notes.
     skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
     # Prose the scout reads verbatim. Bounded by the create serializer, not the column.
     content = models.TextField()

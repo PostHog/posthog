@@ -12,11 +12,17 @@ import aioboto3
 import pytest_asyncio
 import botocore.exceptions
 
+from posthog.models.integration import AWSRedshiftRoleBasedIntegration, Integration, IntegrationError
+
 from products.batch_exports.backend.service import AWSCredentials
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
     InsufficientS3PermissionsError,
+    ProvisionedCluster,
     RedshiftS3CopyError,
+    ServerlessWorkgroup,
+    _get_redshift_credentials_policy_statements,
+    _parse_redshift_host,
     check_and_raise_redshift_copy_error,
     is_s3_read_access_denied,
     upload_manifest_file,
@@ -289,3 +295,99 @@ async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise)
             await call
     else:
         await call  # should not raise
+
+
+@pytest.mark.parametrize(
+    "host,expected",
+    [
+        (
+            "examplecluster.abc123xyz789.us-west-2.redshift.amazonaws.com",
+            ProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2"),
+        ),
+        (
+            "default-wg.123456789012.us-east-1.redshift-serverless.amazonaws.com",
+            ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1"),
+        ),
+    ],
+)
+def test_parse_redshift_host(host, expected):
+    assert _parse_redshift_host(host) == expected
+
+
+@pytest.mark.parametrize("host", ["localhost", "my-redshift.example.com", "8.8.8.8", ""])
+def test_parse_redshift_host_rejects_unrecognized_endpoints(host):
+    with pytest.raises(IntegrationError):
+        _parse_redshift_host(host)
+
+
+def _aws_redshift_role_integration(**extra_config) -> AWSRedshiftRoleBasedIntegration:
+    integration = Integration(
+        kind=Integration.IntegrationKind.AWS_REDSHIFT,
+        config={
+            "aws_role_arn": "arn:aws:iam::123456789012:role/posthog-batch-exports",
+            "user": "awsuser",
+            **extra_config,
+        },
+    )
+    return AWSRedshiftRoleBasedIntegration(integration)
+
+
+def test_provisioned_cluster_credentials_policy_scopes_to_exact_resources():
+    integration = _aws_redshift_role_integration(groups=["exporters"], auto_create=True)
+    server = ProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2")
+
+    statements = _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+    assert statements[0]["Action"] == ["redshift:GetClusterCredentials", "redshift:CreateClusterUser"]
+    assert statements[0]["Resource"] == [
+        "arn:aws:redshift:us-west-2:123456789012:dbuser:examplecluster/awsuser",
+        "arn:aws:redshift:us-west-2:123456789012:dbname:examplecluster/posthog",
+    ]
+    assert statements[1]["Action"] == ["redshift:JoinGroup"]
+    assert statements[1]["Resource"] == [
+        "arn:aws:redshift:us-west-2:123456789012:dbgroup:examplecluster/exporters",
+    ]
+    assert all("*" not in resource for statement in statements for resource in statement["Resource"])
+
+
+def test_serverless_workgroup_credentials_policy_scopes_to_workgroup_arn():
+    workgroup_arn = "arn:aws:redshift-serverless:us-east-1:123456789012:workgroup/abc-123"
+    integration = _aws_redshift_role_integration(workgroup_arn=workgroup_arn)
+    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+
+    statements = _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+    assert statements == [
+        {
+            "Effect": "Allow",
+            "Action": ["redshift-serverless:GetCredentials"],
+            "Resource": [workgroup_arn],
+        }
+    ]
+
+
+def test_serverless_workgroup_credentials_policy_requires_workgroup_arn():
+    # There must never be a wildcard fallback here: without the exact workgroup ARN
+    # the policy cannot be scoped, so credentials must not be requested at all.
+    integration = _aws_redshift_role_integration()
+    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+
+    with pytest.raises(IntegrationError):
+        _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+
+@pytest.mark.parametrize(
+    "workgroup_arn",
+    [
+        # Region mismatch.
+        "arn:aws:redshift-serverless:us-west-2:123456789012:workgroup/abc-123",
+        # Account mismatch.
+        "arn:aws:redshift-serverless:us-east-1:999999999999:workgroup/abc-123",
+    ],
+)
+def test_serverless_workgroup_credentials_policy_rejects_mismatched_arn(workgroup_arn):
+    integration = _aws_redshift_role_integration(workgroup_arn=workgroup_arn)
+    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+
+    with pytest.raises(IntegrationError):
+        _get_redshift_credentials_policy_statements(integration, server, "posthog")
