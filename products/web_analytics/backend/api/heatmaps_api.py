@@ -652,9 +652,17 @@ def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, obje
     if not isinstance(heatmap_data_url, str) or not heatmap_data_url:
         return None
 
-    heatmap_filters = export_context.get("heatmap_filters")
-    if not isinstance(heatmap_filters, dict):
+    # The exporter client applies two different viewport defaults, so this must too. When
+    # heatmap_filters is present but omits viewportAccuracy, calculateViewportRange falls back to
+    # 0.2. When the whole object is absent, the client keeps DEFAULT_HEATMAP_FILTERS instead, whose
+    # viewportAccuracy is 0.9. A single default would authorize one state and reject the other.
+    raw_heatmap_filters = export_context.get("heatmap_filters")
+    if isinstance(raw_heatmap_filters, dict):
+        heatmap_filters = raw_heatmap_filters
+        default_viewport_accuracy = 0.2
+    else:
         heatmap_filters = {}
+        default_viewport_accuracy = 0.9
     common_filters = export_context.get("common_filters")
     if not isinstance(common_filters, dict):
         common_filters = {}
@@ -662,7 +670,7 @@ def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, obje
     width = export_context.get("width", 1400)
     if not isinstance(width, int | float) or isinstance(width, bool):
         return None
-    viewport_accuracy = heatmap_filters.get("viewportAccuracy", 0.2)
+    viewport_accuracy = heatmap_filters.get("viewportAccuracy", default_viewport_accuracy)
     if not isinstance(viewport_accuracy, int | float) or isinstance(viewport_accuracy, bool):
         return None
 

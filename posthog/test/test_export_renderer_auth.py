@@ -89,22 +89,36 @@ class TestExportRendererAuthentication(APIBaseTest):
         )
         assert response.status_code == expected_status
 
-    def test_heatmap_token_accepts_legacy_viewport_accuracy_default(self) -> None:
-        token = self._make_export_renderer_token(
-            export_context={
-                "heatmap_url": "https://example.com",
-                "heatmap_data_url": "https://example.com",
-                "heatmap_type": "click",
-                "width": 1400,
-                "common_filters": {"date_from": "-7d"},
-                "heatmap_filters": {"type": "click", "aggregation": "total_count"},
-            }
-        )
+    @parameterized.expand(
+        [
+            # heatmap_filters present but without viewportAccuracy: the exporter's
+            # calculateViewportRange falls back to 0.2, a 280-2520 window at width 1400.
+            (
+                "present_without_viewport_accuracy",
+                {"type": "click", "aggregation": "total_count"},
+                "viewport_width_min=280&viewport_width_max=2520",
+            ),
+            # heatmap_filters absent entirely: the exporter keeps DEFAULT_HEATMAP_FILTERS
+            # (viewportAccuracy 0.9), a 1260-1540 window at width 1400.
+            ("absent", None, "viewport_width_min=1260&viewport_width_max=1540"),
+        ]
+    )
+    def test_heatmap_token_accepts_viewport_accuracy_defaults(
+        self, _name: str, heatmap_filters: dict[str, object] | None, viewport_query: str
+    ) -> None:
+        export_context: dict[str, object] = {
+            "heatmap_url": "https://example.com",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "click",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d"},
+        }
+        if heatmap_filters is not None:
+            export_context["heatmap_filters"] = heatmap_filters
+        token = self._make_export_renderer_token(export_context=export_context)
 
         response = self._unauthenticated_client().get(
-            self._heatmap_url().replace(
-                "viewport_width_min=1260&viewport_width_max=1540", "viewport_width_min=280&viewport_width_max=2520"
-            ),
+            self._heatmap_url().replace("viewport_width_min=1260&viewport_width_max=1540", viewport_query),
             headers={"authorization": f"Bearer {token}"},
         )
 
