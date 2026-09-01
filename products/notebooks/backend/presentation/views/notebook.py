@@ -979,7 +979,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "memory_gb": sandbox_config.memory_gb,
             "disk_size_gb": sandbox_config.disk_size_gb,
             "idle_timeout_seconds": sandbox_config.ttl_seconds,
-            "hourly_price": get_compute_rates().hourly_price(cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb),
+            "next_hourly_price": get_compute_rates().hourly_price(
+                cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb
+            ),
             "preset_key": self._preset_key_for(cpu_cores, sandbox_config.memory_gb),
         }
         return Response(NotebookKernelStatusResponseSerializer(payload).data)
@@ -1024,7 +1026,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 notebook_short_id=notebook.short_id,
                 status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
             ).exists(),
-            "hourly_price": get_compute_rates().hourly_price(
+            "next_hourly_price": get_compute_rates().hourly_price(
                 cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb
             ),
             "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),

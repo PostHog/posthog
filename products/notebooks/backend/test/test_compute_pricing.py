@@ -88,7 +88,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         payload = response.json()
-        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=4, memory_gb=8)
+        assert payload["next_hourly_price"] == get_compute_rates().hourly_price(cpu_cores=4, memory_gb=8)
         assert payload["preset_key"] == "balanced"
 
     def test_config_quotes_the_default_for_knobs_the_notebook_leaves_unset(self) -> None:
@@ -103,7 +103,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.status_code == 200, response.json()
         payload = response.json()
         assert payload["cpu_cores"] is None
-        assert payload["hourly_price"] == get_compute_rates().hourly_price(
+        assert payload["next_hourly_price"] == get_compute_rates().hourly_price(
             cpu_cores=default_preset.cpu_cores, memory_gb=default_preset.memory_gb
         )
         assert payload["preset_key"] == DEFAULT_COMPUTE_PRESET_KEY

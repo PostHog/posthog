@@ -176,7 +176,7 @@ describe('notebookKernelInfoLogic', () => {
             status: 'running',
             cpu_cores: 4,
             memory_gb: 8,
-            hourly_price: 1,
+            next_hourly_price: 1,
         })
         logic = notebookKernelInfoLogic({ shortId: 'price-fallback-01890abc', mode: 'notebook' })
         logic.mount()
