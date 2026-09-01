@@ -146,8 +146,8 @@ export interface sidepanelTicketsLogicActions {
         ticketId: string,
         quiet?: boolean
     ) => {
-        ticketId: string
         quiet: boolean
+        ticketId: string
     }
     loadTickets: () => {
         value: true
