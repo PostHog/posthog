@@ -4,9 +4,9 @@ import { IconWarning } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { sharedMetricModalLogic } from 'scenes/experiments/Metrics/sharedMetricModalLogic'
 
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
 
 import { metricSourceModalLogic } from './metricSourceModalLogic'
 
