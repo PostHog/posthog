@@ -1684,10 +1684,27 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     VALID_RETENTION_DAYS = {14, 30}
+    MAX_PATTERN_MESSAGE_KEYS = 20
+
+    @staticmethod
+    def _validate_pattern_message_keys(value: object) -> None:
+        if not isinstance(value, list) or not all(isinstance(key, str) for key in value):
+            raise exceptions.ValidationError("pattern_message_keys must be a list of strings")
+        if len(value) > TeamSerializer.MAX_PATTERN_MESSAGE_KEYS:
+            raise exceptions.ValidationError(
+                f"pattern_message_keys must contain at most {TeamSerializer.MAX_PATTERN_MESSAGE_KEYS} keys"
+            )
+        if any(not key.strip() for key in value):
+            raise exceptions.ValidationError("pattern_message_keys must not contain empty keys")
+        if len(set(value)) != len(value):
+            raise exceptions.ValidationError("pattern_message_keys must not contain duplicate keys")
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+
+        if "pattern_message_keys" in value:
+            TeamSerializer._validate_pattern_message_keys(value["pattern_message_keys"])
 
         new_retention = value.get("retention_days")
         if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:

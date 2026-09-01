@@ -1831,6 +1831,42 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                ("not_a_list", "message", "must be a list of strings"),
+                ("non_string_member", ["message", 3], "must be a list of strings"),
+                ("empty_string", ["message", ""], "must not contain empty keys"),
+                ("whitespace_only", ["message", "  "], "must not contain empty keys"),
+                ("duplicates", ["message", "msg", "message"], "must not contain duplicate keys"),
+                ("over_cap", [f"key_{index}" for index in range(21)], "at most 20 keys"),
+            ]
+        )
+        def test_logs_settings_pattern_message_keys_invalid(self, _name, keys, expected_error):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"pattern_message_keys": keys}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert expected_error in response.json()["detail"]
+
+        @parameterized.expand(
+            [
+                ("absent", None),
+                ("empty_list", []),
+                ("single_key", ["message"]),
+                ("ordered_keys", ["message", "msg", "event"]),
+                ("at_cap", [f"key_{index}" for index in range(20)]),
+            ]
+        )
+        def test_logs_settings_pattern_message_keys_valid(self, _name, keys):
+            logs_settings = {} if keys is None else {"pattern_message_keys": keys}
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": logs_settings},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["logs_settings"] == logs_settings
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
