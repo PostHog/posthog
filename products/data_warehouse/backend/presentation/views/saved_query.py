@@ -5,8 +5,8 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Model, OuterRef, Prefetch, Q, Subquery, TextField
-from django.db.models.functions import Cast
+from django.db.models import Count, IntegerField, Model, OuterRef, Prefetch, Q, Subquery, TextField
+from django.db.models.functions import Cast, Coalesce
 
 import structlog
 import posthoganalytics
@@ -1340,7 +1340,19 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by")
-            .annotate(view_count=Count("saved_queries", filter=Q(saved_queries__deleted=False)))
+            .annotate(
+                view_count=Coalesce(
+                    Subquery(
+                        DataWarehouseSavedQuery.objects.filter(folder=OuterRef("pk"), deleted=False)
+                        .order_by()
+                        .values("folder")
+                        .annotate(c=Count("id"))
+                        .values("c"),
+                        output_field=IntegerField(),
+                    ),
+                    0,
+                )
+            )
             .order_by(self.ordering)
         )
 

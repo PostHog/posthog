@@ -526,7 +526,7 @@ Per-team configuration for which signal sources are enabled.
 
 | Field            | Type      | Description                                                                                                                                                              |
 | ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                     |
+| `team`           | FK → Team | Owning team (reverse accessor sealed with `related_name="+"`)                                                                                                            |
 | `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                      |
 | `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
 | `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                           |
