@@ -1936,12 +1936,7 @@ export interface featureFlagLogicMeta {
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
-        showStaleFlagBanner: (
-            featureFlag: FeatureFlagType,
-            flagStatus: FeatureFlagStatusResponseApi | null,
-            flagStatusLoading: boolean,
-            props: any
-        ) => boolean
+        showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
