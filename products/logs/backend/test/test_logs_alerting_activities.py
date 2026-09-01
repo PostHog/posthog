@@ -1906,6 +1906,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {"serviceNames": ["a"]},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
             {
                 "id": "019dec00-0000-0000-0000-000000000002",
@@ -1915,6 +1916,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {"serviceNames": ["b"]},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
             {
                 "id": "019dec00-0000-0000-0000-000000000003",
@@ -1924,6 +1926,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {"serviceNames": ["a"]},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
         ]
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
@@ -1952,6 +1955,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {},
                 "next_check_at": None,
+                "trigger_type": "count",
             }
             for i in range(5)
         ]
@@ -1984,6 +1988,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {"serviceNames": ["healthy"]},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
             {
                 "id": "019dec00-0000-0000-0000-000000000002",
@@ -1993,6 +1998,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {"filterGroup": [{"type": "AND", "values": []}]},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
         ]
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
@@ -2022,6 +2028,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {"serviceNames": ["healthy"]},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
             # Missing window_minutes — triggers KeyError, must be skipped.
             {
@@ -2031,6 +2038,7 @@ class TestCohortManifest(unittest.TestCase):
                 "check_interval_minutes": 5,
                 "filters": {},
                 "next_check_at": None,
+                "trigger_type": "count",
             },
         ]
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)

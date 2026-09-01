@@ -62,6 +62,34 @@ def build_logs_url_params(
     return urlencode(params)
 
 
+def build_pattern_logs_url_params(
+    filters: dict,
+    *,
+    service_name: str,
+    pattern: str,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> str:
+    """Deep link scoped to one (service, pattern) fingerprint.
+
+    Narrows the alert's filters to the breaching service and adds an exact-match
+    filter on the `pattern` column, so the link opens exactly the log lines the
+    fingerprint matched.
+    """
+    pattern_filter = {"key": "pattern", "operator": "exact", "type": "log", "value": [pattern]}
+    existing = filters.get("filterGroup")
+    inner_groups = list(existing.get("values", [])) if existing and _has_filter_values(existing) else []
+    merged = {
+        **filters,
+        "serviceNames": [service_name],
+        "filterGroup": {
+            "type": "AND",
+            "values": [*inner_groups, {"type": "AND", "values": [pattern_filter]}],
+        },
+    }
+    return build_logs_url_params(merged, date_from=date_from, date_to=date_to)
+
+
 def _has_filter_values(filter_group: dict) -> bool:
     """True if the filter group contains at least one non-empty property filter."""
     for group in filter_group.get("values", []):

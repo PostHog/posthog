@@ -67,8 +67,13 @@ from products.logs.backend.alert_utils import (
     due_alerts_q,
     next_allowed_check_at,
 )
-from products.logs.backend.logs_url_params import build_logs_url_params
-from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.logs_url_params import build_logs_url_params, build_pattern_logs_url_params
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent, LogsAlertSeenPattern
+from products.logs.backend.pattern_alert_evaluator import (
+    PatternAlertCheckError,
+    PatternCheckOutcome,
+    evaluate_pattern_alert,
+)
 from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
@@ -97,6 +102,13 @@ from products.logs.backend.temporal.metrics import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Membership (not != COUNT) so an unrecognized trigger value falls back to the
+# count path instead of the pattern path.
+_PATTERN_TRIGGER_TYPES = {
+    LogsAlertConfiguration.TriggerType.NEW_PATTERN,
+    LogsAlertConfiguration.TriggerType.PATTERN_THRESHOLD,
+}
 
 
 def _log_metric_failure(label: str, e: BaseException, **context: object) -> None:
@@ -236,11 +248,13 @@ class CohortManifest:
 
 @dataclasses.dataclass(frozen=True)
 class _PrefetchedQuery:
-    """CH query result for one alert: either `buckets` or `error` is set."""
+    """CH query result for one alert: exactly one of `buckets` (count triggers),
+    `pattern` (pattern triggers), or `error` is set."""
 
     buckets: list[BucketedCount] | None = None
     query_duration_ms: int | None = None
     error: Exception | None = None
+    pattern: PatternCheckOutcome | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -265,6 +279,9 @@ class _AlertEvaluation:
     date_from: datetime
     date_to: datetime
     state_before: str
+    # Set for pattern triggers: carries the breaching groups for the notification
+    # payload and the staged seen-set rows for the save phase.
+    pattern_outcome: PatternCheckOutcome | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -379,6 +396,7 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
             "window_minutes",
             "evaluation_periods",
             "check_interval_minutes",
+            "trigger_type",
             "filters",
             "next_check_at",
             "schedule_restriction",
@@ -521,7 +539,7 @@ def _cohort_manifests_from_alerts(
     anyway, and one bad row must not brick discovery for the rest of the
     project.
     """
-    grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[str]] = defaultdict(list)
+    grouped: defaultdict[tuple[int, int, int, int, str, bool, datetime], list[str]] = defaultdict(list)
     for row in rows:
         try:
             broken_reason = _detect_broken_filter_config(row["filters"])
@@ -537,11 +555,15 @@ def _cohort_manifests_from_alerts(
             nca = row["next_check_at"] if row["next_check_at"] is not None else now
             date_to = resolve_alert_date_to(nca, checkpoint)
             projection_eligible = is_projection_eligible(row["filters"])
+            # trigger_type keys the cohort so every cohort is trigger-homogeneous:
+            # pattern cohorts return grouped rows and can't share the batched
+            # countIf query with count cohorts.
             key = (
                 row["team_id"],
                 row["window_minutes"],
                 row["evaluation_periods"],
                 row["check_interval_minutes"],
+                row["trigger_type"],
                 projection_eligible,
                 date_to,
             )
@@ -558,7 +580,7 @@ def _cohort_manifests_from_alerts(
             capture_exception(e)
 
     manifests: list[CohortManifest] = []
-    for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_ids in grouped.items():
+    for (team_id, _wm, _ep, _cim, _tt, projection_eligible, date_to), alert_ids in grouped.items():
         for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE, strict=False):
             manifests.append(
                 CohortManifest(
@@ -913,6 +935,25 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
     return _CohortQueryResult(per_alert=per_alert)
 
 
+def _run_pattern_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
+    """Per-alert pattern evaluation for a pattern-trigger cohort.
+
+    Grouped queries return rows (one per fingerprint) so they can't share the
+    batched countIf query. Runs the full pattern evaluation (CH groups + seen-set
+    diff) here in the sync pool; errors are captured per alert and re-raised
+    inside `_evaluate_single_alert` for standard classification.
+    """
+    now = datetime.now(UTC)
+    per_alert: dict[str, _PrefetchedQuery] = {}
+    for alert in cohort.alerts:
+        try:
+            outcome = evaluate_pattern_alert(alert, date_to=cohort.date_to, now=now)
+            per_alert[str(alert.id)] = _PrefetchedQuery(pattern=outcome, query_duration_ms=outcome.query_duration_ms)
+        except Exception as e:
+            per_alert[str(alert.id)] = _PrefetchedQuery(error=e)
+    return _CohortQueryResult(per_alert=per_alert)
+
+
 def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
     """Batched CH query for a cohort; per-alert fallback on non-transient failure.
 
@@ -921,6 +962,10 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
     (would hit the same error) and transient cluster errors (would hammer a
     struggling cluster with N more failing queries).
     """
+    # Cohorts are trigger-homogeneous (trigger_type is part of the cohort key).
+    if cohort.alerts[0].trigger_type in _PATTERN_TRIGGER_TYPES:
+        return _run_pattern_alert_queries(cohort)
+
     try:
         batched_result = _run_batched_query(cohort)
     except Exception as e:
@@ -976,6 +1021,7 @@ def _dispatch_notification(
     *,
     date_from: datetime,
     date_to: datetime,
+    pattern_outcome: PatternCheckOutcome | None = None,
 ) -> ProduceResult | None:
     """Emit the notification for this outcome. Returns the pending Kafka
     delivery, or None when nothing was enqueued (no action, or the enqueue
@@ -992,7 +1038,15 @@ def _dispatch_notification(
     log = logger.bind(alert_id=str(alert.id), alert_name=alert.name, team_id=alert.team_id)
 
     if action == NotificationAction.FIRE:
-        result = _emit_alert_event(alert, "$logs_alert_firing", check_result, now, date_from=date_from, date_to=date_to)
+        result = _emit_alert_event(
+            alert,
+            "$logs_alert_firing",
+            check_result,
+            now,
+            date_from=date_from,
+            date_to=date_to,
+            pattern_outcome=pattern_outcome,
+        )
         log.info("Alert fired", result_count=check_result.result_count, enqueued=result is not None)
     elif action == NotificationAction.RESOLVE:
         result = _emit_alert_event(
@@ -1061,6 +1115,7 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
         now,
         date_from=evaluation.date_from,
         date_to=evaluation.date_to,
+        pattern_outcome=evaluation.pattern_outcome,
     )
     enqueue_failed = evaluation.outcome.notification != NotificationAction.NONE and produce_result is None
     return _DispatchedAlert(evaluation=evaluation, notification_failed=enqueue_failed, produce_result=produce_result)
@@ -1229,6 +1284,8 @@ def _save_cohort_outcomes(
             update_start = time.perf_counter()
             LogsAlertConfiguration.objects.bulk_update(alerts, fields=_COHORT_UPDATE_FIELDS)
             update_ms = int((time.perf_counter() - update_start) * 1000)
+
+            _persist_seen_patterns(dispatched, now)
     except IntegrityError as e:
         # Recover the rest of the cohort via per-alert UPDATEs using the
         # already-staged data.
@@ -1239,7 +1296,7 @@ def _save_cohort_outcomes(
         )
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
-        saved, failed = _save_staged_per_alert(staged)
+        saved, failed = _save_staged_per_alert(staged, now)
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):
@@ -1252,8 +1309,44 @@ def _save_cohort_outcomes(
     return saved, failed
 
 
+def _persist_seen_patterns(dispatched: list[_DispatchedAlert], now: datetime) -> None:
+    """Commit pattern-trigger seen-set writes for the cohort.
+
+    Skips alerts whose notification failed: their state rolled back, so the
+    fingerprints must still read as new when the next cycle retries. The unique
+    (alert, fingerprint) constraint plus ignore_conflicts makes retries
+    idempotent. Seed rows (no notification) always commit.
+    """
+    rows: list[LogsAlertSeenPattern] = []
+    for d in dispatched:
+        pattern_outcome = d.evaluation.pattern_outcome
+        if pattern_outcome is None or d.notification_failed:
+            continue
+        alert = d.evaluation.alert
+        rows.extend(
+            LogsAlertSeenPattern(
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                fingerprint=staged.fingerprint,
+                service_name=staged.service_name,
+                pattern=staged.pattern,
+                pattern_version=staged.pattern_version,
+                last_seen_at=now,
+            )
+            for staged in pattern_outcome.staged_new
+        )
+        if pattern_outcome.refresh_fingerprints:
+            LogsAlertSeenPattern.objects.for_team(alert.team_id).filter(
+                alert_id=alert.id, fingerprint__in=pattern_outcome.refresh_fingerprints
+            ).update(last_seen_at=now)
+    if rows:
+        # A cohort is single-team, so every row shares one team scope.
+        LogsAlertSeenPattern.objects.for_team(rows[0].team_id).bulk_create(rows, ignore_conflicts=True, batch_size=1000)
+
+
 def _save_staged_per_alert(
     staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]],
+    now: datetime,
 ) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert]]:
     """Fallback path used when `bulk_update` raises `IntegrityError`.
 
@@ -1270,6 +1363,7 @@ def _save_staged_per_alert(
                 if event is not None:
                     event.save()
                 d.evaluation.alert.save(update_fields=update_fields)
+                _persist_seen_patterns([d], now)
             saved.append(d)
         except Exception as e:
             logger.exception(
@@ -1384,47 +1478,83 @@ def _evaluate_single_alert(
     classification as a per-alert failure).
     """
     original_next_check_at = alert.next_check_at
+    is_pattern_trigger = alert.trigger_type in _PATTERN_TRIGGER_TYPES
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
     date_to = resolve_alert_date_to(nca, checkpoint)
-    date_from = date_to - timedelta(
-        minutes=rolling_check_lookback_minutes(
-            alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
+    # Pattern triggers evaluate 1-of-1, so their window is exactly window_minutes.
+    date_from = (
+        date_to - timedelta(minutes=alert.window_minutes)
+        if is_pattern_trigger
+        else date_to
+        - timedelta(
+            minutes=rolling_check_lookback_minutes(
+                alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
+            )
         )
     )
 
     check_result: CheckResult
     recent_breaches: tuple[bool, ...] = ()
+    pattern_outcome: PatternCheckOutcome | None = None
     error_category: AlertErrorCode | None = None
     try:
         if prefetched is not None and prefetched.error is not None:
             raise prefetched.error
-        if prefetched is not None and prefetched.buckets is not None:
-            buckets = prefetched.buckets
-            query_duration_ms = prefetched.query_duration_ms if prefetched.query_duration_ms is not None else 0
-        else:
-            query_start = time.perf_counter()
-            buckets = AlertCheckQuery(
-                team=alert.team,
-                alert=alert,
-                date_from=date_from,
-                date_to=date_to,
-            ).execute_rolling_checks(
-                nca=date_to,
-                window_minutes=alert.window_minutes,
-                cadence_minutes=alert.check_interval_minutes,
-                period_count=alert.evaluation_periods,
+        if is_pattern_trigger:
+            if prefetched is not None and prefetched.pattern is not None:
+                pattern_outcome = prefetched.pattern
+            else:
+                pattern_outcome = evaluate_pattern_alert(alert, date_to=date_to, now=now)
+            check_result = CheckResult(
+                result_count=pattern_outcome.result_count,
+                threshold_breached=pattern_outcome.threshold_breached,
+                query_duration_ms=pattern_outcome.query_duration_ms,
             )
-            query_duration_ms = int((time.perf_counter() - query_start) * 1000)
+        else:
+            if prefetched is not None and prefetched.buckets is not None:
+                buckets = prefetched.buckets
+                query_duration_ms = prefetched.query_duration_ms if prefetched.query_duration_ms is not None else 0
+            else:
+                query_start = time.perf_counter()
+                buckets = AlertCheckQuery(
+                    team=alert.team,
+                    alert=alert,
+                    date_from=date_from,
+                    date_to=date_to,
+                ).execute_rolling_checks(
+                    nca=date_to,
+                    window_minutes=alert.window_minutes,
+                    cadence_minutes=alert.check_interval_minutes,
+                    period_count=alert.evaluation_periods,
+                )
+                query_duration_ms = int((time.perf_counter() - query_start) * 1000)
 
-        breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
-        latest_count = buckets[-1].count if buckets else 0
-        check_result = CheckResult(
-            result_count=latest_count,
-            threshold_breached=breaches[0] if breaches else False,
-            query_duration_ms=query_duration_ms,
+            breaches = _derive_breaches(
+                buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods
+            )
+            latest_count = buckets[-1].count if buckets else 0
+            check_result = CheckResult(
+                result_count=latest_count,
+                threshold_breached=breaches[0] if breaches else False,
+                query_duration_ms=query_duration_ms,
+            )
+            recent_breaches = breaches[1:]
+    except PatternAlertCheckError as e:
+        error_category = "invalid_query"
+        logger.warning(
+            "Pattern alert check failed",
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            team_id=alert.team_id,
+            error=e.user_message,
         )
-        recent_breaches = breaches[1:]
+        check_result = CheckResult(
+            result_count=None,
+            threshold_breached=False,
+            error_message=e.user_message,
+            is_transient_error=e.is_transient,
+        )
     except Exception as e:
         classified = classify_alert_error(e)
         error_category = classified.code
@@ -1444,7 +1574,13 @@ def _evaluate_single_alert(
             is_transient_error=classified.is_transient,
         )
 
-    outcome = evaluate_alert_check(alert.to_snapshot(recent_events_breached=recent_breaches), check_result, now)
+    snapshot = alert.to_snapshot(recent_events_breached=recent_breaches)
+    if is_pattern_trigger:
+        # Defensive 1/1 override: a fingerprint is new exactly once, so an N-of-M
+        # rolling window cannot compose with set-difference semantics. The
+        # serializer forces 1/1 at write time; this keeps stray rows safe too.
+        snapshot = dataclasses.replace(snapshot, evaluation_periods=1, datapoints_to_alarm=1)
+    outcome = evaluate_alert_check(snapshot, check_result, now)
 
     # Eval-phase metrics: CH-side and scheduler lag. Save/dispatch metrics fire
     # later in their own phases.
@@ -1465,6 +1601,7 @@ def _evaluate_single_alert(
         date_from=date_from,
         date_to=date_to,
         state_before=alert.state,
+        pattern_outcome=pattern_outcome,
     )
 
 
@@ -1482,6 +1619,11 @@ def _produce_alert_internal_event(
     )
 
 
+# Cap on the per-notification pattern list; the full count still ships as
+# `pattern_count` so a deploy minting 40 new fingerprints reads as "40 (top 10 shown)".
+PATTERNS_PER_EVENT = 10
+
+
 def _emit_alert_event(
     alert: LogsAlertConfiguration,
     event_name: str,
@@ -1490,11 +1632,13 @@ def _emit_alert_event(
     *,
     date_from: datetime,
     date_to: datetime,
+    pattern_outcome: PatternCheckOutcome | None = None,
 ) -> ProduceResult | None:
     properties: dict = {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
         "team_id": alert.team_id,
+        "trigger_type": alert.trigger_type,
         "threshold_count": alert.threshold_count,
         "threshold_operator": alert.threshold_operator,
         "window_minutes": alert.window_minutes,
@@ -1505,6 +1649,23 @@ def _emit_alert_event(
         "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
         "triggered_at": now.isoformat(),
     }
+    if pattern_outcome is not None:
+        properties["pattern_count"] = len(pattern_outcome.breaching)
+        properties["patterns"] = [
+            {
+                "service_name": group.service_name,
+                "pattern": group.pattern,
+                "occurrences": group.occurrences,
+                "logs_url_params": build_pattern_logs_url_params(
+                    alert.filters,
+                    service_name=group.service_name,
+                    pattern=group.pattern,
+                    date_from=date_from,
+                    date_to=date_to,
+                ),
+            }
+            for group in pattern_outcome.breaching[:PATTERNS_PER_EVENT]
+        ]
     return _produce_alert_internal_event(alert, event_name, properties, now)
 
 

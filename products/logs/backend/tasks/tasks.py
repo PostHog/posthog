@@ -11,6 +11,7 @@ from celery import shared_task
 
 @shared_task(ignore_result=True, name="products.logs.backend.tasks.logs_alert_events_cleanup_task")
 def logs_alert_events_cleanup_task() -> None:
-    from products.logs.backend.models import LogsAlertEvent
+    from products.logs.backend.models import LogsAlertEvent, LogsAlertSeenPattern
 
     LogsAlertEvent.clean_up_old_events()
+    LogsAlertSeenPattern.clean_up_old_seen_patterns()

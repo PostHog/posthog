@@ -146,6 +146,17 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         ABOVE = "above", "Above"
         BELOW = "below", "Below"
 
+    class TriggerType(models.TextChoices):
+        # Count of matching logs vs threshold_count over the window (the original trigger).
+        COUNT = "count", "Count threshold"
+        # Fires when a (service_name, pattern) fingerprint appears that is not in the
+        # alert's seen-set. threshold_count doubles as the min occurrences a novel
+        # fingerprint needs in the window before it alerts.
+        NEW_PATTERN = "new_pattern", "New pattern"
+        # Fires when any single (service_name, pattern) fingerprint reaches
+        # threshold_count occurrences in the window.
+        PATTERN_THRESHOLD = "pattern_threshold", "Pattern threshold"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
@@ -158,6 +169,17 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     #     "filterGroup": {...},
     # }
     filters = models.JSONField(default=dict)
+
+    # Trigger. Pattern triggers evaluate as 1-of-1 (the serializer forces N-of-M to 1/1):
+    # a "new fingerprint" is new exactly once, so a rolling M-window is meaningless.
+    trigger_type = models.CharField(
+        max_length=20,
+        choices=TriggerType,
+        default=TriggerType.COUNT,
+        db_default=TriggerType.COUNT.value,
+    )
+    # Trigger-specific knobs, e.g. {"seed_lookback_days": 7} for new_pattern.
+    trigger_config = models.JSONField(null=True, blank=True, default=None)
 
     # Threshold
     threshold_count = models.PositiveIntegerField(default=100)
@@ -335,6 +357,58 @@ class LogsAlertEvent(UUIDModel):
         """
         oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
         count, _ = cls.objects.filter(created_at__lt=oldest).delete()
+        return count
+
+
+class LogsAlertSeenPattern(TeamScopedRootMixin, UUIDModel):
+    """Persistent seen-set for `new_pattern` alerts.
+
+    One row per (alert, fingerprint) where fingerprint identifies a
+    (pattern_version, service_name, pattern) triple of the ingest-stamped
+    `logs.pattern` column. The evaluator anti-joins each check window's
+    fingerprints against this set; absent fingerprints are "net-new" and fire
+    the alert. Seeded silently on the alert's first check so pre-existing
+    error shapes never alert.
+    """
+
+    # Rows not observed for this long are pruned, because a pattern that returns
+    # later legitimately reads as new again. Also bounds table growth alongside
+    # the per-alert cap enforced in the evaluator.
+    SEEN_RETENTION_DAYS = 90
+
+    # db_constraint=False: posthog_team is a hot table. See the hot-table section
+    # of safe-django-migrations.md. Enforcement is app-level.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    alert = models.ForeignKey(
+        LogsAlertConfiguration,
+        on_delete=models.CASCADE,
+        related_name="seen_patterns",
+    )
+    fingerprint = models.CharField(max_length=64)
+    service_name = models.TextField()
+    # Truncated pattern template, kept for display in alert payloads and debugging.
+    pattern = models.TextField()
+    pattern_version = models.PositiveIntegerField()
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "logs_logsalertseenpattern"
+        constraints = [
+            models.UniqueConstraint(fields=["alert", "fingerprint"], name="logs_seen_pattern_alert_fp_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["alert", "last_seen_at"], name="logs_seen_pattern_stale_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.service_name}: {self.pattern[:80]} (alert={self.alert_id})"
+
+    @classmethod
+    def clean_up_old_seen_patterns(cls) -> int:
+        """Delete seen rows not observed for SEEN_RETENTION_DAYS."""
+        oldest = datetime.now(UTC) - timedelta(days=cls.SEEN_RETENTION_DAYS)
+        count, _ = cls.objects.unscoped().filter(last_seen_at__lt=oldest).delete()
         return count
 
 
