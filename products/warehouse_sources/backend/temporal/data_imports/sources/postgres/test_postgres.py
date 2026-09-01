@@ -453,6 +453,24 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches[0] is not None, "unrecognized session parameter must surface an actionable message"
         assert "session setting" in matches[0].lower()
 
+    def test_missing_relation_surfaces_actionable_message(self, source):
+        # A dropped/renamed table or column stays non-retryable, but must surface an actionable
+        # message rather than the raw psycopg text (which echoes the relation name and SQL fragment).
+        # Mirror the finalizer's first-match selection so a reorder that shadows it with an earlier
+        # None-valued key, or a revert of this bucket back to None, is caught. The relation name is
+        # invented, not a real customer value.
+        error_msg = (
+            'relation "public.orders" does not exist LINE 1: DECLARE _cur CURSOR FOR SELECT * FROM "public"."orders"'
+        )
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "a dropped relation must be classified non-retryable"
+        assert matches[0] is not None, "a dropped relation must surface an actionable message, not raw driver text"
+        assert "no longer exists" in matches[0].lower()
+
     def test_connect_timeout_surfaces_actionable_message(self, source):
         # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
         # guidance rather than the bare "connection timeout expired" driver text. Mirror the finalizer's
