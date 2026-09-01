@@ -148,6 +148,7 @@ def prepare_ast_for_printing(
                 user=context.user,
                 timings=context.timings,
                 bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+                use_cached_sources=context.use_cached_sources,
                 trigger="printer",
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:

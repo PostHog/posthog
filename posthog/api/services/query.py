@@ -306,6 +306,8 @@ def process_query_model(
                 user=user,
                 error_factory=ValidationError,
                 modifiers=create_default_modifiers_for_team(team),
+                # Editor-assist only: query execution never reads cached sources.
+                use_cached_sources=True,
             )
             return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 

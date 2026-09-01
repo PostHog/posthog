@@ -44,6 +44,7 @@ from posthog.hogql import (
 )
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
 
@@ -703,6 +704,10 @@ class PostHogTestCase(SimpleTestCase):
 
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+
+        # The sources cache is keyed on team/user ids, which repeat across tests while the
+        # rows behind them roll back, so a stale entry would leak one test's schema into the next.
+        clear_sources_cache()
 
         # Warm the new-events-schema gate settings so their cold reads don't land inside
         # assertNumQueries blocks: production workers serve requests with this cache warm
