@@ -2295,6 +2295,13 @@ def _git_common_dir(repo_root: Path) -> Path | None:
     if not line.startswith("gitdir:"):
         return None
     worktree_dir = Path(line.split(":", 1)[1].strip())
+    # Git writes this pointer relative to the worktree in some layouts.
+    if not worktree_dir.is_absolute():
+        worktree_dir = repo_root / worktree_dir
+    try:
+        worktree_dir = worktree_dir.resolve(strict=True)
+    except OSError:
+        return None  # Dangling pointer. Treat the tree as no repo at all.
     # <common>/worktrees/<name> -> <common>
     if worktree_dir.parent.name == "worktrees":
         return worktree_dir.parent.parent
@@ -2377,7 +2384,7 @@ def _check_git_health(repo_root: Path) -> CheckResult:
             name="Git housekeeping",
             status=CheckStatus.WARNING,
             summary=", ".join(problems),
-            remediation="run `hogli doctor:git --fix`",
+            remediation="run `hogli doctor:git`",
         )
     return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="clean")
 
@@ -2524,11 +2531,16 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
     return [r for r in results if r is not None]
 
 
+# pgrep -f matches the whole command line, so the subcommand does not follow `git`
+# directly when a caller passes -C or -c. The launchd repack job uses `git -C <path>`.
+_GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +[^ ]+)* +(gc|repack|maintenance|pack-objects)"
+
+
 def _git_housekeeping_running() -> bool:
     """True while git already packs, so the caller leaves the lock and pack dir alone."""
     try:
         result = subprocess.run(
-            ["pgrep", "-f", "git (gc|repack|maintenance|pack-objects)"],
+            ["pgrep", "-f", _GIT_HOUSEKEEPING_PGREP_PATTERN],
             capture_output=True,
             timeout=5,
         )
@@ -2563,7 +2575,7 @@ def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
     this itself on a partial clone, for the reason given at
     `_GIT_PACK_WARNING_THRESHOLD`.
     """
-    cmd = ["git", "-C", str(main_worktree), "repack", "-ad", "--threads=0"]
+    cmd = ["git", "-C", str(main_worktree), "repack", "-adl", "--threads=0"]
     # taskpolicy -b puts the repack in the background QoS band, which throttles its
     # IO as well as its CPU. Without it the repack competes with the dev stack.
     if shutil.which("taskpolicy"):
@@ -2574,7 +2586,19 @@ def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
     subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
 
 
-def _write_commit_graph(main_worktree: Path) -> None:
+def _run_git(main_worktree: Path, args: list[str], label: str) -> bool:
+    """Run one git repair step and report a failure.
+
+    git writes its own diagnostics to stderr, so this adds only the step name.
+    """
+    result = subprocess.run(["git", "-C", str(main_worktree), *args], check=False)
+    if result.returncode != 0:
+        click.secho(f"{label} failed with exit code {result.returncode}.", fg="red", err=True)
+        return False
+    return True
+
+
+def _write_commit_graph(main_worktree: Path) -> bool:
     """Backfill unreadable commits, then write the graph.
 
     `commit-graph write --reachable` stops at the first commit it cannot read, and a
@@ -2594,9 +2618,8 @@ def _write_commit_graph(main_worktree: Path) -> None:
         for oid in oids:
             subprocess.run(["git", "-C", str(main_worktree), "cat-file", "-e", oid], check=False, capture_output=True)
     click.echo("  writing commit-graph...")
-    subprocess.run(
-        ["git", "-C", str(main_worktree), "commit-graph", "write", "--reachable", "--split", "--no-progress"],
-        check=False,
+    return _run_git(
+        main_worktree, ["commit-graph", "write", "--reachable", "--split", "--no-progress"], "commit-graph write"
     )
 
 
@@ -2644,11 +2667,16 @@ def doctor_git(fix: bool) -> None:
 
     count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
 
-    if packs_high and fix:
-        click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
-        subprocess.run(["git", "-C", str(main_worktree), "repack", "-ad", "--threads=0"], check=False)
-        _write_commit_graph(main_worktree)
-        subprocess.run(["git", "-C", str(main_worktree), "multi-pack-index", "write", "--no-progress"], check=False)
+    if fix:
+        ok = True
+        if packs_high:
+            click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
+            ok = _run_git(main_worktree, ["repack", "-adl", "--threads=0"], "repack")
+        ok = ok and _write_commit_graph(main_worktree)
+        ok = ok and _run_git(main_worktree, ["multi-pack-index", "write", "--no-progress"], "multi-pack-index write")
+        if not ok:
+            click.secho("Repair stopped. The repository still needs work.", fg="red", err=True)
+            raise SystemExit(1)
         click.secho("Done.", fg="green")
         hints.record_check_run("doctor:git")
         return
