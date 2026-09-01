@@ -30,7 +30,12 @@ from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_USER_UUID_KEY,
 )
 from posthog.email import is_email_available
-from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
+from posthog.event_usage import (
+    alias_invite_id,
+    get_request_analytics_properties,
+    report_user_joined_organization,
+    report_user_signed_up,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
@@ -311,6 +316,7 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+            analytics_props=get_request_analytics_properties(request),
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -673,6 +679,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
                 role_at_organization=role_at_organization,
                 referral_source="signed up from invite link",
+                analytics_props=get_request_analytics_properties(request),
             )
 
         else:
@@ -1115,6 +1122,7 @@ def social_create_user(
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
         referral_source="social signup - no info",
+        analytics_props=get_request_analytics_properties(request),
     )
 
     return {"is_new": True, "user": user}

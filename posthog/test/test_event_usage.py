@@ -568,6 +568,26 @@ class TestSignupCrmExclusion(BaseTest):
             mock_group_identify.assert_not_called()
 
 
+class TestReportUserSignedUp(BaseTest):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_analytics_props_reach_event_but_not_set(self, mock_capture):
+        user = self._create_user("owner@example.com")
+
+        report_user_signed_up(
+            user,
+            is_instance_first_user=False,
+            is_organization_first_user=False,
+            analytics_props={"source": EventSource.WEB, "user_agent": "Mozilla/5.0"},
+        )
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["source"] == EventSource.WEB
+        assert props["user_agent"] == "Mozilla/5.0"
+        # Request-source properties are transient, so they must not land on the person.
+        assert "source" not in props["$set"]
+        assert "user_agent" not in props["$set"]
+
+
 class TestSanitizeHeaderValue(BaseTest):
     @parameterized.expand(
         [

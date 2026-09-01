@@ -40,6 +40,7 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    analytics_props: "Optional[AnalyticsProps]" = None,  # request-source properties, from get_request_analytics_properties
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -68,6 +69,13 @@ def report_user_signed_up(
             props[f"org__{k}"] = v
 
     props = {**props, "$set": {**props, **user.get_analytics_metadata()}}
+
+    # Request-source properties (source, user_agent, host, ...) stay event-level, not in $set,
+    # so an investigation can tell a cloud signup from a legacy self-hosted one without setting
+    # those transient values on the person.
+    if analytics_props is not None:
+        props = {**analytics_props, **props}
+
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user signed up",
