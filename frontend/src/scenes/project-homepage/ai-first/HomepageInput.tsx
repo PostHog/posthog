@@ -270,25 +270,27 @@ interface RailSection {
     label: string
     kind: HomepageGridItemKind
     icon: React.ReactNode
-    emptyLabel: string
-    emptyTooltip: React.ReactNode
+    /** Copy for the resolved-but-empty state. A section without it hides entirely when empty. */
+    emptyState?: { label: string; tooltip: React.ReactNode }
 }
 
 // The navigation rail next to the suggestions list: compact links to existing resources.
+// Recents carry no empty state: they fill by themselves as the user browses, so an empty
+// section has nothing actionable to say and just takes space.
 const RAIL_SECTIONS: RailSection[] = [
     {
         label: 'Pinned dashboards',
         kind: 'dashboard',
         icon: <IconPin className="size-3" />,
-        emptyLabel: 'No pinned dashboards',
-        emptyTooltip: 'Pin dashboards by clicking "Pin" in the dashboard context panel',
+        emptyState: {
+            label: 'No pinned dashboards',
+            tooltip: 'Pin dashboards by clicking "Pin" in the dashboard context panel',
+        },
     },
     {
         label: 'Recents',
         kind: 'recent',
         icon: <IconClock className="size-3" />,
-        emptyLabel: 'No recents',
-        emptyTooltip: 'Recents are auto-populated when you visit a resource',
     },
 ]
 
@@ -386,15 +388,21 @@ function GridSkeletons({
     )
 }
 
-function RailEmptyState({ section }: { section: RailSection }): JSX.Element {
+function RailEmptyState({
+    kind,
+    emptyState,
+}: {
+    kind: HomepageGridItemKind
+    emptyState: NonNullable<RailSection['emptyState']>
+}): JSX.Element {
     return (
         <div
             className="px-3 py-2 border border-dashed rounded text-xs text-tertiary"
-            data-attr={`homepage-grid-empty-${section.kind}`}
+            data-attr={`homepage-grid-empty-${kind}`}
         >
-            {section.emptyLabel}{' '}
-            <Tooltip title={section.emptyTooltip} delayMs={0}>
-                <IconInfo className="size-3 text-tertiary" data-attr={`homepage-grid-empty-tooltip-${section.kind}`} />
+            {emptyState.label}{' '}
+            <Tooltip title={emptyState.tooltip} delayMs={0}>
+                <IconInfo className="size-3 text-tertiary" data-attr={`homepage-grid-empty-tooltip-${kind}`} />
             </Tooltip>
         </div>
     )
@@ -616,6 +624,9 @@ function IdleGrid(): JSX.Element {
                     const items = railItemsByKind[section.kind as 'dashboard' | 'recent']
                     const loading = section.kind === 'dashboard' ? dashboardsLoading : recentItemsLoading
                     const offset = railHighlightOffset[section.kind as 'dashboard' | 'recent']
+                    if (!loading && items.length === 0 && !section.emptyState) {
+                        return null
+                    }
                     return (
                         <div key={section.kind} className="flex flex-col gap-px [&:not(:first-child)]:mt-3">
                             <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
@@ -624,8 +635,8 @@ function IdleGrid(): JSX.Element {
                             </Label>
                             {loading && items.length === 0 ? (
                                 <GridSkeletons kind={section.kind} counts={skeletonCounts} />
-                            ) : items.length === 0 ? (
-                                <RailEmptyState section={section} />
+                            ) : items.length === 0 && section.emptyState ? (
+                                <RailEmptyState kind={section.kind} emptyState={section.emptyState} />
                             ) : (
                                 items.map((item, index) => (
                                     <GridRow
