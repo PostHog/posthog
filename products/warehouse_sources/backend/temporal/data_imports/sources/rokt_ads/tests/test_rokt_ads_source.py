@@ -198,6 +198,11 @@ class TestNonRetryableErrors:
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
 
+    def test_account_capability_errors_stop_retrying(self):
+        errors = RoktAdsSource().get_non_retryable_errors()
+        assert "Deselect this table or ask Rokt to enable those dimensions" in errors
+        assert "Rokt account grants none of the metrics" in errors
+
 
 class TestCanonicalDescriptions:
     def test_every_table_is_documented(self):

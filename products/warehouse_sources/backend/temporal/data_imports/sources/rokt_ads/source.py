@@ -62,6 +62,19 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Rokt rejected these credentials. Please regenerate the app ID and app secret in One Platform and reconnect.",
             "403 Client Error: Forbidden for url": "These Rokt credentials cannot read this account. Please check the account ID and the app's permissions.",
+            # Raised by build_report_body when the account lacks a dimension that sets the row grain.
+            # Dropping the dimension would silently collapse rows, so the only safe options are to
+            # deselect the table or ask Rokt to enable the dimension — both require user action.
+            "Deselect this table or ask Rokt to enable those dimensions": (
+                "This Rokt account cannot report on one or more dimensions this table needs to identify rows. "
+                "Deselect this table in the sync settings, or contact Rokt to enable the missing dimensions "
+                "for your account, then re-enable the sync."
+            ),
+            # Raised when the account grants none of the metrics the endpoint declares.
+            "Rokt account grants none of the metrics": (
+                "This Rokt account has no metrics enabled for this table. Deselect this table in the sync "
+                "settings, or contact Rokt to enable metrics for your account, then re-enable the sync."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
