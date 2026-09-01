@@ -126,6 +126,46 @@ tools:
             even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count`
             / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from
             its current status comes back as `skipped` (the single-report 409) while the rest still go through.
+    inbox-reports-get-inbox:
+        operation: signals_reports_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        input_schema: ReportInboxInputSchema
+        enrich_url: '{id}'
+        list: true
+        title: Get report inbox
+        description: >
+            Get a prioritized, actionable report inbox for the current project. Defaults to ready reports that are
+            immediately actionable, are not already being handled, and have no implementation PR, ordered P0 through P4
+            with unprioritized reports last. Choose another view for reports needing human input, implementation PRs
+            being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope,
+            priority, source product, scout, or text search. Use inbox-report-artefacts-list to read a report's evidence
+            and work log before acting on it.
+        response:
+            include:
+                - id
+                - title
+                - summary
+                - status
+                - priority
+                - actionability
+                - already_addressed
+                - dismissal_reason
+                - dismissal_note
+                - signal_count
+                - total_weight
+                - source_products
+                - scout_name
+                - is_suggested_reviewer
+                - implementation_pr_url
+                - implementation_pr_merged
+                - created_at
+                - updated_at
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -180,46 +220,6 @@ tools:
                 - source_products
                 - is_suggested_reviewer
                 - implementation_pr_url
-                - created_at
-                - updated_at
-    inbox-reports-get-inbox:
-        operation: signals_reports_list
-        enabled: true
-        scopes:
-            - task:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        input_schema: ReportInboxInputSchema
-        enrich_url: '{id}'
-        list: true
-        title: Get report inbox
-        description: >
-            Get a prioritized, actionable report inbox for the current project. Defaults to ready reports that are
-            immediately actionable, are not already being handled, and have no implementation PR, ordered P0 through
-            P4 with unprioritized reports last. Choose another view for reports needing human input, implementation PRs
-            being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope,
-            priority, source product, scout, or text search. Use inbox-report-artefacts-list to read a report's evidence
-            and work log before acting on it.
-        response:
-            include:
-                - id
-                - title
-                - summary
-                - status
-                - priority
-                - actionability
-                - already_addressed
-                - dismissal_reason
-                - dismissal_note
-                - signal_count
-                - total_weight
-                - source_products
-                - scout_name
-                - is_suggested_reviewer
-                - implementation_pr_url
-                - implementation_pr_merged
                 - created_at
                 - updated_at
     inbox-reports-retrieve:
