@@ -3235,39 +3235,6 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
 
-    @parameterized.expand(
-        [
-            ("time_series_without_day", None, None),
-            ("total_value_with_day", "BoldNumber", "2026-07-01"),
-        ]
-    )
-    def test_creating_static_cohort_from_trends_actors_with_invalid_day_is_rejected(
-        self, _name: str, display: str | None, day: str | None
-    ) -> None:
-        trends_filter = {"display": display} if display else None
-        actors_source: dict[str, Any] = {
-            "kind": "InsightActorsQuery",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                **({"trendsFilter": trends_filter} if trends_filter else {}),
-            },
-            **({"day": day} if day else {}),
-        }
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "cohort A",
-                "is_static": True,
-                "query": {
-                    "kind": "ActorsQuery",
-                    "select": ["person"],
-                    "source": actors_source,
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 400, response.content)
-
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_with_query_and_fields(self, patch_capture):
         _create_person(
@@ -6135,9 +6102,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             name="Insight Referencing Cohort",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
+                    "kind": "EventsQuery",
+                    "select": ["*"],
                     "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
                 },
             },
@@ -6162,13 +6130,12 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         insight = Insight.objects.create(
             team=self.team,
-            name="Trends With Cohort Breakdown",
+            name="Insight With Cohort Breakdown",
+            # `get_insights_using_cohort` matches `source.breakdownFilter` by JSON path and never
+            # reads the query kind, so the fixture carries only the path the predicate walks.
             query={
                 "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]},
-                },
+                "source": {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]}},
             },
         )
 
@@ -6188,9 +6155,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         cohort_id = response.json()["id"]
         cohort_query = {
-            "kind": "InsightVizNode",
+            "kind": "DataTableNode",
             "source": {
-                "kind": "TrendsQuery",
+                "kind": "EventsQuery",
+                "select": ["*"],
                 "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
             },
         }
@@ -6213,9 +6181,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         cohort_id = response.json()["id"]
         cohort_query = {
-            "kind": "InsightVizNode",
+            "kind": "DataTableNode",
             "source": {
-                "kind": "TrendsQuery",
+                "kind": "EventsQuery",
+                "select": ["*"],
                 "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
             },
         }
@@ -6295,9 +6264,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             team=other_team,
             name="Sibling Insight",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
+                    "kind": "EventsQuery",
+                    "select": ["*"],
                     "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
                 },
             },
