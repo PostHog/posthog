@@ -115,6 +115,7 @@ async def test_claim_slack_gallery_delivery_is_atomic(team, user) -> None:
         "file_type_not_allowed",
         "storage_limit_reached",
         "ekm_access_denied",
+        "missing_scope",
     ],
 )
 async def test_deliver_slack_auto_disables_permanent_gallery_errors(team, user, slack_error_code) -> None:
@@ -131,7 +132,11 @@ async def test_deliver_slack_auto_disables_permanent_gallery_errors(team, user, 
         http_verb="POST",
         api_url="https://slack.com/api/files.completeUploadExternal",
         req_args={},
-        data={"ok": False, "error": slack_error_code},
+        data={
+            "ok": False,
+            "error": slack_error_code,
+            **({"needed": "files:write"} if slack_error_code == "missing_scope" else {}),
+        },
         headers={},
         status_code=200,
     )
@@ -156,19 +161,24 @@ async def test_deliver_slack_auto_disables_permanent_gallery_errors(team, user, 
     await sync_to_async(subscription.refresh_from_db)()
     await sync_to_async(delivery.refresh_from_db)()
     assert subscription.enabled is False
-    assert result.recipient_results[0].error == {
-        "message": "Slack file uploads are unavailable for this workspace",
-        "type": "slack_file_upload_unavailable",
-    }
+    expected_error = (
+        {
+            "message": "PostHog can no longer upload files to Slack",
+            "type": "slack_file_upload_permission_revoked",
+        }
+        if slack_error_code == "missing_scope"
+        else {
+            "message": "Slack file uploads are unavailable for this workspace",
+            "type": "slack_file_upload_unavailable",
+        }
+    )
+    assert result.recipient_results[0].error == expected_error
     assert delivery.recipient_results == [
         {
             "recipient": subscription.target_value,
             "status": "failed",
-            "error": {
-                "message": "Slack file uploads are unavailable for this workspace",
-                "type": "slack_file_upload_unavailable",
-            },
-            "human_readable_error": "Slack file uploads are unavailable for this workspace",
+            "error": expected_error,
+            "human_readable_error": expected_error["message"],
         }
     ]
 

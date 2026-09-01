@@ -23,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
+    SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
     SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
@@ -273,9 +274,17 @@ async def deliver_slack(
         capture_exception(exc)
         if slack_error_code in SLACK_USER_CONFIG_ERRORS:
             # Won't self-heal without user action — auto-disable so it stops re-firing.
+            needed_scopes = {
+                scope.strip() for scope in str(exc.response.get("needed") or "").split(",") if scope.strip()
+            }
+            reason = (
+                SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON
+                if "files:write" in needed_scopes
+                else SLACK_PERMISSION_REVOKED_DISABLE_REASON
+            )
             return await auto_disable_and_return(
                 subscription,
-                SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+                reason,
                 recipient_results,
                 delivery_id,
             )
