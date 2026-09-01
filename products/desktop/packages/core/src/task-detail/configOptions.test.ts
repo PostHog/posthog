@@ -5,7 +5,7 @@ import {
   flattenConfigValues,
   harnessForModelValue,
   modelOptionForHarness,
-  resolvePiModelPick,
+  syntheticPiModelSelection,
 } from "./configOptions";
 
 const groupedModelOption = {
@@ -79,29 +79,25 @@ describe("harnessForModelValue", () => {
   });
 });
 
-describe("resolvePiModelPick", () => {
-  const piModelIds = ["claude-opus-5", "gpt-5.6-terra"];
-
+describe("syntheticPiModelSelection", () => {
   it.each([
     {
-      label: "keeps Pi for a model in its catalog",
-      value: "claude-opus-5",
-      expected: "pi",
-    },
-    {
-      label: "falls to the stamped harness for a model Pi cannot run",
+      label: "takes the display name from the option",
       value: "gpt-5.5",
-      expected: "codex",
+      expected: "GPT-5.5",
     },
     {
-      label: "falls back to the id shape for a model the option lacks",
-      value: "gpt-4o",
-      expected: "codex",
+      label: "falls back to a formatted id for a model the option lacks",
+      value: "claude-opus-4-8",
+      expected: "Claude Opus 4.8",
     },
   ])("$label", ({ value, expected }) => {
-    expect(resolvePiModelPick(piModelIds, groupedModelOption, value)).toBe(
-      expected,
-    );
+    expect(syntheticPiModelSelection(groupedModelOption, value)).toMatchObject({
+      provider: "posthog",
+      id: value,
+      name: expected,
+      thinkingLevels: [],
+    });
   });
 });
 

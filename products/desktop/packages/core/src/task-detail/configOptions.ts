@@ -3,9 +3,11 @@ import {
   type Adapter,
   adapterForModelId,
   flattenSelectOptions,
+  formatModelId,
   isSelectGroup,
   selectOptionHarness,
 } from "@posthog/shared";
+import type { PiThinkingLevel } from "../pi-runtime/piSessionController";
 
 type RawOptionItem = {
   value?: string;
@@ -45,17 +47,35 @@ export function harnessForModelValue(
 }
 
 /**
- * The harness a model pick lands on while Pi is the current harness. Pi keeps
- * the pick when its catalog runs the model; otherwise the pick falls to the
- * model's own harness.
+ * A session-only Pi selection for a pick outside Pi's curated catalog. Pi
+ * runs any gateway model, so the pick keeps its id; the thinking levels are
+ * unknown, so the composer hides the thinking control.
  */
-export function resolvePiModelPick(
-  piModelIds: readonly string[],
+export function syntheticPiModelSelection(
   option: SessionConfigOption | undefined,
   value: string,
-): "pi" | Adapter {
-  if (piModelIds.includes(value)) return "pi";
-  return harnessForModelValue(option, value) ?? adapterForModelId(value);
+): {
+  provider: "posthog";
+  id: string;
+  name: string;
+  isDefault: boolean;
+  contextWindow: number;
+  thinkingLevels: PiThinkingLevel[];
+} {
+  const name =
+    option?.type === "select"
+      ? flattenSelectOptions(option.options).find(
+          (entry) => entry.value === value,
+        )?.name
+      : undefined;
+  return {
+    provider: "posthog",
+    id: value,
+    name: name ?? formatModelId(value),
+    isDefault: false,
+    contextWindow: 0,
+    thinkingLevels: [],
+  };
 }
 
 /**

@@ -4,7 +4,7 @@ import type {
 } from "@posthog/core/pi-runtime/piSessionController";
 import {
   isValidConfigValue,
-  resolvePiModelPick,
+  syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
 import { type AgentRuntime, adapterForModelId } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
@@ -217,6 +217,11 @@ export const ChannelHomeComposer = forwardRef<
       : undefined;
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
+    // Pi runs any gateway model, so a session pick outside Pi's curated
+    // catalog sticks instead of falling back to Pi's default.
+    (selectedPiModelId
+      ? syntheticPiModelSelection(modelOption, selectedPiModelId)
+      : undefined) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
@@ -349,8 +354,7 @@ export const ChannelHomeComposer = forwardRef<
     (harness: AgentHarness) => {
       if (harness === "pi") {
         if (runtime !== "pi" && currentModel) {
-          // Session-only: the Pi resolver falls back to Pi's own default when
-          // its catalog lacks the model, without clobbering the saved Pi pick.
+          // Session-only, so the saved Pi pick is not clobbered.
           setSelectedPiModelId(currentModel);
         }
         handleRuntimeChange("pi");
@@ -387,30 +391,9 @@ export const ChannelHomeComposer = forwardRef<
   const handleHarnessModelChange = useCallback(
     (harness: AgentAdapter, model: string) => {
       setLastUsedModel(model);
-      if (runtime !== "pi") {
-        handleHarnessChange(harness);
-        return;
-      }
-      handleRuntimeChange("acp");
-      if (harness === adapter) {
-        // Same adapter means no config refetch, so apply the pick directly.
-        if (isValidConfigValue(modelOption, model)) {
-          setConfigOption(modelOption.id, model);
-        }
-        return;
-      }
-      setAdapter(harness);
+      handleHarnessChange(harness);
     },
-    [
-      adapter,
-      handleHarnessChange,
-      handleRuntimeChange,
-      modelOption,
-      runtime,
-      setAdapter,
-      setConfigOption,
-      setLastUsedModel,
-    ],
+    [handleHarnessChange, setLastUsedModel],
   );
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
@@ -419,32 +402,18 @@ export const ChannelHomeComposer = forwardRef<
     },
     [setLastUsedPiModel],
   );
-  // The Pi menu offers the same full catalog; a pick stays on Pi when its
-  // catalog runs the model, otherwise it falls to the model's own harness.
+  // Pi runs any gateway model, so a pick in the Pi menu never leaves Pi. A
+  // pick outside Pi's curated catalog applies session-only.
   const handlePiGatewayModelSelect = useCallback(
     (model: string) => {
-      const target = resolvePiModelPick(
-        piModelCatalog.map((entry) => entry.id),
-        modelOption,
-        model,
-      );
-      if (target === "pi") {
-        const entry = piModelCatalog.find(
-          (candidate) => candidate.id === model,
-        );
-        if (entry) {
-          handlePiModelChange(entry);
-        }
+      const entry = piModelCatalog.find((candidate) => candidate.id === model);
+      if (entry) {
+        handlePiModelChange(entry);
         return;
       }
-      handleHarnessModelChange(target, model);
+      setSelectedPiModelId(model);
     },
-    [
-      handleHarnessModelChange,
-      handlePiModelChange,
-      modelOption,
-      piModelCatalog,
-    ],
+    [handlePiModelChange, piModelCatalog],
   );
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
     setSelectedPiThinkingLevel(level);
