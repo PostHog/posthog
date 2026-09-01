@@ -46,7 +46,7 @@ export class TriggerHandler implements ActionHandler {
                 result.logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `This workflow triggers on rows from '${trigger.table_name}'. A '${event?.event}' event with source table '${sourceTable}' would not trigger it.`,
+                    message: `This workflow triggers on rows from '${trigger.table_name}'. A '${event?.event}' event with source table '${sourceTable ?? 'none'}' would not trigger it.`,
                 })
                 return { finished: true, skipped: true }
             }
