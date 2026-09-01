@@ -268,3 +268,20 @@ tools:
                 About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply
                 'confirm' to proceed.
             action_label: reject relationship
+    metric-search:
+        operation: data_catalog_metrics_search_list
+        enabled: true
+        scopes:
+            - data_catalog:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Search governed metrics
+        description: >
+            Search the data catalog for governed business and telemetry measures — semantic-layer definitions, canonical
+            KPIs, and approved metrics, not infrastructure or OTel metrics (use query-metrics for those). Call this
+            before any typed domain tool or raw SQL for a named measure, including revenue, usage, active organizations,
+            web sessions, failure rates, support tickets, surveys, or SLOs. Run an approved, non-drifted match with
+            data-catalog-metric-run instead of re-deriving its value.

@@ -14,6 +14,7 @@ import {
     DataCatalogMetricsRunCreateBody,
     DataCatalogMetricsRunCreateParams,
     DataCatalogMetricsRunCreateQueryParams,
+    DataCatalogMetricsSearchListQueryParams,
     DataCatalogRelationshipProposalsAcceptCreateParams,
     DataCatalogRelationshipProposalsCreateBody,
     DataCatalogRelationshipProposalsRejectCreateBody,
@@ -25,6 +26,7 @@ import {
     prepareConfirmedAction,
     type PrepareConfirmedActionResult,
 } from '@/tools/confirmed-action-runtime'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({
@@ -412,6 +414,28 @@ const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
     },
 })
 
+const MetricSearchSchema = DataCatalogMetricsSearchListQueryParams
+
+const metricSearch = (): ToolBase<
+    typeof MetricSearchSchema,
+    WithPostHogUrl<Schemas.DataCatalogMetricSearchResult[]>
+> => ({
+    name: 'metric-search',
+    schema: MetricSearchSchema,
+    handler: async (context: Context, params: z.infer<typeof MetricSearchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetricSearchResult[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/search/`,
+            query: {
+                name: params.name,
+                query: params.query,
+            },
+        })
+        return await withPostHogUrl(context, result, '/')
+    },
+})
+
 const DataCatalogRelationshipAcceptSchema = DataCatalogRelationshipProposalsAcceptCreateParams.omit({
     project_id: true,
 })
@@ -608,6 +632,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
     'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
+    'metric-search': metricSearch,
     'data-catalog-relationship-accept-prepare': dataCatalogRelationshipAcceptPrepare,
     'data-catalog-relationship-accept-execute': dataCatalogRelationshipAcceptExecute,
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,

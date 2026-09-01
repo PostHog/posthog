@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
@@ -527,6 +527,16 @@ def _reset_to_proposed(metric: Metric) -> None:
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
     """Live (non-deleted) metrics for a team, newest first."""
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+
+
+def search_metrics_for_team(team: Team, *, query: str | None = None, name: str | None = None) -> QuerySet[Metric]:
+    """Search live metrics by text, or retrieve one by its exact run handle."""
+    metrics = metrics_for_team(team)
+    if name:
+        return metrics.filter(name=name)
+    if not query:
+        return metrics.none()
+    return metrics.filter(Q(name__icontains=query) | Q(display_name__icontains=query) | Q(description__icontains=query))
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

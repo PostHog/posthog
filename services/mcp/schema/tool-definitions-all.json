@@ -8199,6 +8199,20 @@
         "feature_flag": "metrics",
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
+    "metric-search": {
+        "description": "Search the data catalog for governed business and telemetry measures — semantic-layer definitions, canonical KPIs, and approved metrics, not infrastructure or OTel metrics (use query-metrics for those). Call this before any typed domain tool or raw SQL for a named measure, including revenue, usage, active organizations, web sessions, failure rates, support tickets, surveys, or SLOs. Run an approved, non-drifted match with data-catalog-metric-run instead of re-deriving its value.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Search governed metrics",
+        "title": "Search governed metrics",
+        "required_scopes": ["data_catalog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
