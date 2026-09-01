@@ -230,6 +230,56 @@ describe("PostHogAPIClient", () => {
     );
   });
 
+  it("downloads the skills store bundle as stubs with its header counts", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    const bytes = new TextEncoder().encode("zip");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        "X-Skills-Included": "2",
+        "X-Skills-Dropped": "1",
+        "X-Skills-Skipped": "0",
+      }),
+      arrayBuffer: vi.fn().mockResolvedValue(bytes.buffer),
+    });
+
+    const result = await client.downloadSkillsBundle(20);
+
+    expect(result).toEqual({
+      kind: "bundle",
+      bytes,
+      included: 2,
+      dropped: 1,
+      skipped: 0,
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://app.posthog.com/api/projects/7/llm_skills/bundle/?content=stub&limit=20",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+  });
+
+  it.each([
+    [404, { kind: "not_enabled" }],
+    [503, { kind: "error", status: 503 }],
+  ])(
+    "maps a %s from the skills store bundle endpoint without throwing",
+    async (status, expected) => {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      mockFetch.mockResolvedValueOnce({ ok: false, status });
+
+      await expect(client.downloadSkillsBundle(20)).resolves.toEqual(expected);
+    },
+  );
+
   it.each([
     [
       "includes message_id and text_parts when provided",

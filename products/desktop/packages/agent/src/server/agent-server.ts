@@ -135,6 +135,12 @@ import {
 import { resolveRtkSavings } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import {
+  buildStoreSkillsInstructions,
+  getStoreSkillRoots,
+  installStoreSkillsArchive,
+  STORE_SKILLS_BUNDLE_LIMIT,
+} from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -545,6 +551,7 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
+  private storeSkillsInstalledCount = 0;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -1809,6 +1816,8 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
+    // The store skills fetch is independent of the run context, so it overlaps
+    // the context fetch instead of adding its own round trip to session start.
     const [preTaskRun, preTask] = await this.bootTracker.measure(
       "context_fetch",
       () =>
@@ -1827,6 +1836,7 @@ export class AgentServer {
               return null;
             }),
           this.fetchTaskForSessionContext(payload.task_id),
+          this.installStoreSkills(payload.task_id, payload.run_id),
         ]),
     );
     this.taskRepositories =
@@ -3770,6 +3780,56 @@ export class AgentServer {
     return normalizedName;
   }
 
+  /**
+   * Put the user's skills-store skills on disk as discovery stubs before the
+   * harness session starts, so it lists them like any local skill. Skill
+   * bodies stay in the store and cross the PostHog MCP only when a skill is
+   * invoked. Never throws: a sandbox without store skills is the normal case.
+   */
+  private async installStoreSkills(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    this.storeSkillsInstalledCount = 0;
+    const context = { taskId, runId };
+    try {
+      const result = await this.posthogAPI.downloadSkillsBundle(
+        STORE_SKILLS_BUNDLE_LIMIT,
+      );
+      if (result.kind === "not_enabled") {
+        return;
+      }
+      if (result.kind === "error") {
+        this.logger.warn("Skills store bundle fetch failed", {
+          ...context,
+          status: result.status,
+          ...(result.message && { error: result.message }),
+        });
+        return;
+      }
+      if (result.included === 0) {
+        return;
+      }
+      const install = await installStoreSkillsArchive(
+        result.bytes,
+        getStoreSkillRoots(),
+      );
+      this.storeSkillsInstalledCount = install.installed.length;
+      this.logger.info("Installed skills store stubs", {
+        ...context,
+        bytes: result.bytes.byteLength,
+        bundleIncluded: result.included,
+        bundleDropped: result.dropped,
+        bundleSkipped: result.skipped,
+        installed: install.installed,
+        collisions: install.collisions,
+        rejected: install.rejected,
+      });
+    } catch (error) {
+      this.logger.warn("Skills store install failed", { ...context, error });
+    }
+  }
+
   private async waitForRepoReady(): Promise<void> {
     const readyFile = this.config.repoReadyFile;
     if (!readyFile) {
@@ -4302,7 +4362,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;

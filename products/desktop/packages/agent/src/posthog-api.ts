@@ -107,6 +107,18 @@ export interface PeerMessageSendResult {
   message_id?: string | null;
 }
 
+export type SkillsBundleDownloadResult =
+  | {
+      kind: "bundle";
+      bytes: Uint8Array;
+      /** Counts from the `X-Skills-*` response headers. */
+      included: number;
+      dropped: number;
+      skipped: number;
+    }
+  | { kind: "not_enabled" }
+  | { kind: "error"; status: number | null; message?: string };
+
 export type TaskRunUpdate = Partial<
   Pick<
     TaskRun,
@@ -689,6 +701,48 @@ export class PostHogAPIClient {
       return response.arrayBuffer();
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * One zip of the signed-in user's skills-store skills as discovery stubs.
+   * A 404 means the store-in-sandbox flag is off for this user, which is the
+   * common case and not an error; anything else that is not a 200 is reported
+   * with its status so the caller can log it without treating it as "off".
+   */
+  async downloadSkillsBundle(
+    limit: number,
+  ): Promise<SkillsBundleDownloadResult> {
+    const teamId = this.getTeamId();
+    const query = new URLSearchParams({
+      content: "stub",
+      limit: String(limit),
+    });
+    try {
+      const response = await this.performRequestWithRetry(
+        `/api/projects/${teamId}/llm_skills/bundle/?${query.toString()}`,
+      );
+      if (response.status === 404) {
+        return { kind: "not_enabled" };
+      }
+      if (!response.ok) {
+        return { kind: "error", status: response.status };
+      }
+      const readCount = (header: string): number =>
+        Number.parseInt(response.headers.get(header) ?? "0", 10) || 0;
+      return {
+        kind: "bundle",
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        included: readCount("X-Skills-Included"),
+        dropped: readCount("X-Skills-Dropped"),
+        skipped: readCount("X-Skills-Skipped"),
+      };
+    } catch (error) {
+      return {
+        kind: "error",
+        status: null,
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 

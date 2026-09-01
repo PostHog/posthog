@@ -855,6 +855,20 @@ class LLMSkillViewSet(
             content=query.validated_data["content"],
             limit=query.validated_data["limit"],
         )
+        report_user_action(
+            user,
+            "llma skills bundle downloaded",
+            {
+                "bundle_content": query.validated_data["content"],
+                "bundle_limit": query.validated_data["limit"],
+                "bundle_bytes": len(bundle.zip_bytes),
+                "skills_included": len(bundle.included),
+                "skills_dropped": bundle.dropped_count,
+                "skills_skipped": len(bundle.skipped),
+            },
+            team=self.team,
+            request=request,
+        )
         response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="skills-bundle.zip"'
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.

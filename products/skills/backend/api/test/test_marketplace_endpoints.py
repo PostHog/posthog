@@ -456,11 +456,22 @@ class TestSkillBundle(APIBaseTest):
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.py", content="print(1)\n")
         self._create_skill("Bad/Name")
 
-        response = self._fetch()
+        with patch("products.skills.backend.api.skills.report_user_action") as report:
+            response = self._fetch()
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response["X-Skills-Included"] == "1"
         assert response["X-Skills-Skipped"] == "1"
+        report.assert_called_once()
+        assert report.call_args.args[1] == "llma skills bundle downloaded"
+        assert report.call_args.args[2] == {
+            "bundle_content": "stub",
+            "bundle_limit": 20,
+            "bundle_bytes": len(response.content),
+            "skills_included": 1,
+            "skills_dropped": 0,
+            "skills_skipped": 1,
+        }
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             assert archive.namelist() == ["mine/SKILL.md"]
             stub = archive.read("mine/SKILL.md").decode()
