@@ -1052,7 +1052,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_broadcast: {
         name: 'Create broadcasts',
-        description: 'Create one-time or scheduled email broadcasts',
+        description: 'Create broadcasts to email an audience once or on a schedule',
         product: Scene.Workflows,
         icon: iconForType('workflows'),
         displayFormatter: (toolCall) => {
