@@ -58,7 +58,7 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class RunAgenticReportInput:
     team_id: int
     report_id: str
