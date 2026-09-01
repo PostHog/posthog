@@ -412,7 +412,8 @@ def _shipped_skill_name(skill: DiscoveredSkill) -> str:
     where ``<name>`` is the entry-point frontmatter ``name`` when present, and
     the discovered path name otherwise. The lint runs without rendering, so read
     the raw frontmatter; a templated or unparseable name is not resolvable until
-    build and falls back to the path name.
+    build and falls back to the path name. ``build_skill`` re-checks the rendered
+    name against ``OMNIBUS_SKILL_NAMES``, so a templated name is still caught.
     """
     try:
         metadata, _ = parse_frontmatter(skill.source_file.read_text())
@@ -578,6 +579,16 @@ class SkillBuilder:
         else:
             display_name = skill.name
             description = f"Skill: {skill.name}"
+
+        # lint_all reads the raw frontmatter, so a name that only becomes an
+        # omnibus name after rendering slips past it. Here the name is rendered,
+        # so catch that case before it builds into a context-mill-owned directory.
+        if display_name in OMNIBUS_SKILL_NAMES:
+            raise ValueError(
+                f"'{display_name}' is owned by PostHog/context-mill, which every consumer "
+                f"overlays on top of this repo's skills, so a copy here is overwritten "
+                f"rather than shipped. Remove {source} and change the context-mill source instead."
+            )
 
         return SkillResource(
             name=display_name,

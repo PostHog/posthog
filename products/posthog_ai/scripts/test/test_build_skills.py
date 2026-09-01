@@ -579,6 +579,24 @@ def test_lint_all_catches_reserved_name_in_frontmatter(
     assert f"'{reserved_name}' is owned by PostHog/context-mill" in capsys.readouterr().err
 
 
+def test_build_skill_rejects_reserved_name_after_rendering(tmp_path: Path) -> None:
+    # A templated name that only becomes an omnibus name once rendered slips past
+    # lint_all, which reads the raw frontmatter. build_skill sees the rendered
+    # name, so it must still refuse it.
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "local-copy"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md.j2").write_text("---\nname: instrument-{{ 'logs' }}\ndescription: Copy\n---\n# Body\n")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="local-copy", source_file=skill_dir / "SKILL.md.j2", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with pytest.raises(ValueError, match="owned by PostHog/context-mill"):
+        builder.build_skill(skill, renderer)
+
+
 def test_build_skill_rejects_binary_file(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "has-binary"
     skill_dir.mkdir(parents=True)

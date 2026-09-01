@@ -104,7 +104,7 @@ class SkillLoaded(Scorer):
     def _name(self) -> str:
         return self._label
 
-    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
@@ -146,7 +146,7 @@ class SkillTriggered(Scorer):
     def _name(self) -> str:
         return self._label
 
-    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
