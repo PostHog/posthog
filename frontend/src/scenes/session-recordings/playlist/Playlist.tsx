@@ -12,6 +12,7 @@ import {
     LemonButton,
     LemonCollapse,
     LemonSkeleton,
+    LemonSnack,
     Link,
     Spinner,
     Tooltip,
@@ -21,9 +22,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils/arrays'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
@@ -33,11 +36,21 @@ import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingType } from '~/types'
+import { RecordingUniversalFilters, ReplayTabs, SessionRecordingType } from '~/types'
 
 const SCROLL_TRIGGER_OFFSET = 100
 // Starting row height for the virtualizer; dynamic measurement corrects each row after it renders.
 const ESTIMATED_ROW_HEIGHT = 56
+
+// The widen button steps the date window one preset wider per click. Person pages start at
+// '-30d', so without the last two steps they hit a dead end with no way to look further back.
+const DATE_WIDEN_STEPS: Record<string, { next: string; label: string }> = {
+    '-24h': { next: '-3d', label: 'Search last 3 days' },
+    '-3d': { next: '-7d', label: 'Search last 7 days' },
+    '-7d': { next: '-30d', label: 'Search last 30 days' },
+    '-30d': { next: '-90d', label: 'Search last 90 days' },
+    '-90d': { next: '-5y', label: 'Search all time' },
+}
 
 type PlaylistSectionBase = {
     key: string
@@ -130,6 +143,8 @@ export function Playlist({
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
+    const widenStep = filters.date_from ? DATE_WIDEN_STEPS[filters.date_from] : undefined
+
     const sections: PlaylistSection[] = []
 
     if (type === 'collection' || pinnedRecordings.length > 0) {
@@ -171,20 +186,16 @@ export function Playlist({
                         )}
                     </div>
                     {!sessionRecordingsResponseLoading && !hasNext && (
-                        <div className="flex flex-col items-center gap-1 pt-2 pb-2">
-                            <span className="text-xs text-secondary">Looking for older recordings?</span>
+                        <div className="flex flex-col items-center gap-2 pt-2 pb-2">
+                            <ActiveFilterSummary filters={filters} />
                             <div className="flex gap-2">
-                                {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
+                                {widenStep && (
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        onClick={() =>
-                                            setFilters({
-                                                date_from: filters.date_from === '-3d' ? '-7d' : '-30d',
-                                            })
-                                        }
+                                        onClick={() => setFilters({ date_from: widenStep.next })}
                                     >
-                                        Search last {filters.date_from === '-3d' ? '7' : '30'} days
+                                        {widenStep.label}
                                     </LemonButton>
                                 )}
                                 <LemonButton type="secondary" size="small" onClick={() => setIsFiltersExpanded(true)}>
@@ -372,6 +383,42 @@ export function Playlist({
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+// Names the filters that constrain the list, so a person reading "No more results" can see what
+// is hiding rows. The date window and duration apply by default and stay hidden behind the
+// collapsed filter panel, which is how recordings look missing without the user setting anything.
+const ActiveFilterSummary = ({ filters }: { filters: RecordingUniversalFilters }): JSX.Element | null => {
+    const chips: string[] = []
+
+    const dateLabel = dateFilterToText(filters.date_from, filters.date_to, null)
+    if (dateLabel) {
+        chips.push(dateLabel)
+    }
+
+    const duration = filters.duration?.[0]
+    if (duration?.value) {
+        chips.push(humanFriendlyDurationFilter(duration, duration.key))
+    }
+
+    if (filters.filter_test_accounts) {
+        chips.push('Test accounts excluded')
+    }
+
+    if (chips.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-col items-center gap-1">
+            <span className="text-xs text-secondary">These filters may be hiding recordings:</span>
+            <div className="flex flex-wrap justify-center gap-1">
+                {chips.map((chip) => (
+                    <LemonSnack key={chip}>{chip}</LemonSnack>
+                ))}
             </div>
         </div>
     )
