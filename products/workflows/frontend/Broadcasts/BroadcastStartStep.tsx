@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useRef, useState } from 'react'
 
-import { IconArrowRight, IconSparkles } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -34,7 +34,11 @@ export function BroadcastStartStep(): JSX.Element {
     }
 
     return (
-        <div className="mx-auto w-full max-w-3xl space-y-6 py-8">
+        <div className="mx-auto w-full max-w-3xl space-y-6 px-6 py-6">
+            <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
+                Broadcasts
+            </LemonButton>
+
             <div className="text-center space-y-2">
                 <h1 className="text-2xl font-semibold">Send a broadcast</h1>
                 <p className="text-secondary">
