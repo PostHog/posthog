@@ -152,7 +152,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "plans": {
-        "description": "Plans are Metronome's original way to price a customer, naming the plan a customer is on. Metronome has deprecated plans in favor of contracts, but they are still the only place a plan's name appears, so they let you group or filter invoices by plan.",
+        "description": "Plans are Metronome's original way to price a customer. This table lists the plans defined in your account, with each plan's name, description, and custom fields. Metronome has deprecated plans in favor of contracts. It holds plan definitions only, not which customer is on which plan, so it does not by itself link a plan to a customer or an invoice.",
         "docs_url": "https://docs.metronome.com/api-reference/plans/list-plans",
         "columns": {
             "id": "The plan's id.",
