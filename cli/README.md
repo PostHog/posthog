@@ -74,6 +74,40 @@ Pass `--include-source` to bundle the referenced source files for richer context
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
+## Injection rewrites your built files
+
+`posthog-cli sourcemap process` and `posthog-cli sourcemap inject` add a chunk id (and, in event release mode, a release id) to each JavaScript chunk, then write the file back in place.
+The bytes on disk change.
+Cleanup with `--delete-after` rewrites them again when it strips the `sourceMappingURL` comment.
+
+So any content hash you compute before injection no longer matches the file after it.
+This breaks a build step that pins such a hash, and it fails silently:
+
+- **Service worker manifests** — e.g. Angular's `ngsw.json`, which stores a SHA-1 for each prefetched asset. The service worker rejects the changed file and the update never installs.
+- **Subresource Integrity (SRI)** — an `integrity` attribute computed before injection stops matching, so the browser blocks the script.
+- **Deploy manifests** — any pipeline that pins an asset hash before deploying.
+
+Follow one ordering rule: **inject before you compute hashes, or regenerate the manifest after injecting.**
+
+The CLI logs which files injection rewrote, so watch for that warning.
+
+For Angular's esbuild-based `application` builder, use `@posthog/esbuild-plugin` with `@angular-builders/custom-esbuild`. The plugin registers output filenames before esbuild computes content hashes, and stamps the same filename into source-map metadata. Upload afterward without modifying the built JavaScript:
+
+```bash
+ng build --configuration production
+posthog-cli sourcemap upload --directory ./dist/<app>/browser
+```
+
+Do not run `sourcemap process`, `sourcemap inject`, or `sourcemap upload --delete-after` after that build. See the esbuild plugin README for the Angular builder configuration.
+
+If a project cannot customize its builder, keep using the fallback ordering and regenerate Angular's manifest after injection:
+
+```bash
+ng build --configuration production
+posthog-cli sourcemap process --directory ./dist/<app>/browser
+npx ngsw-config ./dist/<app>/browser ./ngsw-config.json /
+```
+
 ## Configuring sourcemap upload concurrency
 
 Sourcemap uploads run up to 10 file uploads at a time by default. Set a different positive value with `--concurrency` on `sourcemap upload` or `sourcemap process`:

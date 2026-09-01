@@ -2,6 +2,7 @@ use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::{
         args::ReleaseMode,
+        constant::OUTPUT_FILENAME_CHUNK_ID_MARKER,
         content::{get_injected_release_id, MinifiedSourceFile, SourceMapFile},
     },
     utils::files::content_hash,
@@ -27,6 +28,43 @@ impl SourcePair {
 
     pub fn get_chunk_id(&self) -> Option<String> {
         self.source.get_chunk_id()
+    }
+
+    /// Return the id an upload should use. Normal injection keeps the source comment
+    /// authoritative. Build-time integrations can instead register the final output filename at
+    /// runtime before the bundler hashes the chunk, then stamp that filename into map metadata
+    /// once the output path exists. Accept that map-only id only when the source carries the exact
+    /// runtime-registration marker and the id matches its filename.
+    fn get_upload_chunk_id(&self) -> Result<Option<String>> {
+        if let Some(chunk_id) = self.get_chunk_id() {
+            return Ok(Some(chunk_id));
+        }
+        if !self
+            .source
+            .inner
+            .content
+            .contains(OUTPUT_FILENAME_CHUNK_ID_MARKER)
+        {
+            return Ok(None);
+        }
+
+        let expected = self
+            .source
+            .inner
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("Source filename is not valid UTF-8"))?;
+        let Some(chunk_id) = self.sourcemap.get_chunk_id() else {
+            return Ok(None);
+        };
+        if chunk_id != expected {
+            return Err(anyhow!(
+                "Sourcemap chunk ID {chunk_id:?} does not match output filename {expected:?}"
+            ));
+        }
+
+        Ok(Some(chunk_id))
     }
 
     /// Debug id already present in the pair, if any. The chunk's comment is authoritative
@@ -158,8 +196,9 @@ impl SourcePair {
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
     pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
+        let source_chunk_id = self.get_chunk_id();
         let chunk_id = self
-            .get_chunk_id()
+            .get_upload_chunk_id()?
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
         let release_id = self.sourcemap.get_release_id();
         let source_content = self.source.inner.content.clone();
@@ -167,6 +206,11 @@ impl SourcePair {
 
         let content_hash = match release_mode {
             ReleaseMode::Event => {
+                if source_chunk_id.as_ref() != Some(&chunk_id) {
+                    return Err(anyhow!(
+                        "Output-filename chunk IDs support symbol-set release mode only"
+                    ));
+                }
                 self.remove_chunk_id(chunk_id.clone())?;
                 let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
                 // JSON serialization never contains a raw NUL, so it unambiguously separates

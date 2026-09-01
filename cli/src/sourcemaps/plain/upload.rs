@@ -229,13 +229,24 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
             .map(|pair| pair.sourcemap.inner.path.clone())
             .collect::<Vec<_>>();
 
-        remove_sourcemap_references(
+        let rewritten = remove_sourcemap_references(
             source_paths
                 .into_iter()
                 .chain(stylesheet_source_paths)
                 .collect(),
         )
         .context("While stripping sourcemap references")?;
+        if !rewritten.is_empty() {
+            warn!(
+                "cleanup stripped sourceMappingURL comments from {} built file(s) in place. Any \
+                 asset hash computed before this step (service worker manifest, Subresource \
+                 Integrity attribute, deploy manifest) no longer matches and must be regenerated:",
+                rewritten.len()
+            );
+            for path in &rewritten {
+                warn!("  rewrote {}", path.display());
+            }
+        }
         delete_files(
             sourcemap_paths
                 .into_iter()
@@ -284,7 +295,9 @@ fn path_is_within_roots(path: &Path, roots: &[PathBuf]) -> bool {
         .is_ok_and(|path| roots.iter().any(|root| path.starts_with(root)))
 }
 
-fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
+/// Strip `sourceMappingURL` comments from each source and return the paths that changed on disk.
+fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let mut rewritten = Vec::new();
     for path in paths {
         let mut source = MinifiedSourceFile::load(&path)
             .with_context(|| format!("Failed to read source file: {}", path.display()))?;
@@ -292,9 +305,10 @@ fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
             source
                 .save()
                 .with_context(|| format!("Failed to save source file: {}", path.display()))?;
+            rewritten.push(path);
         }
     }
-    Ok(())
+    Ok(rewritten)
 }
 
 #[cfg(test)]

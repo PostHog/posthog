@@ -1,6 +1,7 @@
 use posthog_cli::{
     sourcemaps::{
         args::ReleaseMode,
+        constant::OUTPUT_FILENAME_CHUNK_ID_MARKER,
         content::{MinifiedSourceFile, SourceMapContent, SourceMapFile},
         inject::{inject_pairs, inject_pairs_legacy},
         plain::inject::{is_javascript_file, is_stylesheet_file},
@@ -523,6 +524,46 @@ fn make_pair(source_content: &str, map_json: serde_json::Value) -> SourcePair {
             ),
         },
     }
+}
+
+#[test]
+fn test_output_filename_chunk_id_uploads_without_rewriting_source() {
+    let source =
+        format!("runtime registration();{OUTPUT_FILENAME_CHUNK_ID_MARKER}\nconsole.log(1);");
+    let mut map = map_with_debug_id(None);
+    map["chunk_id"] = json!("chunk.js");
+    let pair = make_pair(&source, map);
+
+    assert!(pair.source.get_chunk_id().is_none());
+    let upload = pair
+        .into_upload(ReleaseMode::SymbolSet)
+        .expect("output-filename chunk id should upload");
+
+    assert_eq!(upload.chunk_id, "chunk.js");
+}
+
+#[test]
+fn test_output_filename_chunk_id_rejects_mismatched_map_metadata() {
+    let source = format!("runtime registration();{OUTPUT_FILENAME_CHUNK_ID_MARKER}");
+    let mut map = map_with_debug_id(None);
+    map["chunk_id"] = json!("other.js");
+    let error = make_pair(&source, map)
+        .into_upload(ReleaseMode::SymbolSet)
+        .expect_err("mismatched filename id must not upload");
+
+    assert!(error.to_string().contains("does not match output filename"));
+}
+
+#[test]
+fn test_output_filename_chunk_id_rejects_event_release_mode() {
+    let source = format!("runtime registration();{OUTPUT_FILENAME_CHUNK_ID_MARKER}");
+    let mut map = map_with_debug_id(None);
+    map["chunk_id"] = json!("chunk.js");
+    let error = make_pair(&source, map)
+        .into_upload(ReleaseMode::Event)
+        .expect_err("event mode requires an injected release id");
+
+    assert!(error.to_string().contains("symbol-set release mode only"));
 }
 
 fn source_with_debug_id(debug_id: &str) -> String {
