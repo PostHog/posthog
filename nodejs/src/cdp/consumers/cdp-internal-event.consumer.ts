@@ -19,9 +19,27 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
 
 // The event that starts each trigger type. Type alone would match every other signal on this topic.
-const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([['slack-message', SLACK_MESSAGE_RECEIVED_EVENT]])
+const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([
+    ['slack-message', SLACK_MESSAGE_RECEIVED_EVENT],
+    ['github-event', GITHUB_EVENT_RECEIVED_EVENT],
+])
+
+/**
+ * Whether a GitHub delivery is a write PostHog's own GitHub App made, resolved from the `own_app`
+ * property the emit stamps on the event.
+ *
+ * A workflow that comments back on an issue sees its own comment arrive on this topic, so without
+ * this it retriggers itself forever. Checked at eligibility rather than a trigger's stored filters,
+ * which a workflow created through the API or MCP would not carry. Unlike Slack's equivalent, this
+ * needs no integration lookup: one GitHub App per environment posts for every installation, so the
+ * emit can resolve "is this us" from its own instance setting before the event ever reaches Kafka.
+ */
+function isOwnGithubEvent(globals: HogFunctionInvocationGlobals): boolean {
+    return globals.event.event === GITHUB_EVENT_RECEIVED_EVENT && globals.event.properties.own_app === true
+}
 
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
@@ -106,7 +124,8 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
                     INTERNAL_EVENT_TRIGGER_EVENTS.get(flow.trigger.type) === globals.event.event &&
-                    !ownSlackMessages.has(globals),
+                    !ownSlackMessages.has(globals) &&
+                    !isOwnGithubEvent(globals),
             }),
         ])
 

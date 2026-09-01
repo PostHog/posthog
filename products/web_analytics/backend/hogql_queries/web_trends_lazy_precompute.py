@@ -2,8 +2,10 @@ import time
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
@@ -24,6 +26,7 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import resolve_series_custom_name
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.team import Team
@@ -328,10 +331,60 @@ def _series_dict(
     return series_object
 
 
+def _current_period_boundary(cur_buckets: list[datetime], date_to: datetime, today_start_local: datetime) -> datetime:
+    """Start of the first bucket that is still evolving — today, or the in-progress
+    week/month that contains today.
+
+    Buckets at or after this boundary must be read live, not from precompute: the
+    today band's TTL lets a precompute bucket stay "fresh" while hours behind, so the
+    latest hours are absent and would render as a flat, low tail on the chart.
+    Snaps back to the containing bucket's start so a whole in-progress week/month goes
+    live. Returns a value after every bucket when the range ends before today, keeping
+    a fully historical range entirely on the precompute path.
+    """
+    if today_start_local > date_to:
+        return today_start_local
+    boundary = today_start_local
+    for bucket in cur_buckets:
+        if bucket <= today_start_local:
+            boundary = bucket
+        else:
+            break
+    return boundary
+
+
+def _live_tail_values(
+    *, runner: "WebTrendsQueryRunner", live_from: datetime, date_to: datetime
+) -> dict[datetime, float]:
+    """Per-bucket values for the in-progress tail, read from the live trends path so
+    the current period reflects events newer than the last precompute build.
+
+    Runs the base `TrendsQueryRunner` directly (never `get_query_runner`), so the WA
+    dispatch can't re-enter this precompute path. Keyed by naive team-local bucket
+    start to match `_series_dict`.
+    """
+    live_query = runner.query.model_copy(deep=True)
+    live_query.dateRange = DateRange(date_from=live_from.isoformat(), date_to=date_to.isoformat(), explicitDate=True)
+    live_query.compareFilter = None
+    live_runner = TrendsQueryRunner(query=live_query, team=runner.team, modifiers=runner.modifiers)
+    response = live_runner.calculate()
+    if not response.results:
+        return {}
+    data = response.results[0].get("data") or []
+    buckets = live_runner.query_date_range.all_values()
+    return {bucket.replace(tzinfo=None): float(value) for bucket, value in zip(buckets, data)}
+
+
 def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[list[dict[str, Any]]]:
     """Serve the trends series from the shared web_overview preagg buckets.
     Returns the formatted results list, or None on any ineligibility/miss (the
-    caller falls back to the live trends path)."""
+    caller falls back to the live trends path).
+
+    The current period is stitched: buckets before the in-progress period come from
+    precompute, and the in-progress tail (today, or the current week/month) is read
+    live so recent hours are never zero-filled. The compare period is always fully in
+    the past, so it stays entirely on the precompute path.
+    """
     tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
     team = runner.team
     overall_started = time.perf_counter()
@@ -381,8 +434,26 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
         cur_start_utc = cur_buckets[0].astimezone(UTC)
         cur_end_utc = cur_to.astimezone(UTC)
 
+        # Split the current range at the in-progress period: precompute serves the
+        # settled buckets, the live path serves the evolving tail (see the boundary
+        # helper). Reading the tail from precompute is what produced the flat, low
+        # recent buckets — the precompute build lags the latest hours.
+        now_local = django_timezone.now().astimezone(ZoneInfo(runner.team.timezone))
+        today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        live_from = _current_period_boundary(cur_buckets, cur_to, today_start_local)
+        settled_buckets = [bucket for bucket in cur_buckets if bucket < live_from]
+        serve_live_tail = len(settled_buckets) < len(cur_buckets)
+        if serve_live_tail and not settled_buckets:
+            # The whole requested range is the in-progress period (e.g. a "Today"
+            # view): nothing is settled enough to precompute, so serve it all live.
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_period_only").inc()
+            return None
+
+        # Precompute only ever covers the settled portion of the current range.
+        current_read_end_utc = live_from.astimezone(UTC) if serve_live_tail else cur_end_utc
+
         time_range_start = floor_utc_day(cur_start_utc)
-        time_range_end = ceil_utc_day(cur_end_utc)
+        time_range_end = ceil_utc_day(current_read_end_utc)
         if time_range_start >= time_range_end:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             return None
@@ -448,8 +519,10 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
             interval=interval,
             job_ids=job_ids,
             range_start_utc=cur_start_utc,
-            range_end_utc=cur_end_utc,
+            range_end_utc=current_read_end_utc,
         )
+        if serve_live_tail:
+            current_values = {**current_values, **_live_tail_values(runner=runner, live_from=live_from, date_to=cur_to)}
         results.append(
             _series_dict(runner, metric_values=current_values, date_range=runner.query_date_range, is_previous=False)
         )

@@ -25,7 +25,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
-from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.models.proxy_record import is_reserved_proxy_domain, is_valid_proxy_domain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.tasks.proxy import reconcile_proxy_root_redirect
 from posthog.temporal.common.client import sync_connect
@@ -129,6 +129,8 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Enter a domain name on its own, like e.example.com, with no protocol, port, or path."
             )
+        if is_reserved_proxy_domain(value):
+            raise serializers.ValidationError("This domain belongs to PostHog. Enter a domain you own instead.")
         return value
 
 
@@ -481,6 +483,15 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         ):
             return Response(
                 {"detail": f"Cannot retry proxy in {record.status} state."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The row can predate this check (created before it shipped, or written directly
+        # by the ORM), so retry has to refuse re-dispatching provisioning for a reserved
+        # domain rather than trusting a value validate_domain would reject on write today.
+        if is_reserved_proxy_domain(record.domain):
+            return Response(
+                {"detail": "This domain belongs to PostHog and cannot be provisioned as a proxy domain."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

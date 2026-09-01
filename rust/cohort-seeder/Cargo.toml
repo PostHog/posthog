@@ -37,6 +37,7 @@ hyper-util = { workspace = true, features = ["client-legacy"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+rand = { workspace = true }
 rdkafka = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }

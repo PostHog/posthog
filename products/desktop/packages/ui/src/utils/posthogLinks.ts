@@ -70,10 +70,6 @@ export function experimentUrl(
   );
 }
 
-export function featureFlagsIndexUrl(overrides?: LinkOverrides): string | null {
-  return withProjectId((pid) => `/project/${pid}/feature_flags`, overrides);
-}
-
 export function skillUrl(
   skillName: string,
   overrides?: LinkOverrides,

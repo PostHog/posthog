@@ -19,8 +19,8 @@ import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActi
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { ReportDetailLegacy, ReportDetailSkeletonLegacy } from './components/detail/ReportDetailLegacy'
 import { FindingsPanel } from './components/findings/FindingsPanel'
-import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
-import { InboxWelcomeRedesign } from './components/onboarding/InboxWelcomeRedesign'
+import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
+import { InboxWelcome } from './components/onboarding/InboxWelcome'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxListViewLegacy } from './components/shell/InboxListViewLegacy'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -88,10 +88,9 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
  */
 function InboxListView(): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
-    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
-    // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
-    // tab (the other tabs are visible but disabled) whose body is the onboarding card, so the
-    // onboarding is the whole story – just run the one command.
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
+    // Self-driving isn't set up and the inbox is empty: the welcome page replaces the whole list
+    // view, tab bar included, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
     // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar here is
     // what caused the normal inbox to flash in and get replaced by the welcome page.
@@ -115,11 +114,9 @@ function InboxListView(): JSX.Element {
     return (
         <div className="flex flex-col min-h-0 flex-1 min-w-0">
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-            {/* The redesigned welcome (experiment test arm) is a full-pane page with no tab
-                row at all; control keeps the locked "Welcome" tab over the disabled real tabs. */}
-            {!isWelcomeRedesign && !pending && (
+            {!onboarding && !pending && (
                 <div className="border-b border-primary pl-5 pr-6 shrink-0">
-                    <InboxTabBar onboarding={onboarding} />
+                    <InboxTabBar />
                 </div>
             )}
             <div className="flex-1 overflow-auto min-h-0">
@@ -128,11 +125,7 @@ function InboxListView(): JSX.Element {
                         <CardSkeleton count={4} variant="cards" />
                     </div>
                 ) : onboarding ? (
-                    isWelcomeRedesign ? (
-                        <InboxWelcomeRedesign />
-                    ) : (
-                        <InboxOnboardingTakeover />
-                    )
+                    <InboxWelcome />
                 ) : (
                     <ActiveTabBody tab={activeTab} />
                 )}
@@ -229,7 +222,7 @@ export function InboxScene(): JSX.Element {
         isRedesign,
     } = useValues(inboxSceneLogic)
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
-    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -279,18 +272,13 @@ export function InboxScene(): JSX.Element {
                 <SceneTitleSection
                     name="Inbox"
                     // The description explains the active tab so new users can orient themselves.
-                    // In the onboarding takeover the tabs are locked, so keep the overall pitch.
-                    // The redesigned welcome leads with its own full-size pitch, so a description
-                    // here would say the same thing twice. While the verdict is pending neither
-                    // description is safe to show – either would flash and swap.
+                    // The welcome takeover leads with its own full-size pitch, so a description here
+                    // would say the same thing twice. While the verdict is pending no description is
+                    // safe to show – it would flash and swap.
                     description={
-                        onboardingMode === 'pending'
+                        onboardingMode === 'pending' || onboardingMode === 'takeover'
                             ? null
-                            : onboardingMode === 'takeover'
-                              ? isWelcomeRedesign
-                                  ? null
-                                  : 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
-                              : (isRedesign ? INBOX_TAB_DESCRIPTION : INBOX_LEGACY_TAB_DESCRIPTION)[activeTab]
+                            : (isRedesign ? INBOX_TAB_DESCRIPTION : INBOX_LEGACY_TAB_DESCRIPTION)[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
                     // Creating a scout is the Scouts tab's primary action, so it sits in the scene
@@ -306,8 +294,8 @@ export function InboxScene(): JSX.Element {
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
                     {/* The inbox always renders (its own list skeleton covers loading). When self-driving
-                        isn't set up, the list view itself swaps in a locked "Welcome" onboarding tab; the
-                        banner sits above the otherwise-normal inbox when there's already work to keep. */}
+                        isn't set up, the list view itself swaps in the welcome page; the banner sits
+                        above the otherwise-normal inbox when there's already work to keep. */}
                     {onboardingMode === 'banner' && <InboxOnboardingBanner />}
                     {isRedesign ? <InboxListView /> : <InboxListViewLegacy />}
                 </div>

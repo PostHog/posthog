@@ -62,7 +62,7 @@ class TestTallySource:
         assert [field["field"] for field in by_name["submissions"].incremental_fields] == ["submittedAt"]
         # `startDate` is inclusive, so append mode would re-write the watermark's own rows.
         assert by_name["submissions"].supports_append is False
-        for name in ("workspaces", "forms", "questions", "webhooks"):
+        for name in ("workspaces", "forms", "questions", "webhooks", "folders", "form_analytics_metrics"):
             assert by_name[name].supports_incremental is False
             assert by_name[name].incremental_fields == []
 

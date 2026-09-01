@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { EventType, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
+import { EventType, IncrementalSource, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     getHrefFromSnapshot,
@@ -62,6 +62,9 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 // mutations); most large recordings are ordinary small events and play fine, so both must trip
 export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
 export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
+// Adds concentrated in one playback second freeze the tab; the same adds spread out play fine
+export const OVERSIZED_MUTATION_WINDOW_MS = 1000
+export const OVERSIZED_MUTATION_WINDOW_ADDED_NODES = 15000
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -122,6 +125,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
     fullyLoaded: boolean
+    hasOversizedMutations: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
     processedSnapshots: RecordingSnapshot[]
@@ -325,6 +329,10 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         recordingTooLargeToPlay: (
             sessionPlayerMetaData: SessionRecordingType | null,
+            featureFlags: FeatureFlagsSet
+        ) => boolean
+        hasOversizedMutations: (
+            snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             featureFlags: FeatureFlagsSet
         ) => boolean
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
@@ -691,6 +699,40 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     eventCount > 0 &&
                     totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
                 )
+            },
+        ],
+
+        hasOversizedMutations: [
+            (s) => [s.snapshots, s.featureFlags],
+            (snapshots: RecordingSnapshot[], featureFlags: FeatureFlagsSet): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
+                    return false
+                }
+                const mutations: { timestamp: number; adds: number }[] = []
+                for (const snapshot of snapshots) {
+                    if (
+                        snapshot.type === EventType.IncrementalSnapshot &&
+                        snapshot.data?.source === IncrementalSource.Mutation &&
+                        Array.isArray(snapshot.data.adds) &&
+                        snapshot.data.adds.length > 0
+                    ) {
+                        mutations.push({ timestamp: snapshot.timestamp, adds: snapshot.data.adds.length })
+                    }
+                }
+                // processedSnapshots are sorted by timestamp
+                let lo = 0
+                let windowAdds = 0
+                for (const mutation of mutations) {
+                    windowAdds += mutation.adds
+                    while (mutation.timestamp - mutations[lo].timestamp > OVERSIZED_MUTATION_WINDOW_MS) {
+                        windowAdds -= mutations[lo].adds
+                        lo += 1
+                    }
+                    if (windowAdds >= OVERSIZED_MUTATION_WINDOW_ADDED_NODES) {
+                        return true
+                    }
+                }
+                return false
             },
         ],
 

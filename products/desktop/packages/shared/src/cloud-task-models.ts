@@ -94,12 +94,6 @@ const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
   },
 ];
 
-const PROVIDER_NAMES: Record<string, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  "google-vertex": "Gemini",
-};
-
 const MODEL_FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
 const PROVIDER_PREFIXES = ["anthropic/", "openai/", "google-vertex/"];
 const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
@@ -225,6 +219,12 @@ export function pickAllowedModel(
       : best,
   ).id;
 }
+
+const PROVIDER_NAMES: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  "google-vertex": "Gemini",
+};
 
 export function getProviderName(ownedBy: string): string {
   return PROVIDER_NAMES[ownedBy] ?? ownedBy;

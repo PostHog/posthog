@@ -265,7 +265,7 @@ def get_earliest_timestamp_from_series(
             ]
             timestamps = [future.result() for future in futures]
 
-    return min(timestamps)
+    return min(timestamps)  # ty: ignore[invalid-return-type]
 
 
 def get_earliest_timestamp_unfiltered(team: Team) -> datetime:

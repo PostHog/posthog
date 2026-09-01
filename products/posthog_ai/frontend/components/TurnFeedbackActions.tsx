@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState, memo } from 'react'
 
 import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
@@ -13,10 +13,11 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { RunRef, captureTurnFeedbackText, captureTurnRating } from '../utils/feedbackEvents'
 
 export interface TurnFeedbackActionsProps {
-    /** Conversation id where one exists (Max chats), else the task id. Lands in `$ai_session_id`. */
+    /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */
     sessionId: string
     /** Ordinal of the completed turn — the rating's identity, stable across reloads. */
     turnIndex: number
+    run: RunRef
     isLastTurn: boolean
     turnText: string
 }
@@ -29,13 +30,13 @@ export interface TurnFeedbackActionsProps {
 export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     sessionId,
     turnIndex,
+    run,
     isLastTurn,
     turnText,
 }: TurnFeedbackActionsProps): JSX.Element {
     const { ratingForKey } = useValues(messageRatingsLogic)
     const { setRating } = useActions(messageRatingsLogic)
     const { traceId } = useValues(runStreamLogic)
-    const mountedStreamLogic = useMountedLogic(runStreamLogic)
 
     const ratingKey = `${sessionId}:turn-${turnIndex}`
     const rating = ratingForKey(ratingKey)
@@ -46,16 +47,12 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     // the only truthful value. Older turns send null rather than a synthetic id.
     const turnTraceId = isLastTurn ? traceId : null
 
-    function activeRun(): RunRef | undefined {
-        return mountedStreamLogic.cache.activeRun as RunRef | undefined
-    }
-
     function submitRating(newRating: 'good' | 'bad'): void {
         if (rating) {
             return // Already rated
         }
         setRating({ key: ratingKey, rating: newRating })
-        captureTurnRating(sessionId, turnTraceId, newRating, turnIndex, activeRun())
+        captureTurnRating(sessionId, turnTraceId, newRating, turnIndex, run)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
         }
@@ -65,7 +62,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
         if (!feedback) {
             return // Input is empty
         }
-        captureTurnFeedbackText(sessionId, turnTraceId, feedback, turnIndex, activeRun())
+        captureTurnFeedbackText(sessionId, turnTraceId, feedback, turnIndex, run)
         setFeedbackInputStatus('submitted')
     }
 

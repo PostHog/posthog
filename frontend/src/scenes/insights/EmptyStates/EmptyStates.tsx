@@ -710,10 +710,18 @@ export function isRawServerErrorTitle(title: string, status?: number | null): bo
     return status != null && status >= 500
 }
 
-type InsightErrorKind = 'rate_limit' | 'invalid_query' | 'permission' | 'transient' | 'server' | 'unknown'
+type InsightErrorKind =
+    | 'rate_limit'
+    | 'memory_limit'
+    | 'invalid_query'
+    | 'permission'
+    | 'transient'
+    | 'server'
+    | 'unknown'
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
+    memory_limit: HedgehogMagnifyingGlass,
     invalid_query: HedgehogMagnifyingGlass,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
@@ -729,6 +737,12 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
 function getInsightErrorKind(status?: number | null): InsightErrorKind {
     if (status === 429) {
         return 'rate_limit'
+    }
+    // 513 covers every ClickHouse memory failure: the query's own limit, cluster-wide pressure, and
+    // the failure breaker holding a query that already failed this way. The status cannot tell them
+    // apart, so the remediation comes from the backend detail instead.
+    if (status === 513) {
+        return 'memory_limit'
     }
     if (status === 400 || status === 422) {
         return 'invalid_query'
@@ -750,6 +764,9 @@ function getInsightErrorTitle(
     fallback: string | JSX.Element | null | undefined,
     titleStatus?: number | null
 ): string | JSX.Element {
+    if (kind === 'memory_limit') {
+        return "This query couldn't finish"
+    }
     if (kind === 'invalid_query') {
         return "We couldn't run this query"
     }
@@ -768,10 +785,18 @@ function getInsightErrorTitle(
     return fallback ?? 'There was a problem completing this query'
 }
 
-function getInsightErrorRemediation(kind: InsightErrorKind, retryAfter?: string | null): string | null {
+function getInsightErrorRemediation(
+    kind: InsightErrorKind,
+    retryAfter?: string | null,
+    backendDetail?: string | null
+): string | null {
     switch (kind) {
         case 'rate_limit':
             return `Try again ${retryAfter ?? 'later'}.`
+        case 'memory_limit':
+            // Only the backend copy knows whether to shrink this query, wait out cluster load, or
+            // how long the breaker holds the query for.
+            return backendDetail ?? 'Try a shorter date range or narrower filters, then run it again.'
         case 'invalid_query':
             return 'Open the query debugger and correct the query.'
         case 'permission':
@@ -822,7 +847,9 @@ export function InsightErrorState({
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
-    const remediation = getInsightErrorRemediation(errorKind, retryAfter)
+    // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
+    const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
+    const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -875,7 +902,7 @@ export function InsightErrorState({
 
             {!supportOnly && (
                 <div className="mt-4">
-                    {remediation && <p>{remediation}</p>}
+                    {remediation && <p className="max-w-120">{renderDetailWithLinks(remediation)}</p>}
                     {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
             )}
@@ -1065,6 +1092,25 @@ const SAVED_INSIGHTS_COPY = {
         title: 'You have no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
+}
+
+export function SavedInsightsErrorState({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div
+            data-attr="saved-insights-error-state"
+            className="flex flex-col items-center justify-center gap-2 text-center"
+        >
+            <IconErrorOutline className="text-4xl shrink-0 text-danger" />
+            <h2 className="mb-0">Couldn't load insights</h2>
+            <p className="empty-state__description">
+                Something went wrong loading your insights. They are safe. Try again, and if the problem continues
+                contact support.
+            </p>
+            <LemonButton type="primary" size="small" icon={<IconRefresh />} onClick={onRetry}>
+                Try again
+            </LemonButton>
+        </div>
+    )
 }
 
 export function SavedInsightsEmptyState({

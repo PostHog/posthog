@@ -1120,6 +1120,19 @@ def validate_credentials(
         return False, str(exc)
 
     url = f"{base_url}/api/0/organizations/{organization_slug}/projects/"
+
+    try:
+        auth_token.encode("latin-1")
+    except UnicodeEncodeError:
+        # The token rides in the Authorization header, which http.client encodes as latin-1. A
+        # character outside that range raises mid-request; reject it as invalid input rather than
+        # letting the UnicodeEncodeError surface as a 500.
+        return (
+            False,
+            "Invalid Sentry auth token. It contains characters that can't be sent to Sentry. "
+            "Copy the token again from Sentry, then reconnect.",
+        )
+
     headers = _auth_headers(auth_token)
 
     try:
@@ -1136,14 +1149,15 @@ def validate_credentials(
                 + ".",
             )
         if response.status_code == 404:
-            return False, f"Sentry organization '{organization_slug}' not found"
+            return False, "Sentry organization not found. Verify your organization slug, then reconnect."
 
-        try:
-            return False, response.json().get("detail", response.text)
-        except Exception:
-            return False, response.text
+        # Keep the vendor detail in logs for debugging, but never surface it — the raw body can
+        # echo the org slug or unrelated Sentry internals back to the customer.
+        logger.warning("sentry_source.validate_credentials_unexpected_status", status_code=response.status_code)
+        return False, "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
     except RequestException as exc:
-        return False, str(exc)
+        logger.warning("sentry_source.validate_credentials_request_error", error=str(exc))
+        return False, "Could not reach Sentry to validate your credentials. Check your connection, then try again."
 
 
 # ---------------------------------------------------------------------------

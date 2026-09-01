@@ -104,10 +104,19 @@ def _job_row(
     *,
     run_attempt: int = 1,
     labels: str = '["depot-ubuntu-22.04-4"]',
-    started: str = "2026-01-01 00:00:00",
-    completed: str = "2026-01-01 00:02:00",
+    started: str | None = None,
+    completed: str | None = None,
     head_branch: str = "main",
 ) -> dict[str, Any]:
+    # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
+    # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
+    # the cost queries' jobs-scan floor is derived from exactly that relationship (see
+    # _workflow_filters.run_windowed_job_created_floor_constant). Jobs pinned to 2026-01-01 under runs
+    # seeded at _ago(n) modelled a shape the source cannot produce, and the floor rightly dropped them.
+    # Keeps the 2-minute duration the cost assertions are written against.
+    default_started, default_completed = _ago_with_duration(1, 120)
+    started = started if started is not None else default_started
+    completed = completed if completed is not None else default_completed
     return {
         "id": job_id,
         "run_id": run_id,

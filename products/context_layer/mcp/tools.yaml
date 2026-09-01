@@ -15,6 +15,12 @@ tools:
     context-layer-commits-create:
         operation: context_layer_commits_create
         enabled: false
+    context-layer-dreams-list:
+        operation: context_layer_dreams_list
+        enabled: false
+    context-layer-dreams-retrieve:
+        operation: context_layer_dreams_retrieve
+        enabled: false
     context-layer-enable-create:
         operation: context_layer_enable_create
         enabled: false

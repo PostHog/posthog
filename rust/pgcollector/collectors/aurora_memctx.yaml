@@ -1,0 +1,30 @@
+name: aurora_memctx
+description: >
+  Memory context usage per backend (aurora_stat_memctx_usage), aggregated per
+  pid with its largest context. Only backends over 64 MB allocated are
+  recorded, so this is empty on a healthy instance and names the culprit when
+  something balloons.
+interval: 60s
+scope: cluster
+kind: gauge
+# Off by default: aurora_stat_memctx_usage() returns every context of every
+# process (tens of rows per backend) and is scanned twice here. Enable when
+# investigating memory growth (overrides.aurora_memctx.enabled = true).
+enabled: false
+requires: { aurora: true }
+query: |
+  WITH per_pid AS (
+    SELECT pid, sum(allocated)::bigint AS allocated_bytes, sum(used)::bigint AS used_bytes,
+           sum(instances)::bigint AS contexts
+    FROM aurora_stat_memctx_usage() GROUP BY pid
+  ), top_ctx AS (
+    SELECT DISTINCT ON (pid) pid, name AS top_context, allocated AS top_context_bytes
+    FROM aurora_stat_memctx_usage() ORDER BY pid, allocated DESC
+  )
+  SELECT p.pid, a.backend_start, a.datname, a.usename, a.application_name, a.backend_type, a.state,
+         a.query_id, regexp_replace(left(a.query, 500), $$'(?:[^']|'')*'$$, '''?''', 'g') AS query,
+         p.allocated_bytes, p.used_bytes, p.contexts, t.top_context, t.top_context_bytes
+  FROM per_pid p
+  JOIN top_ctx t USING (pid)
+  LEFT JOIN pg_stat_activity a ON a.pid = p.pid
+  WHERE p.allocated_bytes > 64 * 1024 * 1024

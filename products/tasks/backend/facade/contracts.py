@@ -199,6 +199,7 @@ class TaskDetailDTO:
     latest_run_id: UUID | None = None
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
+    origin_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,7 @@ class ChannelDTO:
     channel_type: str
     github_integration: int | None
     repositories: list[str]
+    auto_archive_after_days: int | None
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False

@@ -128,6 +128,40 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSources'])
                 .toMatchValues({ recordingTooLargeToPlay: false })
         })
+
+        const mutationSnapshots = (eventCount: number, addsPerEvent: number, gapMs: number = 1): RecordingSnapshot[] =>
+            Array.from(
+                { length: eventCount },
+                (_, i) =>
+                    ({
+                        windowId: '1',
+                        timestamp: 1000 + i * gapMs,
+                        type: 3,
+                        data: { source: 0, adds: new Array(addsPerEvent).fill({}) },
+                    }) as unknown as RecordingSnapshot
+            )
+
+        it.each([
+            ['a concentrated burst of adds', mutationSnapshots(10, 5000), true, true],
+            ['the same adds spread over minutes', mutationSnapshots(10, 5000, 30_000), true, false],
+            ['a single large render', mutationSnapshots(2, 5000), true, false],
+            [
+                'malformed mutations without adds',
+                mutationSnapshots(10, 0).map((s) => ({ ...s, data: { source: 0 } }) as unknown as RecordingSnapshot),
+                true,
+                false,
+            ],
+            ['the flag is disabled', mutationSnapshots(10, 5000), false, false],
+        ])('detects oversized mutations with %s', (_name, snapshots, flagEnabled, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                flagEnabled ? [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] : [],
+                flagEnabled ? { [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true } : {}
+            )
+            logic.actions.setProcessedSnapshots(snapshots)
+
+            expect(logic.values.hasOversizedMutations).toBe(expected)
+        })
     })
 
     describe('loading session core', () => {

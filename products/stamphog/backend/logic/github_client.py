@@ -1033,24 +1033,40 @@ class StamphogGitHubClient:
 
     # --- Write operations ---
 
-    def post_approve_review(self, repo: str, number: int, body: str, commit_id: str) -> dict:
-        """Submit an APPROVE review pinned to ``commit_id`` (``POST .../pulls/{number}/reviews``).
+    def _submit_review(self, repo: str, number: int, body: str, commit_id: str, event: str) -> dict:
+        """Submit one review pinned to ``commit_id`` (``POST .../pulls/{number}/reviews``).
 
-        Pinning to the reviewed head SHA means an approval never silently carries over to commits pushed
-        after the review. Raises on any non-success so a failed approval is never mistaken for a success.
+        Pinning to the reviewed head SHA means a review never silently carries over to commits pushed
+        after it. Raises on any non-success so a failed write is never mistaken for a success.
         """
         path = f"/repos/{repo}/pulls/{number}/reviews"
         response = self._request(
             "POST",
             path,
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
-            json_body={"event": "APPROVE", "body": body, "commit_id": commit_id},
+            json_body={"event": event, "body": body, "commit_id": commit_id},
         )
         if response.status_code not in (200, 201):
             raise StamphogGitHubError(
-                f"Failed to approve PR {repo}#{number}: {response.text[:300]}", status_code=response.status_code
+                f"Failed to submit {event} review on {repo}#{number}: {response.text[:300]}",
+                status_code=response.status_code,
             )
         return self._json(response, path)
+
+    def post_approve_review(self, repo: str, number: int, body: str, commit_id: str) -> dict:
+        """Submit an APPROVE review — the one that satisfies a required review."""
+        return self._submit_review(repo, number, body, commit_id, "APPROVE")
+
+    def post_comment_review(self, repo: str, number: int, body: str, commit_id: str) -> dict:
+        """Submit a COMMENT review — stamphog declining to approve, without blocking the PR.
+
+        Every verdict lands in the same place this way: the Reviews section, dated, notifying, and
+        pinned to the head it judged. An issue comment would sit in a different list from the
+        approvals it contradicts, which is how a stale refusal came to outlive the approval that
+        replaced it. REQUEST_CHANGES would be the wrong event — stamphog declining to auto-approve
+        must not block a human from merging.
+        """
+        return self._submit_review(repo, number, body, commit_id, "COMMENT")
 
     def remove_pr_label(self, repo: str, number: int, label: str) -> None:
         """Remove a label from a PR (``DELETE .../issues/{number}/labels/{label}``).

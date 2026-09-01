@@ -6,12 +6,13 @@ import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
+
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 
 import { getMetricChanges } from './metricChangeDescriptions'
 
