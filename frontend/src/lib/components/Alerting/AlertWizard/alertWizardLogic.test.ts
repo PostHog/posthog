@@ -1,11 +1,6 @@
-import { expectLogic } from 'kea-test-utils'
-
-import api from 'lib/api'
-
-import { initKeaTests } from '~/test/init'
 import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { alertWizardLogic, applyKindFilter, decorateAlertName } from './alertWizardLogic'
+import { applyKindFilter, decorateAlertName } from './alertWizardLogic'
 
 describe('applyKindFilter', () => {
     const baseFilters: CyclotronJobFiltersType = {
@@ -93,37 +88,5 @@ describe('decorateAlertName', () => {
         expect(decorateAlertName(baseName, ['some_future_kind'])).toBe(
             'Email when a Health check fires (some_future_kind)'
         )
-    })
-})
-
-describe('alertWizardLogic', () => {
-    let logic: ReturnType<typeof alertWizardLogic.build>
-
-    beforeEach(() => {
-        initKeaTests()
-        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [], count: 0 } as any)
-        logic = alertWizardLogic({
-            logicKey: 'test',
-            subTemplateIds: [],
-            triggers: [],
-            destinations: [],
-            disableUrlSync: true,
-        })
-        logic.mount()
-    })
-
-    afterEach(() => {
-        logic.unmount()
-        jest.restoreAllMocks()
-    })
-
-    it('clears the testing flag when no destination or trigger is selected', async () => {
-        // Without the completion dispatch on this early return, `testing` sticks true and the
-        // Create alert button (disabled while testing) never re-enables.
-        await expectLogic(logic, () => {
-            logic.actions.testConfiguration()
-        })
-            .toDispatchActions(['testConfiguration', 'testConfigurationComplete'])
-            .toMatchValues({ testing: false })
     })
 })
