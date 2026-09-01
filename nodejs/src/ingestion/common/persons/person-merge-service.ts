@@ -140,11 +140,9 @@ export class PersonMergeService {
             }
         } catch (e) {
             if (e instanceof PersonClaimedByLifecycleOpError) {
-                // Expected contention, not a failure: another lifecycle operation held one of
-                // the persons through every retry. Drop the merge with a warning; the event's
-                // property updates still apply to whatever the distinct ids resolve to next.
-                // The counter is the rollout's drop-rate signal; the warning is debounced by
-                // the standard limiter so a long-held claim cannot flood the warnings topic.
+                // Expected contention: another lifecycle op held a person
+                // through every retry. Drop with a warning; the counter is
+                // the drop-rate signal and the warning is debounced.
                 mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
                 const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_race_condition',
@@ -185,11 +183,9 @@ export class PersonMergeService {
                 })
                 .inc()
             if (e instanceof ConnectError) {
-                // A raw refusal (InvalidArgument, or a semantic refusal such
-                // as a reused op id) is a designed verdict no redelivery can
-                // change, so it acks as a settled loss and logs as a warning
-                // rather than filling error tracking. The ingestion warning
-                // keeps it customer-visible like every other settled loss.
+                // A raw refusal is a designed verdict no redelivery can
+                // change: acked as a settled loss with the customer-visible
+                // warning rather than filling error tracking.
                 mergeSettledFailureCounter.inc()
                 logger.warn('🤔', 'merge refused deterministically; settled as lost', {
                     team_id: this.context.team.id,
@@ -271,14 +267,10 @@ export class PersonMergeService {
             [{ distinctId: otherPersonDistinctId, eventUuid: this.context.event.uuid }],
             timestamp
         )
-        // The store owns the whole merge, its own record-escape retries
-        // included: retryable conflicts surface here as throws — the
-        // Postgres merge throws them directly, the personhog store throws
-        // only after its internal salted re-attempts exhaust — and each
-        // re-entry runs against fresh state.
-        // A raw ConnectError here is a deterministic refusal the store
-        // deliberately unwrapped (InvalidArgument, or a semantic refusal
-        // like op_id_reused); retrying it re-runs the same comparison.
+        // The store owns the whole merge; retryable Postgres conflicts
+        // surface as throws and each re-entry runs against fresh state. A
+        // raw ConnectError is a deterministic refusal the store
+        // deliberately unwrapped; retrying re-runs the same comparison.
         const result = await promiseRetry(
             () => this.context.personStore.mergePersons(request),
             'merge_distinct_ids',
@@ -310,10 +302,9 @@ export class PersonMergeService {
             eventUuid: this.context.event.uuid,
             allowIdentifiedSources: this.context.event.event === '$merge_dangerously',
             mergeMode: this.context.mergeMode,
-            // Passed as the event stated it, pre-epoch values included: what a
-            // backend can store is the backend's constraint, and clamping here
-            // would rewrite the created_at Postgres records for a person born
-            // from a merge.
+            // Passed as the event stated it, pre-epoch values included:
+            // clamping here would rewrite the created_at Postgres records
+            // for a merge-born person.
             createdAtMs: timestamp.toMillis(),
         }
     }
@@ -387,11 +378,9 @@ export class PersonMergeService {
             return null
         }
         if (result.foldAborted) {
-            // The store already logged its abort with the underlying error.
-            // An abort can still carry an ack, because a bootstrap that
-            // committed before the fold produced messages the rollback did
-            // not unmake; awaiting here keeps the event from acking ahead
-            // of its own writes.
+            // An abort can still carry an ack (a bootstrap committed before
+            // the fold); awaiting keeps the event from acking ahead of its
+            // own writes.
             if (result.kafkaAck) {
                 await result.kafkaAck
             }
@@ -461,11 +450,9 @@ export class PersonMergeService {
         // answer.
         const sourceResult = result.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
         if (sourceResult === undefined) {
-            // A response missing the verdict for the source we asked about
-            // says nothing about what happened, so it must not take the
-            // settled-failure path that acks the merge as lost. The saga
-            // replays the recorded outcome per op id, so this stalls the
-            // partition by design; the counter and log make it attributable.
+            // A missing verdict says nothing about what happened, so it
+            // must not ack as a settled loss; the saga replays per op id,
+            // so failing here stalls the partition by design.
             mergeResponseMismatchCounter.labels({ call: this.context.event.event }).inc()
             logger.error('merge response carried no verdict for its requested source; failing the batch', {
                 team_id: this.context.team.id,
@@ -579,13 +566,11 @@ export class PersonMergeService {
             case 'error':
             case 'unknown':
             default: {
-                // A verdict, not a transient fault: the merge backend records it
-                // against the op id and replays it for the retention window, so
-                // neither this event's retry nor its redelivery can reach a
-                // different answer — failing the batch would stall the partition
-                // instead of healing. The merge is lost; the event's property
-                // updates still apply, and the customer's next $identify carries
-                // a fresh op id that can succeed. Acked, but never silently.
+                // A verdict, not a transient fault: the backend replays it
+                // per op id, so no retry reaches a different answer and
+                // failing the batch would stall the partition. The merge is
+                // lost but never silently; the customer's next $identify
+                // carries a fresh op id that can succeed.
                 mergeSettledFailureCounter.inc()
                 const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_settled_failure',
@@ -595,9 +580,7 @@ export class PersonMergeService {
                         distinctId: mergeIntoDistinctId,
                         eventUuid: this.context.event.uuid,
                         // Both travel because each backend names the person
-                        // differently: the saga sets a row id only for a
-                        // merged source so it sends neither, and Postgres
-                        // would carry the uuid.
+                        // differently.
                         otherPersonId: sourceResult.sourcePersonUuid,
                         sourcePersonId: sourceResult.sourcePersonId,
                         outcome,
@@ -660,10 +643,8 @@ export class PersonMergeService {
                     break
                 case 'skipped_conflict':
                 case 'skipped_race':
-                    // The same drop the single-source path counts, reached
-                    // through a fold instead. Counting only one of them makes
-                    // the rollout's drop rate read low by however much of the
-                    // traffic folds.
+                    // The same drop the single-source path counts; skipping
+                    // it here makes the drop rate read low by the folded share.
                     mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {
@@ -681,16 +662,11 @@ export class PersonMergeService {
                     )
                     break
                 case 'skipped_move_limit':
-                    // Only the saga can answer this inside an executed fold;
-                    // the Postgres merge aborts the whole fold instead so each
-                    // event gets its own over-limit policy decision. Folding
-                    // costs that decision: the source's own event later reads
-                    // the executed plan and acks, so in ASYNC mode it loses the
-                    // redirect to the async topic it would otherwise get, not
-                    // only the merge. Accepted while personhog mode is a testing
-                    // path, and surfaced as a customer-visible warning so a lost
-                    // merge is identifiable rather than silent. The permanent
-                    // fix is saga-side chunked moves.
+                    // Only the saga answers this inside an executed fold;
+                    // Postgres aborts the whole fold instead. In ASYNC mode
+                    // the source's event loses its redirect to the async
+                    // topic, accepted while personhog is a testing path;
+                    // the permanent fix is saga-side chunked moves.
                     mergeMoveLimitDroppedCounter.labels({ path: 'fold' }).inc()
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {
@@ -714,10 +690,8 @@ export class PersonMergeService {
                     })
                     break
                 case 'error':
-                    // The merge for this source did not happen and the op is
-                    // terminal, so redelivery cannot reach a different
-                    // answer. The single-source path treats this as a
-                    // settled failure; a fold has to say so too, or the
+                    // The op is terminal, so redelivery cannot change the
+                    // answer; a fold must record the settled failure or the
                     // loss is invisible.
                     mergeSettledFailureCounter.inc()
                     warningAcks.push(

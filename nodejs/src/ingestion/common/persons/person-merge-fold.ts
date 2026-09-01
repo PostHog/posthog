@@ -106,14 +106,10 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
  * shared MergeFoldPlan, carried by the run's values as a `planned` decision,
  * with the distinct anon ids as pairs (first event wins the pair's eventUuid;
  * self-merges are excluded). Every other value gets the `immediate` decision.
- * A run longer than the saga's source cap becomes several plans, since one
- * oversized request is refused outright; pathological per-source distinct_id
- * counts are handled by the merge-mode limit pre-check at execution time.
  */
 /**
  * The most sources one folded request may carry, matching the saga's
- * MAX_MERGE_BATCH_SIZE. Kept in step with it: a larger value here is refused
- * server-side and costs the whole fold.
+ * MAX_MERGE_BATCH_SIZE; a larger value is refused server-side.
  */
 const MAX_FOLD_SOURCES = 250
 
@@ -177,10 +173,8 @@ function planRun<T extends MergeFoldScanItem>(
         return
     }
 
-    // A run longer than the cap becomes several plans, because the saga
-    // refuses an oversized request outright and the refusal abandons the
-    // fold into per-pair sequential merges, exactly the storm folding
-    // exists to avoid.
+    // A longer run becomes several plans: the saga refuses an oversized
+    // request outright, abandoning the fold into per-pair merges.
     const planByAnonId = new Map<string, MergeFoldPlan>()
     const ordered = [...pairByAnonId.values()]
     for (let offset = 0; offset < ordered.length; offset += MAX_FOLD_SOURCES) {

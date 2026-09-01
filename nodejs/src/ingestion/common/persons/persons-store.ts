@@ -24,10 +24,9 @@ export interface MergePersonsSource {
 }
 
 /**
- * Per-source verdicts a merge can answer. Both backends share the
- * vocabulary; 'skipped_race' and the 'failed_*' verdicts come only from the
- * Postgres merge's retrying transaction, and 'error' in practice only from
- * the saga.
+ * Per-source merge verdicts. Both backends share the vocabulary;
+ * 'skipped_race' and 'failed_*' come only from Postgres, 'error' in
+ * practice only from the saga.
  */
 export type MergePersonsOutcome =
     | 'merged'
@@ -38,9 +37,8 @@ export type MergePersonsOutcome =
     | 'skipped_conflict'
     | 'skipped_move_limit'
     /**
-     * The operation was definitively refused before destroying anything
-     * and aborted; the recorded verdict replays on every retry, so the
-     * pair settles as a lost merge rather than retrying as a conflict.
+     * Definitively refused before destroying anything; the recorded
+     * verdict replays on every retry, so the pair settles as a lost merge.
      */
     | 'skipped_refused'
     | 'skipped_race'
@@ -49,9 +47,8 @@ export type MergePersonsOutcome =
     | 'failed_source_has_distinct_ids'
     | 'error'
     /**
-     * A verdict this build cannot name, which only a backend running ahead
-     * of it can produce. Distinct from 'error' because the merge may well
-     * have happened; nothing here knows either way.
+     * A verdict this build cannot name, from a backend running ahead;
+     * distinct from 'error' because the merge may well have happened.
      */
     | 'unknown'
 
@@ -66,10 +63,9 @@ export interface MergePersonsSourceResult {
     /** The source person the verdict speaks about. Postgres only; the saga reports ids. */
     sourcePersonUuid?: string
     /**
-     * The source person this verdict destroyed, on a merged source only: a
-     * merged-away person is permanent, so a caller may reconcile cached
-     * state against it without re-reading. On every other verdict the
-     * Postgres backend omits it and the personhog client answers null.
+     * The source person this verdict destroyed, on a merged source only:
+     * a merged-away person is permanent, so a caller may reconcile cached
+     * state against it. Absent or null on every other verdict.
      */
     sourcePersonId?: string | null
 }
@@ -84,9 +80,8 @@ export interface MergePersonsRequest {
     sources: MergePersonsSource[]
     /**
      * The source belonging to the event that initiated this request; not
-     * always the first source, since the plan's first event can be dropped
-     * before the person step. The Postgres merge bootstraps it through the
-     * sequential path when a folded merge finds no target.
+     * always the first source, since the plan's first event can be
+     * dropped before the person step.
      */
     triggerSourceDistinctId?: string
     /** The merge event's property ops; each backend applies them to the survivor its own way. */
@@ -101,16 +96,13 @@ export interface MergePersonsRequest {
     allowIdentifiedSources: boolean
     /**
      * The caller's move policy, from the same config the processor's
-     * over-limit handling reads. Postgres bounds its distinct-id moves by it;
-     * the saga uses LIMIT/ASYNC's limit as its guard and its own configured
-     * one for SYNC, which it cannot run unbounded.
+     * over-limit handling reads; both backends bound their moves by it.
      */
     mergeMode: MergeMode
     /**
-     * Merge event created_at, epoch millis; consulted only where nothing
-     * resolves and a person is born from the request. Otherwise both
-     * backends give the survivor the earliest created_at among itself and
-     * the persons merged into it.
+     * Merge event created_at, epoch millis; consulted only where a person
+     * is born from the request. Otherwise the survivor keeps the earliest
+     * created_at among the merged persons.
      */
     createdAtMs: number
 }
@@ -126,8 +118,7 @@ export interface MergePersonsResult {
     /**
      * Whether the caller still needs its follow-up property update; absent
      * means true. Postgres reports false when its own creation applied the
-     * event's properties or conflicted onto an already-identified person;
-     * personhog only for a newborn that is also identified.
+     * event's properties; personhog never claims it.
      */
     survivorNeedsUpdate?: boolean
     /**
@@ -168,9 +159,7 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
 
     /**
      * Applies one event's extracted ops to a person, resolving what they
-     * mean against this store's own state: snapshot refinement, the
-     * identity OR-merge, the last-seen advance, and whether anything is
-     * worth writing at all.
+     * mean against this store's own state.
      */
     applyEventOps(
         person: InternalPerson,

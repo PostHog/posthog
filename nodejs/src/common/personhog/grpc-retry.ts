@@ -32,9 +32,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Attempts a call makes under the default retry policy (the first try plus
- * `maxRetries`). Exported so deadlines derived from a call's worst-case
- * duration multiply by the same number the retry loop actually runs.
+ * Attempts a call makes under the default retry policy; exported so
+ * derived deadlines multiply by the number the loop actually runs.
  */
 export const GRPC_DEFAULT_ATTEMPTS = 3
 

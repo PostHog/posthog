@@ -20,12 +20,10 @@ export function lifecycleOpIdFromEvent(teamId: number, eventUuid: string): strin
 }
 
 /**
- * The merge saga's idempotency key: the saga freezes the request behind it
- * and rejects the same key presented with a different request, so a folded
- * merge and the single-source merges it falls back to must not share one.
- * Source order and the length-prefixed encoding are part of the identity,
- * because the saga compares sources in order and a comma inside a distinct
- * id must not make two different source lists read as one.
+ * The merge saga's idempotency key; a folded merge and its fallback
+ * single-source merges must not share one. Source order and the
+ * length-prefixed encoding are part of the identity, so a comma inside a
+ * distinct id cannot make two source lists read as one.
  */
 export function mergeOpIdFromRequest(
     teamId: number,
@@ -33,10 +31,9 @@ export function mergeOpIdFromRequest(
     sourceDistinctIds: string[],
     moveLimit: number
 ): string {
-    // The move limit is part of the op's identity: skipped_move_limit is a
-    // recorded verdict, so a redirected async re-attempt running with a
-    // raised limit must derive a fresh op rather than attach to the skip
-    // it exists to overcome. Same-limit retries still replay.
+    // The move limit is part of the op's identity: a redirected re-attempt
+    // with a raised limit must derive a fresh op rather than attach to the
+    // recorded skip it exists to overcome.
     const sources = sourceDistinctIds.map((distinctId) => `${distinctId.length}:${distinctId}`).join(',')
     return uuidv5(`${teamId}:${eventUuid}:${moveLimit}:${sources}`, LIFECYCLE_OP_UUIDV5_NAMESPACE)
 }

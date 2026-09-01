@@ -18,11 +18,9 @@ import { encodeJsonBytes, protoPersonToDomain } from './persons'
 
 /**
  * A single get-or-create key: resolve distinct_id within team_id,
- * creating a person stub when absent. The properties and scalars apply
- * on the creation branch only; an existing person takes its ops through
- * the normal update path. The person UUID derives deterministically from
- * team_id:distinct_id on the identity service's side; no id is supplied
- * here.
+ * creating a person stub when absent. Properties and scalars apply on the
+ * creation branch only; the uuid derives from team_id:distinct_id
+ * server-side.
  */
 export interface GetOrCreatePersonEntry {
     teamId: number
@@ -71,18 +69,16 @@ export interface MergeSagaRequest {
     /** Merge event created_at, epoch millis; consulted only when an unresolved target births a fresh person. */
     createdAtMs: number
     /**
-     * The executing event's uuid, stable across retries. Stamped as
-     * $creator_event_uuid on a person the merge births, and carried onto
-     * the fences the saga installs, where the store classifies refusals
-     * by it — a per-delivery value would mis-aim that classification.
+     * The executing event's uuid, stable across retries; stamped as
+     * $creator_event_uuid on a person the merge births and echoed on the
+     * fences the saga installs.
      */
     creatorEventUuid: string
 }
 
 /**
  * Metadata key on identity's definitive refusals; the value is a reason
- * slug. A refusal carrying it is deterministic for the request's exact
- * shape: retrying the same request meets the same answer forever.
+ * slug, and retrying the same request meets the same answer forever.
  */
 export const SEMANTIC_REFUSAL_METADATA_KEY = 'x-semantic-refusal'
 /** The op id belongs to a different recorded merge; refused before any durable work. */
@@ -107,10 +103,9 @@ export interface MergeSagaResult {
         sourceDistinctId: string
         outcome: MergeSagaSourceOutcome
         /**
-         * The person this verdict destroyed, set only on a merged source:
-         * a merged-away person is permanent, so a caller may reconcile
-         * cached state against it without re-reading. Every other verdict
-         * answers null because the person it would name is still live.
+         * Set only on a merged source: a merged-away person is permanent,
+         * so a caller may reconcile cached state against it. Every other
+         * verdict answers null because its person is still live.
          */
         sourcePersonId: string | null
         /**
@@ -143,9 +138,8 @@ const MERGE_OUTCOME_NAMES: Record<MergeSourceOutcome, MergeSagaSourceOutcome> = 
 }
 
 /**
- * The name this build knows for a wire verdict. An identity service a
- * release ahead can answer something this build has never heard of, which is
- * not a refusal and must not be recorded as one.
+ * The name this build knows for a wire verdict; a newer service's unknown
+ * value is not a refusal and must not be recorded as one.
  */
 function namedOutcome(wire: MergeSourceOutcome): MergeSagaSourceOutcome {
     const named = MERGE_OUTCOME_NAMES[wire]
@@ -267,11 +261,9 @@ export class PersonhogIdentityOperations {
             }
             return { person: protoPersonToDomain(response.person), created: response.created }
         } catch (error) {
-            // A size rejection must surface as the domain error the
-            // create service already handles, which emits the customer
-            // ingestion warning and stops retrying. Left untranslated,
-            // the raw gRPC error matches no non-retriable class and the
-            // batch redelivers the same oversized event forever.
+            // Surfaced as the domain error the create service handles;
+            // untranslated, the raw gRPC error matches no non-retriable
+            // class and the batch redelivers the oversized event forever.
             if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
                 if (error.rawMessage.includes('size limit')) {
                     throw new PersonPropertiesSizeViolationError(
@@ -309,12 +301,9 @@ export class PersonhogIdentityOperations {
                 creatorEventUuid: request.creatorEventUuid,
             }),
             {
-                // A merge drives a multi-step saga rather than a point read,
-                // so it gets its own deadline instead of the transport
-                // default. It must exceed the engine's
-                // lifecycle_execute_timeout_secs so the server answers first
-                // in the common case, though a slow step can still outlive
-                // this backstop.
+                // A saga drive, not a point read, so its own deadline; it
+                // must exceed the engine's lifecycle_execute_timeout_secs
+                // so the server answers first in the common case.
                 timeoutMs: this.options.mergeTimeoutMs,
                 ...(callerTag ? { headers: { 'x-caller-tag': callerTag } } : {}),
             }

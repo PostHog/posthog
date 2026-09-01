@@ -32,9 +32,8 @@ export function parsePersonsStoreMode(raw: string): PersonsStoreMode {
 }
 
 /**
- * Fails startup when a non-pg mode is missing the endpoints it dials,
- * so a misconfiguration is one loud boot error instead of every write
- * failing at its first RPC.
+ * Fails startup when a non-pg mode is missing the endpoints it dials:
+ * one loud boot error instead of every write failing.
  */
 export function assertPersonsStoreModeConfig(
     mode: PersonsStoreMode,
@@ -53,9 +52,8 @@ export function assertPersonsStoreModeConfig(
 }
 
 /**
- * Whether two property maps say the same thing. Compared by serialised value
- * rather than by reference so a nested object that was rebuilt on one side
- * does not read as a difference.
+ * Whether two property maps say the same thing, compared by value so a
+ * rebuilt nested object does not read as a difference.
  */
 function propertiesMatch(left: Properties, right: Properties): boolean {
     const leftKeys = Object.keys(left ?? {})
@@ -67,10 +65,9 @@ function propertiesMatch(left: Properties, right: Properties): boolean {
 }
 
 /**
- * Key-order-insensitive structural equality for JSON property values, because
- * Postgres jsonb reorders object keys while personhog answers in write order,
- * so a serialised comparison would flag every nested object. Array order
- * stays significant because it is significant to the customer's data.
+ * Key-order-insensitive equality, because Postgres jsonb reorders object
+ * keys while personhog answers in write order. Array order stays
+ * significant because it is significant to the customer's data.
  */
 function stableEqual(left: unknown, right: unknown): boolean {
     if (left === right) {
@@ -121,11 +118,7 @@ class ShadowVerbTimeoutError extends Error {
     }
 }
 
-/**
- * A bounded metric label for a shadow failure. Every gRPC fault arrives as
- * the same ConnectError class, so those are labelled by status code and
- * everything else by its class name.
- */
+/** A bounded label: gRPC faults carry their status code, everything else its class name. */
 function errorClass(error: unknown): string {
     if (error instanceof ConnectError) {
         return grpcErrorType(error)
@@ -135,13 +128,10 @@ function errorClass(error: unknown): string {
 }
 
 /**
- * Routes person-store verbs between the Postgres backend and the personhog
- * one: personhog mode sends every verb to the personhog store, and shadow
- * runs the Postgres call as the authoritative result with the personhog
- * call after it, its failures counted but never failing the batch. Merges
- * route through `mergePersons` like any other verb, each backend running
- * its own whole merge, so shadow rehearses every merge (folds included)
- * against the personhog backend's own graph.
+ * Routes person-store verbs between the backends: personhog mode sends
+ * every verb to the personhog store; shadow runs Postgres as the
+ * authoritative result with the personhog call after it, counted but
+ * never failing the batch. Each backend runs its own whole merge.
  */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
@@ -157,17 +147,10 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Run the personhog side of a shadowed verb: sequential, awaited, and
-     * never allowed to fail the batch.
-     *
-     * Because it is awaited, its wall clock is charged to the consumer's
-     * poll budget, and a degraded personhog side can outrun that budget on
-     * its own: a merge alone may spend its conflict retries times its
-     * transport attempts times the merge deadline. Losing the group over a
-     * shadow stall would let shadow decide the authoritative batch's fate,
-     * so a verb that outruns the ceiling is abandoned and counted as lost
-     * fidelity. The ceiling is per verb, so a batch of slow verbs can still
-     * accumulate; it bounds the single pathological call, not the batch.
+     * Runs the personhog side of a shadowed verb: sequential, awaited,
+     * never allowed to fail the batch. Awaited means its wall clock spends
+     * the consumer's poll budget, so a verb that outruns the ceiling is
+     * abandoned and counted as lost fidelity; the bound is per verb.
      */
     private async shadowed(verb: string, run: () => Promise<unknown>): Promise<void> {
         let timer: ReturnType<typeof setTimeout> | undefined
@@ -184,10 +167,8 @@ export class RoutingPersonsStore implements PersonsStore {
                 }),
             ])
         } catch (error) {
-            // Labelled by class as well as verb: a fence timeout, a size
-            // rejection, and the identity service being unreachable are the
-            // three things a rollout most needs to tell apart, and one
-            // number for all of them cannot.
+            // Labelled by class as well as verb: the failures a rollout
+            // must tell apart read identically under one number.
             personhogStoreShadowErrorsCounter.labels({ verb, error: errorClass(error) }).inc()
             logger.warn('personhog shadow verb failed', { verb, error: String(error) })
         } finally {
@@ -218,10 +199,8 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Runs a comparison without letting it speak for the backend. A
-     * comparator that throws is a bug in the comparator, and counting it
-     * among the shadow backend's failures would blame the thing the rollout
-     * is trying to judge.
+     * A comparator that throws is a bug in the comparator; counting it
+     * among shadow failures would blame the thing under judgment.
      */
     private compared(verb: string, run: () => void): void {
         try {
@@ -233,11 +212,9 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Records whether the shadow backend answered the same person as the
-     * authoritative one, which is the divergence signal the error counter
-     * cannot carry. Row ids are not compared because the backends allocate
-     * from independent sequences; the uuid is the identifier both derive
-     * the same way.
+     * Records whether the shadow backend answered the same person. Row ids
+     * are not compared because the backends allocate independently; the
+     * uuid is derived the same way on both.
      */
     private comparePerson(verb: string, authoritative: unknown, shadow: unknown): void {
         // Absence arrives as null from either backend, and as undefined from
@@ -248,10 +225,8 @@ export class RoutingPersonsStore implements PersonsStore {
         personhogStoreShadowComparedCounter.labels({ verb }).inc()
         if (left === null || right === null) {
             if (left !== right) {
-                // Which side is empty is the whole question early in a
-                // rollout: personhog not having seen a person yet is
-                // expected and fades, while personhog losing one that
-                // Postgres still has never is.
+                // Which side is empty is the whole question: personhog
+                // missing a person fades; losing one never does.
                 this.recordDivergence(verb, left === null ? 'missing_authoritative' : 'missing_shadow', {
                     authoritative: left?.uuid ?? null,
                     shadow: right?.uuid ?? null,
@@ -289,12 +264,10 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Resolve the personhog backend's own person for a shadowed write. The
-     * caller holds the Postgres row, whose numeric id means nothing in
-     * the personhog backend — the two id sequences are independent — so a
-     * shadow write must re-resolve by distinct id and skip, counted,
-     * when the person does not exist there yet. The fetch memoizes per
-     * batch, so repeated writes to one person cost one resolution.
+     * The caller holds the Postgres row, whose numeric id means nothing
+     * here (independent sequences), so a shadow write re-resolves by
+     * distinct id and skips, counted, when the person does not exist yet.
+     * Memoized per batch.
      */
     private async withShadowPerson(
         verb: string,
@@ -458,10 +431,8 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Merges are distinct-id addressed, so the personhog side needs no
-     * person re-resolution: the same request replays the whole merge
-     * against that backend's saga, keeping the shadow graph's topology in
-     * step with the Postgres one.
+     * Merges are distinct-id addressed, so no re-resolution: the same
+     * request replays the whole merge against this backend's own graph.
      */
     mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
         return this.route(
@@ -473,12 +444,9 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Records whether the two backends reached the same merge verdict; the
-     * survivor decides which person every later event in the batch lands on,
-     * so a disagreement here is the most consequential shadow can surface.
-     * The outcome vocabularies are not identical between backends, so an
-     * outcome difference is a finding to read rather than an alarm by
-     * itself.
+     * The survivor decides where every later event lands, so a verdict
+     * disagreement is the most consequential divergence; the vocabularies
+     * differ between backends, so a difference is a finding, not an alarm.
      */
     private compareMerge(authoritative: unknown, shadow: unknown): void {
         const left = authoritative as MergePersonsResult
@@ -545,10 +513,9 @@ export class RoutingPersonsStore implements PersonsStore {
             this.personhog.releaseBatch(batchId)
             return
         }
-        // Release runs in the pipeline's finally, where the shadow backend
-        // must not throw. Abandon rather than keep: the batch is already
-        // acked on the authoritative side, so segments kept here would
-        // accumulate without bound through an identity outage.
+        // Release runs in the pipeline's finally, where shadow must not
+        // throw; the batch is already acked, so kept segments would
+        // accumulate without bound through an outage.
         try {
             this.personhog.abandonBatch(batchId)
         } catch (error) {
@@ -564,10 +531,9 @@ export class RoutingPersonsStore implements PersonsStore {
             if (this.mode === 'personhog') {
                 await this.personhog.shutdown()
             } else {
-                // The personhog store rejects when lanes still hold unwritten
-                // ops, which is the right alarm when it owns the data and the
-                // wrong one when it does not: a shadow-only fault must not
-                // stop the process from shutting down cleanly.
+                // The store's unwritten-lanes rejection is the right alarm
+                // only when it owns the data; a shadow-only fault must not
+                // stop shutdown.
                 await this.shadowed('shutdown', () => this.personhog.shutdown())
             }
         }

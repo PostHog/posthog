@@ -7,34 +7,25 @@ interface ResolutionEntry {
 
 /**
  * An advisory cache of distinct-id resolutions and person documents,
- * shared by every open batch so a merge's purge or repoint reaches all at
- * once. Advisory means a directive, not a source of truth: the leader
- * classifies every write authoritatively, so the only install rule the
- * cache needs is newer-wins, and a stale view heals through the next
- * leader answer or a write bounce. Lanes are known through the store's
- * callbacks: a person with unwritten ops keeps its document alive, and
- * reads answer that document with those ops replayed over it.
+ * shared by every open batch. The leader classifies every write, so the
+ * only install rule is newer-wins and a stale view heals on the next
+ * leader answer or write bounce; reads replay unsent lane ops on top.
  */
 export class PersonhogPersonMemo {
     /**
-     * Distinct-id resolution, shared by every open batch. Split from person
-     * state so every distinct id of a person reads the same pending
-     * baseline, not just the one that triggered the update.
+     * Distinct-id resolution; split from person state so every id of a
+     * person reads the same pending baseline.
      */
     private resolutions: Map<string, ResolutionEntry> = new Map()
     /**
-     * The last document a service answered for each person, keyed by
-     * `${teamId}:${personId}` and shared across batches; only ever a
-     * service answer, never one this batch composed, so that `viewOf` can
-     * replay the lane's unwritten ops over it without losing or
-     * double-counting them at a seam.
+     * The last document a service answered per person, keyed by
+     * `${teamId}:${personId}`; never one this batch composed, so `viewOf`
+     * can replay the lane's unsent ops over it without double-counting.
      */
     private baselines: Map<string, InternalPerson> = new Map()
     /**
-     * How many live resolutions name each person; a baseline outlives its
-     * own lane only while some distinct id still points at it. Maintained
-     * as a counter because resolutions are numerous enough that scanning
-     * them per drop would be linear where this is constant.
+     * How many live resolutions name each person; a counter because
+     * scanning resolutions per drop would be linear.
      */
     private baselineRefCount: Map<string, number> = new Map()
     /** Distinct keys each open batch referenced; a key is live while any set holds it. */
@@ -63,10 +54,8 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * What this batch should see for a person: the last document a service
-     * answered, with the ops the person's lane has not sent replayed over
-     * it. Undefined where no document has been read, which is an instruction
-     * to go and read one rather than a statement that the person is absent.
+     * The last service document with the lane's unsent ops replayed over
+     * it. Undefined means go read one, not that the person is absent.
      */
     private viewOf(personKey: string): InternalPerson | undefined {
         const baseline = this.baselines.get(personKey)
@@ -74,9 +63,8 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * Records a fetch result and returns the view callers should see. The
-     * document lands as the baseline under newer-wins; the lane's unsent
-     * ops are replayed over it on the way out, so a fetch never rolls the
+     * Records a fetch result and returns the view callers should see; the
+     * lane's unsent ops replay on the way out, so a fetch never rolls the
      * batch's view back to pre-update state.
      */
     record(
@@ -98,10 +86,9 @@ export class PersonhogPersonMemo {
             return existing != null ? (this.viewOf(existing) ?? null) : null
         }
         const personKey = `${teamId}:${fetched.id}`
-        // A fill-only caller may deliver its response arbitrarily late, so
-        // an edge recorded since — including a repoint by a merge — is
-        // newer than the response and must stand; only the document is
-        // offered, and only where the edge already names this person.
+        // A fill-only response can be arbitrarily late, so an edge recorded
+        // since is newer and must stand; only the document is offered, and
+        // only where the edge already names this person.
         const standingEdge = this.resolutions.get(distinctKey)?.personKey
         if (options.fillOnly && standingEdge !== undefined) {
             if (standingEdge === personKey) {
@@ -115,11 +102,9 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * The one gate every baseline install passes through: newer-wins.
-     * Reads of one person can be delivered out of order, so a document
-     * with a lower leader version is the staler read and must not replace
-     * what stands; versions that are not both numbers fall through rather
-     * than block a legitimate install.
+     * The one install gate: newer-wins, because reads of one person can be
+     * delivered out of order. Versions that are not both numbers fall
+     * through rather than block a legitimate install.
      */
     offerBaseline(personKey: string, doc: InternalPerson): void {
         const existing = this.baselines.get(personKey)
@@ -134,11 +119,7 @@ export class PersonhogPersonMemo {
         this.baselines.set(personKey, this.snapshot(doc))
     }
 
-    /**
-     * Callers get copies: a caller stamping its result must not edit the
-     * shared memo. Reads that go through `viewOf` are already fresh objects,
-     * so they do not need copying again.
-     */
+    /** Callers get copies, so stamping a result cannot edit the shared memo. */
     snapshot(person: InternalPerson): InternalPerson
     snapshot(person: InternalPerson | null): InternalPerson | null
     snapshot(person: InternalPerson | null): InternalPerson | null {
@@ -155,10 +136,7 @@ export class PersonhogPersonMemo {
         return Array.from(this.resolutions.entries(), ([key, entry]) => [key, entry.personKey])
     }
 
-    /**
-     * What the batch sees for this person: the baseline with the lane's
-     * unsent ops replayed over it. Null where no document has been read.
-     */
+    /** The projected view; null where no document has been read. */
     viewOfPerson(personKey: string): InternalPerson | null {
         return this.viewOf(personKey) ?? null
     }
@@ -169,9 +147,8 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * Forgets a destroyed person entirely: state and refcounts both,
-     * because the person cannot come back. The caller repoints or
-     * releases the ids separately.
+     * Forgets a destroyed person entirely, state and refcounts both; the
+     * caller repoints or releases the ids separately.
      */
     deletePerson(personKey: string): void {
         this.baselines.delete(personKey)
@@ -200,9 +177,8 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * Forgets one resolution and the claim it held on its person's
-     * baseline. Idempotent, because a merge invalidation and the owning
-     * batch's release both reach for the same key.
+     * Forgets one resolution and its claim on the person's baseline.
+     * Idempotent: a merge invalidation and the batch's release can race.
      */
     releaseResolution(distinctKey: string): void {
         if (!this.resolutions.has(distinctKey)) {
@@ -234,10 +210,8 @@ export class PersonhogPersonMemo {
 
     /**
      * Drops every resolution in a team, for a failed merge whose damage is
-     * unknowable; returns how many were dropped. A baseline with ops still
-     * folded behind it survives, since it is the batch's read-your-write
-     * view. An in-flight read can reinstall a stale edge afterwards, which
-     * heals through the tombstone redirect on its next write.
+     * unknowable; returns how many. An in-flight read can reinstall a
+     * stale edge afterwards, which heals through the tombstone redirect.
      */
     invalidateTeam(teamId: number): number {
         const teamPrefix = `${teamId}:`
@@ -246,10 +220,8 @@ export class PersonhogPersonMemo {
         const resolutionKeys = Array.from(this.resolutions.keys())
         for (const key of resolutionKeys) {
             if (key.startsWith(teamPrefix)) {
-                // Releasing rather than deleting keeps the baseline
-                // refcount honest and lets a baseline with folded ops
-                // survive, so a re-fetch cannot install committed state
-                // predating this batch's own updates.
+                // Releasing keeps the refcount honest and lets a baseline
+                // with folded ops survive as the read-your-write view.
                 this.releaseResolution(key)
                 cleared++
             }
@@ -268,20 +240,16 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * Forgets the document this batch was answering reads from, because
-     * something it cannot account for has happened, such as a redirect
-     * landing another lane's ops on this person. Only the document goes:
-     * the lane keeps its unsent ops, and the next reader is sent to the
-     * service rather than to a guess.
+     * Forgets the document because something it cannot account for
+     * happened; the lane keeps its unsent ops and the next reader re-reads.
      */
     dropBaseline(personKey: string): void {
         this.baselines.delete(personKey)
     }
 
     /**
-     * Frees a person's baseline once nothing needs it: no lane holding
-     * unwritten ops, and no live resolution naming it. Called from both
-     * sides, because either can be the last to let go.
+     * Frees a person's baseline once no lane holds unwritten ops and no
+     * live resolution names it; either side can be the last to let go.
      */
     evictBaseline(personKey: string): void {
         if (this.hasPendingLane(personKey) || (this.baselineRefCount.get(personKey) ?? 0) > 0) {
@@ -291,9 +259,8 @@ export class PersonhogPersonMemo {
     }
 
     /**
-     * Drops a batch's distinct-key references, forgetting a resolution no
-     * other batch holds. The baseline goes with it unless ops are still
-     * folded behind it, where eviction would lose a read-your-write view.
+     * Drops a batch's distinct-key references, forgetting resolutions no
+     * other batch holds; a baseline with folded ops behind it survives.
      */
     releaseBatch(batchId: number): void {
         const keys = this.batchDistinctKeys.get(batchId)

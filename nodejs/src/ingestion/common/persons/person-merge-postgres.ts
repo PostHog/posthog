@@ -416,10 +416,8 @@ export class PostgresPersonMerge {
                 reason,
                 error,
             })
-            // A bootstrap that already committed produced its person and
-            // distinct-id messages before the abort, so its delivery still
-            // has to reach the event's ack. The transaction rolled back;
-            // that commit did not.
+            // A committed bootstrap's messages still have to reach the
+            // event's ack; the rollback did not unmake that commit.
             return { survivor: null, results: [], foldAborted: reason, kafkaAck: this.bootstrapAck }
         }
     }

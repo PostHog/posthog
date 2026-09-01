@@ -160,10 +160,9 @@ export class IngestionApiServer implements NodeServer {
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
     /**
-     * The store the pipeline was handed: the Postgres one under `pg`, the
-     * routing wrapper otherwise. Shutdown goes through this rather than the
-     * concrete backends, so the routing store's own lifecycle rules — in
-     * shadow, a personhog fault must not fail process cleanup — actually run.
+     * The store the pipeline was handed. Shutdown goes through this so the
+     * routing store's own lifecycle rules run: in shadow, a personhog
+     * fault must not fail process cleanup.
      */
     private pipelinePersonsStore?: PersonsStore
     private personhogClientClosers: Array<() => void> = []
@@ -655,9 +654,6 @@ export class IngestionApiServer implements NodeServer {
                 if (this.personsStore) {
                     await this.personsStore.flushAndProduceMessages()
                 }
-                // Through the store the pipeline used, so a routed shutdown
-                // applies its own rules to each backend instead of this
-                // server shutting the two down behind its back.
                 if (this.pipelinePersonsStore) {
                     await this.pipelinePersonsStore.shutdown()
                 } else if (this.personsStore) {

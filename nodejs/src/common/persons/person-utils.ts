@@ -74,11 +74,9 @@ export const isDistinctIdIllegal = (id: string): boolean => {
 
 /**
  * Ids no merge can involve, a strict superset of isDistinctIdIllegal: NUL
- * cannot exist in Postgres text (capture strips it from `event.distinct_id`
- * but not from `$anon_distinct_id` or alias values) and over 400 code points
- * cannot fit `posthog_persondistinctid`. A merge admitting one fails at the
- * column instead of settling, so every path that picks merge participants
- * must agree on this answer.
+ * cannot exist in Postgres text and over 400 code points cannot fit the
+ * column. Every path that picks merge participants must agree, or a merge
+ * admits an id that fails at the column instead of settling.
  */
 export const isDistinctIdUnmergeable = (id: string): boolean => {
     return isDistinctIdIllegal(id) || id.includes('\u0000') || [...id].length > 400

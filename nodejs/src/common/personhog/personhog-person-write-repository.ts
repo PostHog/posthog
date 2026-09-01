@@ -118,9 +118,8 @@ export class PersonHogPersonWriteRepository {
     }
 
     /**
-     * Runs the identity service's merge saga to completion. Safe under
-     * retry: the op id in the request dedupes, so a retried call returns
-     * the recorded outcome instead of merging again.
+     * Runs the identity service's merge saga to completion; the op id
+     * dedupes, so a retried call returns the recorded outcome.
      */
     mergePersons(request: MergeSagaRequest, callerTag?: string): Promise<MergeSagaResult> {
         const method = 'mergePersons'

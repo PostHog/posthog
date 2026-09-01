@@ -29,16 +29,14 @@ const FENCED_METADATA_KEY = 'x-person-fenced'
 /** Carries the holding operation's id on that refusal. */
 const FENCED_OP_ID_METADATA_KEY = 'x-person-fenced-op-id'
 /**
- * Carries the holding operation's creator event uuid, where the fence was
- * installed with one. The op id above is derived and salted across
- * conflict retries; this is the stable identity of the event behind it.
+ * The holding operation's creator event uuid, where the fence carries
+ * one: the identity of the event behind the derived op id.
  */
 const FENCED_CREATOR_METADATA_KEY = 'x-person-fenced-creator'
 
 /**
- * The leader rejected an update at the person-properties size ceiling.
- * Carries what the transport layer knows; callers holding the person's
- * uuid and distinct id re-wrap it into their own error vocabulary.
+ * The leader rejected an update at the person-properties size ceiling;
+ * callers re-wrap it into their own error vocabulary.
  */
 export class PersonhogPropertiesSizeError extends Error {
     constructor(
@@ -53,9 +51,7 @@ export class PersonhogPropertiesSizeError extends Error {
 
 /**
  * The leader refused a write because a lifecycle operation holds the
- * person. It names the holder so a caller that recognises the op as its own
- * can drive it forward, where any other holder means back off and let
- * redelivery retry.
+ * person; the holder's op id and creator travel for attribution.
  */
 export class PersonhogFencedError extends Error {
     constructor(
@@ -250,11 +246,9 @@ export class PersonHogPersonOperations {
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
                 }
-                // Keyed on the metadata rather than the status code, because
-                // the code depends on the path: the leader answers a fence
-                // with FAILED_PRECONDITION, while the router that ingestion
-                // actually dials hands back its own UNAVAILABLE with these
-                // keys carried forward.
+                // Keyed on the metadata rather than the status code: the
+                // leader answers FAILED_PRECONDITION while the router hands
+                // back its own UNAVAILABLE with these keys carried forward.
                 if (error.metadata.has(FENCED_METADATA_KEY)) {
                     throw new PersonhogFencedError(
                         error.rawMessage,
