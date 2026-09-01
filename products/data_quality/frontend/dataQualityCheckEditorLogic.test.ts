@@ -543,7 +543,7 @@ describe('dataQualityCheckEditorLogic', () => {
         expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
     })
 
-    it('refreshes the warehouse catalog when opening another unscoped draft', async () => {
+    it('keeps the warehouse catalog loaded when reopening an unscoped draft', async () => {
         await mountLogic({ surface: 'overview' })
         logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
@@ -552,6 +552,6 @@ describe('dataQualityCheckEditorLogic', () => {
         logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(2)
+        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
     })
 })

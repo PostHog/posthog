@@ -449,11 +449,10 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 openEditor: (_, { columns }) => columns,
             },
         ],
-        // One request per open editor: a type switch back to relationships must not refetch.
+        // Keep the full catalog available across modal opens, while avoiding refetches on type switches.
         warehouseCatalogRequested: [
             false,
             {
-                openEditor: () => false,
                 loadWarehouseCatalog: () => true,
             },
         ],
