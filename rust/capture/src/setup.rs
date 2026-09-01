@@ -13,7 +13,7 @@ use common_redis::RedisClient;
 use metrics::gauge;
 use tracing::{info, warn};
 
-use crate::config::{CaptureMode, Config};
+use crate::config::{CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
@@ -23,7 +23,7 @@ use crate::quota_limiters::{
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
-use crate::sinks::kafka::KafkaSink;
+use crate::sinks::kafka::{KafkaOutputConfig, KafkaSink, OutputKafkaConfig};
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
@@ -574,6 +574,61 @@ async fn create_output_registry(
     Ok(OutputRegistry::new(output))
 }
 
+/// How often librdkafka fires the stats callback for the primary output. Not
+/// an operator knob on the deployment-wide block, so it is named here.
+const PRIMARY_STATISTICS_INTERVAL_MS: u32 = 10_000;
+
+/// The primary output's own config block, resolved from the deployment-wide
+/// `KAFKA_*` variables. Those are the only ones existing deployments set, so
+/// the primary output produces to exactly the cluster and topics it does
+/// today.
+pub fn primary_kafka_output_config(kafka: &KafkaConfig) -> KafkaOutputConfig {
+    KafkaOutputConfig {
+        kafka: OutputKafkaConfig {
+            hosts: kafka.kafka_hosts.clone(),
+            tls: kafka.kafka_tls,
+            client_id: kafka.kafka_client_id.clone(),
+
+            linger_ms: kafka.kafka_producer_linger_ms,
+            queue_mib: kafka.kafka_producer_queue_mib,
+            message_timeout_ms: kafka.kafka_message_timeout_ms,
+            message_max_bytes: kafka.kafka_producer_message_max_bytes,
+            compression_codec: kafka.kafka_compression_codec.clone(),
+            acks: kafka.kafka_producer_acks.clone(),
+            enable_idempotence: kafka.kafka_producer_enable_idempotence,
+            batch_num_messages: kafka.kafka_producer_batch_num_messages,
+            batch_size: kafka.kafka_producer_batch_size,
+            metadata_refresh_interval_ms: kafka.kafka_topic_metadata_refresh_interval_ms,
+            metadata_max_age_ms: kafka.kafka_metadata_max_age_ms,
+            socket_timeout_ms: kafka.kafka_socket_timeout_ms,
+            statistics_interval_ms: PRIMARY_STATISTICS_INTERVAL_MS,
+            partitioner: kafka.kafka_producer_partitioner.clone(),
+            max_retries: kafka.kafka_producer_max_retries,
+            max_in_flight_requests: kafka.kafka_producer_max_in_flight_requests,
+            sticky_partitioning_linger_ms: kafka.kafka_producer_sticky_partitioning_linger_ms,
+            broker_address_family: kafka.kafka_broker_address_family.clone(),
+            log_connection_close: kafka.kafka_log_connection_close,
+            queue_buffering_max_messages: kafka.kafka_producer_queue_buffering_max_messages,
+            retry_backoff_max_ms: kafka.kafka_retry_backoff_max_ms,
+            socket_send_buffer_bytes: kafka.kafka_socket_send_buffer_bytes,
+            socket_receive_buffer_bytes: kafka.kafka_socket_receive_buffer_bytes,
+
+            topic_main: kafka.kafka_topic.clone(),
+            topic_historical: kafka.kafka_historical_topic.clone(),
+            topic_overflow: kafka.kafka_overflow_topic.clone(),
+            topic_dlq: kafka.kafka_dlq_topic.clone(),
+            topic_exception: kafka.kafka_error_tracking_topic.clone(),
+            topic_heatmap: kafka.kafka_heatmaps_topic.clone(),
+            topic_client_ingestion_warning: kafka.kafka_client_ingestion_warning_topic.clone(),
+            topic_ai: kafka.capture_analytics_ai_events_topic.clone(),
+            topic_ai_overflow: kafka.capture_analytics_ai_events_overflow_topic.clone(),
+            topic_replay_overflow: Some(kafka.kafka_replay_overflow_topic.clone()),
+        },
+        replay_envelope_compression: kafka.kafka_replay_envelope_compression,
+        completeness_check_enabled: kafka.outputs_completeness_check_enabled,
+    }
+}
+
 async fn create_output(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
@@ -588,9 +643,12 @@ async fn create_output(
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
-        let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
-            .await
-            .context("failed to start Kafka sink")?;
+        let kafka_sink = KafkaSink::new(
+            primary_kafka_output_config(&config.kafka),
+            Some(kafka_handle.clone()),
+        )
+        .await
+        .context("failed to start Kafka sink")?;
 
         let s3_sink = S3Sink::new(
             config
@@ -610,7 +668,7 @@ async fn create_output(
             Some(kafka_handle),
         ))
     } else {
-        let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
+        let kafka_sink = KafkaSink::new(primary_kafka_output_config(&config.kafka), sink_handle)
             .await
             .context("failed to start Kafka sink")?;
 

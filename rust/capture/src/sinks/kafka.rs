@@ -18,7 +18,7 @@
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
-use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
@@ -39,6 +39,10 @@ use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
+
+/// The connection, producer tuning, and topics one Kafka output produces
+/// with. Shared with the v1 sinks, which read the same block per sink.
+pub use crate::v1::sinks::kafka::config::Config as OutputKafkaConfig;
 
 pub struct KafkaContext {
     /// Lifecycle handle this producer reports liveness to. `None` for a producer
@@ -234,114 +238,112 @@ fn dlq_reroute_effects(headers: &mut common_types::CapturedEventHeaders, reason:
         .set_dlq_timestamp(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
 }
 
+/// One Kafka output's own configuration: the cluster it connects to, the
+/// producer tuning it uses, and the topics it produces to. Two Kafka outputs
+/// in the same tree can name different clusters and different topics, because
+/// each leaf reads only its own block and never consults deployment-wide
+/// state.
+///
+/// Composed the way v1 composes its per-sink config: the shared Kafka block
+/// plus the leaf's own non-Kafka settings.
+#[derive(Clone, Debug)]
+pub struct KafkaOutputConfig {
+    /// Connection, producer tuning, and topics.
+    pub kafka: OutputKafkaConfig,
+    /// Envelope applied to this output's session-replay payloads.
+    pub replay_envelope_compression: EnvelopeCompression,
+    /// Refuse to boot when one of this output's topics is blank.
+    pub completeness_check_enabled: bool,
+}
+
 /// The default KafkaSink using rdkafka's FutureProducer
 pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 
 impl KafkaSink {
     pub async fn new(
-        config: KafkaConfig,
+        config: KafkaOutputConfig,
         liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
+        let kafka = &config.kafka;
+
         // Refuse to boot on incomplete output wiring: a blank topic fails
         // here, at startup, instead of at first produce. Config-only, so it
         // runs before the producer is built and the broker is pinged — the
         // refusal is instant, not one connect attempt later.
-        let registry = TopicTable::from(&config);
-        if config.outputs_completeness_check_enabled {
+        let registry = TopicTable::from(kafka);
+        if config.completeness_check_enabled {
             registry.check_complete()?;
         } else {
             info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
         }
 
-        info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
+        info!("connecting to Kafka brokers at {}...", kafka.hosts);
 
         let mut client_config = ClientConfig::new();
         client_config
-            .set("bootstrap.servers", &config.kafka_hosts)
-            .set("statistics.interval.ms", "10000")
-            .set("partitioner", &config.kafka_producer_partitioner)
+            .set("bootstrap.servers", &kafka.hosts)
             .set(
-                "metadata.max.age.ms",
-                config.kafka_metadata_max_age_ms.to_string(),
+                "statistics.interval.ms",
+                kafka.statistics_interval_ms.to_string(),
             )
+            .set("partitioner", &kafka.partitioner)
+            .set("metadata.max.age.ms", kafka.metadata_max_age_ms.to_string())
             .set(
                 "topic.metadata.refresh.interval.ms",
-                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
+                kafka.metadata_refresh_interval_ms.to_string(),
             )
-            .set(
-                "message.send.max.retries",
-                config.kafka_producer_max_retries.to_string(),
-            )
-            .set("linger.ms", config.kafka_producer_linger_ms.to_string())
-            .set(
-                "message.max.bytes",
-                config.kafka_producer_message_max_bytes.to_string(),
-            )
-            .set(
-                "message.timeout.ms",
-                config.kafka_message_timeout_ms.to_string(),
-            )
-            .set(
-                "socket.timeout.ms",
-                config.kafka_socket_timeout_ms.to_string(),
-            )
-            .set("compression.codec", &config.kafka_compression_codec)
+            .set("message.send.max.retries", kafka.max_retries.to_string())
+            .set("linger.ms", kafka.linger_ms.to_string())
+            .set("message.max.bytes", kafka.message_max_bytes.to_string())
+            .set("message.timeout.ms", kafka.message_timeout_ms.to_string())
+            .set("socket.timeout.ms", kafka.socket_timeout_ms.to_string())
+            .set("compression.codec", &kafka.compression_codec)
             .set(
                 "queue.buffering.max.kbytes",
-                (config.kafka_producer_queue_mib * 1024).to_string(),
+                (kafka.queue_mib * 1024).to_string(),
             )
-            .set("acks", &config.kafka_producer_acks)
-            .set(
-                "batch.num.messages",
-                config.kafka_producer_batch_num_messages.to_string(),
-            )
-            .set("batch.size", config.kafka_producer_batch_size.to_string())
+            .set("acks", &kafka.acks)
+            .set("batch.num.messages", kafka.batch_num_messages.to_string())
+            .set("batch.size", kafka.batch_size.to_string())
             .set(
                 "max.in.flight.requests.per.connection",
-                config.kafka_producer_max_in_flight_requests.to_string(),
+                kafka.max_in_flight_requests.to_string(),
             )
             .set(
                 "sticky.partitioning.linger.ms",
-                config
-                    .kafka_producer_sticky_partitioning_linger_ms
-                    .to_string(),
+                kafka.sticky_partitioning_linger_ms.to_string(),
             )
-            .set(
-                "enable.idempotence",
-                config.kafka_producer_enable_idempotence.to_string(),
-            )
+            .set("enable.idempotence", kafka.enable_idempotence.to_string())
             .set(
                 "log.connection.close",
-                config.kafka_log_connection_close.to_string(),
+                kafka.log_connection_close.to_string(),
             )
             .set(
                 "queue.buffering.max.messages",
-                config
-                    .kafka_producer_queue_buffering_max_messages
-                    .to_string(),
+                kafka.queue_buffering_max_messages.to_string(),
             )
             .set(
                 "retry.backoff.max.ms",
-                config.kafka_retry_backoff_max_ms.to_string(),
+                kafka.retry_backoff_max_ms.to_string(),
             )
             .set(
                 "socket.send.buffer.bytes",
-                config.kafka_socket_send_buffer_bytes.to_string(),
+                kafka.socket_send_buffer_bytes.to_string(),
             )
             .set(
                 "socket.receive.buffer.bytes",
-                config.kafka_socket_receive_buffer_bytes.to_string(),
+                kafka.socket_receive_buffer_bytes.to_string(),
             );
 
-        if !config.kafka_broker_address_family.is_empty() {
-            client_config.set("broker.address.family", &config.kafka_broker_address_family);
+        if !kafka.broker_address_family.is_empty() {
+            client_config.set("broker.address.family", &kafka.broker_address_family);
         }
 
-        if !&config.kafka_client_id.is_empty() {
-            client_config.set("client.id", &config.kafka_client_id);
+        if !kafka.client_id.is_empty() {
+            client_config.set("client.id", &kafka.client_id);
         }
 
-        if config.kafka_tls {
+        if kafka.tls {
             client_config
                 .set("security.protocol", "ssl")
                 .set("enable.ssl.certificate.verification", "false");
@@ -376,7 +378,7 @@ impl KafkaSink {
         Ok(KafkaSinkBase {
             producer: Arc::new(rd_producer),
             topics,
-            replay_envelope_compression: config.kafka_replay_envelope_compression,
+            replay_envelope_compression: config.replay_envelope_compression,
         })
     }
 }
@@ -789,9 +791,9 @@ pub(crate) use crate::sinks::registry::test_topics;
 #[cfg(test)]
 mod tests {
     use crate::api::CaptureError;
-    use crate::config::{self, EnvelopeCompression};
+    use crate::config::EnvelopeCompression;
     use crate::outputs::PublishEvents;
-    use crate::sinks::kafka::KafkaSink;
+    use crate::sinks::kafka::{KafkaOutputConfig, KafkaSink, OutputKafkaConfig};
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -818,70 +820,49 @@ mod tests {
         );
         let _monitor = manager.monitor_background();
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
-        let config = config::KafkaConfig {
-            kafka_producer_linger_ms: 0,
-            kafka_producer_queue_mib: 50,
-            kafka_message_timeout_ms: 500,
-            kafka_topic_metadata_refresh_interval_ms: 20000,
-            kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
-            kafka_compression_codec: "none".to_string(),
-            kafka_hosts: cluster.bootstrap_servers(),
-            kafka_topic: "events_plugin_ingestion".to_string(),
-            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
-            kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
-            kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-            kafka_error_tracking_topic: "error_tracking_events".to_string(),
-            kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
-            kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
-            kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-            outputs_completeness_check_enabled: true,
-            capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
-            capture_analytics_ai_events_overflow_topic: None,
-            kafka_traces_topic: "traces_ingestion".to_string(),
-            kafka_metrics_topic: "metrics_ingestion".to_string(),
-            kafka_tls: false,
-            kafka_client_id: "".to_string(),
-            kafka_metadata_max_age_ms: 60000,
-            kafka_producer_max_retries: 2,
-            kafka_producer_acks: "all".to_string(),
-            kafka_socket_timeout_ms: 60000,
-            kafka_producer_batch_num_messages: 10000,
-            kafka_producer_batch_size: 1000000,
-            kafka_producer_max_in_flight_requests: 1000000,
-            kafka_producer_sticky_partitioning_linger_ms: 10,
-            kafka_producer_enable_idempotence: false,
-            kafka_producer_partitioner: "murmur2_random".to_string(),
-            kafka_broker_address_family: String::new(),
-            kafka_log_connection_close: true,
-            kafka_producer_queue_buffering_max_messages: 100000,
-            kafka_retry_backoff_max_ms: 1000,
-            kafka_socket_send_buffer_bytes: 0,
-            kafka_socket_receive_buffer_bytes: 0,
-            kafka_traces_hosts: None,
-            kafka_traces_tls: None,
-            kafka_traces_client_id: None,
-            kafka_traces_compression_codec: None,
-            kafka_traces_producer_acks: None,
-            kafka_traces_producer_linger_ms: None,
-            kafka_traces_producer_queue_mib: None,
-            kafka_traces_message_timeout_ms: None,
-            kafka_traces_producer_message_max_bytes: None,
-            kafka_traces_producer_max_retries: None,
-            kafka_traces_topic_metadata_refresh_interval_ms: None,
-            kafka_traces_metadata_max_age_ms: None,
-            kafka_metrics_hosts: None,
-            kafka_metrics_tls: None,
-            kafka_metrics_client_id: None,
-            kafka_metrics_compression_codec: None,
-            kafka_metrics_producer_acks: None,
-            kafka_metrics_producer_linger_ms: None,
-            kafka_metrics_producer_queue_mib: None,
-            kafka_metrics_message_timeout_ms: None,
-            kafka_metrics_producer_message_max_bytes: None,
-            kafka_metrics_producer_max_retries: None,
-            kafka_metrics_topic_metadata_refresh_interval_ms: None,
-            kafka_metrics_metadata_max_age_ms: None,
-            kafka_replay_envelope_compression: EnvelopeCompression::None,
+        let config = KafkaOutputConfig {
+            kafka: OutputKafkaConfig {
+                hosts: cluster.bootstrap_servers(),
+                tls: false,
+                client_id: String::new(),
+
+                linger_ms: 0,
+                queue_mib: 50,
+                message_timeout_ms: 500,
+                message_max_bytes: message_max_bytes.unwrap_or(1000000),
+                compression_codec: "none".to_string(),
+                acks: "all".to_string(),
+                enable_idempotence: false,
+                batch_num_messages: 10000,
+                batch_size: 1000000,
+                metadata_refresh_interval_ms: 20000,
+                metadata_max_age_ms: 60000,
+                socket_timeout_ms: 60000,
+                statistics_interval_ms: 10000,
+                partitioner: "murmur2_random".to_string(),
+                max_retries: 2,
+                max_in_flight_requests: 1000000,
+                sticky_partitioning_linger_ms: 10,
+                broker_address_family: String::new(),
+                log_connection_close: true,
+                queue_buffering_max_messages: 100000,
+                retry_backoff_max_ms: 1000,
+                socket_send_buffer_bytes: 0,
+                socket_receive_buffer_bytes: 0,
+
+                topic_main: "events_plugin_ingestion".to_string(),
+                topic_historical: "events_plugin_ingestion_historical".to_string(),
+                topic_overflow: "events_plugin_ingestion_overflow".to_string(),
+                topic_dlq: "events_plugin_ingestion_dlq".to_string(),
+                topic_exception: "error_tracking_events".to_string(),
+                topic_heatmap: "events_plugin_ingestion".to_string(),
+                topic_client_ingestion_warning: "events_plugin_ingestion".to_string(),
+                topic_ai: "events_plugin_ingestion_ai".to_string(),
+                topic_ai_overflow: None,
+                topic_replay_overflow: Some("session_recording_snapshot_item_overflow".to_string()),
+            },
+            replay_envelope_compression: EnvelopeCompression::None,
+            completeness_check_enabled: true,
         };
         let sink = KafkaSink::new(config, Some(handle))
             .await
