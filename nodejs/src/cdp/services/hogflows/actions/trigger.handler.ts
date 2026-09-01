@@ -12,9 +12,17 @@ import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
+// The slice of IntegrationManagerService the own-app check needs, so this handler and its tests
+// don't depend on the concrete Postgres-backed service.
+export interface SlackAppLookup {
+    getMany(integrationIds: number[]): Promise<Record<number, { config?: { app_id?: string | null } } | null>>
+}
+
 // NOTE: This is not an actively used action as the triggering is done by the scheduler
 // but useful for testing the hogflow executor
 export class TriggerHandler implements ActionHandler {
+    constructor(private integrationManager: SlackAppLookup) {}
+
     async execute({
         invocation,
         action,
@@ -23,16 +31,30 @@ export class TriggerHandler implements ActionHandler {
         const trigger = action.config
         const event = invocation.state.event
 
-        // Test runs accept arbitrary globals, so mirror the eligibility check the internal-events
-        // consumer applies before a real invocation is ever created: a slack-message trigger only
-        // fires on $slack_message_received events.
-        if (trigger.type === 'slack-message' && event?.event !== SLACK_MESSAGE_RECEIVED_EVENT) {
-            result.logs.push({
-                level: 'info',
-                timestamp: DateTime.now(),
-                message: `Slack message triggers only fire for '${SLACK_MESSAGE_RECEIVED_EVENT}' events. A '${event?.event}' event would not trigger this workflow.`,
-            })
-            return { finished: true, skipped: true }
+        if (trigger.type === 'slack-message') {
+            // Test runs accept arbitrary globals, so mirror the eligibility check the
+            // internal-events consumer applies before a real invocation is ever created: a
+            // slack-message trigger only fires on $slack_message_received events.
+            if (event?.event !== SLACK_MESSAGE_RECEIVED_EVENT) {
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Slack message triggers only fire for '${SLACK_MESSAGE_RECEIVED_EVENT}' events. A '${event?.event}' event would not trigger this workflow.`,
+                })
+                return { finished: true, skipped: true }
+            }
+
+            // Mirrors the consumer's own-app exclusion: a message PostHog's own connected Slack
+            // app posted never reaches a real invocation, so a workflow can't retrigger itself
+            // off its own reply. Without this, a hand-written payload naming that app passes.
+            if (await this.isOwnSlackMessage(event.properties)) {
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: "Messages PostHog's own connected Slack app posted would not trigger this workflow.",
+                })
+                return { finished: true, skipped: true }
+            }
         }
 
         // Mirrors the warehouse-events consumer's eligibility check: a row-scoped trigger only
@@ -79,5 +101,15 @@ export class TriggerHandler implements ActionHandler {
         }
 
         return { nextAction: findContinueAction(invocation) }
+    }
+
+    private async isOwnSlackMessage(properties: Record<string, any> | undefined): Promise<boolean> {
+        const integrationId = properties?.integration_id
+        const appId = properties?.app_id
+        if (typeof integrationId !== 'number' || typeof appId !== 'string') {
+            return false
+        }
+        const integrations = await this.integrationManager.getMany([integrationId])
+        return integrations[integrationId]?.config?.app_id === appId
     }
 }

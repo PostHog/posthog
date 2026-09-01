@@ -32,7 +32,7 @@ import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
-import { TriggerHandler } from './actions/trigger.handler'
+import { SlackAppLookup, TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
@@ -115,6 +115,7 @@ export class HogFlowExecutorService {
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
         cohortMembershipRepository: CohortMembershipRepository,
+        integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService
     ) {
@@ -143,7 +144,7 @@ export class HogFlowExecutorService {
         )
 
         this.actionHandlers = {
-            trigger: new TriggerHandler(),
+            trigger: new TriggerHandler(integrationManager),
             conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
             wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
             delay: new DelayHandler(),

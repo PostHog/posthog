@@ -4,7 +4,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { findActionByType } from '../hogflow-utils'
 import { ActionHandlerResult } from './action.interface'
-import { TriggerHandler } from './trigger.handler'
+import { SlackAppLookup, TriggerHandler } from './trigger.handler'
 
 describe('TriggerHandler', () => {
     // properties.channel == 'C0ALERTS', as the HogQL compiler emits for a channel exact filter
@@ -12,9 +12,20 @@ describe('TriggerHandler', () => {
     // properties.status == 'churned'
     const ROW_BYTECODE = ['_H', 1, 32, 'churned', 32, 'status', 32, 'properties', 1, 2, 11]
 
+    // Maps integration id -> the app_id stored on that integration, mirroring what
+    // IntegrationManagerService.getMany returns. Empty by default, so no event looks self-sent
+    // unless a test names it.
+    const fakeIntegrationLookup = (apps: Record<number, string> = {}): SlackAppLookup => ({
+        getMany: (ids) =>
+            Promise.resolve(
+                Object.fromEntries(ids.map((id) => [id, id in apps ? { config: { app_id: apps[id] } } : null]))
+            ),
+    })
+
     const run = async (
         triggerConfig: HogFlow['trigger'],
-        event: { event: string; properties?: Record<string, any> }
+        event: { event: string; properties?: Record<string, any> },
+        integrationLookup: SlackAppLookup = fakeIntegrationLookup()
     ): Promise<{ result: ActionHandlerResult; logs: string[] }> => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
@@ -30,7 +41,7 @@ describe('TriggerHandler', () => {
         invocation.state.currentAction = { id: action.id, startedAtTimestamp: Date.now() }
 
         const result = { logs: [] } as any
-        const handlerResult = await new TriggerHandler().execute({ invocation, action, result })
+        const handlerResult = await new TriggerHandler(integrationLookup).execute({ invocation, action, result })
         return { result: handlerResult, logs: result.logs.map((log: { message: string }) => log.message) }
     }
 
@@ -71,6 +82,27 @@ describe('TriggerHandler', () => {
         const { result } = await run(slackTrigger({ properties: [], bytecode: ['_h', 29] }), {
             event: '$slack_message_received',
         })
+
+        expect(result.nextAction?.id).toEqual('exit')
+    })
+
+    it("skips a slack-message trigger for a message PostHog's own connected app posted", async () => {
+        const { result, logs } = await run(
+            slackTrigger({ properties: [], bytecode: ['_h', 29] }),
+            { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OWN_APP' } },
+            fakeIntegrationLookup({ 1: 'A_OWN_APP' })
+        )
+
+        expect(result).toEqual({ finished: true, skipped: true })
+        expect(logs).toEqual(["Messages PostHog's own connected Slack app posted would not trigger this workflow."])
+    })
+
+    it('continues a slack-message trigger for a message from a different Slack app', async () => {
+        const { result } = await run(
+            slackTrigger({ properties: [], bytecode: ['_h', 29] }),
+            { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OTHER_APP' } },
+            fakeIntegrationLookup({ 1: 'A_OWN_APP' })
+        )
 
         expect(result.nextAction?.id).toEqual('exit')
     })
