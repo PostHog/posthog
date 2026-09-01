@@ -75,6 +75,8 @@ export const OAUTH_SCOPES = [
   "dashboard_template:write",
   "dataset:read",
   "dataset:write",
+  "doc:read",
+  "doc:write",
   "early_access_feature:read",
   "early_access_feature:write",
   "endpoint:read",
@@ -244,7 +246,8 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
-export const OAUTH_SCOPE_VERSION = 7;
+// v8: the server grew the `doc` scope, which the Docs surface needs.
+export const OAUTH_SCOPE_VERSION = 8;
 
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {

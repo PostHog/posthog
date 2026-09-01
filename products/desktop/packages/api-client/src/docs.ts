@@ -5,6 +5,7 @@
 // once `apps/code/scripts/update-openapi-client.ts` is rerun against a schema
 // that includes them, `Schemas.Doc` and friends land in `generated.ts` and this
 // file can be deleted in favor of the generated equivalents.
+import { ApiRequestError } from "./fetcher";
 import type { ApiClient, Method } from "./generated";
 
 export namespace DocSchemas {
@@ -134,13 +135,24 @@ async function docsRequest<T>(
   const parseResponseData =
     client.fetcher.parseResponseData ?? client.defaultParseResponseData;
 
-  const response = await client.fetcher.fetch({
-    method,
-    path,
-    url: new URL(client.baseUrl + path),
-    urlSearchParams: encodeSearchParams(options?.query),
-    parameters: { body: options?.body },
-  });
+  // The shared fetcher throws on any non-2xx, so a conflict arrives here as an
+  // exception, not as a response. Re-shape it into a DocsApiError so callers can
+  // branch on the status instead of parsing a message.
+  let response: Response;
+  try {
+    response = await client.fetcher.fetch({
+      method,
+      path,
+      url: new URL(client.baseUrl + path),
+      urlSearchParams: encodeSearchParams(options?.query),
+      parameters: { body: options?.body },
+    });
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      throw new DocsApiError(method, path, error.status, error.body);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     throw new DocsApiError(

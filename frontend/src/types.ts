@@ -5873,6 +5873,7 @@ export const API_SCOPE_OBJECTS = [
     'event_filter',
     'dashboard_template',
     'dataset',
+    'doc',
     'early_access_feature',
     'endpoint',
     'engineering_analytics',

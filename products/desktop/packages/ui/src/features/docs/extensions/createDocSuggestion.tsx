@@ -7,6 +7,7 @@ import type { SuggestionItem } from "@posthog/ui/features/message-editor/types";
 import { getPortalContainer } from "@posthog/ui/primitives/ThemeWrapper";
 import type { Editor, Range } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
+import { PluginKey } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
 import type { ReactNode } from "react";
@@ -62,7 +63,12 @@ export function createDocSuggestion<T extends SuggestionItem>(
 
   loader.subscribe(() => pushProps());
 
+  // Every suggestion plugin needs its own key. The default one is shared, so a
+  // second typeahead in the same editor is rejected outright by ProseMirror.
+  const pluginKey = new PluginKey(`docSuggestion-${config.name}`);
+
   const suggestion: Omit<SuggestionOptions<T>, "editor"> = {
+    pluginKey,
     char: config.char,
     allowSpaces: config.allowSpaces ?? false,
     startOfLine: config.startOfLine ?? false,

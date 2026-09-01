@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type DocSchemas, DocsApiError, saveDocSteps } from "./docs";
+import { ApiRequestError } from "./fetcher";
 import { createApiClient, type Fetcher } from "./generated";
 
 const BASE_URL = "https://app.posthog.com";
@@ -13,13 +14,24 @@ const SAVE: DocSchemas.CollabSave = {
   content: { type: "doc", content: [] },
 };
 
+// Mirrors the real fetcher, which throws ApiRequestError on any non-2xx rather
+// than returning the response. A fake that resolves instead would hide the very
+// bug these cases exist for.
 function fakeFetcher(data: unknown, status: number): Fetcher {
-  const clone = () => ({ json: () => Promise.resolve(data) });
+  if (status >= 400) {
+    return {
+      fetch: vi
+        .fn()
+        .mockRejectedValue(
+          new ApiRequestError(status, JSON.stringify(data), data),
+        ),
+    };
+  }
   return {
     fetch: vi.fn().mockResolvedValue({
-      ok: status < 400,
+      ok: true,
       status,
-      clone,
+      clone: () => ({ json: () => Promise.resolve(data) }),
       headers: {
         get: (key: string) =>
           key === "content-type" ? "application/json" : null,

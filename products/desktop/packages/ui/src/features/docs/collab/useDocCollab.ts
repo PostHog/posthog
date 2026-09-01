@@ -46,6 +46,8 @@ export interface DocCollabState {
   status: DocConnectionStatus;
   saveState: DocSaveState;
   version: number;
+  /** Everyone else in this doc right now, newest ping first. */
+  peers: RemoteCaret[];
 }
 
 /**
@@ -63,6 +65,7 @@ export function useDocCollab(options: UseDocCollabOptions): DocCollabState {
   const [status, setStatus] = useState<DocConnectionStatus>("connecting");
   const [saveState, setSaveState] = useState<DocSaveState>("saved");
   const [version, setVersion] = useState(initialVersion);
+  const [peers, setPeers] = useState<RemoteCaret[]>([]);
 
   const editorRef = useRef<Editor | null>(editor);
   editorRef.current = editor;
@@ -76,9 +79,12 @@ export function useDocCollab(options: UseDocCollabOptions): DocCollabState {
   const sendingRef = useRef(false);
 
   const applyCarets = useCallback(() => {
+    const carets = [...caretsRef.current.values()].sort(
+      (left, right) => right.seenAt - left.seenAt,
+    );
+    setPeers(carets);
     const activeEditor = editorRef.current;
     if (!activeEditor) return;
-    const carets = [...caretsRef.current.values()];
     activeEditor.view.dispatch(
       activeEditor.state.tr.setMeta(remoteCaretsKey, carets),
     );
@@ -142,11 +148,16 @@ export function useDocCollab(options: UseDocCollabOptions): DocCollabState {
     const schedule = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        void flush().then(() => {
-          if (editorRef.current && sendableSteps(editorRef.current.state)) {
-            schedule();
-          }
-        });
+        void flush()
+          // A save that fails for any other reason (the network, a 500) leaves the
+          // steps in the editor. Mark the doc offline and let the next edit, or the
+          // stream reconnect, carry them.
+          .catch(() => setStatus("offline"))
+          .then(() => {
+            if (editorRef.current && sendableSteps(editorRef.current.state)) {
+              schedule();
+            }
+          });
       }, SAVE_DEBOUNCE_MS);
     };
 
@@ -299,6 +310,7 @@ export function useDocCollab(options: UseDocCollabOptions): DocCollabState {
       stopped = true;
       controller.abort();
       caretsRef.current.clear();
+      setPeers([]);
     };
   }, [docId, docsClient, clientId, applyCarets]);
 
@@ -324,7 +336,7 @@ export function useDocCollab(options: UseDocCollabOptions): DocCollabState {
     setVersion(initialVersion);
   }, [initialVersion]);
 
-  return { status, saveState, version };
+  return { status, saveState, version, peers };
 }
 
 function applyRemoteSteps(

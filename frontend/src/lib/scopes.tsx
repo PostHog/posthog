@@ -66,6 +66,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
+    { key: 'doc', objectName: 'Doc', objectPlural: 'docs' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
         key: 'conversation',

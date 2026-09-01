@@ -6,7 +6,6 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { useTaskSummaries } from "@posthog/ui/features/tasks/useTasks";
-import { useNavigate } from "@tanstack/react-router";
 import { mergeAttributes, Node } from "@tiptap/core";
 import {
   NodeViewWrapper,
@@ -45,37 +44,28 @@ function statusTone(status: string | null | undefined): {
   return { dot: "bg-(--gray-8)", label: status };
 }
 
-export function TaskChipView({ node, extension }: ReactNodeViewProps) {
+export function TaskChipView({ node }: ReactNodeViewProps) {
   const { taskId, label } = node.attrs as TaskChipAttrs;
-  const { channelId, onOpenThread } = extension.options as TaskChipOptions;
-  const navigate = useNavigate();
   const { data: summaries } = useTaskSummaries(taskId ? [taskId] : []);
   const summary = summaries?.[0];
   const tone = statusTone(summary?.latest_run?.status);
 
   return (
-    <NodeViewWrapper as="span" className="inline-block align-baseline">
+    // The click is handled by the doc, which listens for this attribute. A
+    // handler inside a tooltip trigger does not survive prop merging.
+    <NodeViewWrapper
+      as="span"
+      className="inline-block align-baseline"
+      data-task-chip={taskId}
+    >
       <Tooltip>
         <TooltipTrigger
-          render={
-            <Badge
-              variant="default"
-              className="cursor-pointer gap-1.5"
-              onClick={() => {
-                if (onOpenThread) {
-                  onOpenThread(taskId);
-                  return;
-                }
-                navigate({
-                  to: "/spaces/$channelId/tasks/$taskId",
-                  params: { channelId, taskId },
-                });
-              }}
-            />
-          }
+          render={<button type="button" className="cursor-pointer" />}
         >
-          <span className={cn("size-1.5 rounded-full", tone.dot)} />
-          {summary?.title ?? label ?? "Task"}
+          <Badge variant="default" className="gap-1.5">
+            <span className={cn("size-1.5 rounded-full", tone.dot)} />
+            {summary?.title ?? label ?? "Task"}
+          </Badge>
         </TooltipTrigger>
         <TooltipContent>
           {tone.label}
@@ -87,10 +77,8 @@ export function TaskChipView({ node, extension }: ReactNodeViewProps) {
 }
 
 export interface TaskChipOptions {
-  /** The space the doc lives in, so a click can open the task in place. */
+  /** The space the doc lives in, used by the hover card. */
   channelId: string;
-  /** Set for a thread that belongs to this doc: a click opens it beside the page. */
-  onOpenThread?: (taskId: string) => void;
 }
 
 export const TaskChip = Node.create<TaskChipOptions>({
@@ -101,7 +89,7 @@ export const TaskChip = Node.create<TaskChipOptions>({
   selectable: true,
 
   addOptions() {
-    return { channelId: "", onOpenThread: undefined };
+    return { channelId: "" };
   },
 
   addAttributes() {

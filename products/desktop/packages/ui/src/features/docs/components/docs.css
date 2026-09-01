@@ -1,37 +1,62 @@
-/* The doc body. Prose spacing lives here rather than in Tailwind classes so the
-   editor and the read-only render of the same content stay identical. */
+/* The doc page. Sizes and rhythm follow the design mock: a 30px title, a 15.2px
+   body on a 1.74 line, and section headings that sit well clear of the text
+   above them. Colors come from the app's tokens so the page follows the theme. */
+
+.doc-title {
+  font-size: 30px;
+  font-weight: 540;
+  letter-spacing: -0.03em;
+  line-height: 1.14;
+}
 
 .doc-body {
-  padding: 0.5rem 0 6rem;
-  color: var(--gray-12);
-  line-height: 1.65;
+  padding: 0 0 9rem;
+  font-size: 15.2px;
+  line-height: 1.74;
+  color: var(--gray-11);
 }
 
 .doc-body > * + * {
-  margin-top: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.doc-body h1,
+.doc-body h2,
+.doc-body h3 {
+  color: var(--gray-12);
+  font-weight: 620;
+  letter-spacing: -0.008em;
 }
 
 .doc-body h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-top: 1.75rem;
+  font-size: 19px;
+  margin-top: 42px;
+  margin-bottom: 14px;
 }
 
 .doc-body h2 {
-  font-size: 1.15rem;
-  font-weight: 600;
-  margin-top: 1.5rem;
+  font-size: 15.2px;
+  margin-top: 38px;
+  margin-bottom: 14px;
 }
 
 .doc-body h3 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin-top: 1.25rem;
+  font-size: 14px;
+  margin-top: 28px;
+  margin-bottom: 10px;
+}
+
+/* A heading that opens a section owns the space above it, so the generic
+   sibling margin must not add to it. */
+.doc-body > * + h1,
+.doc-body > * + h2,
+.doc-body > * + h3 {
+  margin-top: 38px;
 }
 
 .doc-body ul,
 .doc-body ol {
-  padding-left: 1.25rem;
+  padding-left: 1.15rem;
 }
 
 .doc-body ul {
@@ -40,6 +65,10 @@
 
 .doc-body ol {
   list-style: decimal;
+}
+
+.doc-body li + li {
+  margin-top: 0.3rem;
 }
 
 .doc-body ul[data-type="taskList"] {
@@ -51,6 +80,16 @@
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
+}
+
+.doc-body ul[data-type="taskList"] li p {
+  margin: 0;
+}
+
+.doc-body blockquote {
+  border-left: 2px solid var(--gray-6);
+  padding-left: 0.85rem;
+  color: var(--gray-11);
 }
 
 .doc-body code {
@@ -69,6 +108,11 @@
   overflow-x: auto;
 }
 
+.doc-body pre code {
+  background: none;
+  padding: 0;
+}
+
 .doc-body p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   color: var(--gray-9);
@@ -82,8 +126,10 @@
   border-radius: var(--radius-2);
   padding: 0.05em 0.3em;
   white-space: nowrap;
+  color: var(--gray-12);
 }
 
+/* A phrase someone is discussing. It reads as marked, not as an error. */
 .doc-discussion-anchor {
   background: color-mix(in srgb, var(--amber-9) 18%, transparent);
   border-bottom: 1px solid var(--amber-9);
@@ -93,6 +139,28 @@
 .doc-discussion-anchor[data-resolved="true"] {
   background: transparent;
   border-bottom-color: var(--gray-7);
+}
+
+/* A row of numbers the page keeps in view: label above, value large, change
+   beside it. Plain numbers, not cards, so a row of them stays readable. */
+.doc-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2.6rem;
+}
+
+.doc-metric-label {
+  font-size: 12px;
+  color: var(--gray-11);
+}
+
+.doc-metric-value {
+  font-size: 26px;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--gray-12);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Another person's caret. The label sits above the line so it never pushes text. */

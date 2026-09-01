@@ -1,5 +1,4 @@
-import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
-import { chartBlockKey } from "@posthog/ui/utils/chartBlocks";
+import { useInsightMetric } from "@posthog/ui/features/docs/hooks/useInsightMetric";
 import { mergeAttributes, Node } from "@tiptap/core";
 import {
   NodeViewWrapper,
@@ -8,10 +7,11 @@ import {
 } from "@tiptap/react";
 
 /**
- * A row of numbers a doc keeps in view.
+ * A row of numbers the page keeps in view.
  *
- * Each tile is a saved insight, rendered through the same card pipeline as a
- * single chart block. The node holds only the references.
+ * Each tile is a saved insight, read live and shown as a plain number. A row of
+ * charts would drown the prose around it, so the row stays numeric and the full
+ * chart lives in its own block.
  */
 
 export interface MetricRowItem {
@@ -29,7 +29,7 @@ export function MetricRowView({ node }: ReactNodeViewProps) {
 
   if (tiles.length === 0) {
     return (
-      <NodeViewWrapper className="my-3">
+      <NodeViewWrapper className="my-4">
         <div className="rounded-(--radius-3) border border-(--gray-6) p-3 text-(--gray-11) text-sm">
           This row has no numbers yet. Add an insight to it.
         </div>
@@ -38,23 +38,26 @@ export function MetricRowView({ node }: ReactNodeViewProps) {
   }
 
   return (
-    <NodeViewWrapper className="my-3" data-drag-handle>
-      <div className="@container">
-        <div className="grid @3xl:grid-cols-3 @md:grid-cols-2 grid-cols-1 gap-3">
-          {tiles.map((item) => (
-            <MessageChartCard
-              key={item.shortId}
-              spec={{
-                mode: "insight",
-                shortId: item.shortId,
-                title: item.label,
-              }}
-              blockKey={chartBlockKey(`metric-${item.shortId}`)}
-            />
-          ))}
-        </div>
+    <NodeViewWrapper className="my-5" data-drag-handle>
+      <div className="doc-metrics">
+        {tiles.map((item) => (
+          <MetricTile key={item.shortId} item={item} />
+        ))}
       </div>
     </NodeViewWrapper>
+  );
+}
+
+function MetricTile({ item }: { item: MetricRowItem }) {
+  const { value, isLoading, isError } = useInsightMetric(item.shortId);
+
+  return (
+    <div className="py-1">
+      <div className="doc-metric-label">{item.label}</div>
+      <div className="doc-metric-value">
+        {isLoading ? "…" : isError ? "—" : value}
+      </div>
+    </div>
   );
 }
 

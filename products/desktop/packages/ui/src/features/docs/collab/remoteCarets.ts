@@ -92,20 +92,30 @@ function buildDecorations(
     }
 
     decorations.push(
-      Decoration.widget(head, () => caretElement(caret.userName, color), {
-        side: 10,
-        key: `caret-${caret.clientId}-${head}`,
-      }),
+      Decoration.widget(
+        head,
+        () => caretElement(caret.clientId, caret.userName, color),
+        {
+          side: 10,
+          key: `caret-${caret.clientId}-${head}`,
+        },
+      ),
     );
   }
 
   return decorations;
 }
 
-function caretElement(userName: string, color: string): HTMLElement {
+function caretElement(
+  clientId: string,
+  userName: string,
+  color: string,
+): HTMLElement {
   const wrapper = document.createElement("span");
   wrapper.className = "doc-remote-caret";
   wrapper.style.borderColor = color;
+  // The header's faces scroll to a caret by this attribute.
+  wrapper.dataset.caretClient = clientId;
 
   const label = document.createElement("span");
   label.className = "doc-remote-caret-label";

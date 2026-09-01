@@ -8,9 +8,29 @@ import {
   updateDoc,
 } from "@posthog/api-client/docs";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { docsKeys } from "./docsKeys";
 import { useDocsClient } from "./useDocsClient";
+
+/** A doc write shows up in two places: the tab row and the space's docs list. */
+function invalidateDocLists(
+  queryClient: QueryClient,
+  projectId: string | null,
+  channelId: string,
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: docsKeys.list(projectId, channelId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: docsKeys.home(projectId, channelId),
+  });
+}
 
 const DOC_LIST_POLL_INTERVAL_MS = 60_000;
 
@@ -64,11 +84,32 @@ export function useCreateDoc(channelId: string) {
       });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: docsKeys.list(docsClient?.projectId ?? null, channelId),
-      });
+      invalidateDocLists(queryClient, docsClient?.projectId ?? null, channelId);
     },
   });
+}
+
+/**
+ * Starts a doc and opens it.
+ *
+ * Creating without opening leaves the person looking at the list they just left,
+ * so both the empty state and the tab row's plus use this.
+ */
+export function useCreateDocAndOpen(channelId: string) {
+  const createDoc = useCreateDoc(channelId);
+  const navigate = useNavigate();
+
+  return {
+    isPending: createDoc.isPending,
+    start: (template: DocSchemas.DocTemplate) => {
+      void createDoc.mutateAsync({ template }).then((doc) => {
+        void navigate({
+          to: "/spaces/$channelId/docs/$docId",
+          params: { channelId, docId: doc.id },
+        });
+      });
+    },
+  };
 }
 
 export function useUpdateDoc(channelId: string) {
@@ -93,9 +134,7 @@ export function useUpdateDoc(channelId: string) {
         docsKeys.detail(docsClient?.projectId ?? null, doc.id),
         doc,
       );
-      void queryClient.invalidateQueries({
-        queryKey: docsKeys.list(docsClient?.projectId ?? null, channelId),
-      });
+      invalidateDocLists(queryClient, docsClient?.projectId ?? null, channelId);
     },
   });
 }
@@ -110,9 +149,7 @@ export function useDeleteDoc(channelId: string) {
       await deleteDoc(docsClient.client, docsClient.projectId, docId);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: docsKeys.list(docsClient?.projectId ?? null, channelId),
-      });
+      invalidateDocLists(queryClient, docsClient?.projectId ?? null, channelId);
     },
   });
 }
@@ -132,9 +169,7 @@ export function useReorderDocs(channelId: string) {
       );
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: docsKeys.list(docsClient?.projectId ?? null, channelId),
-      });
+      invalidateDocLists(queryClient, docsClient?.projectId ?? null, channelId);
     },
   });
 }

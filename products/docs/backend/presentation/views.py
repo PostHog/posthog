@@ -64,7 +64,22 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     durable copy and fans steps, carets, and discussion pings out over one SSE stream.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "doc"
+    # Every action is classified, so a read-only token can browse docs and their
+    # discussions but cannot write a step, a caret, or a thread.
+    scope_object_read_actions = ["list", "retrieve", "home", "collab_stream"]
+    scope_object_write_actions = [
+        "create",
+        "partial_update",
+        "destroy",
+        "reorder",
+        "collab_save",
+        "collab_presence",
+        # GET and POST share one route here, so the stricter scope applies to both.
+        "discussions",
+        "discussion_reply",
+        "discussion_resolve",
+    ]
     serializer_class = DocSerializer
     # A space holds a handful of docs and the tab row shows all of them at once.
     pagination_class = None

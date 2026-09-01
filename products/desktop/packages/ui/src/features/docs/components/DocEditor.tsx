@@ -10,7 +10,7 @@ import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocCollab } from "../collab/collabExtension";
-import { RemoteCarets } from "../collab/remoteCarets";
+import { type RemoteCaret, RemoteCarets } from "../collab/remoteCarets";
 import { useDocCollab } from "../collab/useDocCollab";
 import { createDocPeopleMention } from "../extensions/createDocPeopleMention";
 import {
@@ -44,13 +44,12 @@ export interface DocEditorProps {
   }) => void;
   /** A new agent thread was started from the page. */
   onAgentThreadStarted: (taskId: string) => void;
-  /** A task chip in the page was clicked. */
-  onOpenThread: (taskId: string) => void;
   /** Hands the editor to the page so it can put an agent answer in the doc. */
   onEditorReady: (editor: Editor | null) => void;
   onStateChange?: (state: {
     status: "connecting" | "live" | "offline";
     version: number;
+    peers: RemoteCaret[];
   }) => void;
 }
 
@@ -80,7 +79,6 @@ export function DocEditor({
   onDiscussionsChanged,
   onDiscussionStarted,
   onAgentThreadStarted,
-  onOpenThread,
   onEditorReady,
   onStateChange,
 }: DocEditorProps) {
@@ -106,8 +104,6 @@ export function DocEditor({
   const pickRef = useRef<(kind: DocBlockKind) => void>(() => undefined);
   const makeTaskRef = useRef<() => Promise<void>>(async () => undefined);
   const askAgentRef = useRef<() => void>(() => undefined);
-  const openThreadRef = useRef(onOpenThread);
-  openThreadRef.current = onOpenThread;
 
   const extensions = useMemo(
     () => [
@@ -117,10 +113,7 @@ export function DocEditor({
       TaskItem.configure({ nested: true }),
       Mention.configure({ HTMLAttributes: { class: "doc-mention" } }),
       DiscussionAnchor,
-      TaskChip.configure({
-        channelId,
-        onOpenThread: (taskId) => openThreadRef.current(taskId),
-      }),
+      TaskChip.configure({ channelId }),
       ObjectChip,
       ObjectBlock,
       MetricRow,
@@ -181,8 +174,9 @@ export function DocEditor({
     stateChangeRef.current?.({
       status: collab.status,
       version: collab.version,
+      peers: collab.peers,
     });
-  }, [collab.status, collab.version]);
+  }, [collab.status, collab.version, collab.peers]);
 
   const startDiscussionFromSelection = useCallback(() => {
     if (!editor) return;
@@ -295,7 +289,13 @@ export function DocEditor({
       {editor ? (
         <BubbleMenu
           editor={editor}
-          className="flex items-center gap-1 rounded-(--radius-3) border border-(--gray-6) bg-(--gray-1) p-1 shadow-md"
+          // z-50: the toolbar floats over the doc header, which would otherwise
+          // take the clicks meant for it.
+          className="z-50 flex items-center gap-1 rounded-(--radius-3) border border-(--gray-6) bg-(--gray-1) p-1 shadow-md"
+          // Pressing a button here must not blur the editor: a blurred
+          // contenteditable collapses its selection, and every action on this
+          // toolbar acts on the selection.
+          onMouseDown={(event) => event.preventDefault()}
         >
           <Button
             size="sm"

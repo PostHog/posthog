@@ -8,19 +8,27 @@ import {
   Spinner,
   Text,
 } from "@posthog/quill";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import type { Editor } from "@tiptap/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import type { RemoteCaret } from "../collab/remoteCarets";
 import type { DocConnectionStatus } from "../collab/useDocCollab";
 import {
   useDiscussionMutations,
   useDocDiscussions,
 } from "../hooks/useDocDiscussions";
-import { useCreateDoc, useDoc, useDocs, useUpdateDoc } from "../hooks/useDocs";
+import {
+  useCreateDocAndOpen,
+  useDoc,
+  useDocs,
+  useUpdateDoc,
+} from "../hooks/useDocs";
 import { DiscussionsPanel } from "./DiscussionsPanel";
 import { DocAgentThread } from "./DocAgentThread";
 import { DocEditor } from "./DocEditor";
 import { DocHeader } from "./DocHeader";
 import { DocTabs } from "./DocTabs";
+import { DocTitle } from "./DocTitle";
 
 /**
  * One doc in a space: the tab row, the body, and the discussions beside it.
@@ -36,8 +44,10 @@ export function SpaceDocView({
   docId: string;
 }) {
   const docs = useDocs(channelId);
+  const { channels } = useTaskChannels();
+  const spaceName = channels.find((channel) => channel.id === channelId)?.name;
   const doc = useDoc(docId);
-  const createDoc = useCreateDoc(channelId);
+  const createDoc = useCreateDocAndOpen(channelId);
   const updateDoc = useUpdateDoc(channelId);
 
   const discussions = useDocDiscussions(docId);
@@ -45,6 +55,7 @@ export function SpaceDocView({
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [agentTaskId, setAgentTaskId] = useState<string | null>(null);
+  const [peers, setPeers] = useState<RemoteCaret[]>([]);
   const editorRef = useRef<Editor | null>(null);
   const [selectedAnchorKey, setSelectedAnchorKey] = useState<string | null>(
     null,
@@ -88,30 +99,53 @@ export function SpaceDocView({
     setPanelOpen(true);
   }, []);
 
+  const jumpToPeer = useCallback((clientId: string) => {
+    const label = bodyRef.current?.querySelector(
+      `[data-caret-client="${clientId}"]`,
+    );
+    label?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, []);
+
   // The only path from an agent answer into the page. The text lands where the
   // caret is and stays selected, so it is obvious what arrived.
   const addAgentAnswerToPage = useCallback((text: string) => {
     editorRef.current?.chain().focus().insertContent(`\n${text}\n`).run();
   }, []);
 
-  // A click on a marked phrase opens its thread. The mark carries the key, so
-  // nothing has to track positions. The listener sits on the body element
-  // rather than on a React prop: the marks are rendered by the editor, not by
-  // this component.
-  useEffect(() => {
-    const body = bodyRef.current;
-    if (!body) return;
+  // A click on a marked phrase or a task chip opens the right thread beside the
+  // page. The listener is attached through a callback ref rather than an effect:
+  // the body only mounts after the doc loads, so an effect with no dependencies
+  // would run while there was nothing to attach to.
+  const detachBody = useRef<(() => void) | null>(null);
+  const attachBody = useCallback((node: HTMLDivElement | null) => {
+    detachBody.current?.();
+    detachBody.current = null;
+    bodyRef.current = node;
+    if (!node) return;
+
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
+
+      const taskId = target
+        ?.closest("[data-task-chip]")
+        ?.getAttribute("data-task-chip");
+      if (taskId) {
+        setAgentTaskId(taskId);
+        setPanelOpen(true);
+        return;
+      }
+
       const key = target
         ?.closest("[data-anchor-key]")
         ?.getAttribute("data-anchor-key");
       if (!key) return;
+      setAgentTaskId(null);
       setSelectedAnchorKey(key);
       setPanelOpen(true);
     };
-    body.addEventListener("click", onClick);
-    return () => body.removeEventListener("click", onClick);
+
+    node.addEventListener("click", onClick);
+    detachBody.current = () => node.removeEventListener("click", onClick);
   }, []);
 
   if (doc.isLoading) {
@@ -143,23 +177,14 @@ export function SpaceDocView({
   const threads = discussions.data ?? [];
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex min-w-0 items-center gap-2 border-(--gray-5) border-b px-4 py-2">
-        <DocTabs
-          channelId={channelId}
-          docs={docs.data ?? []}
-          activeDocId={docId}
-          creating={createDoc.isPending}
-          onCreate={(template) => createDoc.mutate({ template })}
-        />
-      </div>
-
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <DocHeader
+        spaceName={spaceName ? `#${spaceName}` : "Space"}
         doc={doc.data}
         version={version || doc.data.version}
         connection={connection}
+        peers={peers}
         discussionCount={threads.filter((thread) => !thread.resolved).length}
-        onRename={(title) => updateDoc.mutate({ docId, changes: { title } })}
         onStatusChange={(status) =>
           updateDoc.mutate({ docId, changes: { status } })
         }
@@ -167,6 +192,7 @@ export function SpaceDocView({
           setAgentTaskId(null);
           setPanelOpen((open) => !open);
         }}
+        onJumpToPeer={jumpToPeer}
       />
 
       {/* A side panel needs room. Below the container breakpoint it covers the
@@ -174,10 +200,18 @@ export function SpaceDocView({
           window beside the rail and another panel. */}
       <div className="@container relative flex min-h-0 flex-1">
         <div
-          ref={bodyRef}
-          className="@container min-w-0 flex-1 overflow-y-auto px-4"
+          ref={attachBody}
+          className="@container min-w-0 flex-1 overflow-y-auto @2xl:px-12 px-5 pt-7"
         >
-          <div className="mx-auto max-w-[46rem]">
+          <div className="mx-auto max-w-[58rem]">
+            <DocTitle
+              title={doc.data.title}
+              peopleCount={peers.length + 1}
+              updatedAt={doc.data.updated_at}
+              onRename={(title) =>
+                updateDoc.mutate({ docId, changes: { title } })
+              }
+            />
             <DocEditor
               key={`${docId}-${reloadCount}`}
               doc={doc.data}
@@ -187,13 +221,13 @@ export function SpaceDocView({
               onDiscussionsChanged={discussionActions.refresh}
               onDiscussionStarted={onDiscussionStarted}
               onAgentThreadStarted={openAgentThread}
-              onOpenThread={openAgentThread}
               onEditorReady={(instance) => {
                 editorRef.current = instance;
               }}
               onStateChange={(state) => {
                 setConnection(state.status);
                 setVersion(state.version);
+                setPeers(state.peers);
               }}
             />
           </div>
@@ -235,6 +269,14 @@ export function SpaceDocView({
           />
         ) : null}
       </div>
+
+      <DocTabs
+        channelId={channelId}
+        docs={docs.data ?? []}
+        activeDocId={docId}
+        creating={createDoc.isPending}
+        onCreate={(template) => createDoc.start(template)}
+      />
 
       {connection === "offline" ? (
         <Text

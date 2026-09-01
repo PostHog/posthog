@@ -1,17 +1,16 @@
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import type { DocSchemas } from "@posthog/api-client/docs";
 import {
-  Badge,
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Input,
-  Text,
 } from "@posthog/quill";
-import { useEffect, useState } from "react";
+import type { RemoteCaret } from "../collab/remoteCarets";
 import type { DocConnectionStatus } from "../collab/useDocCollab";
+import { DocFaces } from "./DocFaces";
 
 const STATUS_LABELS: Record<DocSchemas.DocStatus, string> = {
   draft: "Draft",
@@ -19,52 +18,72 @@ const STATUS_LABELS: Record<DocSchemas.DocStatus, string> = {
   done: "Done",
 };
 
-const CONNECTION_LABELS: Record<DocConnectionStatus, string> = {
-  connecting: "Connecting",
-  live: "Live",
-  offline: "Offline",
+/** The status is a word, not a pill: colour carries the state and the row stays quiet. */
+const STATUS_TONES: Record<DocSchemas.DocStatus, string> = {
+  draft: "text-(--gray-11)",
+  active: "text-(--primary)",
+  done: "text-(--grass-11)",
 };
 
-/** The doc's title, where it is in its life, and whether the page is live. */
+const CONNECTION_LABELS: Record<DocConnectionStatus, string> = {
+  connecting: "saving",
+  live: "saved",
+  offline: "offline",
+};
+
+/**
+ * The row above the doc: where you are on the left, what the doc is on the right.
+ *
+ * The title is not here. It belongs to the document, at the top of the page, the
+ * way it reads when someone opens the doc.
+ */
 export function DocHeader({
+  spaceName,
   doc,
   version,
   connection,
+  peers,
   discussionCount,
-  onRename,
   onStatusChange,
   onOpenDiscussions,
+  onJumpToPeer,
 }: {
+  spaceName: string;
   doc: DocSchemas.Doc;
   version: number;
   connection: DocConnectionStatus;
+  peers: RemoteCaret[];
   discussionCount: number;
-  onRename: (title: string) => void;
   onStatusChange: (status: DocSchemas.DocStatus) => void;
   onOpenDiscussions: () => void;
+  onJumpToPeer: (clientId: string) => void;
 }) {
-  const [title, setTitle] = useState(doc.title);
-  useEffect(() => setTitle(doc.title), [doc.title]);
-
   return (
-    <header className="flex min-w-0 flex-wrap items-center gap-2 border-(--gray-5) border-b px-4 py-2">
-      <Input
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-        onBlur={() => title !== doc.title && onRename(title)}
-        aria-label="Doc title"
-        className="min-w-40 flex-1 border-none bg-transparent font-medium text-base shadow-none"
-        placeholder="Untitled"
-      />
+    <header className="flex min-w-0 items-center gap-2 border-(--gray-5) border-b px-4 py-1.5">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs">
+        <span className="shrink-0 text-(--gray-11)">{spaceName}</span>
+        <span className="shrink-0 text-(--gray-8)">/</span>
+        <span className="truncate text-(--gray-12)">
+          {doc.title || "Untitled"}
+        </span>
+      </div>
 
-      <Text size="sm" className="shrink-0 text-(--gray-11)">
+      <div className="flex-1" />
+
+      <span className="shrink-0 text-(--gray-9) text-xs">
         v{version} · {CONNECTION_LABELS[connection]}
-      </Text>
+      </span>
 
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Badge variant="default" className="shrink-0 cursor-pointer" />
+            <button
+              type="button"
+              className={cn(
+                "shrink-0 cursor-pointer px-1 font-medium text-xs",
+                STATUS_TONES[doc.status],
+              )}
+            />
           }
         >
           {STATUS_LABELS[doc.status]}
@@ -83,16 +102,20 @@ export function DocHeader({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {peers.length > 0 ? (
+        <DocFaces peers={peers} onJump={onJumpToPeer} />
+      ) : null}
+
       <Button
         size="sm"
         variant="default"
         className="shrink-0"
         onClick={onOpenDiscussions}
       >
-        <ChatCircleTextIcon size={14} />
+        <ChatCircleTextIcon size={13} />
         Discussions
         {discussionCount > 0 ? (
-          <Badge variant="info">{discussionCount}</Badge>
+          <span className="text-(--gray-9)">{discussionCount}</span>
         ) : null}
       </Button>
     </header>
