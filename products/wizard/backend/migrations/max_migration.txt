@@ -1,1 +1,1 @@
-0005_wizardsession_handoff_text
+0006_drop_wizard_session_skill_id_idx
