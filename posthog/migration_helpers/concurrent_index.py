@@ -245,6 +245,12 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
     unique, using, where) are required so the reverse can rebuild the
     same index shape.
 
+    Set `recreate_on_reverse=False` when the index is dead - it maps to no
+    Django model and its table may not exist in every database. The reverse
+    is then a no-op, not a CREATE that would fail with UndefinedTable, and
+    the migration stays reversible so backward-migrating tests can unapply
+    past it.
+
     Arguments:
         index_name: name of the index to drop.
         table_name: target table (used for the reverse CREATE).
@@ -252,6 +258,8 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
             reverse CREATE).
         unique / using / where: as in `CreateIndexConcurrently` (used for
             the reverse CREATE).
+        recreate_on_reverse: when False, the reverse is a no-op because the
+            dropped index is dead and must not come back. Defaults to True.
     """
 
     def __init__(
@@ -263,6 +271,7 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         unique: bool = False,
         using: str = "",
         where: str = "",
+        recreate_on_reverse: bool = True,
     ) -> None:
         # All constructor args survive on the instance: index_name/table_name
         # are read on rollback / by `describe`, and every arg is needed by
@@ -273,23 +282,36 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         self.unique = unique
         self.using = using
         self.where = where
+        self.recreate_on_reverse = recreate_on_reverse
         super().__init__(
             sql=_build_drop_sql(index_name),
-            reverse_sql=_build_create_sql(
-                index_name=index_name,
-                table_name=table_name,
-                columns=columns,
-                unique=unique,
-                using=using,
-                where=where,
+            reverse_sql=(
+                _build_create_sql(
+                    index_name=index_name,
+                    table_name=table_name,
+                    columns=columns,
+                    unique=unique,
+                    using=using,
+                    where=where,
+                )
+                if recreate_on_reverse
+                else migrations.RunSQL.noop
             ),
         )
+
+    def deconstruct(self) -> tuple[str, list[object], dict[str, str | bool]]:
+        name, args, kwargs = super().deconstruct()
+        if not self.recreate_on_reverse:
+            kwargs["recreate_on_reverse"] = False
+        return name, args, kwargs
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
         schema_editor.execute(self.sql)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        if not self.recreate_on_reverse:
+            return  # dead index: the reverse must not rebuild it
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)

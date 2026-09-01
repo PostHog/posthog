@@ -19,9 +19,16 @@ class Migration(migrations.Migration):
         # index, which has had no reader since the deprecation, so pganalyze keeps
         # flagging it as unused. Drop it. `IF EXISTS` makes this a no-op on every
         # database that never had the `multi_tenancy` app (open-source installs, CI, dev).
+        #
+        # `recreate_on_reverse=False` makes the rollback a no-op. This index maps to
+        # no Django model, so a reverse CREATE would target a table that is absent
+        # here (CI, dev, open-source) and fail with UndefinedTable. A rollback must
+        # not resurrect the dead index either. The migration stays reversible, so
+        # backward-migrating tests (TestMigrations) can unapply past it.
         DropIndexConcurrently(
             index_name="multi_tenancy_organizationbilling_plan_id_0a111163",
             table_name="multi_tenancy_organizationbilling",
             columns="(plan_id)",
+            recreate_on_reverse=False,
         ),
     ]
