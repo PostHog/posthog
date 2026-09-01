@@ -1430,8 +1430,6 @@ class TestRequiredGateCheck:
             _gate(COMMENTED_CALL_BODY),
             _gate(PAREN_LABEL_CALL_BODY),
             ENV_LOOP_GATE,
-            # A step may repeat the job's own `!cancelled()` condition; its guard
-            # still runs whenever the gate does, so it must still count.
             _gate(SAFE_BODY, step_condition="${{ !cancelled() }}"),
         ],
         ids=[
