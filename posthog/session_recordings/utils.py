@@ -14,6 +14,15 @@ SURFACING_SCORE_ORDER_FLAG = "replay-playlist-surfacing-score"
 RELEVANCE_SORT_EXPERIMENT_FLAG = "replay-playlist-relevance-sort-experiment"
 
 
+def start_url_from_first_url(url: str | None) -> str | None:
+    """Derive a recording's `start_url` from the first page URL of the session.
+
+    The first URL can carry authentication values in its query string, such as tokens, credentials,
+    or session keys. Keep only the path so those values never reach storage or a client, including the
+    MCP query response. Truncate to the model column length."""
+    return url.split("?")[0][:512] if url else None
+
+
 def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
     """Whether a query carries something the matching_events endpoint can highlight: an event filter,
     an action filter, or an event-property filter. The endpoint rejects queries without one, so both

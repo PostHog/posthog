@@ -13,6 +13,7 @@ from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.utils import start_url_from_first_url
 
 logger = structlog.get_logger(__name__)
 
@@ -241,9 +242,5 @@ class SessionRecording(UUIDTModel):
         return recordings
 
     def set_start_url_from_urls(self, urls: Optional[list[str]] = None, first_url: Optional[str] = None):
-        if first_url:
-            self.start_url = first_url[:512]
-            return
-
-        url = urls[0] if urls else None
-        self.start_url = url.split("?")[0][:512] if url else None
+        url = first_url or (urls[0] if urls else None)
+        self.start_url = start_url_from_first_url(url)

@@ -11,7 +11,7 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.utils import gate_surfacing_score_order
+from posthog.session_recordings.utils import gate_surfacing_score_order, start_url_from_first_url
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -79,7 +79,7 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
             console_log_count=row.get("console_log_count"),
             console_warn_count=row.get("console_warn_count"),
             console_error_count=row.get("console_error_count"),
-            start_url=row.get("first_url"),
+            start_url=start_url_from_first_url(row.get("first_url")),
             activity_score=row.get("activity_score"),
             ongoing=row.get("ongoing"),
             recording_ttl=row.get("recording_ttl"),

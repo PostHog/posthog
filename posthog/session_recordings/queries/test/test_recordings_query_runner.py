@@ -68,6 +68,29 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert recording.viewers == []
         assert recording.snapshot_source == SnapshotSource.WEB
 
+    @parameterized.expand(
+        [
+            (
+                "access_token",
+                "https://app.example.com/dashboard?access_token=secret",
+                "https://app.example.com/dashboard",
+            ),
+            (
+                "credentials",
+                "https://app.example.com/login?user=admin&password=hunter2",
+                "https://app.example.com/login",
+            ),
+            ("session_key", "https://app.example.com/?session=eyJ0b2tlbiI6ImFiYyJ9", "https://app.example.com/"),
+        ]
+    )
+    def test_start_url_drops_query_string(self, _name: str, first_url: str, expected: str):
+        self._produce_replay("session-1", first_url=first_url)
+
+        runner = RecordingsQueryRunner(query=RecordingsQuery(), team=self.team)
+        response = runner.calculate()
+
+        assert response.results[0].start_url == expected
+
     def test_respects_limit(self):
         for i in range(5):
             self._produce_replay(f"session-{i}")
