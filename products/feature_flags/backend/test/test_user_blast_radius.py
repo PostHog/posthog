@@ -20,21 +20,31 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("cannot_parse_text", 6),
-            ("cannot_parse_number", 72),
+            (
+                "cannot_parse_text",
+                6,
+                "Cannot parse a text value as the required type. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                "cannot_parse_number",
+                72,
+                "Cannot parse a value in the query as a number. Check the types in your comparisons and IN clauses.",
+            ),
         ]
     )
-    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self, _name, code):
+    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(self, _name, code, expected_message):
         # A numeric operator against a null/non-numeric filter value fails the Float64 cast at
-        # execution; these codes wrap to InternalCHQueryError (not Exposed), so they used to 500.
-        # The 400 body must carry only the useful message: the DB::Exception framing and any
-        # server stack trace tail are stripped, matching what ExposedCHQueryError exposes.
+        # execution. These codes are user_safe with a fixed message (posthog/errors.py), so they
+        # surface as a 400 whose body hides the failing data value the raw ClickHouse text embeds.
         raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
         err = wrap_clickhouse_query_error(ServerException(raw, code=code))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
-        self.assertIn("Cannot parse NaN", message)
+        self.assertIn(expected_message, message)
+        # The raw ClickHouse text and the embedded value must not reach the caller.
+        self.assertNotIn("Cannot parse NaN", message)
+        self.assertNotIn("None", message)
         self.assertNotIn("Stack trace", message)
         self.assertNotIn("DB::Exception", message)
 
