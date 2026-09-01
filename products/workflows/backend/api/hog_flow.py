@@ -2186,14 +2186,27 @@ def _isp_breakdown_enabled(team: Team) -> bool:
         return False
 
 
-def _isp_domain_visibility(
-    team: Team, user_access_control: UserAccessControl, user_permissions: UserPermissions
-) -> dict[str, bool]:
-    """This project's verified sending domains, and whether the caller may read each one's metrics.
+@frozen
+class IspDomains:
+    """Which of this project's sending domains the breakdown may cover, and what to say about them."""
+
+    # Domains whose metrics the caller may read.
+    readable: tuple[str, ...]
+    # Domains hidden because a project behind them is one the caller cannot open.
+    withheld: tuple[str, ...]
+    # Readable domains another project also sends from, so their counts include its email.
+    shared: tuple[str, ...]
+
+
+def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permissions: UserPermissions) -> IspDomains:
+    """
+    Resolve this project's verified sending domains against who else sends from them.
 
     VDM keys its metrics on the domain, so a domain a second project also sends from returns both
     projects' email. Reading that needs access to every project behind the domain: without it the
-    breakdown would hand a member the daily volume of a project they cannot open.
+    breakdown would hand a member the daily volume of a project they cannot open. A domain that
+    survives that check but is still shared gets said so, because its counts describe more email
+    than this project sent.
     """
     domains = list(
         dict.fromkeys(
@@ -2205,7 +2218,7 @@ def _isp_domain_visibility(
         )
     )
     if not domains:
-        return {}
+        return IspDomains(readable=(), withheld=(), shared=())
 
     sharers: dict[str, set[int]] = {domain: set() for domain in domains}
     for domain, sharer_id in (
@@ -2216,37 +2229,19 @@ def _isp_domain_visibility(
         sharers[domain].add(sharer_id)
 
     if not any(sharers.values()):
-        return dict.fromkeys(domains, True)
+        return IspDomains(readable=tuple(domains), withheld=(), shared=())
 
     # A sharer outside this organization cannot be visible, so it fails closed here rather than
     # needing a separate branch. Adding such a domain is blocked today; rows predating that are not.
     visible = set(
         visible_teams_for_user(team.organization, user_access_control, user_permissions).values_list("id", flat=True)
     )
-    return {domain: sharers[domain] <= visible for domain in domains}
-
-
-def _domains_shared_with_other_projects(team_id: int) -> list[str]:
-    """This project's verified sending domains that another project also sends from.
-
-    The counts under a shared domain describe more email than this project sent, and the reader
-    deserves to be told exactly when that is true rather than on every project.
-    """
-    domains = [
-        domain
-        for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
-        .order_by("id")
-        .values_list("config__domain", flat=True)
-        if domain
-    ]
-    if not domains:
-        return []
-    shared = (
-        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=domains)
-        .exclude(team_id=team_id)
-        .values_list("config__domain", flat=True)
+    readable = tuple(domain for domain in domains if sharers[domain] <= visible)
+    return IspDomains(
+        readable=readable,
+        withheld=tuple(domain for domain in domains if sharers[domain] > visible),
+        shared=tuple(domain for domain in readable if sharers[domain]),
     )
-    return sorted(set(shared))
 
 
 def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> list[dict[str, Any]]:
@@ -5113,14 +5108,11 @@ class HogFlowViewSet(
 
         # Same project-wide gate as `reputation`: the breakdown pools every workflow's email for a
         # sending domain, so object-level grants alone don't earn it.
-        domain_visibility = (
-            _isp_domain_visibility(self.team, self.user_access_control, self.user_permissions)
+        isp_domains = (
+            _isp_domains(self.team, self.user_access_control, self.user_permissions)
             if can_read_all_workflows and _isp_breakdown_enabled(self.team)
-            else {}
+            else IspDomains(readable=(), withheld=(), shared=())
         )
-        readable = {domain for domain, allowed in domain_visibility.items() if allowed}
-        readable_domains = [domain for domain in domain_visibility if domain in readable]
-        withheld_domains = [domain for domain in domain_visibility if domain not in readable]
 
         return Response(
             TeamEmailReputationResponseSerializer(
@@ -5132,11 +5124,9 @@ class HogFlowViewSet(
                     "workflows": workflow_rows,
                     # Same project-wide gate as `reputation`: the breakdown pools every workflow's
                     # email for a sending domain, so object-level grants alone don't earn it.
-                    "isps": _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, readable_domains),
-                    "isp_shared_domains": [
-                        domain for domain in _domains_shared_with_other_projects(self.team_id) if domain in readable
-                    ],
-                    "isp_withheld_domains": withheld_domains,
+                    "isps": _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
+                    "isp_shared_domains": list(isp_domains.shared),
+                    "isp_withheld_domains": list(isp_domains.withheld),
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
