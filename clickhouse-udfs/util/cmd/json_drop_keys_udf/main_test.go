@@ -76,6 +76,12 @@ func TestDropKeysJSON(t *testing.T) {
 			keys:  []string{"a"},
 		},
 		{
+			name:  "drop parent when it precedes a nested key",
+			input: `{"a":{"b":1,"c":2}}`,
+			want:  `{}`,
+			keys:  []string{"a", "a.b"},
+		},
+		{
 			name:  "drop keys from root array objects",
 			input: `[{"a":1,"b":2},{"a":3}]`,
 			want:  `[{"b":2},{}]`,

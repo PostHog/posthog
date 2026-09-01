@@ -35,7 +35,7 @@ func appendCleanJSON(dst []byte, value *fastjson.Value) ([]byte, bool) {
 			if kept > 0 {
 				dst = append(dst, ',')
 			}
-			dst = strconv.AppendQuote(dst, string(key))
+			dst = appendJSONString(dst, string(key))
 			dst = append(dst, ':')
 			var keep bool
 			dst, keep = appendCleanJSON(dst, child)
@@ -79,6 +79,39 @@ func appendCleanJSON(dst []byte, value *fastjson.Value) ([]byte, bool) {
 	default:
 		return value.MarshalTo(dst), true
 	}
+}
+
+func appendJSONString(dst []byte, s string) []byte {
+	dst = append(dst, '"')
+	start := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 0x20 && ch != '\\' && ch != '"' {
+			continue
+		}
+		dst = append(dst, s[start:i]...)
+		switch ch {
+		case '\\', '"':
+			dst = append(dst, '\\', ch)
+		case '\b':
+			dst = append(dst, "\\b"...)
+		case '\f':
+			dst = append(dst, "\\f"...)
+		case '\n':
+			dst = append(dst, "\\n"...)
+		case '\r':
+			dst = append(dst, "\\r"...)
+		case '\t':
+			dst = append(dst, "\\t"...)
+		default:
+			const hex = "0123456789abcdef"
+			dst = append(dst, "\\u00"...)
+			dst = append(dst, hex[ch>>4], hex[ch&0x0f])
+		}
+		start = i + 1
+	}
+	dst = append(dst, s[start:]...)
+	return append(dst, '"')
 }
 
 func shouldStringifyNumberBytes(num []byte) bool {

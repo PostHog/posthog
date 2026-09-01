@@ -49,9 +49,9 @@ func TestProcessLinePreservesPersonProperties(t *testing.T) {
 	}
 }
 
-func TestProcessLineGroupsFeatureProperties(t *testing.T) {
-	input := []byte(`{"$feature/first-flag":"control","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`)
-	want := `{"$feature_flags":{"existing":"kept","first-flag":"control","number":42,"enabled":true,"config":{"nested":{"value":"dropped"}}},"other":"value"}`
+func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *testing.T) {
+	input := []byte(`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`)
+	want := `{"$feature_flags":{"existing":"kept","first-flag":"existing","number":42,"enabled":true,"config":{"nested":{"value":"dropped"}}},"other":"value"}`
 
 	var got bytes.Buffer
 	if err := processLine(input, &got); err != nil {

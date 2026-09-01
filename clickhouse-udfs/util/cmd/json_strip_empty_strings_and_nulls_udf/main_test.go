@@ -10,6 +10,7 @@ func TestProcessLine(t *testing.T) {
 	tests := map[string]string{
 		`{"empty":"","null":null,"object":{"nested":null},"array":[null,"",{},[]]}`:                                            `{}`,
 		`{"keep":0,"false":false,"text":" ","nested":{"drop":null,"keep":"x"},"array":[null,"",{},[],{"drop":null,"keep":1}]}`: `{"keep":0,"false":false,"text":" ","nested":{"keep":"x"},"array":[{"keep":1}]}`,
+		`{"\u000b":"x"}`:              `{"\u000b":"x"}`,
 		`{"a":1,"a":null,"a":2}`:      `{"a":1,"a":2}`,
 		`[null,"",[],{},0,false,"x"]`: `[0,false,"x"]`,
 		`934504962295726700000`:       `"934504962295726700000"`,

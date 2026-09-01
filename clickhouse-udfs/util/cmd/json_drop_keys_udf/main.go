@@ -71,18 +71,6 @@ type objectNode struct {
 	entries []objectEntry
 }
 
-type entryInfo struct {
-	firstNonEmpty int
-	last          int
-	hasNonEmpty   bool
-}
-
-var entryInfoPool = sync.Pool{
-	New: func() interface{} {
-		return make(map[string]entryInfo)
-	},
-}
-
 func (o *objectNode) Write(buf *bytes.Buffer) {
 	buf.WriteByte('{')
 	for i, entry := range o.entries {
@@ -224,22 +212,6 @@ func (a *arrayNode) DropKeys(keys jsonKey) node {
 		a.values[i] = a.values[i].DropKeys(keys)
 	}
 	return a
-}
-
-func isNonEmptyValue(n node) bool {
-	switch v := n.(type) {
-	case *valueNode:
-		switch v.kind {
-		case kindNull:
-			return false
-		case kindString:
-			return v.str != ""
-		default:
-			return true
-		}
-	default:
-		return true
-	}
 }
 
 func writeJSONString(buf *bytes.Buffer, s string) {
@@ -485,13 +457,18 @@ func makeKeyDict(keys []string) jsonKey {
 		parts := strings.Split(key, ".")
 		current := dict
 		for i, part := range parts {
+			child, exists := current[part]
+			if exists && child == nil {
+				break
+			}
 			if i == len(parts)-1 {
 				current[part] = nil
 			} else {
-				if current[part] == nil {
-					current[part] = make(jsonKey)
+				if !exists {
+					child = make(jsonKey)
+					current[part] = child
 				}
-				current = current[part]
+				current = child
 			}
 		}
 	}
