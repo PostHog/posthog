@@ -210,6 +210,10 @@ def _out_of_contract_delegation(d: dict) -> None:
     d["overrides"]["deny"] = {"ceiling": 1}
 
 
+def _ceiling_under_global_default(d: dict) -> None:
+    d["size_gate"]["max_lines"] = d["overrides"]["size_gate.max_lines"]["ceiling"] + 1
+
+
 def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
@@ -246,6 +250,7 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _invalid_regex,
         _drop_self_governance,
         _out_of_contract_delegation,
+        _ceiling_under_global_default,
         _rename_deps_toolchain,
         _ownership_unknown_format,
         _ownership_both_locators,

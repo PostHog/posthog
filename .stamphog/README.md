@@ -54,4 +54,5 @@ The per-scope budgets still hold, so the extra lines a folder's grant unlocks ar
 The set of keys a folder file may override lives under `overrides` in `policy.yml` (currently `size_gate.max_files`, ceiling 50, and `size_gate.max_lines`, ceiling 1000).
 A ceiling therefore bounds two things: the largest value a folder may grant, and the highest a PR's roof can ever go for that key.
 It is not the limit every PR gets. A PR whose files reach no grant keeps the lower global roof.
+The loader rejects a ceiling under its own global default, which would otherwise bound nothing.
 deny, allow, dismiss, and tiers are non-delegable by construction - they are absent from the contract and cannot be granted from a folder file.
