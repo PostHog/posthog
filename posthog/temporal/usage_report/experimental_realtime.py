@@ -9,6 +9,7 @@ from datetime import (
     time as datetime_time,
     timedelta,
 )
+from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import structlog
@@ -28,8 +29,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 logger = structlog.get_logger(__name__)
 
 EXPERIMENTAL_REALTIME_USAGE_EVENT = "experimental organization realtime usage report"
+MANUAL_EXPERIMENTAL_REALTIME_USAGE_EVENT = "experimental organization realtime usage report manual"
 CLICKHOUSE_SETTINGS = {"max_execution_time": 5 * 60}
 CAPTURE_BATCH_SIZE = 1000
+
+CaptureMode = Literal["capture", "manual_report", "dry_run"]
 
 CANONICAL_USAGE_QUERY = """
 SELECT
@@ -60,6 +64,7 @@ ORDER BY organization_id, producer_id, usage_key, unit
 class GatherExperimentalRealtimeUsageInputs(BaseModel):
     day_offset: int = 0
     organization_ids: list[str] | None = None
+    mode: CaptureMode = "capture"
 
 
 class ExperimentalRealtimeUsageContext(BaseModel):
@@ -68,10 +73,12 @@ class ExperimentalRealtimeUsageContext(BaseModel):
     snapshot_at: datetime
     report_completeness: str
     organization_ids: list[str] | None = None
+    mode: CaptureMode = "capture"
 
 
 class GatherExperimentalRealtimeUsageResult(BaseModel):
     canonical_row_count: int
+    organizations_found: int
     organizations_captured: int
     usage_key_count: int
     query_duration_ms: int
@@ -100,6 +107,7 @@ def build_experimental_realtime_context(
         snapshot_at=now.astimezone(UTC),
         report_completeness="partial" if inputs.day_offset == 0 else "complete",
         organization_ids=inputs.organization_ids,
+        mode=inputs.mode,
     )
 
 
@@ -174,7 +182,15 @@ def experimental_usage_event_uuid(organization_id: str, ctx: ExperimentalRealtim
     )
 
 
-def capture_usage_snapshots(snapshots: Iterable[UsageSnapshot], ctx: ExperimentalRealtimeUsageContext) -> int:
+def event_name_for_mode(mode: CaptureMode) -> str:
+    if mode == "manual_report":
+        return MANUAL_EXPERIMENTAL_REALTIME_USAGE_EVENT
+    return EXPERIMENTAL_REALTIME_USAGE_EVENT
+
+
+def capture_usage_snapshots(
+    snapshots: Iterable[UsageSnapshot], ctx: ExperimentalRealtimeUsageContext, event_name: str
+) -> int:
     ph_client = get_ph_client(sync_mode=True)
     if ph_client is None:
         return 0
@@ -189,7 +205,7 @@ def capture_usage_snapshots(snapshots: Iterable[UsageSnapshot], ctx: Experimenta
             )
         capture_event(
             pha_client=ph_client,
-            name=EXPERIMENTAL_REALTIME_USAGE_EVENT,
+            name=event_name,
             organization_id=snapshot.organization_id,
             distinct_id=f"org-{snapshot.organization_id}",
             event_uuid=experimental_usage_event_uuid(snapshot.organization_id, ctx),
@@ -202,6 +218,7 @@ def capture_usage_snapshots(snapshots: Iterable[UsageSnapshot], ctx: Experimenta
                 "period_end": ctx.period_end.isoformat(),
                 "snapshot_at": ctx.snapshot_at.isoformat(),
                 "report_completeness": ctx.report_completeness,
+                "capture_mode": ctx.mode,
                 "usage_by_key": snapshot.usage_by_key,
                 "unit_by_key": snapshot.unit_by_key,
                 "usage_by_producer": snapshot.usage_by_producer,
@@ -227,10 +244,15 @@ async def gather_experimental_realtime_usage(
         query_duration_ms = int((time.monotonic() - query_started) * 1000)
         snapshots = build_usage_snapshots(rows)
         capture_started = time.monotonic()
-        organizations_captured = await sync_to_async(capture_usage_snapshots, thread_sensitive=False)(snapshots, ctx)
+        organizations_captured = 0
+        if ctx.mode != "dry_run":
+            organizations_captured = await sync_to_async(capture_usage_snapshots, thread_sensitive=False)(
+                snapshots, ctx, event_name_for_mode(ctx.mode)
+            )
         capture_duration_ms = int((time.monotonic() - capture_started) * 1000)
         return GatherExperimentalRealtimeUsageResult(
             canonical_row_count=len(rows),
+            organizations_found=len(snapshots),
             organizations_captured=organizations_captured,
             usage_key_count=len({usage_key for _, _, usage_key, _, _ in rows}),
             query_duration_ms=query_duration_ms,
@@ -240,6 +262,8 @@ async def gather_experimental_realtime_usage(
 
 @workflow.defn(name="gather-experimental-realtime-usage")
 class GatherExperimentalRealtimeUsageWorkflow(PostHogWorkflow):
+    inputs_cls = GatherExperimentalRealtimeUsageInputs
+
     @workflow.run
     async def run(self, inputs: GatherExperimentalRealtimeUsageInputs) -> GatherExperimentalRealtimeUsageResult:
         if inputs.day_offset < 0:

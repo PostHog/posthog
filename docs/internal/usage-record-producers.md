@@ -250,3 +250,11 @@ It still bills a recording the report would later drop for `is_deleted`, because
 # Experimental reader
 
 `gather-experimental-realtime-usage` reads `billing_usage_records` directly every 30 minutes and finalizes the prior UTC day at 02:45 UTC. It captures `experimental organization realtime usage report` for comparison only. These events are not a billing or quota input.
+
+For a manual validation, start the workflow with `mode: "dry_run"` to return aggregate counts without capturing events, or `mode: "manual_report"` to capture `experimental organization realtime usage report manual` instead. Both modes accept `day_offset` and optional `organization_ids`.
+
+```bash
+python manage.py start_temporal_workflow gather-experimental-realtime-usage \
+  '{"day_offset": 1, "organization_ids": ["<organization UUID>"], "mode": "dry_run"}' \
+  --task-queue billing-task-queue
+```

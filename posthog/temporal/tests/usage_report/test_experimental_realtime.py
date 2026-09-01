@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,6 +16,7 @@ from temporalio.worker import Worker
 from posthog.tasks.report_utils import capture_event
 from posthog.temporal.usage_report.experimental_realtime import (
     EXPERIMENTAL_REALTIME_USAGE_EVENT,
+    MANUAL_EXPERIMENTAL_REALTIME_USAGE_EVENT,
     ExperimentalRealtimeUsageContext,
     GatherExperimentalRealtimeUsageInputs,
     GatherExperimentalRealtimeUsageResult,
@@ -23,6 +25,7 @@ from posthog.temporal.usage_report.experimental_realtime import (
     build_usage_snapshots,
     capture_usage_snapshots,
     experimental_usage_event_uuid,
+    gather_experimental_realtime_usage,
     get_canonical_usage_rows,
 )
 
@@ -75,8 +78,8 @@ def test_capture_usage_snapshots_uses_stable_experimental_event_uuid() -> None:
         patch("posthog.temporal.usage_report.experimental_realtime.get_ph_client", return_value=client),
         patch("posthog.temporal.usage_report.experimental_realtime.capture_event") as capture_event,
     ):
-        assert capture_usage_snapshots([snapshot], ctx) == 1
-        assert capture_usage_snapshots([snapshot], ctx) == 1
+        assert capture_usage_snapshots([snapshot], ctx, EXPERIMENTAL_REALTIME_USAGE_EVENT) == 1
+        assert capture_usage_snapshots([snapshot], ctx, EXPERIMENTAL_REALTIME_USAGE_EVENT) == 1
 
     expected_uuid = experimental_usage_event_uuid("org-1", ctx)
     assert isinstance(expected_uuid, UUID)
@@ -129,11 +132,58 @@ def test_canonical_query_uses_the_complete_replacement_identity() -> None:
     assert rows == [("00000000-0000-0000-0000-000000000001", "ingestion", "events", "events", 7)]
 
 
+def test_workflow_parses_manual_mode_for_management_command() -> None:
+    inputs = GatherExperimentalRealtimeUsageWorkflow.parse_inputs(['{"day_offset": 1, "mode": "manual_report"}'])
+
+    assert inputs == GatherExperimentalRealtimeUsageInputs(day_offset=1, mode="manual_report")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,expected_event_name,expected_captured",
+    [
+        ("capture", EXPERIMENTAL_REALTIME_USAGE_EVENT, 1),
+        ("manual_report", MANUAL_EXPERIMENTAL_REALTIME_USAGE_EVENT, 1),
+        ("dry_run", None, 0),
+    ],
+)
+async def test_activity_respects_capture_mode(
+    mode: Literal["capture", "manual_report", "dry_run"],
+    expected_event_name: str | None,
+    expected_captured: int,
+    activity_environment,
+) -> None:
+    ctx = ExperimentalRealtimeUsageContext(
+        period_start=datetime(2026, 5, 4, tzinfo=UTC),
+        period_end=datetime(2026, 5, 5, tzinfo=UTC),
+        snapshot_at=datetime(2026, 5, 5, tzinfo=UTC),
+        report_completeness="complete",
+        mode=mode,
+    )
+    with (
+        patch(
+            "posthog.temporal.usage_report.experimental_realtime.get_canonical_usage_rows",
+            return_value=[("org-1", "ingestion", "events", "events", 7)],
+        ),
+        patch("posthog.temporal.usage_report.experimental_realtime.capture_usage_snapshots", return_value=1) as capture,
+    ):
+        result = await activity_environment.run(gather_experimental_realtime_usage, ctx)
+
+    assert result.organizations_found == 1
+    assert result.organizations_captured == expected_captured
+    if expected_event_name is None:
+        capture.assert_not_called()
+    else:
+        capture.assert_called_once()
+        assert capture.call_args.args[1:] == (ctx, expected_event_name)
+
+
 @pytest.mark.asyncio
 async def test_workflow_passes_only_context_to_the_gathering_activity() -> None:
     seen_contexts: list[ExperimentalRealtimeUsageContext] = []
     expected_result = GatherExperimentalRealtimeUsageResult(
         canonical_row_count=2,
+        organizations_found=1,
         organizations_captured=1,
         usage_key_count=2,
         query_duration_ms=1,
@@ -155,7 +205,7 @@ async def test_workflow_passes_only_context_to_the_gathering_activity() -> None:
         ):
             result = await env.client.execute_workflow(
                 GatherExperimentalRealtimeUsageWorkflow.run,
-                GatherExperimentalRealtimeUsageInputs(day_offset=1, organization_ids=["org-1"]),
+                GatherExperimentalRealtimeUsageInputs(day_offset=1, organization_ids=["org-1"], mode="manual_report"),
                 id="experimental-realtime-usage-test-workflow",
                 task_queue="experimental-realtime-usage-test",
             )
@@ -163,6 +213,7 @@ async def test_workflow_passes_only_context_to_the_gathering_activity() -> None:
     assert result == expected_result
     assert seen_contexts[0].organization_ids == ["org-1"]
     assert seen_contexts[0].report_completeness == "complete"
+    assert seen_contexts[0].mode == "manual_report"
 
 
 @pytest.mark.asyncio
