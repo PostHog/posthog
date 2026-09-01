@@ -21,8 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # bucket would otherwise write to a nonsense name hundreds of MiB into a batch), so those two
 # need enough config to pass that check. Every other builtin writer accepts an empty config here.
 _MINIMAL_CONFIG: dict[str, dict] = {
-    ExternalDataDestination.Type.AZURE_BLOB: {"container_name": "container"},
-    ExternalDataDestination.Type.S3: {"bucket": "bucket", "region": "us-east-1"},
+    str(ExternalDataDestination.Type.AZURE_BLOB): {"container_name": "container"},
+    str(ExternalDataDestination.Type.S3): {"bucket": "bucket", "region": "us-east-1"},
 }
 
 

@@ -244,7 +244,7 @@ class PostgresDestinationWriter:
             table,
             fields,
             exists_ok=True,
-            primary_key=key or None,  # ty: ignore[invalid-argument-type]
+            primary_key=key or None,
         )
 
     async def _evolve_table(self, client: PostgreSQLClient, table: str, schema: pa.Schema) -> None:
@@ -260,7 +260,7 @@ class PostgresDestinationWriter:
                         sql.Identifier(self._schema),
                         sql.Identifier(table),
                         sql.Identifier(field.name),
-                        sql.SQL(self._column_type(field.type)),  # ty: ignore[invalid-argument-type]
+                        sql.SQL(self._column_type(field.type)),
                     )
                 )
 

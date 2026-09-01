@@ -14,6 +14,7 @@ before this runs, and it carries the unsuffixed idempotency key it has always ha
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 
 import structlog
@@ -21,12 +22,13 @@ from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import resolve_destination_writer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
     ensure_builtin_destination_writers_registered,
 )
@@ -94,21 +96,41 @@ def warehouse_is_a_destination(export_signal: ExportSignalMessage) -> bool:
     )
 
 
+def _source_scoped_table_name(source: ExternalDataSource, schema_name: str) -> str:
+    """Source type, then the source's prefix, then the schema name, each separated.
+
+    The warehouse builds the same three parts but glues the prefix to the source type
+    (`build_table_name` gives `testpostgres_auth_group`), which reads as one word in a customer's
+    own database. Here they stay separated, so `postgres_test_auth_group` says which source type,
+    which source, and which table.
+
+    The sanitizing matches the warehouse: dots parse as `<table>.<column>` in HogQL, and slashes
+    are not identifier characters at all.
+    """
+    safe_schema_name = schema_name.replace("/", "_").replace(".", "__")
+    prefix = (source.prefix or "").strip("_")
+    parts = [source.source_type, prefix, safe_schema_name] if prefix else [source.source_type, safe_schema_name]
+    return "_".join(parts).lower()
+
+
 def destination_table_name(export_signal: ExportSignalMessage, config: dict) -> str:
     """What a destination calls the table for this schema.
 
-    The same name the PostHog warehouse uses, via `build_table_name`, so a table is recognizable
-    on both sides and two sources with a same-named resource do not resolve to one table. Falls
-    back to the raw resource name only if the schema has gone, which is a run that is failing
-    anyway. `table_prefix` stays supported as an escape hatch for a name a customer needs to
-    control; nothing sets it today.
+    Carries the source type and prefix so two sources with a same-named resource do not resolve to
+    one table. Falls back to the raw resource name only if the schema has gone, which is a run that
+    is failing anyway. `table_prefix` stays supported as an escape hatch for a name a customer needs
+    to control; nothing sets it today.
     """
     schema = (
         ExternalDataSchema.objects.filter(id=export_signal.schema_id, team_id=export_signal.team_id)
         .select_related("source")
         .first()
     )
-    base = build_table_name(schema.source, schema.name) if schema and schema.source else export_signal.resource_name
+    base = (
+        _source_scoped_table_name(schema.source, schema.name)
+        if schema and schema.source
+        else export_signal.resource_name
+    )
     return f"{config.get('table_prefix', '')}{base}"
 
 
@@ -202,10 +224,12 @@ def deliver_batch_to_destinations(
         # once while processing and once flagged final, so skipping the whole batch because it
         # was already written would leave a full refresh staged and never swapped in.
         if already_written and not export_signal.is_final_batch:
-            logger.debug(
+            logger.info(
                 "destination_batch_already_delivered",
+                destination_name=destination.name,
                 destination_type=destination.type,
                 batch_index=export_signal.batch_index,
+                msg=(f"Batch {export_signal.batch_index} already delivered to {destination.name}, skipping"),
             )
             continue
 
@@ -217,12 +241,28 @@ def deliver_batch_to_destinations(
             expected_row_count=export_signal.row_count,
         )
 
+        started_at = time.monotonic()
+        logger.info(
+            "destination_batch_started",
+            destination_name=destination.name,
+            destination_type=destination.type,
+            table_name=run_ctx.table_name,
+            sync_type=run_ctx.sync_type,
+            batch_index=export_signal.batch_index,
+            expected_rows=export_signal.row_count,
+            msg=(
+                f"Writing {export_signal.row_count:,} rows to {destination.name} "
+                f"({run_ctx.table_name}), batch {export_signal.batch_index}"
+            ),
+        )
+
+        outcome = None
         try:
             ensure_builtin_destination_writers_registered()
             writer = resolve_destination_writer(run_ctx)
             if not already_written:
                 async_to_sync(writer.prepare_run)(run_ctx)
-                async_to_sync(_write)(writer, export_signal, batch_ctx)
+                outcome = async_to_sync(_write)(writer, export_signal, batch_ctx)
                 # Marked before publication, not after. `finalize_run` is a no-op the second
                 # time, but `write_batch` is not: on a full refresh it rebuilds the staging
                 # table out of this one batch, so a replay that ran both again would publish
@@ -238,31 +278,54 @@ def deliver_batch_to_destinations(
                 written += 1
             if export_signal.is_final_batch:
                 async_to_sync(writer.finalize_run)(run_ctx)
+                logger.info(
+                    "destination_run_published",
+                    destination_name=destination.name,
+                    destination_type=destination.type,
+                    table_name=run_ctx.table_name,
+                    total_rows=export_signal.total_rows,
+                    msg=(
+                        f"Published {run_ctx.table_name} on {destination.name}"
+                        f"{f' ({export_signal.total_rows:,} rows)' if export_signal.total_rows else ''}"
+                    ),
+                )
         except Exception as e:
             logger.warning(
                 "destination_batch_failed",
+                destination_name=destination.name,
                 destination_type=destination.type,
+                table_name=run_ctx.table_name,
                 batch_index=export_signal.batch_index,
                 error=str(e),
+                msg=f"Failed writing to {destination.name} ({run_ctx.table_name}): {e}",
             )
             raise DestinationDeliveryError(destination.name, e) from e
 
-        logger.debug(
+        rows_written = outcome.rows_written if outcome else 0
+        duration_seconds = round(time.monotonic() - started_at, 3)
+        logger.info(
             "destination_batch_delivered",
+            destination_name=destination.name,
             destination_type=destination.type,
+            table_name=run_ctx.table_name,
             batch_index=export_signal.batch_index,
+            rows_written=rows_written,
+            duration_seconds=duration_seconds,
+            msg=(f"Wrote {rows_written:,} rows to {destination.name} ({run_ctx.table_name}) in {duration_seconds}s"),
         )
 
     return written
 
 
-async def _write(writer, export_signal: ExportSignalMessage, batch_ctx: DestinationBatchContext) -> None:
+async def _write(
+    writer, export_signal: ExportSignalMessage, batch_ctx: DestinationBatchContext
+) -> BatchWriteOutcome | None:
     """Stream the staged parquet into the writer a row group at a time.
 
     Re-read per destination rather than held once: a staged batch targets around 200 MiB of
     Arrow, and holding it for the whole loop would multiply that by the destination count.
     """
-    await writer.write_batch(aiter_record_batches(export_signal.s3_path), batch_ctx)
+    return await writer.write_batch(aiter_record_batches(export_signal.s3_path), batch_ctx)
 
 
 def abort_destinations(export_signal: ExportSignalMessage) -> None:

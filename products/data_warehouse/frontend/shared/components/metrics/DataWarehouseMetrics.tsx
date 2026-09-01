@@ -28,7 +28,7 @@ const DATA_WAREHOUSE_METRICS_INFO: Record<string, { name: string; description: s
     },
     rows_synced: {
         name: 'Rows synced',
-        description: 'Total number of rows imported from the source',
+        description: 'Rows read from the source. A run reads them once however many destinations it writes to.',
         color: getColorVar('success'),
     },
 }

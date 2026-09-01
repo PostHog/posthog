@@ -42,8 +42,6 @@ import {
     RowFilter,
 } from '~/types'
 
-import { externalDataSourcesDestinationsPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
-
 import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -934,6 +932,7 @@ export interface sourceWizardLogicActions {
             | 'DeelFlows'
             | 'Deepgram'
             | 'Deepsource'
+            | 'Demodesk'
             | 'DenoDeploy'
             | 'Depot'
             | 'Deputy'
@@ -1590,6 +1589,7 @@ export interface sourceWizardLogicActions {
             | 'RocketChat'
             | 'Rocketlane'
             | 'RocketMatter'
+            | 'RoktAds'
             | 'Rollbar'
             | 'Rootly'
             | 'Rss'
@@ -2206,6 +2206,7 @@ export interface sourceWizardLogicMeta {
             isManualLinkingSelected: boolean,
             isDirectQueryMode: boolean,
             hasWebhookSchemas: boolean,
+            showDestinationStep: boolean,
             arg: any,
             returnConfig: {
                 returnLabel: string
@@ -2896,6 +2897,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.isManualLinkingSelected,
                 s.isDirectQueryMode,
                 s.hasWebhookSchemas,
+                s.showDestinationStep,
                 (_, props) => props.onComplete,
                 s.returnConfig,
                 s.sourceId,
@@ -2905,6 +2907,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 isManualLinkingSelected: boolean,
                 isDirectQueryMode: boolean,
                 hasWebhookSchemas: boolean,
+                showDestinationStep: boolean,
                 onComplete,
                 returnConfig: {
                     returnLabel: string
@@ -2925,7 +2928,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         return 'Set up webhook'
                     }
 
-                    return 'Import'
+                    // The destination step follows, so this one no longer creates the source.
+                    return showDestinationStep ? 'Next' : 'Import'
                 }
 
                 if (currentStep === 4) {
@@ -3471,26 +3475,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     ...values.source,
                     source_type: values.selectedConnector.name,
                     created_via: 'web',
+                    // Sent with creation, not after it. Creation schedules the first sync before
+                    // it returns, and extraction snapshots the destinations onto that run, so a
+                    // follow-up request lands too late and the opening run goes to the warehouse
+                    // alone.
+                    ...(values.wizardDestinationIds.length > 0 ? { destination_ids: values.wizardDestinationIds } : {}),
                 })
 
                 actions.setSourceId(id)
-
-                // Applied before the first sync starts, so the source's opening run already
-                // carries these destinations and no backfill is needed. A failure here is not
-                // worth losing the created source over: the Destinations tab can still set them,
-                // at the cost of a resync.
-                if (values.wizardDestinationIds.length > 0) {
-                    try {
-                        await externalDataSourcesDestinationsPartialUpdate(String(values.currentTeamId), id, {
-                            destination_ids: values.wizardDestinationIds,
-                        })
-                    } catch (e: any) {
-                        posthog.captureException(e)
-                        lemonToast.error(
-                            'We created the source but could not save its destinations. Set them on the source’s Destinations tab.'
-                        )
-                    }
-                }
 
                 actions.resetSourceConnectionDetails()
                 actions.loadSources()

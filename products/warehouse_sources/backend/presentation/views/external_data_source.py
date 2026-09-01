@@ -916,6 +916,15 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "`null` on legacy rows and means billable."
         ),
     )
+    destination_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Destinations this run delivered to, snapshotted when it started. Empty on runs that "
+            "predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts "
+            "the rows read from the source once, not once per destination."
+        ),
+    )
 
     class Meta:
         model = ExternalDataJob
@@ -931,6 +940,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "workflow_run_id",
             "cdc_write_mode",
             "billable",
+            "destination_ids",
         ]
         read_only_fields = [
             "id",
@@ -944,6 +954,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "workflow_run_id",
             "cdc_write_mode",
             "billable",
+            "destination_ids",
         ]
 
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
@@ -1625,6 +1636,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "Defaults to false; ignored for pure direct-query sources."
         ),
     )
+    destination_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text=(
+            "Destinations every table on this source writes to. Set here rather than afterwards, "
+            "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -2241,6 +2260,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            destination_ids=serializer.validated_data.get("destination_ids"),
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2368,6 +2388,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         created_via: str,
         direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
+        destination_ids: list | None = None,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
@@ -2922,6 +2943,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
+
+        # Attach destinations before any schedule starts. Extraction snapshots the set onto the
+        # run, so a source whose destinations arrive after its first sync began writes that run
+        # to the warehouse alone, and reaching the others costs a full resync.
+        if destination_ids:
+            try:
+                set_source_destinations(
+                    team_id=self.team_id,
+                    source_id=new_source_model.pk,
+                    destination_ids=destination_ids,
+                )
+            except Exception as e:
+                # The source is already created and its tables are configured. Losing that over a
+                # destination set the user can still fix on the Destinations tab is the worse trade.
+                logger.exception(
+                    "Could not attach destinations to a new source",
+                    exc_info=e,
+                    source_id=new_source_model.pk,
+                )
 
         # Create all sync schedules over a single shared Temporal connection. Creating them
         # one call at a time reconnects to Temporal on every iteration, which does not scale

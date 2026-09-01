@@ -26,7 +26,9 @@ class TestResolveDestinations(BaseTest):
         )
         self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
 
-    def _destination(self, name: str, type_: str = ExternalDataDestination.Type.REDSHIFT) -> ExternalDataDestination:
+    def _destination(
+        self, name: str, type_: str = str(ExternalDataDestination.Type.REDSHIFT)
+    ) -> ExternalDataDestination:
         return ExternalDataDestination.objects.for_team(self.team.pk).create(
             team_id=self.team.pk, type=type_, name=name
         )

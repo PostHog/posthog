@@ -662,6 +662,7 @@ export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
  * since the docs are sent to the LLM gateway.
  */
 export const externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault = ``
+export const externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax = 0
 
 export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ zod.object({
     source_name: zod
@@ -669,7 +670,7 @@ export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ 
         .default(externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault)
         .describe("Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model."),
     docs_url: zod
-        .url()
+        .union([zod.url(), zod.string().max(externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax)])
         .optional()
         .describe(
             'URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.'

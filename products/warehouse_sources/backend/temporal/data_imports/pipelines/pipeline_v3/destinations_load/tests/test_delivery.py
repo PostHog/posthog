@@ -3,6 +3,9 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest import mock
 
+import structlog.testing
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     get_or_create_warehouse_destination,
@@ -77,7 +80,9 @@ class DeliveryTestCase(BaseTest):
     def _mark(self, team_id, schema_id, run_uuid, batch_index, destination_id=None) -> None:
         self._seen.add(f"{run_uuid}:{batch_index}:{destination_id}")
 
-    def _destination(self, name: str, type_: str = ExternalDataDestination.Type.REDSHIFT) -> ExternalDataDestination:
+    def _destination(
+        self, name: str, type_: str = str(ExternalDataDestination.Type.REDSHIFT)
+    ) -> ExternalDataDestination:
         return ExternalDataDestination.objects.for_team(self.team.pk).create(
             team_id=self.team.pk, type=type_, name=name, config={"table_name": "charges"}
         )
@@ -126,6 +131,39 @@ class TestDelivery(DeliveryTestCase):
         assert written == 2
         assert sorted(self._writes()) == ["warehouse a", "warehouse b"]
 
+    def test_the_logs_say_where_the_rows_went(self) -> None:
+        # A run writing to several destinations is otherwise indistinguishable in the logs from
+        # one writing to the warehouse alone, which is what makes a partial failure hard to read.
+        a = self._destination("customer postgres")
+
+        with structlog.testing.capture_logs() as logs:
+            delivery.deliver_batch_to_destinations(self._signal([str(a.id)]))
+
+        by_event = {entry["event"]: entry for entry in logs}
+
+        assert "destination_batch_started" in by_event
+        assert by_event["destination_batch_started"]["destination_name"] == "customer postgres"
+        assert by_event["destination_batch_started"]["table_name"]
+
+        delivered = by_event["destination_batch_delivered"]
+        assert delivered["destination_name"] == "customer postgres"
+        assert delivered["rows_written"] == 1
+        assert delivered["table_name"]
+        assert delivered["duration_seconds"] >= 0
+
+    def test_a_failed_destination_names_itself_and_its_table_in_the_logs(self) -> None:
+        a = self._destination("customer postgres")
+        RecordingWriter.fail_for = {"customer postgres"}
+
+        with structlog.testing.capture_logs() as logs:
+            with self.assertRaises(delivery.DestinationDeliveryError):
+                delivery.deliver_batch_to_destinations(self._signal([str(a.id)]))
+
+        failed = next(entry for entry in logs if entry["event"] == "destination_batch_failed")
+        assert failed["destination_name"] == "customer postgres"
+        assert failed["table_name"]
+        assert "destination unreachable" in failed["error"]
+
     def test_a_destination_that_already_took_the_batch_is_not_written_again(self) -> None:
         a = self._destination("warehouse a")
         signal = self._signal([str(a.id)])
@@ -144,7 +182,7 @@ class TestDelivery(DeliveryTestCase):
         # would make the test depend on which uuid happened to sort first.
         last = max((a, b), key=lambda d: str(d.id))
         first = min((a, b), key=lambda d: str(d.id))
-        RecordingWriter.fail_for = {last.name}
+        RecordingWriter.fail_for = {str(last.name)}
 
         with self.assertRaises(delivery.DestinationDeliveryError):
             delivery.deliver_batch_to_destinations(signal)
@@ -228,19 +266,21 @@ class TestDestinationTableName(DeliveryTestCase):
         )
         return ExternalDataSchema.objects.create(team=self.team, source=source, name=name)
 
-    def test_it_matches_the_name_the_posthog_warehouse_uses(self) -> None:
+    def test_it_leads_with_the_source_type(self) -> None:
         schema = self._schema_for("Stripe", "", "Charge")
 
         signal = self._signal([], schema_id=str(schema.id))
 
         assert destination_table_name(signal, {}) == "stripe_charge"
 
-    def test_a_source_prefix_is_carried_over(self) -> None:
+    @parameterized.expand([("no trailing underscore", "eu"), ("trailing underscore", "eu_")])
+    def test_a_source_prefix_sits_between_the_type_and_the_table(self, _name: str, prefix: str) -> None:
         # Two Stripe accounts are told apart by prefix in PostHog, so they must be told apart in
-        # the customer's database too rather than both landing on `stripe_charge`.
-        schema = self._schema_for("Stripe", "eu_", "Charge")
+        # the customer's database too rather than both landing on `stripe_charge`. The warehouse
+        # would glue this into `eu_stripe_charge`; separated, it reads as type, source, table.
+        schema = self._schema_for("Stripe", prefix, "Charge")
 
-        assert destination_table_name(self._signal([], schema_id=str(schema.id)), {}) == "eu_stripe_charge"
+        assert destination_table_name(self._signal([], schema_id=str(schema.id)), {}) == "stripe_eu_charge"
 
     def test_two_sources_sharing_a_resource_name_do_not_collide(self) -> None:
         postgres = self._schema_for("Postgres", "", "users")

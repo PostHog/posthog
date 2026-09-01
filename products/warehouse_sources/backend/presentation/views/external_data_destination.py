@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataDestina
 # `Type` enum carries the rest so the column and its data do not change as each one lands, but
 # a user cannot select one until its writer ships.
 DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
-    ExternalDataDestination.Type.POSTGRES: (Integration.IntegrationKind.POSTGRESQL,),
+    str(ExternalDataDestination.Type.POSTGRES): (str(Integration.IntegrationKind.POSTGRESQL),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
@@ -106,6 +106,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     RETARGETING_FIELDS = ("database", "schema")
 
     def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
+        assert self.instance is not None
         if "integration" in attrs and attrs["integration"] != self.instance.integration:
             raise ValidationError(
                 {

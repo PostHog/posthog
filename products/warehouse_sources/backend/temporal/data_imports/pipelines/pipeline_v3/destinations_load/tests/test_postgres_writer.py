@@ -101,7 +101,9 @@ def _table_exists(dsn: str, table: str) -> bool:
 
 def _row_count(dsn: str, table: str) -> int:
     with psycopg.connect(dsn, autocommit=True) as conn:
-        return conn.execute(f'SELECT count(*) FROM public."{table}"').fetchone()[0]
+        row = conn.execute(f'SELECT count(*) FROM public."{table}"').fetchone()
+        assert row is not None
+        return row[0]
 
 
 def _drop(dsn: str, *tables: str) -> None:

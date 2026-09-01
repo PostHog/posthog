@@ -17,8 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
 
 # Every destination type this deployment can write. Used as the default claim scope, because
 # claiming a type with no writer would lease the group and then fail every batch in it.
-SUPPORTED_DESTINATION_TYPES = [
-    ExternalDataDestination.Type.POSTGRES,
+SUPPORTED_DESTINATION_TYPES: list[str] = [
+    str(ExternalDataDestination.Type.POSTGRES),
 ]
 
 

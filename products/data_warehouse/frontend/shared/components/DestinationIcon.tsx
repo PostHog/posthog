@@ -14,7 +14,7 @@ import { ExternalDataDestinationTypeEnumApi } from 'products/warehouse_sources/f
 // The same artwork batch exports uses for its destinations, so one warehouse shows the same logo
 // wherever a PostHog surface names it. Keyed off this product's own enum rather than shared with
 // `BATCH_EXPORT_ICON_MAP`, because the two enums spell S3 differently.
-const DESTINATION_ICON_MAP: Record<ExternalDataDestinationTypeEnumApi, string> = {
+export const DESTINATION_ICON_MAP: Record<ExternalDataDestinationTypeEnumApi, string> = {
     PostHogWarehouse: IconPostHog,
     Postgres: IconPostgres,
     Redshift: IconRedshift,

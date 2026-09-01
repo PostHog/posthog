@@ -277,7 +277,7 @@ function DetailsSection({
                     )}
                 </div>
                 <div className="flex items-center justify-between">
-                    <span className="text-muted">Rows synced</span>
+                    <span className="text-muted">Row count</span>
                     <span>{schema.table?.row_count?.toLocaleString() ?? '—'}</span>
                 </div>
                 <div className="flex items-center justify-between">

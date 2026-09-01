@@ -65,6 +65,11 @@ Loading.args = {
     destinations: [],
     loading: true,
 }
+Loading.parameters = {
+    // This story shows a permanent loading state by design, so the test runner must not
+    // wait for the loader to disappear before taking its snapshot.
+    testOptions: { waitForLoadersToDisappear: false },
+}
 
 export const Empty = Template.bind({})
 Empty.args = {
