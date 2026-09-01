@@ -567,7 +567,6 @@ SPECTACULAR_SETTINGS = {
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
-            "TicketTagsMatchEnum": "products.conversations.backend.api.ticket_filters.TICKET_TAGS_MATCH_CHOICES",
             "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
             # Shared by HogFlowBatchJob.status and HogFlowBatchJobCancelResponse.status (same choice set).
             "HogFlowBatchJobStatusEnum": "products.workflows.backend.models.hog_flow_batch_job.HogFlowBatchJob.State",
@@ -579,20 +578,12 @@ SPECTACULAR_SETTINGS = {
             "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
             "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
-            # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
-            "LogsGroupBySourceEnum": "products.logs.backend.group_by_query_runner.GROUP_SOURCES",
             "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
-            "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
             "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
             # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
             "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
             # Same field name as the installation scope above, different values.
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.SERVICE_ACCOUNT_STATUS_CHOICES",
-            "MCPServerCategoryEnum": "products.mcp_store.backend.models.CATEGORY_CHOICES",
-            "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
-            "MCPPolicyPresetEnum": "products.mcp_store.backend.models.POLICY_PRESET_CHOICES",
-            "MCPAuditDecisionEnum": "products.mcp_store.backend.models.AUDIT_DECISION_CHOICES",
             # Inline-choices variant of TaskRun.Status (labels == values), shared by
             # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
             "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
