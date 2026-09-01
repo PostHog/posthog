@@ -91,9 +91,10 @@ export function parseIntervalParam(raw: unknown): IntervalType | null {
     return SELECTABLE_INTERVALS.find((interval) => interval === raw) ?? null
 }
 
-// How many buckets a window spans at an interval, without materializing every key. Approximate by
-// design: month lengths and DST shifts move the count by one, which never changes the judgement it
-// feeds.
+// How many buckets a window spans at an interval, without materializing every key. Counts the
+// buckets the window touches, so the result moves with the calendar: the same 7 days touch one month
+// bucket mid-month and two across a month boundary. That fits a density judgement, which depends on
+// the points actually drawn. For a judgement that must not move with the date, use intervalsSpanned.
 export function approximateBucketCount(
     dateFrom: string | null,
     dateTo: string | null,
@@ -104,6 +105,19 @@ export function approximateBucketCount(
     return Math.max(1, Math.floor(end.diff(startOfBucket(start, interval), interval, true)) + 1)
 }
 
+// How much of an interval the window covers, as a fraction. A 7-day window is about 0.25 of a month.
+// Measures the window itself rather than truncated bucket edges, so calendar alignment does not move
+// the result.
+function intervalsSpanned(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string,
+    interval: IntervalType
+): number {
+    const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
+    return end.diff(start, interval, true)
+}
+
 // The picker's options for a window, with the intervals that would draw an unreadable line or
 // collapse the range to a single point marked disabled.
 export function intervalOptionsForWindow(
@@ -112,11 +126,16 @@ export function intervalOptionsForWindow(
     timezone: string
 ): IntervalOption[] {
     return SELECTABLE_INTERVALS.map((value) => {
-        const buckets = approximateBucketCount(dateFrom, dateTo, timezone, value)
+        // Two separate questions. Density depends on the points drawn, so it counts buckets. Whether
+        // the range is worth grouping at all depends on the window's own length, so it measures the
+        // span, because a window under one whole interval can only chart partial buckets. One bucket
+        // count for both would make "Range too short" depend on the day of the month.
+        const tooLong = approximateBucketCount(dateFrom, dateTo, timezone, value) > MAX_BUCKETS
+        const tooShort = intervalsSpanned(dateFrom, dateTo, timezone, value) < 1
         return {
             value,
             label: INTERVAL_LABELS[value] ?? value,
-            disabledReason: buckets > MAX_BUCKETS ? 'Range too long' : buckets < 2 ? 'Range too short' : null,
+            disabledReason: tooLong ? 'Range too long' : tooShort ? 'Range too short' : null,
         }
     })
 }

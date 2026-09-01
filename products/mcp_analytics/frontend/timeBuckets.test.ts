@@ -143,35 +143,53 @@ describe('timeBuckets', () => {
         })
     })
 
-    describe('resolveInterval', () => {
-        // A pin outlives the window it was set on, so it has to give way once the window outgrows it:
-        // charting a year hour by hour also runs past the query's row limit, which drops the newest
-        // buckets. A pin that still fits has to beat the auto-choice — that's the point of pinning.
-        it.each([
-            ['-14d', 'hour', 'hour'], // 337 hourly buckets: fits
-            ['-1y', 'hour', 'month'], // 8761 hourly buckets: back to the auto-choice
-            ['-7d', 'month', 'day'], // shorter than one month: back to the auto-choice
-            ['-1y', 'day', 'day'], // 367 daily buckets: fits, and beats the auto-choice
-            ['-1y', null, 'month'], // nothing pinned: the auto-choice
-        ])('groups a %s window pinned to %s by %s', (dateFrom, pinned, expected) => {
-            expect(resolveInterval(dateFrom, null, 'UTC', pinned as IntervalType | null)).toBe(expected)
+    // Both judgements below resolve a relative window against the real clock, and where that window
+    // falls in the calendar moves with the date: -7d sits inside one month on the 15th and straddles
+    // two on the 1st. Run both anchors so the picker cannot answer by the day of the month, which
+    // would fail this suite for the first week of every month and pass it for the rest.
+    describe.each([
+        ['mid-month', '2026-06-18T12:00:00Z'],
+        ['across a month boundary', '2026-09-01T12:00:00Z'],
+    ])('with now %s', (_, now) => {
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date(now))
         })
-    })
 
-    describe('intervalOptionsForWindow', () => {
-        it('disables the intervals that would smear or collapse the window', () => {
-            expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
-                { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
-                { value: 'day', label: 'Day', disabledReason: null },
-                { value: 'week', label: 'Week', disabledReason: null },
-                { value: 'month', label: 'Month', disabledReason: null },
-            ])
-            expect(intervalOptionsForWindow('-7d', null, 'UTC')).toEqual([
-                { value: 'hour', label: 'Hour', disabledReason: null },
-                { value: 'day', label: 'Day', disabledReason: null },
-                { value: 'week', label: 'Week', disabledReason: null },
-                { value: 'month', label: 'Month', disabledReason: 'Range too short' },
-            ])
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        describe('resolveInterval', () => {
+            // A pin outlives the window it was set on, so it has to give way once the window outgrows
+            // it: charting a year hour by hour also runs past the query's row limit, which drops the
+            // newest buckets. A pin that still fits has to beat the auto-choice — that's the point of
+            // pinning.
+            it.each([
+                ['-14d', 'hour', 'hour'], // a few hundred hourly buckets: fits
+                ['-1y', 'hour', 'month'], // thousands of hourly buckets: back to the auto-choice
+                ['-7d', 'month', 'day'], // under one whole month: back to the auto-choice
+                ['-1y', 'day', 'day'], // a year of daily buckets: fits, and beats the auto-choice
+                ['-1y', null, 'month'], // nothing pinned: the auto-choice
+            ])('groups a %s window pinned to %s by %s', (dateFrom, pinned, expected) => {
+                expect(resolveInterval(dateFrom, null, 'UTC', pinned as IntervalType | null)).toBe(expected)
+            })
+        })
+
+        describe('intervalOptionsForWindow', () => {
+            it('disables the intervals that would smear or collapse the window', () => {
+                expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
+                    { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
+                    { value: 'day', label: 'Day', disabledReason: null },
+                    { value: 'week', label: 'Week', disabledReason: null },
+                    { value: 'month', label: 'Month', disabledReason: null },
+                ])
+                expect(intervalOptionsForWindow('-7d', null, 'UTC')).toEqual([
+                    { value: 'hour', label: 'Hour', disabledReason: null },
+                    { value: 'day', label: 'Day', disabledReason: null },
+                    { value: 'week', label: 'Week', disabledReason: null },
+                    { value: 'month', label: 'Month', disabledReason: 'Range too short' },
+                ])
+            })
         })
     })
 })
