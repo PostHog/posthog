@@ -92,7 +92,9 @@ export function AlertPreviewCard({
         : null
     const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
     const referenceLines = thresholdReferenceLines(alertForm)
-    const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
+    const useLogScale = Boolean(
+        !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
+    )
     const checkPreviewValues = checkPreview?.values
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
@@ -106,7 +108,13 @@ export function AlertPreviewCard({
         !trendsValues?.some((value) => value !== 0)
 
     let body: JSX.Element | null = null
-    if (isUnconfiguredAbsoluteThreshold) {
+    if (isBreakdownPreview) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                Preview unavailable: this alert evaluates each breakdown value separately.
+            </div>
+        )
+    } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
@@ -132,12 +140,6 @@ export function AlertPreviewCard({
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 No activity to preview for this series.
-            </div>
-        )
-    } else if (isBreakdownPreview) {
-        body = (
-            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                Preview unavailable for breakdown alerts.
             </div>
         )
     } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
@@ -175,7 +177,7 @@ export function AlertPreviewCard({
     }
 
     let lastValue: number | null = null
-    if (checkPreviewValues?.length) {
+    if (!isBreakdownPreview && checkPreviewValues?.length) {
         lastValue = checkPreviewValues[checkPreviewValues.length - 1]
     } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length && !isBreakdownPreview) {
         lastValue = trendsPreview.values[trendsPreview.values.length - 1]
@@ -183,18 +185,19 @@ export function AlertPreviewCard({
 
     let previewTooltip =
         'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
-    if (checkPreview !== undefined) {
-        previewTooltip = 'Values recorded by recent alert evaluations.'
-    } else if (isBreakdownPreview) {
+    if (isBreakdownPreview) {
         previewTooltip =
             'This alert evaluates every breakdown value. The preview cannot show one value as representative.'
+    } else if (checkPreview !== undefined) {
+        previewTooltip = 'Values recorded by recent alert evaluations.'
     }
+    const previewTitle = checkPreview !== undefined && !isBreakdownPreview ? 'Recent evaluations' : 'Preview'
 
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                    <span>{checkPreview !== undefined ? 'Recent evaluations' : 'Preview'}</span>
+                    <span>{previewTitle}</span>
                     <Tooltip title={previewTooltip} delayMs={0}>
                         <IconInfo className="text-muted size-3.5" />
                     </Tooltip>
