@@ -19,12 +19,14 @@ SINGLE_VIOLATION_REPORT_URI = {
     }
 }
 
+SINGLE_VIOLATION_REPORT_TO_BODY = {
+    "documentURL": "https://example.com/foo/bar",
+    "effectiveDirective": "script-src",
+}
+
 SINGLE_VIOLATION_REPORT_TO = {
     "type": "csp-violation",
-    "body": {
-        "documentURL": "https://example.com/foo/bar",
-        "effectiveDirective": "script-src",
-    },
+    "body": SINGLE_VIOLATION_REPORT_TO_BODY,
 }
 
 NON_VIOLATION_REPORT = {
@@ -149,14 +151,14 @@ class TestCspReport(BaseTest):
         posthog_violation = {
             **SINGLE_VIOLATION_REPORT_TO,
             "body": {
-                **SINGLE_VIOLATION_REPORT_TO["body"],
+                **SINGLE_VIOLATION_REPORT_TO_BODY,
                 "documentURL": "https://app.dev.posthog.dev/project/1",
             },
         }
         unknown_origin_violation = {"type": "csp-violation", "body": {"effectiveDirective": "script-src"}}
         local_violation = {
             **SINGLE_VIOLATION_REPORT_TO,
-            "body": {**SINGLE_VIOLATION_REPORT_TO["body"], "documentURL": "http://localhost:8010/project/1"},
+            "body": {**SINGLE_VIOLATION_REPORT_TO_BODY, "documentURL": "http://localhost:8010/project/1"},
         }
         posthog_crash = {**CRASH_REPORT, "url": "https://eu.posthog.com/project/1"}
 
