@@ -8,6 +8,13 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
     run_signals_scout_activity,
 )
+from products.signals.backend.temporal.agentic.scout_suggestions import (
+    RunScoutSuggestionsWorkflow,
+    ScoutSuggestionsCoordinatorWorkflow,
+    plan_scout_suggestion_runs_activity,
+    run_scout_suggestions_activity,
+    stamp_requested_scout_suggestions_activity,
+)
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
@@ -92,6 +99,8 @@ WORKFLOWS = [
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
+    RunScoutSuggestionsWorkflow,
+    ScoutSuggestionsCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
 ]
 
@@ -140,6 +149,9 @@ ACTIVITIES = [
     run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
+    plan_scout_suggestion_runs_activity,
+    run_scout_suggestions_activity,
+    stamp_requested_scout_suggestions_activity,
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
