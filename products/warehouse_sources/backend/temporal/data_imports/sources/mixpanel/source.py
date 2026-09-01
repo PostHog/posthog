@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import (
+    PAYMENT_REQUIRED_MESSAGE,
     MixpanelResumeConfig,
     mixpanel_source,
     validate_credentials as validate_mixpanel_credentials,
@@ -167,6 +168,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 "Mixpanel rejected the service account credentials. Create a new service account in "
                 "Organization Settings and reconnect."
             ),
+            "402 Client Error: Payment Required": PAYMENT_REQUIRED_MESSAGE,
             "403 Client Error: Forbidden": (
                 "The Mixpanel service account does not have access to this project or resource. Grant it "
                 "access to the project and reconnect."
