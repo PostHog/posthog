@@ -169,7 +169,10 @@ export function SpaceDocView({
         }}
       />
 
-      <div className="flex min-h-0 flex-1">
+      {/* A side panel needs room. Below the container breakpoint it covers the
+          doc instead of squeezing it, which keeps the text readable in a narrow
+          window beside the rail and another panel. */}
+      <div className="@container relative flex min-h-0 flex-1">
         <div
           ref={bodyRef}
           className="@container min-w-0 flex-1 overflow-y-auto px-4"
@@ -197,7 +200,7 @@ export function SpaceDocView({
         </div>
 
         {panelOpen && agentTaskId ? (
-          <aside className="flex w-96 shrink-0 flex-col border-(--gray-5) border-l">
+          <aside className="@2xl:static absolute inset-y-0 right-0 @2xl:z-auto z-10 flex @2xl:w-96 w-full @2xl:shrink-0 flex-col border-(--gray-5) border-l bg-(--gray-1)">
             <DocAgentThread
               taskId={agentTaskId}
               channelId={channelId}

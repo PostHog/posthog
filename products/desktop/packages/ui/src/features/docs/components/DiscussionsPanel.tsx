@@ -51,7 +51,7 @@ export function DiscussionsPanel({
   onClose: () => void;
 }) {
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-(--gray-5) border-l">
+    <aside className="@2xl:static absolute inset-y-0 right-0 @2xl:z-auto z-10 flex @2xl:w-80 w-full @2xl:shrink-0 flex-col border-(--gray-5) border-l bg-(--gray-1)">
       <div className="flex items-center justify-between px-3 py-2">
         <Text weight="medium">Discussions</Text>
         <Button
