@@ -15,6 +15,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FAST_RETURN_PROBE_TIMEOUT,
     AnySource,
     ResumableSource,
     SimpleSource,
@@ -90,13 +92,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class ImportDataActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
     reset_pipeline: Optional[bool] = None
+    # From `create_external_data_job_model_activity` (`_fast_return_eligible`): the schema tracks
+    # a cursor, is past its initial sync, and owes no repair work, so a negative probe may
+    # complete this run without extracting. Defaults False so old payloads keep the full path.
+    fast_return_eligible: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -106,6 +112,7 @@ class ImportDataActivityInputs:
             "source_id": self.source_id,
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
+            "fast_return_eligible": self.fast_return_eligible,
         }
 
 
@@ -256,6 +263,37 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
             "held_at": rewrite.get("held_at"),
         },
     )
+    return True
+
+
+async def _probe_found_new_data(
+    source: AnySource,
+    config: Any,
+    source_inputs: SourceInputs,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """False only when the source proves it has nothing past the watermark; True on any doubt.
+
+    The timeout bounds how long the run waits, but cannot interrupt the probe's thread: a probe
+    stuck on a remote call keeps running until the source's own bound fires (implementations cap
+    their query server-side, see `probe_new_data`). Either way this run continues into the full
+    sync, so a slow or broken probe costs time, never data.
+    """
+    try:
+        has_new_data = await asyncio.wait_for(
+            database_sync_to_async_pool(source.probe_new_data)(config, source_inputs),
+            timeout=FAST_RETURN_PROBE_TIMEOUT.total_seconds(),
+        )
+    except TimeoutError:
+        await logger.ainfo("Fast-return probe timed out, running the full sync")
+        return True
+    except Exception as e:
+        await logger.ainfo(f"Fast-return probe failed, running the full sync: {e}")
+        return True
+
+    if has_new_data is False:
+        await logger.ainfo("Fast-return probe: source has no new data")
+        return False
     return True
 
 
@@ -495,6 +533,26 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 await handle_non_retryable_error(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
+
+            # Probing before source setup is what makes the fast return cheap: everything past
+            # this point (connections, metadata queries, the delta log read) is spent whether or
+            # not the sync has anything to move. The probe reads the same `source_inputs` the
+            # extraction below would, so watermark processing and row filters cannot drift.
+            # `reset_pipeline` is re-checked here because a reset asked for through the workflow
+            # input never reaches `sync_type_config`, which is all eligibility can see.
+            if inputs.fast_return_eligible and not reset_pipeline:
+                if not await _probe_found_new_data(new_source, config, source_inputs, logger):
+                    # The run checked the source, so the schema must not read as stale. Mirrors
+                    # `update_last_synced_at` on the extracting path (which also stamps
+                    # `last_full_run_at`; a fast return deliberately does not).
+                    await database_sync_to_async_pool(
+                        ExternalDataSchema.objects.filter(id=schema.id, team_id=inputs.team_id).update
+                    )(last_synced_at=model.created_at, updated_at=dt.datetime.now(dt.UTC))
+                    return PipelineResult(
+                        should_trigger_cdp_producer=False,
+                        skip_post_import_activities=True,
+                        fast_returned=True,
+                    )
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:

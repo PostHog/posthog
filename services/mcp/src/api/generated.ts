@@ -20902,6 +20902,74 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
+    export interface DashboardSavedViewFilters {
+      /** @maxLength 200 */
+      search?: string;
+      createdBy?: number[] | 'All users';
+      pinned?: boolean;
+      shared?: boolean;
+      /**
+         * @maxItems 50
+         * @items.maxLength 100
+         */
+      tags?: string[];
+      /**
+         * @maxLength 4000
+         * @nullable
+         */
+      folder?: string | null;
+    }
+
+    /**
+     * * `private` - Private
+     * * `team` - Team
+     */
+    export type DashboardSavedViewScopeEnum = typeof DashboardSavedViewScopeEnum[keyof typeof DashboardSavedViewScopeEnum];
+
+
+    export const DashboardSavedViewScopeEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    export interface DashboardSavedView {
+      readonly id: string;
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name: string;
+      /** Dashboard list filters stored by this view. */
+      filters: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** Whether the current user can change this view's visibility. */
+      readonly can_change_scope: boolean;
+    }
+
+    export interface DashboardSavedViewWrite {
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name: string;
+      /** Dashboard list filters stored by this view. */
+      filters: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+    }
+
     export interface DashboardSubscribeNudgeResponse {
       /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
       created: boolean;
@@ -53854,6 +53922,14 @@ export namespace Schemas {
       results: DashboardBasic[];
     }
 
+    export interface PaginatedDashboardSavedViewList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DashboardSavedView[];
+    }
+
     export interface PaginatedDashboardTemplateList {
       count: number;
       /** @nullable */
@@ -60677,6 +60753,29 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedDashboardSavedView {
+      readonly id?: string;
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Dashboard list filters stored by this view. */
+      filters?: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** Whether the current user can change this view's visibility. */
+      readonly can_change_scope?: boolean;
     }
 
     export interface PatchedDashboardTemplate {
@@ -91600,6 +91699,33 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DashboardSavedViewsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Return saved views with this visibility scope.
+     *
+     * * `private` - Private
+     * * `team` - Team
+     * @minLength 1
+     */
+    scope?: DashboardSavedViewsListScope;
+    };
+
+    export type DashboardSavedViewsListScope = typeof DashboardSavedViewsListScope[keyof typeof DashboardSavedViewsListScope];
+
+
+    export const DashboardSavedViewsListScope = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
 
     export type DashboardTemplatesListParams = {
     /**
