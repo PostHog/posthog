@@ -166,8 +166,58 @@ mod tests {
         ledger.charge([charge(0), charge(1), charge(2)]);
         ledger.complete(&[Offset(2)]);
         assert_eq!(ledger.frontier(), None);
+        assert_eq!(ledger.take_frontier(), None);
         ledger.complete(&[Offset(0), Offset(1)]);
         assert_eq!(ledger.frontier(), Some(Offset(2)));
+    }
+
+    #[test]
+    fn a_partial_take_keeps_the_remainder_completable() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0), charge(1), charge(2)]);
+        ledger.complete(&[Offset(0)]);
+        let taken = ledger.take_frontier().unwrap();
+        assert_eq!(taken.offset, Offset(0));
+        assert_eq!(taken.charge.events, 1);
+        assert_eq!(ledger.len(), 2);
+        ledger.complete(&[Offset(1), Offset(2)]);
+        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "delivered below the window's next offset")]
+    fn duplicate_delivery_panics() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0), charge(1)]);
+        ledger.charge([charge(1)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "completed twice")]
+    fn double_completion_panics() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0)]);
+        ledger.complete(&[Offset(0)]);
+        ledger.complete(&[Offset(0)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "completion for an uncharged offset")]
+    fn completing_an_undelivered_offset_panics() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0)]);
+        ledger.complete(&[Offset(5)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "completion below the window base")]
+    fn completing_below_the_window_after_a_take_panics() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0), charge(1)]);
+        ledger.complete(&[Offset(0)]);
+        ledger.take_frontier().unwrap();
+        ledger.complete(&[Offset(0)]);
     }
 
     #[test]
