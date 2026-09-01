@@ -343,11 +343,19 @@ the agent up. The in-sandbox script (`start-dev-stack-preview.sh`) runs `pnpm in
 `failed` in `/tmp/posthog-preview/status.json`, which the wait activity polls. A crashed or unready
 dev-stack process fails the preview instead of publishing a half-working one, and each click on the
 link re-probes Django and Vite inside the sandbox before redirecting. Startup peaks around 19 GB, so
-these runs default to 32 GB rather than the standard VM memory size; cores stay at the VM default,
-and a per-task `sandbox_resources` override still wins. The launcher starts with a scrubbed
+these runs default to 32 GB rather than the standard VM memory size; the core limit stays at the
+VM default, but a box that actually boots the dev-stack image reserves 4 cores instead of the
+burstable 0.5 floor (a fallback to the plain base image keeps the plain floor), and a per-task
+`sandbox_resources` override still wins. The launcher starts with a scrubbed
 environment (`env -i`, fixed PATH), so the stack and its containers never inherit the run's
 GitHub token or personal API key. Relaunching is safe: the script takes an `flock` and reports
-`ready` straight away when the stack is already serving.
+`ready` straight away when the stack is already serving. While that lock is held, or once the
+stack it started answers `/_health`, `bin/start` (so `hogli start`) exits 0 without starting a
+second stack and tells the agent to poll `status.json` for `ready` or `failed`; `hogli wait`
+returns `not reachable` (exit 3) until the launcher reaches the phrocs step, so the agent retries
+it rather than forcing a start. The backend does not retry a `failed` preview; the agent then
+starts the stack itself. `HOGLI_SKIP_PREVIEW_CHECK=1` bypasses the guard, and the launcher sets it
+for its own `hogli start`.
 
 A Modal tunnel cannot reach the 127.0.0.1 listeners the dev compose stack publishes, and a
 two-origin setup breaks ES module loading, so the script puts one host-network Caddy container on

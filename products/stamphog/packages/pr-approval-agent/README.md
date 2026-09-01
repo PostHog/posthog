@@ -71,6 +71,8 @@ Size ceiling (hard gate)
     (limits derived from 90 days of denial outcomes: the friction cluster of
     denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
     ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
+  - A folder's AGENT_APPROVALS.md can raise either ceiling for its own files,
+    within the `overrides` contract in policy.yml (see .stamphog/README.md)
   - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and

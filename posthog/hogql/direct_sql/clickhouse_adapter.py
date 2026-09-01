@@ -10,7 +10,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -259,7 +259,7 @@ class ClickHouseAdapter:
             else ExternalDataSourceType.CLICKHOUSE
         )
         clickhouse_source = cast("ClickHouseSource", SourceRegistry.get_source(source_type))
-        config = clickhouse_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(clickhouse_source, source)
 
         is_ssh_valid, ssh_valid_errors = clickhouse_source.ssh_tunnel_is_valid(config, team.pk)
         if not is_ssh_valid:

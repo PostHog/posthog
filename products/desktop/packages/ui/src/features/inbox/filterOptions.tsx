@@ -26,7 +26,7 @@ export type InboxSortField = Extract<
   "priority" | "created_at" | "total_weight"
 >;
 
-export type InboxSortOption = {
+type InboxSortOption = {
   label: string;
   field: InboxSortField;
   direction: "asc" | "desc";

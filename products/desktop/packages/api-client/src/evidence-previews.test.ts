@@ -16,6 +16,7 @@ import {
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
   shapeExperimentPreview,
+  shapeExperimentResults,
   shapeFlagPreview,
   shapePersonPreview,
   shapeRecordingPreview,
@@ -27,6 +28,257 @@ import type { Schemas } from "./generated";
 
 // The shapers only read the fields they show; build minimal inputs and cast.
 describe("evidence preview shaping", () => {
+  const experimentWithMetrics = (
+    overrides: Partial<Schemas.Experiment> = {},
+  ): Schemas.Experiment =>
+    ({
+      id: 1234,
+      name: "Checkout prompt",
+      feature_flag_key: "checkout-prompt",
+      feature_flag: { id: 3, key: "checkout-prompt" },
+      start_date: "2026-01-01T00:00:00Z",
+      metrics: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "primary-1",
+          name: "Checkout conversion",
+          metric_type: "funnel",
+        },
+      ],
+      metrics_secondary: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "secondary-1",
+          name: "Orders per user",
+          metric_type: "mean",
+        },
+      ],
+      saved_metrics: [],
+      ...overrides,
+    }) as unknown as Schemas.Experiment;
+
+  const exposureResponse = {
+    kind: "ExperimentExposureQuery",
+    timeseries: [],
+    total_exposures: { control: 1050, test: 1020 },
+    date_range: { date_from: "2026-01-01", date_to: null },
+  } as Schemas.ExperimentExposureQueryResponse;
+
+  const readyMetricResponse = {
+    kind: "ExperimentQuery",
+    baseline: {
+      key: "control",
+      number_of_samples: 1000,
+      sum: 100,
+      sum_squares: 100,
+    },
+    variant_results: [
+      {
+        key: "test",
+        method: "frequentist",
+        number_of_samples: 1000,
+        sum: 125,
+        sum_squares: 125,
+        confidence_interval: [0.05, 0.45],
+        p_value: 0.02,
+        significant: true,
+      },
+    ],
+    significance_code: "significant",
+    is_cached: true,
+    last_refresh: new Date().toISOString(),
+  } as unknown as Schemas.ExperimentQueryResponse;
+
+  it("shapes running experiment results with primary and secondary metrics", () => {
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: readyMetricResponse }],
+      [{ response: readyMetricResponse }],
+    );
+
+    expect(results.state).toBe("ready");
+    expect(results.primaryMetrics[0]).toMatchObject({
+      name: "Checkout conversion",
+      metricType: "primary",
+      outcomeLabel: "Conversions",
+      state: "ready",
+      bestVariant: {
+        key: "test",
+        uplift: "+25.0%",
+        significance: "significant",
+        isImprovement: true,
+      },
+      variants: [
+        {
+          key: "control",
+          outcome: "100 · 10.0%",
+          sampleContext: "1K samples · 1.1K exposed",
+          uplift: null,
+          upliftDirection: null,
+          isImprovement: null,
+        },
+        {
+          key: "test",
+          outcome: "125 · 12.5%",
+          sampleContext: "1K samples · 1K exposed",
+          uplift: "+25.0%",
+          upliftDirection: "positive",
+          isImprovement: true,
+          interval: "+5.00% to +45.0%",
+          pValue: "0.020",
+          significance: "significant",
+        },
+      ],
+    });
+    expect(results.secondaryMetrics[0]).toMatchObject({
+      name: "Orders per user",
+      metricType: "secondary",
+    });
+  });
+
+  it("selects the strongest variant using a decrease metric's goal", () => {
+    const experiment = experimentWithMetrics({
+      metrics: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "primary-1",
+          name: "Support requests",
+          metric_type: "mean",
+          goal: "decrease",
+        },
+      ],
+      metrics_secondary: [],
+    } as unknown as Partial<Schemas.Experiment>);
+    const response = {
+      ...readyMetricResponse,
+      baseline: {
+        key: "control",
+        number_of_samples: 100,
+        sum: 100,
+        sum_squares: 100,
+      },
+      variant_results: [
+        {
+          key: "fewer-requests",
+          number_of_samples: 100,
+          sum: 80,
+          sum_squares: 80,
+          significant: true,
+        },
+        {
+          key: "more-requests",
+          number_of_samples: 100,
+          sum: 120,
+          sum_squares: 120,
+          significant: true,
+        },
+      ],
+    } as unknown as Schemas.ExperimentQueryResponse;
+
+    const results = shapeExperimentResults(
+      experiment,
+      exposureResponse,
+      [{ response }],
+      [],
+    );
+
+    expect(results.primaryMetrics[0].bestVariant).toMatchObject({
+      key: "fewer-requests",
+      uplift: "-20.0%",
+      isImprovement: true,
+    });
+  });
+
+  it("keeps a draft experiment distinct from missing results", () => {
+    const results = shapeExperimentResults(
+      experimentWithMetrics({ start_date: null }),
+      null,
+      [],
+      [],
+    );
+
+    expect(results.state).toBe("draft");
+    expect(results.primaryMetrics).toHaveLength(1);
+    expect(results.primaryMetrics[0].state).toBe("insufficient_data");
+    expect(results.secondaryMetrics).toHaveLength(1);
+  });
+
+  it("marks an old cached result as stale while the experiment is running", () => {
+    const oldResponse = {
+      ...readyMetricResponse,
+      last_refresh: "2020-01-01T00:00:00Z",
+    } as unknown as Schemas.ExperimentQueryResponse;
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: oldResponse }],
+      [{ response: oldResponse }],
+    );
+
+    expect(results.stale).toBe(true);
+    expect(results.lastRefresh).toBe("2020-01-01T00:00:00Z");
+  });
+
+  it("does not mark final completed results as stale", () => {
+    const oldResponse = {
+      ...readyMetricResponse,
+      last_refresh: "2025-01-01T00:00:00Z",
+    } as unknown as Schemas.ExperimentQueryResponse;
+    const results = shapeExperimentResults(
+      experimentWithMetrics({ end_date: "2026-01-15T00:00:00Z" }),
+      exposureResponse,
+      [{ response: oldResponse }],
+      [{ response: oldResponse }],
+    );
+
+    expect(results.state).toBe("ready");
+    expect(results.stale).toBe(false);
+  });
+
+  it("preserves a failed metric query in its configured position", () => {
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: null }],
+      [{ response: readyMetricResponse }],
+    );
+
+    expect(results.state).toBe("error");
+    expect(results.primaryMetrics[0]).toMatchObject({
+      name: "Checkout conversion",
+      state: "error",
+      error: "Couldn't calculate this metric.",
+    });
+    expect(results.secondaryMetrics[0].state).toBe("ready");
+  });
+
+  it("shows outcomes while marking low-exposure results as insufficient", () => {
+    const insufficientResponse = {
+      ...readyMetricResponse,
+      significance_code: "not_enough_exposure",
+      significant: false,
+    } as unknown as Schemas.ExperimentQueryResponse;
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: insufficientResponse }],
+      [{ response: insufficientResponse }],
+    );
+
+    expect(results.state).toBe("insufficient_data");
+    expect(results.primaryMetrics[0]).toMatchObject({
+      state: "insufficient_data",
+      variants: [
+        expect.any(Object),
+        expect.objectContaining({
+          outcome: "125 · 12.5%",
+          significance: "insufficient_data",
+        }),
+      ],
+    });
+  });
+
   it("keys the flag preview by key and carries the numeric id for links", () => {
     const preview = shapeFlagPreview({
       id: 42,

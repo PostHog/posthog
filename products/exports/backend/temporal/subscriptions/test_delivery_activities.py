@@ -30,6 +30,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     GenerateAIReportResult,
     SnapshotInsightsResult,
+    SubscriptionTriggerType,
     TrackedSubscriptionInputs,
 )
 from products.exports.backend.temporal.subscriptions.workflows import (
@@ -179,3 +180,66 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "slack"
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    [ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+    ids=["standard", "ai"],
+)
+async def test_schedule_update_failure_preserves_primary_failure(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+) -> None:
+    primary_error = RuntimeError("delivery failed")
+    schedule_error = RuntimeError("schedule update failed")
+
+    async def fake_execute_activity(activity: object, _inputs: object, **_kwargs: object) -> object:
+        if activity is create_delivery_record:
+            return uuid.uuid4()
+        if activity is validate_subscription_for_delivery:
+            return None
+        if activity is create_export_assets:
+            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=1)
+        if activity is export_asset_activity:
+            return ExportAssetResult(exported_asset_id=1, success=True)
+        if activity is snapshot_subscription_insights:
+            return SnapshotInsightsResult()
+        if activity is generate_ai_subscription_report:
+            return GenerateAIReportResult()
+        if activity in (deliver_subscription, deliver_subscription_v2):
+            raise primary_error
+        if activity is update_delivery_record:
+            return None
+        if activity is advance_next_delivery_date:
+            raise schedule_error
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch("temporalio.workflow.patched", return_value=False),
+        patch("temporalio.workflow.info") as mock_info,
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-test")
+        inputs = TrackedSubscriptionInputs(
+            subscription_id=1,
+            team_id=1,
+            distinct_id="u1",
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            slo=SloConfig(
+                operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=1,
+                resource_id="1",
+                distinct_id="u1",
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="delivery failed") as exc_info:
+            await workflow_type().run(inputs)
+
+    assert exc_info.value is primary_error
+    assert inputs.slo is not None
+    assert inputs.slo.completion_properties["failure_stage"] == "delivery"
+    assert inputs.slo.completion_properties["failure_component"] == "subscription_delivery"

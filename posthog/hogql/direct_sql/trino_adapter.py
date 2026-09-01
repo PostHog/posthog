@@ -9,7 +9,7 @@ from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -86,7 +86,7 @@ class TrinoAdapter:
             raise ExposedHogQLError("Invalid direct Trino connection.")
 
         trino_source = cast("TrinoSource", SourceRegistry.get_source(ExternalDataSourceType.TRINO))
-        config = trino_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(trino_source, source)
         is_valid, error = trino_source.is_database_host_valid(config.host, team.pk)
         if not is_valid:
             raise ExposedHogQLError(error or "Invalid Trino host.")

@@ -846,7 +846,7 @@ export class PiAgentServer {
     id: string,
     steer: boolean,
   ): Promise<unknown> {
-    const send = (type: "prompt" | "follow_up") =>
+    const send = (type: "prompt" | "follow_up" | "steer") =>
       runtime.sendCommand({ id, type, message: content, images });
     const state = await runtime.client.getState();
     if (!state.isStreaming) {
@@ -855,13 +855,15 @@ export class PiAgentServer {
     if (!steer) {
       return send("follow_up");
     }
-    await runtime.client.abort();
-    const prompted = await send("prompt");
-    if (prompted.success) {
-      return prompted;
+    const steered = await send("steer");
+    if (steered.success) {
+      return { ...steered, steered: true };
     }
-    const afterPrompt = await runtime.client.getState();
-    return afterPrompt.isStreaming ? send("follow_up") : prompted;
+    const afterSteer = await runtime.client.getState();
+    if (afterSteer.isStreaming) {
+      return send("follow_up");
+    }
+    return { ...steered, steered: false, reason: "pi_delivery_failed" };
   }
 
   private installSseController(sseController: SseController | null): void {

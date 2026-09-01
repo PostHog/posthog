@@ -157,7 +157,7 @@ Needs `gh` authenticated and the installed PostHog app quit. The CI job uploads 
 
 ## CI
 
-`desktop-update-e2e.yml` runs both specs nightly on `macos-15` with the real signing secrets, and on demand:
+`desktop-update-e2e.yml` runs both specs nightly on `depot-macos-26` with the real signing secrets, and on demand:
 
 ```bash
 gh workflow run "Desktop Update E2E (macOS)"

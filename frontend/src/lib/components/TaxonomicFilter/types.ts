@@ -345,6 +345,7 @@ export enum TaxonomicFilterGroupType {
     ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     AccountFields = 'account_fields',
+    AccountRelationships = 'account_relationships',
     AccountCustomProperties = 'account_custom_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',

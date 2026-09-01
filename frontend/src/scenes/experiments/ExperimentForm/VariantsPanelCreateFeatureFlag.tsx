@@ -19,7 +19,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { NEW_EXPERIMENT } from '../constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
 import { ensureIsPercent, isEvenlyDistributed } from '../utils'
 import {
     computeUpdatedVariantSplit,

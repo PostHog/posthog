@@ -365,6 +365,9 @@ tools:
             assignment is returned unchanged. For single-holder definitions, assigning a new user automatically ends the
             current holder's assignment.
         feature_flag: customer-analytics-csp
+    accounts-relationships-destroy:
+        operation: accounts_relationships_destroy
+        enabled: false
     accounts-relationships-end-create:
         operation: accounts_relationships_end_create
         enabled: true

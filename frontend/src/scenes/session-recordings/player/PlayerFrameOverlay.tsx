@@ -8,6 +8,7 @@ import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -78,7 +79,7 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
 ]
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion } =
+    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion, sessionPlayerMetaData } =
         useValues(sessionRecordingPlayerLogic)
     const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
 
@@ -94,7 +95,29 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
-    if (currentPlayerState === SessionPlayerState.ERROR) {
+    if (currentPlayerState === SessionPlayerState.ERROR && playerError === 'recordingTooLarge') {
+        const totalSize = sessionPlayerMetaData?.total_size
+        content = (
+            <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
+                <IconWarning className="text-danger text-5xl" />
+                <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
+                <div className="text-secondary text-sm text-center">
+                    It contains {totalSize ? `${humanizeBytes(totalSize)} of` : 'too much'} snapshot data in very large
+                    chunks, and playing it would freeze this browser tab. This usually comes from pages with rapidly
+                    changing content. You can exclude those elements from capture to keep future recordings playable.
+                </div>
+                <LemonButton
+                    targetBlank
+                    to="https://posthog.com/docs/session-replay/privacy"
+                    type="primary"
+                    fullWidth
+                    center
+                >
+                    Learn how to exclude elements
+                </LemonButton>
+            </div>
+        )
+    } else if (currentPlayerState === SessionPlayerState.ERROR) {
         const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
         const isUnauthorized = playerError === 'snapshotUnauthorized'
         const isRecoverable = !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)

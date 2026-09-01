@@ -619,10 +619,15 @@ const webBrowserTabsClient: BrowserTabsClient = {
   openTab: (input) => Promise.resolve(webBrowserTabsStore.openTab(input)),
   setTabTarget: (input) =>
     Promise.resolve(webBrowserTabsStore.setTabTarget(input)),
-  close: (tabId) => Promise.resolve(webBrowserTabsStore.close(tabId)),
+  close: (tabId, newTabId) =>
+    Promise.resolve(webBrowserTabsStore.close(tabId, newTabId)),
   closeMany: (input) =>
     Promise.resolve(
-      webBrowserTabsStore.closeMany(input.tabIds, input.focusTabId),
+      webBrowserTabsStore.closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
     ),
   setOrder: (input) => Promise.resolve(webBrowserTabsStore.setOrder(input)),
   setActiveTab: (input) =>

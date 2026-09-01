@@ -260,7 +260,7 @@ export interface LLMSkillApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -334,7 +334,7 @@ export interface LLMSkillListApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -414,8 +414,8 @@ export interface LLMSkillCreateApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
+     * What this skill does and when to use it. Max 1024 characters.
+     * @maxLength 1024
      */
     description: string
     /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -577,7 +577,7 @@ export interface PatchedLLMSkillPublishApi {
     edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description?: string
     /**

@@ -115,13 +115,11 @@ describe("commandCenterStore", () => {
       ]);
     });
 
-    it("focuses the cell, clears its creating state, and marks the grid curated", () => {
-      useCommandCenterStore.setState({ creatingCells: [3] });
+    it("focuses the cell and marks the grid curated", () => {
       useCommandCenterStore.getState().setBrainrotCell(3);
       const state = useCommandCenterStore.getState();
       expect(state.activeCellIndex).toBe(3);
       expect(state.activeTaskId).toBeNull();
-      expect(state.creatingCells).toEqual([]);
       expect(state.hasAutofilled).toBe(true);
     });
 
@@ -148,13 +146,11 @@ describe("commandCenterStore", () => {
       ]);
     });
 
-    it("focuses the cell, clears its creating state, and marks the grid curated", () => {
-      useCommandCenterStore.setState({ creatingCells: [3] });
+    it("focuses the cell and marks the grid curated", () => {
       useCommandCenterStore.getState().setTerminalCell(3, "term-1");
       const state = useCommandCenterStore.getState();
       expect(state.activeCellIndex).toBe(3);
       expect(state.activeTaskId).toBeNull();
-      expect(state.creatingCells).toEqual([]);
       expect(state.hasAutofilled).toBe(true);
     });
 
@@ -247,20 +243,6 @@ describe("commandCenterStore", () => {
       const state = useCommandCenterStore.getState();
       expect(state.activeTaskId).toBeNull();
       expect(state.activeCellIndex).toBe(0);
-    });
-
-    // Otherwise a "creating" spinner sits on a tile that now holds a session.
-    it("stops marking a filled cell as creating", () => {
-      useCommandCenterStore.setState({
-        cells: [null, null, null, null],
-        creatingCells: [1, 2],
-      });
-
-      useCommandCenterStore
-        .getState()
-        .applyPlacement({ layout: "2x2", cells: [null, "a", null, null] });
-
-      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
     });
 
     it("marks the grid curated so autofill can't stuff it later", () => {

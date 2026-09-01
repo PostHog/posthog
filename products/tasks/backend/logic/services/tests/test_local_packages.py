@@ -103,3 +103,30 @@ def test_resolves_default_catalog_runtime_dependencies(fake_monorepo: Path) -> N
             "star-catalog-runtime": "2.3.4",
         }
     }
+
+
+def test_keeps_registry_versions_and_skips_workspace_dependencies(fake_monorepo: Path) -> None:
+    agent_source_path = fake_monorepo / "packages" / "agent"
+    (agent_source_path / "package.json").write_text(
+        '{"dependencies":{"registry-runtime":"^4.5.6","local-runtime":"workspace:*"}}'
+    )
+    package = LocalPackage(
+        name="agent",
+        source_path=agent_source_path,
+        sandbox_install_path="/scripts/node_modules/@posthog/agent",
+    )
+
+    assert get_local_package_runtime_dependencies((package,)) == {"agent": {"registry-runtime": "^4.5.6"}}
+
+
+def test_rejects_manifest_with_non_object_dependencies(fake_monorepo: Path) -> None:
+    agent_source_path = fake_monorepo / "packages" / "agent"
+    (agent_source_path / "package.json").write_text('{"dependencies":["registry-runtime"]}')
+    package = LocalPackage(
+        name="agent",
+        source_path=agent_source_path,
+        sandbox_install_path="/scripts/node_modules/@posthog/agent",
+    )
+
+    with pytest.raises(ValueError, match="Expected dependencies to be an object"):
+        get_local_package_runtime_dependencies((package,))

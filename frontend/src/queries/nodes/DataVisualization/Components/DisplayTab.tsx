@@ -36,7 +36,7 @@ const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
 ]
 
 export const DisplayTab = (): JSX.Element => {
-    const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
+    const { effectiveVisualizationType, xData } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
@@ -49,6 +49,12 @@ export const DisplayTab = (): JSX.Element => {
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
+    const supportsAnnotations =
+        isDateXAxis &&
+        (isLineChart ||
+            effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+            effectiveVisualizationType === ChartDisplayType.ActionsStackedBar)
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         const leftPlaceholder = isSingleAxisChart ? 'Y-axis label' : 'Left Y-axis label'
@@ -143,6 +149,17 @@ export const DisplayTab = (): JSX.Element => {
                                         checked={chartSettings.boxPlot?.excludeOutliers !== false}
                                         onChange={(value) => {
                                             updateChartSettings({ boxPlot: { excludeOutliers: value } })
+                                        }}
+                                    />
+                                )}
+                                {supportsAnnotations && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        data-attr="data-visualization-show-annotations"
+                                        label="Show annotations"
+                                        checked={chartSettings.showAnnotations ?? false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ showAnnotations: value })
                                         }}
                                     />
                                 )}

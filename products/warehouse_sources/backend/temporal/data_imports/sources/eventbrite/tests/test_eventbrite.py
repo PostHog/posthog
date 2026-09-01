@@ -66,7 +66,7 @@ def _wire(
         if iterator is not None:
             return next(iterator)
         assert callable(responses)
-        return responses(prepared.url)
+        return responses(prepared.url)  # ty: ignore[invalid-return-type]
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = _send

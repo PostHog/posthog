@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from typing import Literal, NotRequired, TypedDict
 
 STALE_EVENT_DAYS = 30
@@ -18,6 +19,18 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+
+
+def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
+    """Whether an LLM prompt must leave this entry out."""
+    return bool(definition.get("system") or definition.get("ignored_in_assistant"))
+
+
+def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]]:
+    """The entries of a taxonomy group that an LLM prompt may show."""
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items():
+        if not is_hidden_from_assistant(definition):
+            yield name, definition
 
 
 """
@@ -2597,7 +2610,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent"],
+            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
@@ -2925,6 +2938,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP region",
             "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
+        },
+        "$mcp_scope_preset": {
+            "label": "MCP scope preset",
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": ["scout", "research", "implementation", "sandbox", "user"],
         },
         "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
@@ -3397,6 +3415,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$issue_description": {
             "label": "Issue description",
             "description": "The description of the error tracking issue this exception belongs to.",
+            "type": "String",
+        },
+        "$issue_severity": {
+            "label": "Issue severity",
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": ["low", "medium", "high", "critical"],
             "type": "String",
         },
         "$exception_release": {
@@ -3999,9 +4023,7 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
 }
 
 IGNORED_EVENT_NAMES: list[str] = [
-    name
-    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
-    if defn.get("system") or defn.get("ignored_in_assistant")
+    name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
 ]
 
 # Core PostHog events, derived from the taxonomy. Used to determine which events

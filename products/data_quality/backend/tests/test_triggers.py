@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models import DAG, Node
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_GATE, QUALITY_AUDIT_SKIP, QUALITY_AUDIT_WARN
 from products.data_quality.backend.facade.enums import CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic.triggers import (

@@ -287,7 +287,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -2011,6 +2012,17 @@
         "$issue_name": {
             "description": "The name of the error tracking issue this exception belongs to.",
             "label": "Issue name",
+            "type": "String"
+        },
+        "$issue_severity": {
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "label": "Issue severity",
             "type": "String"
         },
         "$last_posthog_reset": {
@@ -4866,7 +4878,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -7002,6 +7015,17 @@
         "$issue_name": {
             "description": "The name of the error tracking issue this exception belongs to.",
             "label": "Issue name",
+            "type": "String"
+        },
+        "$issue_severity": {
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "label": "Issue severity",
             "type": "String"
         },
         "$last_posthog_reset": {

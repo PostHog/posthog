@@ -52,7 +52,11 @@ logger = structlog.get_logger(__name__)
 
 BUCKET_KEY_PREFIX = "provisioning_bucket:"
 
-RATE_LIMITED_MESSAGE = "Rate limit exceeded for this partner. Try again later."
+RATE_LIMITED_MESSAGE = (
+    "Rate limit exceeded for this partner. Wait the number of seconds in the Retry-After header, "
+    "then retry. To raise your limits, publish a JWKS document or verify your organization: "
+    "https://posthog.com/docs/integrate/provisioning#rate-limits"
+)
 TIER_BLOCKED_MESSAGE = (
     "This endpoint is not available for this partner's tier. "
     "Publish a JWKS document or verify your organization to raise your tier."
