@@ -1981,6 +1981,16 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Copy of the parent task's origin_product, populated on creation and never changed.
+    # It lets the per-minute monitoring gauges group by origin_product without joining
+    # posthog_task on every run row. See `collect_task_run_state_metrics`.
+    origin_product = models.CharField(
+        max_length=20,
+        choices=task_origin_product_choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -2109,10 +2119,29 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
+            # Open statuses remain selective, so status leads the index for untimed gauges.
+            models.Index(
+                fields=["status", "environment", "origin_product"],
+                name="task_run_status_env_origin_idx",
+            ),
+            # Terminal rows dominate over time, so the recency range must lead this partial index.
+            models.Index(
+                fields=["updated_at"],
+                include=["status", "environment", "origin_product"],
+                name="task_run_terminal_updated_idx",
+                condition=models.Q(status__in=["completed", "failed", "cancelled"]),
+            ),
         ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        # Mirror the parent task's origin_product onto the run once, at creation, so the
+        # monitoring gauges can group by it locally.
+        if self._state.adding and not self.origin_product and self.task_id:
+            self.origin_product = self.task.origin_product
+        super().save(*args, **kwargs)
 
     @property
     def mode(self) -> str:

@@ -137,6 +137,16 @@ describe('accountsViewsLogic', () => {
         ])
     })
 
+    it('keeps column widths when the selected view changes', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+
+        logic.actions.setColumnWidth('name', 320)
+        logic.actions.setCurrentViewId('view-1')
+
+        await expectLogic(logic).toMatchValues({ columnWidths: { name: 320 } })
+    })
+
     it('isDirty flips when live state diverges from the applied view and clears on re-apply', async () => {
         useMocks({
             get: {
