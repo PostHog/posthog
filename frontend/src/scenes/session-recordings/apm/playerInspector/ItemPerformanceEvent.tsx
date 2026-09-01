@@ -110,16 +110,18 @@ function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
     ) : null
 }
 
-function isFailedNetworkRequest(item: PerformanceEvent): boolean {
-    // The SDK records a status for every fetch/XHR it captures, including 0 for an
-    // opaque cross-origin response. A captured call with a method but no status did
-    // not complete: it was blocked by a firewall, rejected by CORS, or hit a network
-    // error. Skip navigations and requests captured before PostHog started.
+export function isFailedNetworkRequest(item: PerformanceEvent): boolean {
+    // A captured fetch/XHR (method present) that did not complete: blocked by a firewall,
+    // rejected by CORS, or a network error. Skip navigations and requests captured before
+    // PostHog started. A fetch that throws records no status, while a successful opaque
+    // cross-origin fetch records 0, so for fetch only an absent status means failure. An
+    // XHR cannot be opaque, so it reports status 0 for its CORS, network, abort, and
+    // timeout failures.
     return (
         item.entry_type !== 'navigation' &&
         !item.is_initial &&
         item.method !== undefined &&
-        item.response_status === undefined
+        (item.response_status === undefined || (item.response_status === 0 && item.initiator_type === 'xmlhttprequest'))
     )
 }
 
