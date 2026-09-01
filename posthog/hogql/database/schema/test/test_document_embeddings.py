@@ -4,17 +4,23 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
+VALID_MODEL_NAME = "text-embedding-3-large-3072"
+
 
 class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
-    def _get_inner_query(self, query_str: str) -> ast.SelectQuery:
+    def _prepare(self, query_str: str) -> ast.SelectQuery:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         query = parse_select(query_str)
         prepared = prepare_ast_for_printing(query, context, dialect="clickhouse")
-        assert prepared is not None
         assert isinstance(prepared, ast.SelectQuery)
+        return prepared
+
+    def _get_inner_query(self, query_str: str) -> ast.SelectQuery:
+        prepared = self._prepare(query_str)
         assert prepared.select_from is not None
         inner_query = prepared.select_from.table
         assert isinstance(inner_query, ast.SelectQuery)
@@ -107,3 +113,29 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert inner_query.order_by is not None
         assert inner_query.limit is not None
         assert inner_query.offset is None, "OFFSET should not be pushed down to inner query"
+
+    def test_missing_model_name_raises_query_error(self):
+        # A missing filter must surface as a user-facing HogQL error, not a bare ValueError that 500s.
+        with self.assertRaises(QueryError) as ctx:
+            self._prepare("SELECT content FROM document_embeddings LIMIT 1")
+        message = str(ctx.exception)
+        assert "model_name" in message
+        assert VALID_MODEL_NAME in message
+
+    def test_invalid_model_name_raises_query_error(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._prepare("SELECT content FROM document_embeddings WHERE model_name = 'nope' LIMIT 1")
+        message = str(ctx.exception)
+        assert "nope" in message
+        assert VALID_MODEL_NAME in message
+
+    def test_model_name_filter_on_outer_query_is_resolved(self):
+        # The filter sits on the wrapping query, not on the select that holds the table. It must still route.
+        inner = self._get_inner_query(
+            f"""
+            SELECT content FROM (
+                SELECT content, model_name FROM document_embeddings
+            ) WHERE model_name = '{VALID_MODEL_NAME}'
+            """
+        )
+        assert isinstance(inner, ast.SelectQuery)
