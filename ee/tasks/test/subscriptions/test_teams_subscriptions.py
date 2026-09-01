@@ -61,6 +61,18 @@ class TestTeamsSubscriptionCard(APIBaseTest):
             },
         ]
 
+    def test_external_links_in_subscription_and_resource_names_are_defanged(self) -> None:
+        self.subscription.title = "[Open report](https://attacker.example/login)"
+        self.subscription.save(update_fields=["title"])
+        self.insight.name = "[Quarterly report](https://evil.example.com/report)"
+        self.insight.save(update_fields=["name"])
+
+        content = self._card_content()
+
+        assert content["body"][0]["text"] == (
+            "Your subscription to **Open report** (Insight: Quarterly report) is ready! 🎉"
+        )
+
     def test_capped_assets_get_a_trailer_pointing_at_the_rest(self) -> None:
         message = build_teams_subscription_card(self.subscription, [self.asset], 4)
         trailer = message["attachments"][0]["content"]["body"][-1]
@@ -78,6 +90,21 @@ class TestTeamsSubscriptionCard(APIBaseTest):
 
         assert block["type"] == "TextBlock"
         assert "Query timed out" in block["text"]
+
+    def test_failed_asset_external_links_are_defanged(self) -> None:
+        self.insight.name = "[Quarterly report](https://evil.example.com/report)"
+        self.insight.save(update_fields=["name"])
+        self.asset.content_location = None
+        self.asset.exception = "[Retry here](https://attacker.example/login)"
+        self.asset.save()
+
+        content = self._card_content()
+        block = content["body"][1]
+
+        assert "**Quarterly report**" in block["text"]
+        assert "There was an error generating your asset: Retry here" in block["text"]
+        assert "evil.example.com" not in block["text"]
+        assert "attacker.example" not in block["text"]
 
     def test_a_first_delivery_says_the_channel_is_now_subscribed(self) -> None:
         content = self._card_content(is_new_subscription=True)

@@ -437,7 +437,7 @@ async def send_slack_ai_subscription_report(
 def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> dict[str, Any]:
     """Adaptive Card for an AI report. Adaptive Cards render a restricted markdown subset in a
     TextBlock, so the report goes through mostly as written and a table degrades to plain text."""
-    title = subscription.title or "Your PostHog AI report"
+    title = strip_external_links_markdown(subscription.title or "Your PostHog AI report")
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )

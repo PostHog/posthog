@@ -85,9 +85,11 @@ def _element_for_asset(asset: ExportedAsset, resource_url: str) -> dict[str, Any
     if _has_asset_failed(asset):
         details = failed_asset_details(asset)
         support_url = subscription_support_url(resource_url)
+        insight_name = strip_external_links_markdown(details.insight_name)
+        error_text = strip_external_links_markdown(details.error_text)
         return teams_text_block(
-            f"**{details.insight_name}**\n\n"
-            f"There was an error generating your asset: {details.error_text}\n\n"
+            f"**{insight_name}**\n\n"
+            f"There was an error generating your asset: {error_text}\n\n"
             f"_If this issue persists, please [contact support]({support_url})._"
         )
 
@@ -112,10 +114,12 @@ def build_teams_subscription_card(
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
 
+    resource_name = strip_external_links_markdown(resource_info.name)
     if subscription.title:
-        display_name = f"**{subscription.title}** ({resource_info.kind}: {resource_info.name})"
+        subscription_title = strip_external_links_markdown(subscription.title)
+        display_name = f"**{subscription_title}** ({resource_info.kind}: {resource_name})"
     else:
-        display_name = f"the {resource_info.kind} **{resource_info.name}**"
+        display_name = f"the {resource_info.kind} **{resource_name}**"
 
     if is_new_subscription:
         title = (

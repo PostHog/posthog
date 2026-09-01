@@ -374,6 +374,15 @@ class TestBuildAITeamsCard:
 
         assert "evil.example.com" not in str(body)
 
+    def test_external_links_in_the_subscription_title_are_stripped(self) -> None:
+        subscription = _mock_subscription()
+        subscription.title = "[Open report](https://attacker.example/login)"
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID)
+        body = card["attachments"][0]["content"]["body"]
+
+        assert body[0]["text"] == "**Open report**"
+
 
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:
     integration = MagicMock()
