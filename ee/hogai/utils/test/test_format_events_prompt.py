@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import CachedTeamTaxonomyQueryResponse, MaxEventContext, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team
 
 from ee.hogai.utils.helpers import (
     MAX_EVENT_DESCRIPTION_LENGTH,
@@ -395,6 +396,25 @@ class TestFormatEventsPrompt(BaseTest):
 
         description = self._get_event_description(result, "quiz_retaken")
         self.assertEqual(description, "Fired when a user retakes a quiz")
+
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_format_events_xml_finds_event_definition_of_a_sibling_environment(self, mock_runner_class):
+        """Definitions are project-scoped, so one written in a sibling environment still describes the event."""
+        taxonomy_items = self._create_taxonomy_items(
+            [
+                ("quiz_retaken", 100),
+            ]
+        )
+        self._setup_mock_runner(mock_runner_class, taxonomy_items)
+
+        sibling = Team.objects.create(organization=self.organization, project=self.project, name="staging")
+        EnterpriseEventDefinition.objects.create(
+            team=sibling, project=self.project, name="quiz_retaken", description="Defined in the sibling environment"
+        )
+
+        result = format_events_xml([], self.team, self.user)
+
+        self.assertEqual(self._get_event_description(result, "quiz_retaken"), "Defined in the sibling environment")
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_format_events_xml_context_description_takes_precedence_over_event_definition(self, mock_runner_class):
