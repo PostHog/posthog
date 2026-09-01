@@ -305,7 +305,9 @@ images retain their separate ten-minute, batched refresh fanout.
 `python manage.py bake_dev_stack_image` triggers a bake manually and bypasses the flag.
 Pointing an org's `default_custom_image` payload key at that name gives its VM runs warm docker
 state and already-migrated databases, so a task-time `hogli start` only applies the migrations
-that landed since the last bake. The pnpm store and Playwright's Chromium are prewarmed too:
+that landed since the last bake. The snapshot clones the migrated Postgres database into
+`test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
+The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
 are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
