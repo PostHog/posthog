@@ -218,9 +218,11 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -491,9 +493,11 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   filters: {

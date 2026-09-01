@@ -40,11 +40,3 @@ export function classifyStaleness(
 
   return null;
 }
-
-/** Sort order for staleness reasons (most severe first) */
-export const STALENESS_ORDER: Record<StalenessReason, number> = {
-  not_in_posthog: 0,
-  inactive: 1,
-  experiment_complete: 2,
-  fully_rolled_out: 3,
-};

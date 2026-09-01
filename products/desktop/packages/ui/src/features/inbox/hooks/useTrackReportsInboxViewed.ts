@@ -1,4 +1,5 @@
 import { buildInboxViewedProperties } from "@posthog/core/inbox/engagement";
+import type { InboxReviewerScope } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
 import { track } from "@posthog/ui/shell/analytics";
@@ -11,7 +12,7 @@ export function useTrackReportsInboxViewed({
   sourceProductFilter,
   priorityFilter,
   searchQuery,
-  isDefaultScope,
+  scope,
 }: {
   reports: SignalReport[];
   totalCount: number;
@@ -19,7 +20,7 @@ export function useTrackReportsInboxViewed({
   sourceProductFilter: string[];
   priorityFilter: string[];
   searchQuery: string;
-  isDefaultScope: boolean;
+  scope: InboxReviewerScope;
 }): void {
   const firedRef = useRef(false);
 
@@ -36,7 +37,7 @@ export function useTrackReportsInboxViewed({
           sourceProductFilter,
           priorityFilter,
           searchQuery,
-          isDefaultScope,
+          scope,
         },
       }),
     );
@@ -47,6 +48,6 @@ export function useTrackReportsInboxViewed({
     sourceProductFilter,
     priorityFilter,
     searchQuery,
-    isDefaultScope,
+    scope,
   ]);
 }

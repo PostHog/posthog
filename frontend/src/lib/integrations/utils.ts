@@ -61,6 +61,7 @@ export type IntegrationConnectSurface =
     | 'missing_scopes_reconnect'
     | 'warehouse_source_reconnect'
     | 'onboarding_wizard'
+    | 'inbox_welcome'
     | 'signals_agent_setup'
     | 'task_composer'
     | 'visual_review_settings'

@@ -94,10 +94,10 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message-property filters only. Channel is one of these rather than a field of its own,
-            // so it composes with poster and text conditions instead of being matched separately.
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),
@@ -351,14 +351,22 @@ export const HogFlowSchema = z.object({
     updated_at: z.union([z.number(), z.string(), z.date()]).optional(),
 })
 
-export type RowScopedTrigger = Extract<HogFlow['trigger'], { type: 'data-warehouse-table' | 'data-warehouse-view' }>
+export type RowScopedTrigger = Extract<
+    HogFlow['trigger'],
+    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'internal-event' }
+>
 
 /**
- * A warehouse-row trigger produces one run per row, with the row's columns under
- * `event.properties` and no person attached.
+ * A row-scoped trigger produces one run per delivery (a warehouse row, a Slack message, a GitHub
+ * event), with the delivery's own properties under `event.properties` and no person attached.
+ * Keep in sync with the backend's ROW_SCOPED_TRIGGER_TYPES.
  */
 export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowScopedTrigger {
-    return trigger?.type === 'data-warehouse-table' || trigger?.type === 'data-warehouse-view'
+    return (
+        trigger?.type === 'data-warehouse-table' ||
+        trigger?.type === 'data-warehouse-view' ||
+        trigger?.type === 'internal-event'
+    )
 }
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

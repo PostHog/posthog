@@ -30,7 +30,7 @@ export const finishSchema = {
     ),
 };
 
-export const FINISH_TOOL_DESCRIPTION =
+const FINISH_TOOL_DESCRIPTION =
   "End this run and release the sandbox. This is an unattended background run: " +
   "nothing else will stop it promptly, so calling `finish` is how the machine " +
   "is reclaimed instead of sitting idle until a timeout fires. Call it once — " +

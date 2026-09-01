@@ -61,24 +61,6 @@ function stripModelOptions(
   };
 }
 
-export function stripGlmModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isGlmModelId);
-}
-
-export function stripDeepseekModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isDeepseekModelId);
-}
-
-export function stripKimiModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isKimiModelId);
-}
-
 export function stripDisabledModelOption(
   option: SessionConfigOption,
   flags: ModelRolloutFlags,
