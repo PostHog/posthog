@@ -72,6 +72,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
     get_task_run_stream_key,
+    get_task_run_stream_watched_key,
 )
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -5395,6 +5396,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "use_modal_vm_sandbox": False,
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
+                "stream_presence_gated": True,
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
@@ -5449,6 +5451,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "use_modal_vm_sandbox": True,
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
+                    "stream_presence_gated": False,
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
@@ -5507,6 +5510,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
+        assert run.state["stream_presence_gated"] is True
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
@@ -5544,6 +5548,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state_remove_keys": [
                     "github_credential_source",
                     "agent_otel_telemetry_enabled",
+                    "stream_presence_gated",
                     "sandbox_id",
                     "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
@@ -5579,6 +5584,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
+        assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
@@ -9093,6 +9099,46 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         )
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
+
+    @override_settings(TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS=["user_created"])
+    def test_stream_presence_gated_run_reads_missing_stream_instead_of_erroring(self):
+        task = self.create_task()
+        run = task.create_run()
+        self.assertIs(run.state["stream_presence_gated"], True)
+
+        captured: dict = {}
+
+        async def fake_read(
+            redis_stream: TaskRunRedisStream, start_id: str = "0", **kwargs
+        ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
+            captured["start_id"] = start_id
+            yield (
+                "1-1",
+                {
+                    "type": "notification",
+                    "notification": {"jsonrpc": "2.0", "method": "_posthog/console", "params": {}},
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "read_stream_entries", fake_read),
+            patch.object(TaskRunRedisStream, "get_latest_stream_id", AsyncMock(return_value="5-5")) as mock_latest,
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+        ):
+            response = self.client.get(self._stream_url(task, run) + "?start=latest")
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event for event in events if event["event"] == "error"], [])
+        self.assertEqual(captured["start_id"], "0")
+        mock_latest.assert_not_awaited()
+
+        async def _watched() -> bool:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            watched_key = get_task_run_stream_watched_key(get_task_run_stream_key(str(run.id)))
+            return bool(await redis_stream._redis_client.exists(watched_key))
+
+        self.assertTrue(asyncio.run(_watched()))
 
 
 class TestTaskRunRedisStreamKeepalive(TestCase):

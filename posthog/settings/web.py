@@ -580,12 +580,15 @@ SPECTACULAR_SETTINGS = {
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
+        # Shared by growth's identity-matching `tier` and the scout suggestion `confidence` fields.
+        "ConfidenceTierEnum": ["low", "medium", "high"],
         # `source_product` names the same choice set on several signals components, so pin one name.
         "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardSavedViewScopeEnum": "products.dashboards.backend.models.dashboard_saved_view.DashboardSavedView.Scope",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
@@ -676,6 +679,8 @@ SPECTACULAR_SETTINGS = {
             None,
         ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+        # Shared by FileDownloadHogQLRequest.model and FileDownloadCountRowsRequest.model.
+        "FileDownloadHogQLModelEnum": ["hogql"],
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
@@ -1088,7 +1093,9 @@ PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ACCOUNT_ID = get_from_env("CLOUDFLARE_ACCOUNT_ID", "")
 CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_PROXY_KV_NAMESPACE_ID = get_from_env("CLOUDFLARE_PROXY_KV_NAMESPACE_ID", "")
 CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
 
