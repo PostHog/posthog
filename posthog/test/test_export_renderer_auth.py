@@ -68,22 +68,26 @@ class TestExportRendererAuthentication(APIBaseTest):
                 "session_recording",
                 "/api/environments/{team_id}/session_recordings/test-recording",
                 "session_recording:read",
+                status.HTTP_404_NOT_FOUND,
             ),
             (
                 "heatmaps",
                 "/api/environments/{team_id}/heatmaps?type=click&date_from=-7d&url_exact=https://example.com&viewport_width_min=1260&viewport_width_max=1540&aggregation=total_count&limit=0",
                 "heatmap:read",
+                status.HTTP_200_OK,
             ),
         ]
     )
-    def test_export_renderer_token_accepted_on_opted_in_endpoint(self, _name: str, url_template: str, scope: str):
+    def test_export_renderer_token_accepted_on_opted_in_endpoint(
+        self, _name: str, url_template: str, scope: str, expected_status: int
+    ) -> None:
         client = self._unauthenticated_client()
         token = self._make_export_renderer_token(scope=scope)
         response = client.get(
             url_template.format(team_id=self.team.id),
             headers={"authorization": f"Bearer {token}"},
         )
-        assert response.status_code not in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}
+        assert response.status_code == expected_status
 
     @parameterized.expand(
         [

@@ -15,6 +15,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.test import APIClient
 
 from posthog.api.sharing import (
     SHARING_RESOURCE_ACCESS_CHECKS,
@@ -24,6 +25,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.filters.filter import Filter
@@ -1624,6 +1626,75 @@ class TestSharedAdhocQueryExport(APIBaseTest):
 
         response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
         assert response.status_code == 404
+
+
+class TestExportRendererTokenFlow(APIBaseTest):
+    @staticmethod
+    def _exported_data(response: HttpResponse) -> dict:
+        html = response.content.decode()
+        marker = '<script id="posthog-exported-data" type="application/json">'
+        start = html.index(marker) + len(marker)
+        end = html.index("</script>", start)
+        encoded_data = json.loads(html[start:end])
+        return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
+
+    @mock_exporter_template
+    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(self) -> None:
+        export_context = {
+            "heatmap_url": "https://example.com",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "click",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d"},
+            "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+        }
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context=export_context,
+        )
+
+        with patch("products.exports.backend.url_security.is_url_allowed", return_value=(True, None)):
+            response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+
+        assert response.status_code == status.HTTP_200_OK
+        renderer_token = self._exported_data(response)["exportToken"]
+        claims = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)
+        assert claims["id"] == self.user.id
+        assert claims["team_id"] == self.team.id
+        assert claims["exported_asset_id"] == asset.id
+        assert claims["scopes"] == ["heatmap:read"]
+
+        heatmap_response = APIClient().get(
+            f"/api/environments/{self.team.id}/heatmaps",
+            {
+                "type": "click",
+                "date_from": "-7d",
+                "url_exact": "https://example.com",
+                "viewport_width_min": "1260",
+                "viewport_width_max": "1540",
+                "aggregation": "total_count",
+                "limit": "0",
+            },
+            headers={"authorization": f"Bearer {renderer_token}"},
+        )
+        assert heatmap_response.status_code == status.HTTP_200_OK
+
+    def test_exporter_page_rejects_stored_cross_origin_screenshot_asset(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.com/collect",
+                "heatmap_data_url": "https://example.com/page",
+                "heatmap_type": "screenshot",
+            },
+        )
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestSharedCohortInlining(APIBaseTest):
