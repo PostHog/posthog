@@ -1801,14 +1801,16 @@ class TestHogqlTableDescribeSettings:
         ):
             batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        # Both probes keep the settings that hold GLOBAL off; the fallback still runs the untouched
-        # GLOBAL query, so it is capped far below the activity budget to fail fast.
-        assert [settings for _, settings in client.describe_calls] == [
-            DESCRIBE_QUERY_SETTINGS,
-            DESCRIBE_QUERY_SETTINGS,
-        ]
+        # Both probes keep the settings that hold GLOBAL off. The fallback still runs the untouched
+        # GLOBAL query, so it also sends the execution-time cap as a DESCRIBE statement setting.
+        # ClickHouse ignores a SETTINGS clause nested in DESCRIBE TABLE (...), so the cap only bounds
+        # the scan when it rides in the statement settings, not the printed SELECT.
+        assert client.describe_calls[0][1] == DESCRIBE_QUERY_SETTINGS
+        assert client.describe_calls[1][1] == {
+            **DESCRIBE_QUERY_SETTINGS,
+            "max_execution_time": str(DESCRIBE_FALLBACK_MAX_EXECUTION_TIME),
+        }
         assert "globalIn(" in client.describe_calls[1][0]
-        assert f"max_execution_time={DESCRIBE_FALLBACK_MAX_EXECUTION_TIME}" in client.describe_calls[1][0]
         assert batches[0][1] == [("distinct_id", "String")]
 
 

@@ -610,11 +610,15 @@ async def hogql_table(
         await logger.awarning(
             "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
         )
-        fallback_settings = settings.model_copy(update={"max_execution_time": DESCRIBE_FALLBACK_MAX_EXECUTION_TIME})
-        untouched = await database_sync_to_async_pool(_print_untouched)(
-            prepared_hogql_query, context, fallback_settings
+        untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
+        # The cap rides in the DESCRIBE statement settings, not the inner SELECT: ClickHouse ignores
+        # a SETTINGS clause nested inside DESCRIBE TABLE (...), so only a statement-level setting
+        # bounds the plan-time scan.
+        described_columns = await _describe_columns(
+            untouched,
+            context.values,
+            {**DESCRIBE_QUERY_SETTINGS, "max_execution_time": str(DESCRIBE_FALLBACK_MAX_EXECUTION_TIME)},
         )
-        described_columns = await _describe_columns(untouched, context.values, DESCRIBE_QUERY_SETTINGS)
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
     for column_name, ch_type in described_columns.items():
