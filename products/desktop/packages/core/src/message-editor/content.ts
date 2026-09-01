@@ -15,6 +15,7 @@ export const POSTHOG_OBJECT_KINDS = [
   "experiment",
   "survey",
   "ticket",
+  "report",
   "trace",
   "eval",
   "event",
@@ -154,7 +155,7 @@ export function contentToXml(content: EditorContent): string {
 // rides in the tag body. contentToXml XML-escapes that body, so the body is
 // captured here and decoded on the way into a chip.
 const CHIP_TAG_REGEX =
-  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>/g;
+  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|report|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>/g;
 
 export function deriveFileLabel(filePath: string): string {
   const segments = filePath.split("/").filter(Boolean);
@@ -205,6 +206,7 @@ function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
     case "flag":
     case "survey":
     case "ticket":
+    case "report":
     case "trace":
     case "eval":
     case "event":

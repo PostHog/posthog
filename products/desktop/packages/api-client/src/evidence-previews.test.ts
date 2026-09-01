@@ -1,3 +1,4 @@
+import type { SignalReport } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
   cohortCriteriaSection,
@@ -18,6 +19,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -790,6 +792,29 @@ describe("evidence preview shaping", () => {
       channel_source: "widget",
     } as unknown as Schemas.Ticket);
     expect(preview.title).toBe("Ticket #841");
+  });
+
+  it("summarizes an Inbox report separately from a support ticket", () => {
+    const preview = shapeInboxReportPreview({
+      id: "rep-1",
+      title: "Checkout latency increased",
+      summary: "Requests became slower after the latest release.",
+      status: "pending_input",
+      priority: "P2",
+      signal_count: 4,
+      total_weight: 4,
+      artefact_count: 2,
+      source_products: ["error_tracking"],
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-03T10:00:00Z",
+    } as SignalReport);
+
+    expect(preview).toMatchObject({
+      title: "Checkout latency increased",
+      detail: "Requests became slower after the latest release.",
+      status: { label: "Pending input", tone: "caution" },
+      facts: ["P2", "4 signals", "Error tracking"],
+    });
   });
 
   it("identifies a person by name or email and carries the uuid for links", () => {

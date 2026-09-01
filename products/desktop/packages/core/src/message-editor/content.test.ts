@@ -1,8 +1,10 @@
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { describe, expect, it } from "vitest";
 import {
   contentToXml,
   type EditorContent,
   extractFilePaths,
+  POSTHOG_OBJECT_KINDS,
   xmlToContent,
   xmlToPlainText,
 } from "./content";
@@ -180,15 +182,18 @@ describe("xmlToContent", () => {
     });
   });
 
-  it("parses a dashboard tag into a PostHog object chip", () => {
-    expect(xmlToContent('<dashboard id="17" />').segments).toEqual([
+  it.each([
+    ["dashboard", "17"],
+    ["report", "rep-1"],
+  ] as const)("parses a %s tag into a PostHog object chip", (kind, id) => {
+    expect(xmlToContent(`<${kind} id="${id}" />`).segments).toEqual([
       {
         type: "chip",
         chip: {
           type: "posthog_object",
-          objectKind: "dashboard",
-          id: "17",
-          label: "17",
+          objectKind: kind,
+          id,
+          label: id,
         },
       },
     ]);
@@ -370,5 +375,11 @@ describe("xmlToContent", () => {
         },
       },
     ]);
+  });
+});
+
+describe("PostHog object kind prompt", () => {
+  it.each(POSTHOG_OBJECT_KINDS)("teaches agents the %s tag", (kind) => {
+    expect(RICH_OUTPUT_TAGS_PROMPT).toContain(kind);
   });
 });

@@ -6,6 +6,7 @@
 // The per-kind shaping is kept here (pure, unit-tested) so the client method
 // stays a thin "fetch by kind, shape result" dispatch.
 
+import type { SignalReport } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
 export interface EvidenceDetailField {
@@ -1625,6 +1626,45 @@ export function shapeTicketPreview(ticket: Schemas.Ticket): EvidencePreview {
       ["Created", ticket.created_at ? formatDay(ticket.created_at) : null],
       ["Updated", ticket.updated_at ? formatDay(ticket.updated_at) : null],
       ["SLA due", ticket.sla_due_at ? formatDay(ticket.sla_due_at) : null],
+    ]),
+  };
+}
+
+export function shapeInboxReportPreview(report: SignalReport): EvidencePreview {
+  const status = humanizeStatus(report.status);
+  const sources = report.source_products?.map(humanizeStatus).join(", ");
+  const summary = report.summary?.replace(/\s+/g, " ").trim();
+  const detail = summary
+    ? summary.length > 160
+      ? `${summary.slice(0, 160)}…`
+      : summary
+    : undefined;
+  const facts = [
+    report.priority ?? null,
+    count(report.signal_count, "signal"),
+    sources || null,
+  ].filter((value): value is string => Boolean(value));
+  const statusTone: NonNullable<EvidencePreview["status"]>["tone"] =
+    report.status === "failed"
+      ? "critical"
+      : report.status === "pending_input"
+        ? "caution"
+        : report.status === "ready" || report.status === "resolved"
+          ? "positive"
+          : "neutral";
+
+  return {
+    title: report.title?.trim() || "Inbox report",
+    detail,
+    status: { label: status, tone: statusTone },
+    facts,
+    sections: detailSection("Report", [
+      ["Status", status],
+      ["Priority", report.priority ?? null],
+      ["Signals", count(report.signal_count, "signal")],
+      ["Sources", sources || null],
+      ["Created", report.created_at ? formatDay(report.created_at) : null],
+      ["Updated", report.updated_at ? formatDay(report.updated_at) : null],
     ]),
   };
 }
