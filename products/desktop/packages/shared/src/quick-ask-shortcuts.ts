@@ -4,7 +4,7 @@
  * presets kept for defaults and fallbacks.
  */
 
-export interface QuickAskShortcutPreset {
+interface QuickAskShortcutPreset {
   /** Electron accelerator string (Alt = Option on macOS). */
   accelerator: string;
   /** Label shown on macOS. */
@@ -13,7 +13,7 @@ export interface QuickAskShortcutPreset {
   otherLabel: string;
 }
 
-export const QUICK_ASK_SHORTCUT_PRESETS: readonly QuickAskShortcutPreset[] = [
+const QUICK_ASK_SHORTCUT_PRESETS: readonly QuickAskShortcutPreset[] = [
   {
     accelerator: "CommandOrControl+Alt+P",
     macLabel: "⌘ ⌥ P",
@@ -43,12 +43,6 @@ export const QUICK_ASK_SHORTCUT_PRESETS: readonly QuickAskShortcutPreset[] = [
 
 export const QUICK_ASK_DEFAULT_SHORTCUT =
   QUICK_ASK_SHORTCUT_PRESETS[0].accelerator;
-
-export function isQuickAskShortcut(accelerator: string): boolean {
-  return QUICK_ASK_SHORTCUT_PRESETS.some(
-    (preset) => preset.accelerator === accelerator,
-  );
-}
 
 const ACCELERATOR_MODIFIERS = new Set([
   "Command",

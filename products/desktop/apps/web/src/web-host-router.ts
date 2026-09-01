@@ -529,5 +529,3 @@ export const webHostRouter = router({
   slackIntegration: slackIntegrationRouter,
   workspace: workspaceStubRouter,
 });
-
-export type WebHostRouter = typeof webHostRouter;

@@ -1,9 +1,9 @@
 import {
   ArrowRightIcon,
   CaretDownIcon,
-  CopyIcon,
   FileTextIcon,
   GitPullRequestIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
   TerminalIcon,
   WarningIcon,
@@ -58,7 +58,7 @@ import { DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-export function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
+function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
   const terminal = isTerminalStatus(status);
   const color = terminal
     ? status === "failed" || status === "cancelled"
@@ -348,7 +348,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               onClick={() => copyInboxReportLink(report)}
               title="Copy a deep link to this run"
             >
-              <CopyIcon size={12} />
+              <LinkIcon size={12} />
               Copy link
             </Button>
           </>
