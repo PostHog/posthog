@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
@@ -35,6 +36,7 @@ from products.replay_vision.backend.scanner_draft import (
     _LlmDraftV2,
     _LlmEventPropertyFilter,
     _MatchedAction,
+    _MatchedCohort,
     _MatchedSurvey,
     _solve_budget,
     _v2_query,
@@ -668,29 +670,30 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         survey = self._survey("Pricing feedback")
         self._survey("Onboarding NPS")
 
-        surveys, _ = _goal_entity_matches(
+        matches = _goal_entity_matches(
             self.team, "watch people who answered the pricing feedback survey", _access_control(allow=True)
         )
 
-        assert [(m.name, m.survey_id) for m in surveys] == [("Pricing feedback", str(survey.id))]
+        assert [(m.name, m.survey_id) for m in matches.surveys] == [("Pricing feedback", str(survey.id))]
 
     def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
         # An action is the team's own curated definition of a behavior, so a goal naming one is the
         # sharpest filter available and must come back with the id the query needs.
         action = Action.objects.create(team=self.team, name="Completed checkout")
 
-        _, actions = _goal_entity_matches(
+        matches = _goal_entity_matches(
             self.team, "sessions where someone completed checkout", _access_control(allow=True)
         )
 
-        assert [(a.name, a.action_id) for a in actions] == [("Completed checkout", action.id)]
+        assert [(a.name, a.action_id) for a in matches.actions] == [("Completed checkout", action.id)]
 
     def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
         # Surveys and actions are access-controlled, so naming one back would leak its existence.
         self._survey("Pricing feedback")
         Action.objects.create(team=self.team, name="Pricing feedback click")
 
-        assert _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False)) == ([], [])
+        matches = _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False))
+        assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
 
     def test_no_resource_access_returns_nothing_even_though_the_queryset_filter_would_pass_it(self):
         # `filter_queryset_by_access_level` returns the queryset untouched when the caller has
@@ -701,37 +704,42 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         denied.check_access_level_for_resource.return_value = False
         denied.has_any_specific_access_for_resource.return_value = False
 
-        assert _goal_entity_matches(self.team, "the pricing feedback survey", denied) == ([], [])
+        # Cohorts have no resource gate, so denial affects only surveys and actions; a cohort by the
+        # same name still comes back, which is correct: cohorts are not resource-access-controlled.
+        matches = _goal_entity_matches(self.team, "the pricing feedback survey", denied)
+        assert matches.surveys == [] and matches.actions == []
 
     def test_a_scoped_token_lacking_survey_read_gets_no_surveys(self):
         # A token with scanner and recording scopes but not survey:read must not learn a survey's
         # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
         self._survey("Pricing feedback")
         Action.objects.create(team=self.team, name="Pricing feedback click")
+        Cohort.objects.create(team=self.team, name="Pricing feedback cohort")
 
-        surveys, actions = _goal_entity_matches(
+        matches = _goal_entity_matches(
             self.team,
             "the pricing feedback survey",
             _access_control(allow=True),
             allowed_scopes=["replay_scanner:write", "session_recording:read"],
         )
 
-        assert surveys == []
-        # The action is also gated: no action:read scope either.
-        assert actions == []
+        # Every kind is scope-gated: the token holds none of survey:read, action:read, cohort:read.
+        assert matches.surveys == []
+        assert matches.actions == []
+        assert matches.cohorts == []
 
     def test_a_write_scope_implies_read_and_a_star_scope_grants_all(self):
         survey = self._survey("Pricing feedback")
 
-        by_write, _ = _goal_entity_matches(
+        by_write = _goal_entity_matches(
             self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["survey:write"]
         )
-        by_star, _ = _goal_entity_matches(
+        by_star = _goal_entity_matches(
             self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["*"]
         )
 
-        assert [s.survey_id for s in by_write] == [str(survey.id)]
-        assert [s.survey_id for s in by_star] == [str(survey.id)]
+        assert [s.survey_id for s in by_write.surveys] == [str(survey.id)]
+        assert [s.survey_id for s in by_star.surveys] == [str(survey.id)]
 
 
 class TestV2Query:
@@ -783,6 +791,14 @@ class TestV2Query:
             {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
         ]
         assert "properties" not in by_id["checkout_started"]
+
+    def test_a_cohort_becomes_a_top_level_person_property(self):
+        # A cohort scopes to people; it rides the top-level properties array, ANDing with a page
+        # filter rather than a per-event one.
+        query = _v2_query(["/billing"], [], cohorts=[_MatchedCohort(name="Power users", cohort_id=7)])
+
+        assert query is not None
+        assert {"type": "cohort", "key": "id", "value": 7, "operator": "in"} in query["properties"]
 
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
@@ -875,6 +891,27 @@ class TestFinalizeV2PropertyFilters:
 
         assert draft.query is not None
         assert "properties" not in draft.query["events"][0]
+
+
+class TestFinalizeV2Cohorts:
+    _COHORT = _MatchedCohort(name="Power users", cohort_id=7)
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides), allowed_pages=[], allowed_events=[], team_id=1, allowed_cohorts=[self._COHORT]
+        )
+
+    def test_a_grounded_cohort_name_becomes_a_person_property_with_its_id(self):
+        draft = self._finalize(filter_cohorts=["Power users"])
+
+        assert draft.query is not None
+        assert {"type": "cohort", "key": "id", "value": 7, "operator": "in"} in draft.query["properties"]
+
+    def test_an_invented_cohort_name_is_dropped(self):
+        draft = self._finalize(filter_cohorts=["Made-up audience"])
+
+        assert draft.query is not None
+        assert "properties" not in draft.query
 
 
 class TestFinalizeV2Actions:
