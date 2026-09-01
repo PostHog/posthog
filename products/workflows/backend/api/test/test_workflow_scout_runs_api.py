@@ -16,7 +16,7 @@ from products.signals.backend.facade.api import ScoutRunRejectionKind, WorkflowS
 from products.signals.backend.scout_harness.run_gates import ScoutRunRejection
 from products.workflows.backend.models import HogFlow
 
-SECRET = "test-tasks-create-jwt"
+SECRET = "test-workflow-scout-run-jwt"
 SCOUT = "signals-scout-error-tracking"
 _START_SCOUT = "products.workflows.backend.api.workflow_scout_runs.start_workflow_scout_run"
 
@@ -34,7 +34,10 @@ def _token(
     return encode_jwt(claims, expiry, audience, signing_key=SECRET)
 
 
-@override_settings(TASKS_CREATE_JWT_SECRETS=[SECRET])
+# Both settings provisioned with the same value here so audience is the only thing under test
+# in test_rejects_a_task_creation_token below; test_rejects_a_token_signed_with_the_wrong_secret
+# overrides them to differing values to prove the endpoint verifies its own dedicated secret.
+@override_settings(WORKFLOW_SCOUT_RUN_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
 class TestWorkflowScoutRunsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -169,11 +172,23 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
     def test_rejects_a_task_creation_token(self) -> None:
-        # Same signing key as the "Create AI task" step, different audience: a token minted for
-        # that step must not spend a scout run, even though both mint from the same secret.
+        # A token minted for the "Create AI task" step must not spend a scout run, even signed
+        # with a secret this endpoint would otherwise accept (both settings share SECRET above) —
+        # the audience claim alone has to be what's rejecting it here.
         token = _token(self.team.id, str(self.hog_flow.id), audience=PosthogJwtAudience.TASKS_CREATE)
         with patch(_START_SCOUT) as start:
             response = self._post(token=token)
+
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+        start.assert_not_called()
+
+    @override_settings(WORKFLOW_SCOUT_RUN_JWT_SECRETS=["other-workflow-scout-run-jwt"])
+    def test_rejects_a_token_signed_with_the_wrong_secret(self) -> None:
+        # A dedicated key, not TASKS_CREATE_JWT_SECRETS's: a token signed with the task-creation
+        # secret must not verify here even with the correct audience, or a leak of that secret
+        # would forge scout runs too.
+        with patch(_START_SCOUT) as start:
+            response = self._post()
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
         start.assert_not_called()

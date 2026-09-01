@@ -32,12 +32,12 @@ describe('posthog run scout template', () => {
         })
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
-        // The literal pins the cross-language contract: Django's TASKS_CREATE_JWT_SECRET dev
-        // default (posthog/settings/data_stores.py) must match the nodejs one or local runs 401.
-        // Same signing key as postHogCreateTask, distinct audience: a token minted here must not
-        // verify at the "Create AI task" step's endpoint, and vice versa.
+        // The literal pins the cross-language contract: Django's WORKFLOW_SCOUT_RUN_JWT_SECRET
+        // dev default (posthog/settings/data_stores.py) must match the nodejs one or local runs
+        // 401. Its own signing key, distinct from postHogCreateTask's: a token minted here must
+        // not verify at the "Create AI task" step's endpoint, and vice versa.
         // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
-        const claims = jwt.verify(token, 'local-dev-tasks-create-jwt', {
+        const claims = jwt.verify(token, 'local-dev-workflow-scout-run-jwt', {
             audience: 'posthog:workflows:scout_run',
             algorithms: ['HS256'],
         }) as jwt.JwtPayload

@@ -14,14 +14,16 @@ import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 // The claims scope it to a single team and workflow, which keeps the longer window cheap.
 const TOKEN_TTL_SECONDS = 30 * 60
 
-// Same audience and secret as postHogCreateTask: both are the workflow engine dispatching a step
-// for a verified (team, workflow), just to a different agent harness behind the endpoint.
-// Same key as postHogCreateTask, distinct audience: both mint from the workflow engine for a
-// verified (team, workflow), but a token minted for one step must not verify at the other's
-// endpoint.
+// A dedicated key, not postHogCreateTask's: both mint from the workflow engine for a verified
+// (team, workflow), but the scoped-JWT rule is narrowest scope, mint a new key for a new use case
+// rather than widen an existing one's — a leak of one can't forge the other's calls, on top of
+// the audience claim already blocking a legitimate token from replaying at the wrong endpoint.
 let scoutRunJwt: ScopedServiceJwt | undefined
 const getScoutRunJwt = (): ScopedServiceJwt =>
-    (scoutRunJwt ??= new ScopedServiceJwt(PosthogJwtAudience.WORKFLOW_SCOUT_RUN, defaultConfig.TASKS_CREATE_JWT_SECRET))
+    (scoutRunJwt ??= new ScopedServiceJwt(
+        PosthogJwtAudience.WORKFLOW_SCOUT_RUN,
+        defaultConfig.WORKFLOW_SCOUT_RUN_JWT_SECRET
+    ))
 
 registerAsyncFunction('postHogRunScout', {
     execute: (args, context, result) => {
@@ -44,7 +46,7 @@ registerAsyncFunction('postHogRunScout', {
         const jwt = getScoutRunJwt()
         if (!jwt.enabled) {
             throw new Error(
-                'Running scouts from a workflow is not configured in this environment (TASKS_CREATE_JWT_SECRET unset)'
+                'Running scouts from a workflow is not configured in this environment (WORKFLOW_SCOUT_RUN_JWT_SECRET unset)'
             )
         }
         const token = jwt.mint({ team_id: context.invocation.teamId, hog_flow_id: hogFlow.id }, TOKEN_TTL_SECONDS)

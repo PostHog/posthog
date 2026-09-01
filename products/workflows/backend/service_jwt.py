@@ -8,11 +8,11 @@ TASKS_CREATE_PURPOSE = ScopedServiceJwtPurpose(
     settings_name="TASKS_CREATE_JWT_SECRETS",
 )
 
-# Same key as TASKS_CREATE_PURPOSE (both mint from the plugin server for a workflow step), on its
-# own audience: the scoped-JWT rule is one key per caller/callee surface, so a token minted for
-# one step must not verify at the other's endpoint. Mirrors WORKFLOWS_CANCEL_INVOCATIONS /
-# WORKFLOWS_CANCEL_BATCH in posthog/plugins/plugin_server_api.py, which share a key the same way.
+# A dedicated key, not TASKS_CREATE_PURPOSE's: both mint from the plugin server for a workflow
+# step, but the scoped-JWT rule is narrowest scope, mint a new key for a new use case rather than
+# widen an existing one's — a leak of one can't forge the other's calls, on top of the audience
+# claim already blocking a legitimate token from replaying at the wrong endpoint.
 WORKFLOW_SCOUT_RUN_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN,
-    settings_name="TASKS_CREATE_JWT_SECRETS",
+    settings_name="WORKFLOW_SCOUT_RUN_JWT_SECRETS",
 )

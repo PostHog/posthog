@@ -49,9 +49,9 @@ _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
 
 
 class WorkflowScoutRunsJWTAuthentication(ScopedServiceJWTAuthentication):
-    # Same key as the "Create AI task" step's authenticator, distinct audience: both are the
-    # workflow engine dispatching a step for a verified (team, workflow), but a token minted for
-    # one step must not verify at the other's endpoint.
+    # Its own key and audience, distinct from the "Create AI task" step's authenticator: both are
+    # the workflow engine dispatching a step for a verified (team, workflow), but a leak of one
+    # step's key must not forge the other's calls.
     purpose = WORKFLOW_SCOUT_RUN_PURPOSE
 
     # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
@@ -88,8 +88,8 @@ class WorkflowScoutRunRejectedSerializer(serializers.Serializer):
 
 class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
     """Start a Signals scout run from a workflow's "Run scout" action. Authenticated by a scoped
-    service JWT minted by the plugin server, never by a user credential. Shares its signing key
-    with the "Create AI task" step's JWT, on its own audience.
+    service JWT minted by the plugin server, never by a user credential, with its own signing key
+    and audience.
 
     A run is a pure kick: nothing from the triggering event reaches the scout, so it explores
     exactly as it does on its schedule. It never stamps the scout's last_run_at and never feeds
