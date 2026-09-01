@@ -1,9 +1,9 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { ResultDetails } from 'scenes/experiments/MetricsView/new/ResultDetails'
+
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
-
-import { ResultDetails } from './ResultDetails'
 
 interface DetailsModalProps {
     isOpen: boolean
