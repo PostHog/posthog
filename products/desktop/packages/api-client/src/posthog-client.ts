@@ -170,6 +170,22 @@ export function getPosthogApiClientAppVersion(): string {
   return clientAppVersion;
 }
 
+/**
+ * A scout endpoint answered with a non-2xx. Carries the status so a caller can tell a
+ * refusal it has to live with — 403 for a member without `signal_scout:write`, 404 for a
+ * stale project id — from a real outage worth retrying or reporting.
+ */
+export class ScoutRequestError extends Error {
+  constructor(
+    readonly status: number,
+    subPath: string,
+    statusText: string,
+  ) {
+    super(`Scout request failed (${subPath}): ${statusText}`);
+    this.name = "ScoutRequestError";
+  }
+}
+
 export class SandboxCustomImagesDisabledError extends Error {
   constructor(message?: string) {
     super(message ?? "Custom sandbox images are not enabled");
@@ -2171,8 +2187,10 @@ export class PostHogAPIClient {
       path: urlPath,
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2182,9 +2200,13 @@ export class PostHogAPIClient {
     projectId: number,
     subPath: string,
     body: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
     const urlPath = `/api/projects/${projectId}/signals/scout/${subPath}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
@@ -2194,8 +2216,10 @@ export class PostHogAPIClient {
       },
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2205,6 +2229,19 @@ export class PostHogAPIClient {
     const data = await this.scoutGet<
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/");
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * Materialize the project's scout fleet and return it: the backend seeds the
+   * canonical `signals-scout-*` skills, registers a config for every scout
+   * missing one, and retires the ones no longer shipped. Idempotent, and the
+   * only way a project the Temporal coordinator never reached gets any scouts.
+   */
+  async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
+    const data = await this.scoutPost<
+      { results: ScoutConfig[] } | ScoutConfig[]
+    >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
@@ -4807,6 +4844,9 @@ export class PostHogAPIClient {
     }
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
+    }
+    if (params?.actionability) {
+      url.searchParams.set("actionability", params.actionability);
     }
     if (params?.count_only != null) {
       url.searchParams.set("count_only", String(params.count_only));
