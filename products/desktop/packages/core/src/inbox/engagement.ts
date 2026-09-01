@@ -1,6 +1,7 @@
 import type {
   InboxReportActionProperties,
   InboxReportActionSurface,
+  InboxReviewerScope,
   InboxViewedProperties,
 } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/domain-types";
@@ -112,12 +113,8 @@ interface InboxViewedFilterStateBase {
 interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "desktop";
   searchQuery: string;
-  /**
-   * True when the reviewer scope is the default ("For you"). False when the
-   * user has narrowed to a teammate or the whole project — treated as an
-   * active filter for `has_active_filters`.
-   */
-  isDefaultScope: boolean;
+  /** Canonical scope value. Teammate UUIDs must not enter analytics. */
+  scope: InboxReviewerScope;
 }
 
 interface MobileInboxViewedFilterState extends InboxViewedFilterStateBase {
@@ -203,7 +200,7 @@ export function buildInboxViewedProperties(
     statusFiltered ||
     (filters.surface === "mobile" &&
       filters.suggestedReviewerFilter.length > 0) ||
-    (filters.surface === "desktop" && !filters.isDefaultScope);
+    (filters.surface === "desktop" && filters.scope !== "for-you");
 
   return {
     report_count: visibleReports.length,
@@ -226,6 +223,7 @@ export function buildInboxViewedProperties(
       actionabilityCounts.requires_human_input,
     actionability_not_actionable_count: actionabilityCounts.not_actionable,
     actionability_unknown_count: actionabilityCounts.unknown,
+    ...(filters.surface === "desktop" ? { scope: filters.scope } : {}),
     ...(tabCounts
       ? {
           pulls_tab_count: tabCounts.pulls,

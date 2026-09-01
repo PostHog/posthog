@@ -30,7 +30,6 @@ export const INBOX_EVENTS = {
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
-    SECTION_TOGGLED: 'Inbox section toggled',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
@@ -72,13 +71,15 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
- * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
- * `view_diff`, `show_more` (a list section widening its window), and the section expand/collapse
- * pair (desktop splits those per section instead).
+ * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
+ * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section widening its window), and the section expand/collapse pair (desktop splits those per
+ * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'resolve'
     | 'discuss'
     | 'restore'
     | 'create_pr'
@@ -129,7 +130,16 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
-export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
+export type InboxQueryChange =
+    | 'scope'
+    | 'sort'
+    | 'source_product'
+    | 'scout'
+    | 'priority'
+    | 'state'
+    | 'search'
+    | 'clear'
+    | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
@@ -285,6 +295,8 @@ export function captureInboxViewed(params: {
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
+    /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
+    stateFilter?: string[]
     scope: string
 }): void {
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
@@ -297,6 +309,7 @@ export function captureInboxViewed(params: {
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter ?? [],
         scope: params.scope,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
@@ -362,18 +375,6 @@ export function captureInboxReportOpened(params: {
         rank: params.rank,
         list_size: params.listSize,
         section: params.section,
-    })
-}
-
-/**
- * A Reports list section was expanded or collapsed. Resolved and Not actionable start collapsed,
- * so without this a reader who scrolls down to the resolved work is invisible until a card in it
- * impresses. Cloud-only: the desktop app has no collapsible sections.
- */
-export function captureInboxSectionToggled(params: { section: InboxReportSectionKey; isOpen: boolean }): void {
-    captureInboxEvent(INBOX_EVENTS.SECTION_TOGGLED, {
-        section: params.section,
-        is_open: params.isOpen,
     })
 }
 
@@ -585,6 +586,7 @@ export function captureInboxQueryChanged(params: {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: string[]
+    stateFilter: string[]
     searchQuery: string
     hasActiveFilters: boolean
 }): void {
@@ -598,6 +600,7 @@ export function captureInboxQueryChanged(params: {
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter,
         has_search: search.length > 0,
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,

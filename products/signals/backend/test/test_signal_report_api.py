@@ -1593,6 +1593,12 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("resolve_with_reason", {"state": "resolved", "dismissal_reason": "already_fixed"}, "already_fixed"),
+            (
+                "resolve_fixed_outside_posthog",
+                {"state": "resolved", "dismissal_reason": "fixed_outside_posthog"},
+                "fixed_outside_posthog",
+            ),
+            ("resolve_pr_merged", {"state": "resolved", "dismissal_reason": "pr_merged"}, "pr_merged"),
             # A resolve carrying no feedback must not pick a reason up from anywhere.
             ("resolve_without_reason", {"state": "resolved"}, None),
         ]
@@ -1615,6 +1621,20 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert label["properties"]["status"] == SignalReport.Status.RESOLVED
         assert label["properties"]["dismissal_reason"] == expected_reason
+
+    def test_resolve_via_state_api_closes_the_open_implementation_pr(self):
+        # The inbox PR is superseded by a fix that landed elsewhere, so the receiver must close it
+        # with the resolve-specific comment rather than leave it open.
+        report = self._create_report()
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._state_url(str(report.id)),
+                    data=json.dumps({"state": "resolved", "dismissal_reason": "fixed_outside_posthog"}),
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, reason="resolved")
 
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()

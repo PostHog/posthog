@@ -467,19 +467,22 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("wrong_repo", "Agent picked the wrong repository"),
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
+    ("fixed_outside_posthog", "Fixed outside PostHog"),
+    ("pr_merged", "PR was merged"),
     ("other", "Something else…"),
 ]
 
 _DISMISSAL_REASON_HELP_TEXT = (
-    "Optional canonical reason code for the dismissal. Must be one of: already_fixed, "
-    "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, other — "
-    "these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. "
-    "When the work this report asked for is done, the honest transition is state='resolved' (the "
-    "reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "
-    '"fixed by something else / might recur" cases, so the report reappears if the issue comes '
-    "back. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
-    "corrected_repository naming the right one. Use 'other' together with a dismissal_note for "
-    "anything that doesn't fit a code."
+    "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
+    "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
+    "fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a "
+    "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
+    "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
+    "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
+    "or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, "
+    "analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent "
+    "picked the wrong repository for this report, ideally with corrected_repository naming the right one. "
+    "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
 # GitHub caps owners at 39 characters and repository names at 100; 'owner/repo' fits in 140.
@@ -518,7 +521,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
             "asked for has been done. Resolving is only allowed from a researched status (ready or "
-            "pending_input) or a suppressed report; other statuses return 409 (skipped in bulk)."
+            "pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). "
+            "Dismissing or resolving closes the report's open implementation PR, if it has one."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -2238,6 +2242,10 @@ class SignalReportViewSet(
             # post_save receiver snapshots it there. Matters most for resolve: a resolve driven by
             # the PR-merge webhook has no feedback, and only this flag distinguishes the two.
             report._wrote_dismissal_feedback = writes_dismissal_feedback  # type: ignore[attr-defined]
+            # A resolve through this API says the work is done without the inbox PR, so that PR is
+            # superseded and the receiver closes it. The PR-merge webhook resolves through
+            # transition_to directly and never sets this, so a merged PR is left alone.
+            report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
 
             report.save(update_fields=updated_fields)
 
@@ -2274,9 +2282,9 @@ class SignalReportViewSet(
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
-        # A dismissal (transition into SUPPRESSED) closes the linked implementation PR — handled
-        # centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so this
-        # method doesn't special-case it. Restore/snooze to "potential" leaves the PR alone.
+        # A dismissal (transition into SUPPRESSED) or a resolve closes the linked implementation PR —
+        # handled centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so
+        # this method doesn't special-case it. Restore/snooze to "potential" leaves the PR alone.
         return SignalReportBulkStateOutcome.TRANSITIONED, None
 
     @extend_schema(

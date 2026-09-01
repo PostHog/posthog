@@ -10,16 +10,15 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { DEFAULT_OPEN_SECTIONS, inboxReportSectionsLogic } from '../../logics/inboxReportSectionsLogic'
-import { INBOX_REPORT_SECTION_KEYS, SignalReport, SignalRun } from '../../types'
+import { SignalReport, SignalRun } from '../../types'
 import { PullRequestsTab } from './PullRequestsTab'
 import { ReportsTab } from './ReportsTab'
 import { ReportsTabLegacy } from './ReportsTabLegacy'
 import { RunsTab } from './RunsTab'
 
-// Stories for the inbox tab bodies. The Reports tab loads each section via `reportListLogic`, so it
-// gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven and
-// receives mock runs directly. Use these to polish section density and the run-card design.
+// Stories for the inbox tab bodies. The Reports tab loads each report state via `reportListLogic`,
+// so it gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven
+// and receives mock runs directly. Use these to polish list density and the run-card design.
 
 const SAMPLE_RUNS: SignalRun[] = [
     {
@@ -62,19 +61,14 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
     })
 }
 
-// One mocked endpoint feeds every section, so each renders the same rows — enough to judge the
-// section rhythm, which is what these stories are for.
-function ReportsTabStory({ expandAll = false }: { expandAll?: boolean }): JSX.Element {
+// One mocked endpoint feeds every report state, so the same rows come back for each state's
+// request and the flat list deduplicates them — enough to judge the list rhythm, which is what
+// these stories are for.
+function ReportsTabStory({ searchParams }: { searchParams?: Record<string, string> }): JSX.Element {
     useMountedLogic(inboxSceneLogic)
-    const sectionsLogic = useMountedLogic(inboxReportSectionsLogic)
     useEffect(() => {
-        router.actions.push(urls.inbox('reports'))
-        if (expandAll) {
-            INBOX_REPORT_SECTION_KEYS.filter((key) => !DEFAULT_OPEN_SECTIONS[key]).forEach((key) =>
-                sectionsLogic.actions.toggleSection(key)
-            )
-        }
-    }, [expandAll, sectionsLogic])
+        router.actions.push(urls.inbox('reports'), searchParams ?? {})
+    }, [searchParams])
     return (
         <div className="bg-primary min-h-screen">
             <ReportsTab />
@@ -96,19 +90,19 @@ export default meta
 
 type Story = StoryObj
 
-// The default arrangement: Needs a PR and Review and merge open, Resolved collapsed.
+// The default view: one flat list over the default-selected open-work states.
 export const Reports: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
     render: () => <ReportsTabStory />,
 }
 
-// Every section open, including the ones that start collapsed.
-export const ReportsAllSectionsExpanded: Story = {
+// The state filter narrowing the list to one state via the shared `state` URL param.
+export const ReportsStateFiltered: Story = {
     decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => <ReportsTabStory expandAll />,
+    render: () => <ReportsTabStory searchParams={{ state: 'monitoring' }} />,
 }
 
-// Nothing anywhere: the whole-list empty state rather than a per-section one.
+// Nothing anywhere: the whole-list empty state.
 export const ReportsEmpty: Story = {
     decorators: [reportsListDecorator([])],
     render: () => <ReportsTabStory />,

@@ -1,77 +1,54 @@
-import { IconHide, IconPause } from '@posthog/icons'
-
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import {
-    DISMISSAL_REASON_OPTIONS,
-    DismissalFeedback,
-    DismissalReasonValue,
-    isDismissalReasonSnooze,
-} from '../../utils/dismissalReasons'
+import { DISMISSAL_REASON_OPTIONS, DismissalFeedback, DismissalReasonValue } from '../../utils/dismissalReasons'
 import { DismissCorrectedRepoField } from './DismissCorrectedRepoField'
+import { HotkeyRadio } from './HotkeyRadio'
 
 interface OpenDismissReportDialogParams {
     /** Report title for single-report copy. Ignored when `selectedCount > 1`. */
     reportTitle?: string | null
     /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
     selectedCount?: number
+    /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
+    hotkeys?: boolean
     /** Called with the chosen reason, note and optional repo correction once the user confirms. */
     onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
 
-const PAUSE_OPTION_TOOLTIP =
-    'Snoozes this report: it briefly leaves your inbox while more context is gathered, and it can come back if new signals match.'
-const SUPPRESS_OPTION_TOOLTIP =
-    'Dismisses permanently: the report leaves your inbox and matching signals will not surface it again. Your reason is saved with the report.'
-
-// Vertical radio list mirroring desktop `DismissReportDialog`: each reason carries an icon +
-// tooltip explaining whether it snoozes (pause) or dismisses permanently (eye-slash).
-const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL_REASON_OPTIONS.map((option) => {
-    const snoozes = isDismissalReasonSnooze(option.value)
-    return {
-        value: option.value,
-        label: (
-            <Tooltip title={snoozes ? PAUSE_OPTION_TOOLTIP : SUPPRESS_OPTION_TOOLTIP} placement="right">
-                <span className="inline-flex flex-wrap items-center gap-1.5">
-                    {option.label}
-                    {snoozes ? (
-                        <IconPause className="shrink-0 text-secondary" />
-                    ) : (
-                        <IconHide className="shrink-0 text-secondary" />
-                    )}
-                </span>
-            </Tooltip>
-        ),
-    }
-})
+const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL_REASON_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+}))
 
 /**
  * Opens the dismiss dialog. Mirrors desktop `DismissReportDialog`: pick a reason
  * (canonical {@link DISMISSAL_REASON_OPTIONS}) plus an optional note, then suppress.
  * The caller wires `onConfirm` to the bulk-dismiss action or a direct
  * `api.signalReports.setState(id, { state: 'suppressed', dismissal_reason, dismissal_note })`.
+ * Its sibling {@link openResolveReportDialog} has the same shape for the other verdict.
  */
 export function openDismissReportDialog({
     reportTitle,
     selectedCount = 1,
+    hotkeys = false,
     onConfirm,
 }: OpenDismissReportDialogParams): void {
     const isBulk = selectedCount > 1
     const title = isBulk
-        ? `Archive ${selectedCount} reports?`
-        : `Archive report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
+        ? `Dismiss ${selectedCount} reports?`
+        : `Dismiss report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
     const description = isBulk
-        ? 'These reports will be archived out of your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.'
-        : 'This report will be archived out of your inbox. Your feedback is saved on the report, and your note goes to the agent that filed it.'
+        ? 'These reports leave your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.'
+        : 'This report leaves your inbox. Your feedback is saved on the report, and your note goes to the agent that filed it.'
 
     LemonDialog.openForm({
         title,
         description,
         maxWidth: '36rem',
+        overlayClassName: '!items-center',
         initialValues: {
             reason: null as DismissalReasonValue | null,
             note: '',
@@ -82,7 +59,11 @@ export function openDismissReportDialog({
                 <LemonField name="reason" label="Reason">
                     {({ value, onChange }) => (
                         <div className="flex flex-col gap-3">
-                            <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                            {hotkeys ? (
+                                <HotkeyRadio value={value} onChange={onChange} options={DISMISSAL_REASON_OPTIONS} />
+                            ) : (
+                                <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                            )}
                             {value === 'wrong_repo' && <DismissCorrectedRepoField />}
                         </div>
                     )}
@@ -100,7 +81,7 @@ export function openDismissReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
-        primaryButtonProps: { children: 'Archive & teach the agent' },
+        primaryButtonProps: { children: 'Dismiss & teach the agent' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note, correctedRepository }) => {
             if (!reason) {

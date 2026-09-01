@@ -99,14 +99,14 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 copyLabel={`${config.productName} wizard command`}
                 onCopy={() => captureClick('wizard command copied')}
             />
-            {guardedPrimaryAction ? (
+            {config.PrimaryAction || guardedPrimaryAction ? (
                 <>
                     <div className="flex items-center gap-3">
                         <div className="h-px flex-1 bg-border-primary" />
                         <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
                         <div className="h-px flex-1 bg-border-primary" />
                     </div>
-                    {guardedPrimaryAction}
+                    {config.PrimaryAction ? <config.PrimaryAction /> : guardedPrimaryAction}
                 </>
             ) : null}
         </>
@@ -165,7 +165,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 
                     <div className="flex items-center gap-4">
-                        {showWizard && !primaryActionButton && manualUrl ? (
+                        {showWizard && !primaryActionButton && !config.PrimaryAction && manualUrl ? (
                             <LemonButton
                                 type="secondary"
                                 icon={<IconGear />}

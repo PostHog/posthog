@@ -229,11 +229,11 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { SignalReportStateRequestApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
+    SignalReportStateRequest,
     SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
@@ -5190,6 +5190,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** true returns only the filtered total: `results` is empty and no rows are serialized. */
+            count_only?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5208,8 +5210,8 @@ const api = {
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
-        // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
-        async setState(id: SignalReport['id'], data: SignalReportStateRequestApi): Promise<SignalReport> {
+        // State transitions: suppress (dismiss), resolve, or snooze back to potential. Backend: `state` action.
+        async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
         // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
@@ -6731,12 +6733,13 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email'
+            dedupeKey?: 'email',
+            sendsEmail?: boolean
         ): Promise<BlastRadiusApi> {
             return await new ApiRequest()
                 .hogFlows()
                 .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],

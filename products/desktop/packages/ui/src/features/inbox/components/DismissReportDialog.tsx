@@ -33,7 +33,7 @@ export interface DismissReportDialogProps {
   selectedCount?: number;
   isSubmitting: boolean;
   /**
-   * When snooze is not allowed for the current selection, the "Already fixed elsewhere"
+   * When snooze is not allowed for the current selection, the "Already fixed"
    * option is disabled because that path snoozes instead of dismissing.
    */
   snoozeDisabledReason: string | null;
@@ -163,20 +163,26 @@ function DismissReportDialogBody({
   };
 
   const alreadyFixedDisabled = snoozeDisabledReason !== null;
+  const pausesReport = reason != null && isDismissalReasonSnooze(reason);
+  const reportNoun = selectedCount > 1 ? "reports" : "report";
 
   return (
     <>
       <Dialog.Title>
         <Text className="text-balance font-bold text-lg">
-          {selectedCount > 1
-            ? `Archive ${selectedCount} reports?`
-            : `Archive report "${report.title?.trim() ? report.title : "Untitled report"}"?`}
+          {pausesReport
+            ? selectedCount > 1
+              ? `Pause ${selectedCount} reports?`
+              : `Pause report "${report.title?.trim() ? report.title : "Untitled report"}"?`
+            : selectedCount > 1
+              ? `Archive ${selectedCount} reports for everyone?`
+              : `Archive report "${report.title?.trim() ? report.title : "Untitled report"}" for everyone?`}
         </Text>
       </Dialog.Title>
       <Dialog.Description className="text-gray-10 text-sm">
-        {selectedCount > 1
-          ? "These reports will be removed from Self-driving. Your feedback is saved on each report and helps the agent."
-          : "This report will be removed from Self-driving. Your feedback is saved on the report and helps the agent."}
+        {pausesReport
+          ? `This pauses the ${reportNoun} for everyone in this project until another matching signal arrives. The ${reportNoun} can then return.`
+          : `This archives the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
       </Dialog.Description>
 
       <Flex direction="column" gap="4" mt="4">
@@ -265,7 +271,7 @@ function DismissReportDialogBody({
           onClick={handleConfirm}
           loading={isSubmitting}
         >
-          Archive & teach the agent
+          {pausesReport ? "Pause for everyone" : "Archive for everyone"}
         </Button>
       </Flex>
     </>

@@ -22,6 +22,7 @@ import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
+import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
@@ -445,14 +446,18 @@ export class HogExecutorAsyncService {
         // regenerated here and never persisted back to queueParameters. Credential
         // resolution + missing-input handling live in `aws-sigv4.ts` — see
         // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+            addLog('error', error)
+            result.error = new Error(error)
+            result.finished = true
+            return result
+        }
+
         let signedHeaders = headers
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
-                addLog('error', resolved.error)
-                result.error = new Error(resolved.error)
-                result.finished = true
-                return result
+                return failSigning(resolved.error)
             }
             signedHeaders = signAwsRequest({
                 method,
@@ -460,6 +465,25 @@ export class HogExecutorAsyncService {
                 body: params.body ?? '',
                 headers,
                 credentials: resolved.credentials,
+            })
+        }
+
+        // Standard Webhooks signatures embed a timestamp the receiver checks
+        // against a tolerance window (5 minutes in the reference libraries), so
+        // like AWS SigV4 above they are computed immediately before each attempt
+        // and never persisted back to queueParameters. The `webhook-id` the
+        // receiver dedupes on is the exception: it comes from the queue payload,
+        // which the retry path preserves, so it stays constant across attempts.
+        if (params.standard_webhooks) {
+            const resolved = resolveStandardWebhooksKey(params.standard_webhooks, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signStandardWebhooksRequest({
+                webhookId: params.standard_webhooks.webhook_id,
+                body: params.body ?? '',
+                headers: signedHeaders,
+                key: resolved.key,
             })
         }
 
