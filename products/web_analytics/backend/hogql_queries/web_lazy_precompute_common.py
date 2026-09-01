@@ -156,36 +156,6 @@ def publish_volume_floor_teams(above_floor: list[int], above_exit_floor: Optiona
     pipe.execute()
 
 
-def get_above_floor_team_ids() -> Optional[set[int]]:
-    """The published above-floor team ids, for pre-filtering fleet-wide shape
-    selection so the cap fills with servable teams instead of below-floor shapes.
-
-    Returns None — "do not filter, select every team" — whenever the floor is
-    inactive or its set is unavailable, matching `is_team_above_volume_floor`'s
-    fail-open. An intentionally-empty publish (only the placeholder member)
-    returns just the env allowlist, which is above-floor by fiat.
-    """
-    if settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0:
-        return None
-    try:
-        client = redis.get_client()
-        # Both keys must exist, or the set is lost/expired and we fail open — the
-        # same two-key test the per-team read uses before it enforces the floor.
-        if not (client.exists(VOLUME_FLOOR_READY_KEY) and client.exists(VOLUME_FLOOR_TEAMS_KEY)):
-            return None
-        members = client.smembers(VOLUME_FLOOR_TEAMS_KEY)
-    except Exception:
-        logger.exception("web_precompute_volume_floor_bulk_read_failed")
-        return None
-    teams: set[int] = set()
-    for member in members:
-        decoded = member.decode() if isinstance(member, bytes) else str(member)
-        if decoded.isdigit():  # skips the "__none__" placeholder
-            teams.add(int(decoded))
-    teams |= set(settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS)
-    return teams
-
-
 def is_team_oom_pinned(team_id: int) -> bool:
     """Whether the team has hit an OOM recently and should cap its insert windows.
 

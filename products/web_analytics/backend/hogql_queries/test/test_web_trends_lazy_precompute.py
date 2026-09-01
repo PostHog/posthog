@@ -192,6 +192,23 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
         assert sum(response.results[0]["data"]) == 2
 
+    def test_cache_key_varies_with_volume_floor(self) -> None:
+        # Trends builds its cache key via get_cache_payload, not the base runner's
+        # get_cache_key, so the base runner's _vf suffix does not cover it. A team
+        # crossing below the floor switches to the live path; its key must change
+        # so a stale precompute result is not served until it ages out.
+        runner = WebTrendsQueryRunner(team=self.team, query=self._build_query())
+        mod = "products.web_analytics.backend.hogql_queries.web_trends"
+        with (
+            patch(f"{mod}.is_trends_precompute_enabled_for_team", return_value=True),
+            patch(f"{mod}.is_precompute_enabled_for_team", return_value=True),
+        ):
+            with patch(f"{mod}.is_team_above_volume_floor", return_value=True):
+                key_above = runner.get_cache_key()
+            with patch(f"{mod}.is_team_above_volume_floor", return_value=False):
+                key_below = runner.get_cache_key()
+        assert key_above != key_below
+
     @parameterized.expand(
         [
             # Shapes the buckets can't reproduce must fall back — serving them

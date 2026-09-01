@@ -131,7 +131,14 @@ class PerQueryOptedOut(LazyPrecomputeIneligible):
 
 class BelowVolumeFloor(LazyPrecomputeIneligible):
     """The team's 7-day event volume is under the precompute floor — its live
-    path is sub-second and always fresh, so the query stays live."""
+    path is sub-second and always fresh, so the query stays live.
+
+    Deliberately duplicated from `web_lazy_precompute_common.BelowVolumeFloor`:
+    the two modules keep parallel `LazyPrecomputeIneligible` hierarchies, so each
+    gate must raise its own module's class to be caught by its own `except`.
+    Keep the two in sync. Both share the name, so logs/metrics keyed on
+    `type(exc).__name__` collapse to one label regardless of which gate fired.
+    """
 
 
 class NonIntegerTimezone(LazyPrecomputeIneligible):

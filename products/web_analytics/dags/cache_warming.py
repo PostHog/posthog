@@ -45,7 +45,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     BACKGROUND_WARMING_TRIGGERS,
     MAX_PRECOMPUTE_DAYS,
     SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
-    get_above_floor_team_ids,
     is_team_above_volume_floor,
     publish_volume_floor_teams,
 )
@@ -427,20 +426,6 @@ def queries_to_keep_fresh(
     # background warmer — out of the demand counts, otherwise a once-warmed shape
     # would keep itself hot forever. LIKE literals are %%-escaped because
     # clickhouse_driver %-formats the query when params are passed.
-    # Fill the cap with servable teams: below-floor shapes would otherwise take
-    # slots ahead of above-floor shapes ranked past the LIMIT, pushing cold-build
-    # cost onto the teams the floor keeps. None means the floor is inactive or its
-    # set is unavailable, so select every team (fail-open, matching the read gate).
-    above_floor_teams = get_above_floor_team_ids()
-    if above_floor_teams is not None:
-        above_floor_clause = "AND team_id IN %(above_floor_teams)s"
-        # team_id 0 is already excluded, so an empty set matches nothing safely —
-        # an empty `IN ()` tuple would be a syntax error.
-        above_floor_param: tuple[int, ...] = tuple(sorted(above_floor_teams)) or (0,)
-    else:
-        above_floor_clause = ""
-        above_floor_param = (0,)
-
     # nosemgrep: clickhouse-fstring-param-audit (interpolations are module-level constants from hardcoded tuples, not user input; everything dynamic is parameterized)
     results = sync_execute(
         f"""
@@ -520,7 +505,6 @@ def queries_to_keep_fresh(
         ) AS sub
         WHERE
             team_id != 0
-            {above_floor_clause}
             AND query_json_raw != ''
             AND startsWith(web_query_kind, %(kind_prefix)s)
             AND web_query_kind NOT IN %(unwarmable_kinds)s
@@ -559,7 +543,6 @@ def queries_to_keep_fresh(
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
             "excluded_request_kind": EXCLUDED_REQUEST_KIND,
-            "above_floor_teams": above_floor_param,
         },
         settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
@@ -711,6 +694,11 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published
     # `cap_reached` keys off the pre-floor selection: the cap bounds the
     # selection query, and floor-dropped shapes still consumed cap slots.
     cap_reached = selected_count >= max_shapes
+    # The floor is enforced here, per replay, not in the selection SQL: keeping the
+    # cached selection floor-agnostic means a team that grows above the floor is
+    # warmed on the next pass, rather than waiting for the selection blob's TTL to
+    # lapse. Below-floor shapes that consumed cap slots are dropped here; a fresh
+    # `is_team_above_volume_floor` verdict (60s-cached) applies each pass.
     queries = [q for q in queries if is_team_above_volume_floor(int(q["team_id"]))]
     floor_dropped = selected_count - len(queries)
 

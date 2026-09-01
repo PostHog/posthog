@@ -54,7 +54,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
-    get_above_floor_team_ids,
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
@@ -774,27 +773,6 @@ class TestVolumeFloor(BaseTest):
             return_value=True,
         ):
             assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
-
-    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
-    def test_bulk_reader_returns_published_set_with_allowlist(self):
-        publish_volume_floor_teams([self.team.pk + 1, self.team.pk + 2])
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            assert get_above_floor_team_ids() == {self.team.pk, self.team.pk + 1, self.team.pk + 2}
-
-    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
-    def test_bulk_reader_fails_open_to_none(self):
-        # None means "select every team". A disabled floor and an unpublished set
-        # both fail open — the warmer must never narrow selection on missing state.
-        with override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0):
-            assert get_above_floor_team_ids() is None
-        assert get_above_floor_team_ids() is None  # published set absent
-
-    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000, WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
-    def test_bulk_reader_empty_publish_selects_no_teams(self):
-        # An empty publish is an empty set, NOT None: nobody is above the floor, so
-        # the warmer selects no team. The "__none__" placeholder must not leak in.
-        publish_volume_floor_teams([])
-        assert get_above_floor_team_ids() == set()
 
 
 class TestStaleRevalidationEnqueue(BaseTest):

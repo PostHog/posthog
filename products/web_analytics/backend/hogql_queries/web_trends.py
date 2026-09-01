@@ -2,7 +2,10 @@ from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQueryRe
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
+)
 from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
     execute_lazy_precomputed_trends,
     is_trends_precompute_enabled_for_team,
@@ -26,9 +29,12 @@ class WebTrendsQueryRunner(TrendsQueryRunner):
         # immediate kill switch: without this, cached precompute-served results
         # keep being returned until they stale out naturally (the overview
         # runner does the same via its `_pc` cache-key suffix).
-        payload["web_trends_precompute"] = is_trends_precompute_enabled_for_team(
-            self.team
-        ) and is_precompute_enabled_for_team(self.team)
+        precompute = is_trends_precompute_enabled_for_team(self.team) and is_precompute_enabled_for_team(self.team)
+        payload["web_trends_precompute"] = precompute
+        # The volume floor also flips the serving path (precompute <-> live), so
+        # it must vary the key too: a team crossing below the floor keeps serving
+        # a stale precompute result otherwise. Read it only when precompute is on.
+        payload["web_trends_above_floor"] = precompute and is_team_above_volume_floor(self.team.pk)
         return payload
 
     def _calculate(self) -> TrendsQueryResponse:
