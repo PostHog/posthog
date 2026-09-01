@@ -1099,6 +1099,10 @@ export class LogsIngestionConsumer {
                 partition: message.partition,
                 offset: message.offset,
             })
+            // Rethrow: quarantine is what lets the caller move past the record. Swallowing this
+            // would commit the source offset with no copy anywhere, which loses the payload for
+            // good. Failing the batch keeps the record on the source topic until the DLQ is back.
+            throw dlqError
         }
     }
 

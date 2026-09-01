@@ -659,6 +659,25 @@ describe('LogsIngestionConsumer', () => {
             expect(dlq[0]?.headers?.error_message).toEqual('invalid_size_headers')
             expect(dlq[0]?.headers?.team_id).toEqual(team.id.toString())
         })
+
+        it('should fail the batch when the message cannot be written to the DLQ', async () => {
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: 'not-a-number',
+            })
+
+            const originalQueueMessages = mockProducer.queueMessages
+            mockProducer.queueMessages = jest.fn().mockRejectedValue(new Error('DLQ unavailable'))
+
+            try {
+                // Resolving here would commit the source offset with no copy anywhere, so the
+                // only record of the payload would be gone.
+                await expect(consumer.processKafkaBatch(messages)).rejects.toThrow('DLQ unavailable')
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
+        })
     })
 
     describe('describeBatchPosition', () => {
