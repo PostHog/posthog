@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import urlparse
 
@@ -5,7 +7,6 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTextTransform
 
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -16,10 +17,12 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ContentAutopilotDiscoveryBurstRateThrottle,
     ContentAutopilotDiscoverySustainedRateThrottle,
 )
+from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.web_analytics.backend.content_autopilot.export import ContentAutopilotExportError, export_proposal
 from products.web_analytics.backend.content_autopilot.lifecycle import (
@@ -48,6 +51,19 @@ CONTENT_AUTOPILOT_FEATURE_FLAGS = (
     "web-analytics-content-autopilot",
 )
 MAX_CONTENT_AUTOPILOT_SITE_PROFILES = 100
+DUPLICATE_DOMAIN_CONSTRAINT = "content_auto_profile_team_domain"
+DUPLICATE_DOMAIN_MESSAGE = "This site is already configured for the project."
+
+
+@contextmanager
+def duplicate_domain_as_validation_error() -> Iterator[None]:
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError as error:
+        if DUPLICATE_DOMAIN_CONSTRAINT in str(error):
+            raise ValidationError({"domain": DUPLICATE_DOMAIN_MESSAGE}) from error
+        raise
 
 
 class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
@@ -57,22 +73,29 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         distinct_id = getattr(request.user, "distinct_id", None)
-        organization_id = str(self.organization.id)
-        flag_results = (
-            [
-                posthoganalytics.feature_enabled(
-                    flag,
-                    distinct_id,
-                    groups={"organization": organization_id},
-                    group_properties={"organization": {"id": organization_id}},
-                )
-                for flag in CONTENT_AUTOPILOT_FEATURE_FLAGS
-            ]
-            if distinct_id
-            else []
-        )
-        if len(flag_results) != len(CONTENT_AUTOPILOT_FEATURE_FLAGS) or not all(flag_results):
+        if not distinct_id or not all(
+            posthog_feature_flag_enabled(flag, distinct_id, organization_id=self.organization_id)
+            for flag in CONTENT_AUTOPILOT_FEATURE_FLAGS
+        ):
             raise PermissionDenied("This feature is not available.")
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, ContentAutopilotLifecycleError | ContentAutopilotExportError):
+            exc = ValidationError(str(exc))
+        return super().handle_exception(exc)
+
+    def filtered_by_query_params(
+        self,
+        queryset: QuerySet[Any],
+        query_serializer_class: type[serializers.Serializer],
+        lookups: dict[str, str],
+    ) -> QuerySet[Any]:
+        query_serializer = query_serializer_class(data=self.request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        validated = query_serializer.validated_data
+        return queryset.filter(
+            **{lookup: value for field, lookup in lookups.items() if (value := validated.get(field))}
+        )
 
 
 class ContentAutopilotMetricSerializer(serializers.Serializer):
@@ -212,97 +235,70 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        values = {**getattr(self.instance, "__dict__", {}), **attrs}
+        def submitted(field: str, default: Any = "") -> Any:
+            return attrs[field] if field in attrs else getattr(self.instance, field, default)
+
         try:
-            domain = normalize_site_origin(str(values.get("domain") or ""))
+            domain = normalize_site_origin(submitted("domain"))
         except ValueError as error:
             raise ValidationError({"domain": str(error)}) from error
-        parsed_domain = urlparse(domain)
-        if parsed_domain.username or parsed_domain.password or parsed_domain.query or parsed_domain.fragment:
-            raise ValidationError({"domain": "Enter a public site origin without credentials, query, or fragment."})
-        if parsed_domain.path not in {"", "/"}:
-            raise ValidationError({"domain": "Enter the site origin without a content path."})
 
         attrs["domain"] = domain
-        name = str(values.get("name") or "").strip()
-        attrs["name"] = name or (parsed_domain.hostname or domain).removeprefix("www.")
-        matching_profiles = ContentAutopilotSiteProfile.objects.for_team(self.context["get_team"]().id).filter(
-            domain=domain
-        )
+        attrs["name"] = submitted("name").strip() or (urlparse(domain).hostname or domain).removeprefix("www.")
+
+        team_profiles = ContentAutopilotSiteProfile.objects.for_team(self.context["get_team"]().id)
+        duplicates = team_profiles.filter(domain=domain)
         if self.instance is not None:
-            matching_profiles = matching_profiles.exclude(id=self.instance.id)
-        if matching_profiles.exists():
-            raise ValidationError({"domain": "This site is already configured for the project."})
-        if self.instance is None and (
-            ContentAutopilotSiteProfile.objects.for_team(self.context["get_team"]().id).count()
-            >= MAX_CONTENT_AUTOPILOT_SITE_PROFILES
-        ):
+            duplicates = duplicates.exclude(id=self.instance.id)
+        if duplicates.exists():
+            raise ValidationError({"domain": DUPLICATE_DOMAIN_MESSAGE})
+        if self.instance is None and team_profiles.count() >= MAX_CONTENT_AUTOPILOT_SITE_PROFILES:
             raise ValidationError(
                 {"domain": f"A project can configure up to {MAX_CONTENT_AUTOPILOT_SITE_PROFILES} sites."}
             )
 
-        for source_url in values.get("source_urls") or []:
-            parsed_source = urlparse(str(source_url))
-            try:
-                same_origin = has_same_public_origin(str(source_url), domain)
-            except (ValueError, PublicUrlFetchError):
-                same_origin = False
+        for source_url in submitted("source_urls", []) or []:
+            url = str(source_url)
+            parsed_source = urlparse(url)
             if (
                 parsed_source.fragment
                 or parsed_source.path.startswith("//")
-                or "\\" in parsed_source.path
-                or not same_origin
+                or has_authority_bypass_chars(url)
+                or not has_same_public_origin(url, domain)
             ):
                 raise ValidationError(
                     {"source_urls": "Use public same-origin source URLs without credentials or fragments."}
                 )
 
-        boundaries = values.get("content_boundaries") or []
-        if any(
-            not str(boundary).startswith("/")
-            or str(boundary).startswith("//")
-            or ".." in str(boundary).split("/")
-            or "\\" in str(boundary)
-            or "?" in str(boundary)
-            or "#" in str(boundary)
-            for boundary in boundaries
-        ):
-            raise ValidationError({"content_boundaries": "Use same-origin path prefixes beginning with '/'."})
+        for boundary in submitted("content_boundaries", []) or []:
+            path = str(boundary)
+            if (
+                not path.startswith("/")
+                or path.startswith("//")
+                or ".." in path.split("/")
+                or any(character in path for character in "\\?#")
+            ):
+                raise ValidationError({"content_boundaries": "Use same-origin path prefixes beginning with '/'."})
 
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> ContentAutopilotSiteProfile:
         team = self.context["get_team"]()
         user_id = getattr(self.context["request"].user, "id", None)
-        try:
-            with transaction.atomic():
-                return ContentAutopilotSiteProfile.objects.for_team(team.id).create(
-                    team=team,
-                    created_by_id=user_id,
-                    updated_by_id=user_id,
-                    **validated_data,
-                )
-        except IntegrityError as error:
-            if ContentAutopilotSiteProfile.objects.for_team(team.id).filter(domain=validated_data["domain"]).exists():
-                raise ValidationError({"domain": "This site is already configured for the project."}) from error
-            raise
+        with duplicate_domain_as_validation_error():
+            return ContentAutopilotSiteProfile.objects.for_team(team.id).create(
+                team=team,
+                created_by_id=user_id,
+                updated_by_id=user_id,
+                **validated_data,
+            )
 
     def update(
         self, instance: ContentAutopilotSiteProfile, validated_data: dict[str, Any]
     ) -> ContentAutopilotSiteProfile:
         instance.updated_by_id = getattr(self.context["request"].user, "id", None)
-        try:
-            with transaction.atomic():
-                return super().update(instance, validated_data)
-        except IntegrityError as error:
-            if (
-                ContentAutopilotSiteProfile.objects.for_team(instance.team_id)
-                .filter(domain=validated_data.get("domain", instance.domain))
-                .exclude(id=instance.id)
-                .exists()
-            ):
-                raise ValidationError({"domain": "This site is already configured for the project."}) from error
-            raise
+        with duplicate_domain_as_validation_error():
+            return super().update(instance, validated_data)
 
 
 class ContentAutopilotSiteDiscoveryRequestSerializer(serializers.Serializer):
@@ -357,11 +353,14 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
         }
 
 
-class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
+class ContentAutopilotProposalBaseSerializer(serializers.ModelSerializer):
     evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
+
+
+class ContentAutopilotProposalSerializer(ContentAutopilotProposalBaseSerializer):
     content_package = ContentAutopilotPackageSerializer(
         help_text="Structured package that accompanies the exported Markdown."
     )
@@ -397,11 +396,7 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
         }
 
 
-class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
-    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
-    validation_report = ContentAutopilotValidationReportSerializer(
-        help_text="Blocking and advisory validation results."
-    )
+class ContentAutopilotProposalListSerializer(ContentAutopilotProposalBaseSerializer):
     file_path = serializers.SerializerMethodField(help_text="Repository-relative export path.")
 
     class Meta:
@@ -423,7 +418,8 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField)
     def get_file_path(self, proposal: ContentAutopilotProposal) -> str:
-        return str(getattr(proposal, "content_file_path", "") or "")
+        file_path: str | None = getattr(proposal, "content_file_path", None)
+        return file_path or ""
 
 
 class ContentAutopilotProposalListQuerySerializer(serializers.Serializer):
@@ -489,11 +485,9 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotRun]) -> QuerySet[ContentAutopilotRun]:
         queryset = ContentAutopilotRun.objects.for_team(self.team_id)
         if self.action == "list":
-            query_serializer = ContentAutopilotRunListQuerySerializer(data=self.request.query_params)
-            query_serializer.is_valid(raise_exception=True)
-            profile_id = query_serializer.validated_data.get("profile_id")
-            if profile_id:
-                queryset = queryset.filter(profile_id=profile_id)
+            queryset = self.filtered_by_query_params(
+                queryset, ContentAutopilotRunListQuerySerializer, {"profile_id": "profile_id"}
+            )
         return queryset.order_by("-created_at")
 
     @validated_request(
@@ -506,14 +500,11 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     )
     @action(detail=False, methods=["post"], required_scopes=["web_analytics:write"])
     def start(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        try:
-            run = start_run(
-                team=self.team,
-                profile_id=str(request.validated_data["profile_id"]),
-                triggered_by_id=getattr(request.user, "id", None),
-            )
-        except ContentAutopilotLifecycleError as error:
-            raise ValidationError(str(error)) from error
+        run = start_run(
+            team=self.team,
+            profile_id=str(request.validated_data["profile_id"]),
+            triggered_by_id=getattr(request.user, "id", None),
+        )
         return Response(self.get_serializer(run).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
@@ -525,10 +516,7 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def cancel(self, request: Request, **kwargs: Any) -> Response:
-        try:
-            run = cancel_run(team=self.team, run_id=str(self.get_object().id))
-        except ContentAutopilotLifecycleError as error:
-            raise ValidationError(str(error)) from error
+        run = cancel_run(team=self.team, run_id=str(self.get_object().id))
         return Response(self.get_serializer(run).data)
 
 
@@ -550,14 +538,11 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotProposal]) -> QuerySet[ContentAutopilotProposal]:
         queryset = ContentAutopilotProposal.objects.for_team(self.team_id)
         if self.action == "list":
-            query_serializer = ContentAutopilotProposalListQuerySerializer(data=self.request.query_params)
-            query_serializer.is_valid(raise_exception=True)
-            run_id = query_serializer.validated_data.get("run_id")
-            profile_id = query_serializer.validated_data.get("profile_id")
-            if run_id:
-                queryset = queryset.filter(run_id=run_id)
-            if profile_id:
-                queryset = queryset.filter(run__profile_id=profile_id)
+            queryset = self.filtered_by_query_params(
+                queryset,
+                ContentAutopilotProposalListQuerySerializer,
+                {"run_id": "run_id", "profile_id": "run__profile_id"},
+            )
             queryset = queryset.annotate(content_file_path=KeyTextTransform("file_path", "content_package")).only(
                 "id",
                 "run_id",
@@ -582,10 +567,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def edit(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        try:
-            proposal = edit_proposal(team=self.team, proposal_id=str(self.get_object().id), **request.validated_data)
-        except ContentAutopilotLifecycleError as error:
-            raise ValidationError(str(error)) from error
+        proposal = edit_proposal(team=self.team, proposal_id=str(self.get_object().id), **request.validated_data)
         return Response(self.get_serializer(proposal).data)
 
     @validated_request(
@@ -597,10 +579,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def reject(self, request: Request, **kwargs: Any) -> Response:
-        try:
-            proposal = reject_proposal(team=self.team, proposal_id=str(self.get_object().id))
-        except ContentAutopilotLifecycleError as error:
-            raise ValidationError(str(error)) from error
+        proposal = reject_proposal(team=self.team, proposal_id=str(self.get_object().id))
         return Response(self.get_serializer(proposal).data)
 
     @validated_request(
@@ -612,10 +591,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def regenerate(self, request: Request, **kwargs: Any) -> Response:
-        try:
-            proposal = regenerate_proposal(team=self.team, proposal_id=str(self.get_object().id))
-        except ContentAutopilotLifecycleError as error:
-            raise ValidationError(str(error)) from error
+        proposal = regenerate_proposal(team=self.team, proposal_id=str(self.get_object().id))
         return Response(self.get_serializer(proposal).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
@@ -627,8 +603,5 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def export(self, request: Request, **kwargs: Any) -> Response:
-        try:
-            exported = export_proposal(team=self.team, proposal_id=str(self.get_object().id))
-        except ContentAutopilotExportError as error:
-            raise ValidationError(str(error)) from error
+        exported = export_proposal(team=self.team, proposal_id=str(self.get_object().id))
         return Response(ContentAutopilotExportResponseSerializer(instance=exported).data)

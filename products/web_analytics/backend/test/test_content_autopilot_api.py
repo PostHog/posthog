@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -17,12 +18,21 @@ from products.web_analytics.backend.test.content_autopilot_test_utils import (
     create_content_autopilot_run,
 )
 
+DISCOVERED_SITE = {
+    "name": "Example",
+    "domain": "https://example.com",
+    "source_urls": ["https://example.com/sitemap.xml"],
+    "content_boundaries": ["/"],
+    "sitemap_detected": True,
+    "warnings": [],
+}
+
 
 class TestContentAutopilotAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.web_analytics.backend.api.content_autopilot.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.api.content_autopilot.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()
@@ -49,26 +59,18 @@ class TestContentAutopilotAPI(APIBaseTest):
         payload.update(overrides)
         return payload
 
-    def test_requires_both_rollout_flags_with_user_and_organization_context(self) -> None:
-        for disabled_flag in CONTENT_AUTOPILOT_FEATURE_FLAGS:
-            with self.subTest(disabled_flag=disabled_flag):
-                self.feature_enabled.reset_mock()
-                self.feature_enabled.side_effect = lambda flag, *args, disabled_flag=disabled_flag, **kwargs: (
-                    flag != disabled_flag
-                )
+    @parameterized.expand([(flag,) for flag in CONTENT_AUTOPILOT_FEATURE_FLAGS])
+    def test_requires_both_rollout_flags_with_user_and_organization_context(self, disabled_flag: str) -> None:
+        self.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag != disabled_flag
 
-                response = self.client.get(self._profiles_url())
+        response = self.client.get(self._profiles_url())
 
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-                calls_by_flag = {call.args[0]: call for call in self.feature_enabled.call_args_list}
-                self.assertEqual(set(calls_by_flag), set(CONTENT_AUTOPILOT_FEATURE_FLAGS))
-                for call in calls_by_flag.values():
-                    self.assertEqual(call.args[1], self.user.distinct_id)
-                    self.assertEqual(call.kwargs["groups"], {"organization": str(self.organization.id)})
-                    self.assertEqual(
-                        call.kwargs["group_properties"],
-                        {"organization": {"id": str(self.organization.id)}},
-                    )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        calls_by_flag = {call.args[0]: call for call in self.feature_enabled.call_args_list}
+        self.assertIn(disabled_flag, calls_by_flag)
+        for call in calls_by_flag.values():
+            self.assertEqual(call.args[1], self.user.distinct_id)
+            self.assertEqual(call.kwargs["organization_id"], str(self.organization.id))
 
     def test_requires_an_authenticated_project_member(self) -> None:
         self.client.logout()
@@ -77,18 +79,17 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertIn(response.status_code, {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN})
 
-    def test_profile_validates_site_boundaries(self) -> None:
-        invalid_payloads = [
-            (self._profile_payload(source_urls=["https://other.example/sitemap.xml"]), "source_urls"),
-            (self._profile_payload(content_boundaries=["/docs/../private"]), "content_boundaries"),
+    @parameterized.expand(
+        [
+            ("source_urls", {"source_urls": ["https://other.example/sitemap.xml"]}),
+            ("content_boundaries", {"content_boundaries": ["/docs/../private"]}),
         ]
+    )
+    def test_profile_validates_site_boundaries(self, field: str, overrides: dict[str, object]) -> None:
+        response = self.client.post(self._profiles_url(), self._profile_payload(**overrides), format="json")
 
-        for payload, field in invalid_payloads:
-            with self.subTest(field=field):
-                response = self.client.post(self._profiles_url(), payload, format="json")
-
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertEqual(response.json()["attr"], field)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], field)
 
     def test_profile_accepts_same_origin_sources_with_queries_and_default_ports(self) -> None:
         response = self.client.post(
@@ -140,14 +141,7 @@ class TestContentAutopilotAPI(APIBaseTest):
 
     @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
     def test_discover_returns_editable_onboarding_defaults(self, discover_site: MagicMock) -> None:
-        discover_site.return_value = {
-            "name": "Example",
-            "domain": "https://example.com",
-            "source_urls": ["https://example.com/sitemap.xml"],
-            "content_boundaries": ["/"],
-            "sitemap_detected": True,
-            "warnings": [],
-        }
+        discover_site.return_value = DISCOVERED_SITE
 
         response = self.client.post(
             self._profiles_url("discover/"),
@@ -176,29 +170,17 @@ class TestContentAutopilotAPI(APIBaseTest):
     def test_discover_is_throttled_for_the_session_authenticated_ui(
         self, discover_site: MagicMock, _rate_limit_enabled: MagicMock
     ) -> None:
-        discover_site.return_value = {
-            "name": "Example",
-            "domain": "https://example.com",
-            "source_urls": ["https://example.com/sitemap.xml"],
-            "content_boundaries": ["/"],
-            "sitemap_detected": True,
-            "warnings": [],
-        }
+        discover_site.return_value = DISCOVERED_SITE
         cache.clear()
         self.addCleanup(cache.clear)
 
         with patch.object(ContentAutopilotDiscoveryBurstRateThrottle, "rate", "2/minute"):
-            self.assertEqual(
-                self.client.post(self._profiles_url("discover/"), {"domain": "https://example.com"}).status_code,
-                status.HTTP_200_OK,
-            )
-            self.assertEqual(
-                self.client.post(self._profiles_url("discover/"), {"domain": "https://example.com"}).status_code,
-                status.HTTP_200_OK,
-            )
-            throttled = self.client.post(self._profiles_url("discover/"), {"domain": "https://example.com"})
+            statuses = [
+                self.client.post(self._profiles_url("discover/"), {"domain": "https://example.com"}).status_code
+                for _ in range(3)
+            ]
 
-        self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(statuses, [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS])
 
     def test_start_and_cancel_expose_durable_run_transitions(self) -> None:
         profile = create_content_autopilot_profile(self.team)
@@ -263,29 +245,25 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
 
+    def _reviewable_proposal(self, *, validation_passed: bool = True) -> ContentAutopilotProposal:
+        run = create_content_autopilot_run(self.team, create_content_autopilot_profile(self.team))
+        return create_content_autopilot_proposal(self.team, run, validation_passed=validation_passed)
+
     def test_export_returns_markdown_and_marks_the_proposal_exported(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(
-            self.team,
-            create_content_autopilot_run(self.team, profile),
-        )
+        proposal = self._reviewable_proposal()
 
         response = self.client.post(self._proposals_url(f"{proposal.id}/export/"), format="json")
+        body = response.json()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()["filename"], "example.md")
-        self.assertEqual(response.json()["markdown"], proposal.proposed_markdown)
-        self.assertNotIn("markdown", response.json()["content_package"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK, body)
+        self.assertEqual(body["filename"], "example.md")
+        self.assertEqual(body["markdown"], proposal.proposed_markdown)
+        self.assertNotIn("markdown", body["content_package"])
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.EXPORTED)
 
     def test_export_refuses_a_proposal_that_failed_validation(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(
-            self.team,
-            create_content_autopilot_run(self.team, profile),
-            validation_passed=False,
-        )
+        proposal = self._reviewable_proposal(validation_passed=False)
 
         response = self.client.post(self._proposals_url(f"{proposal.id}/export/"), format="json")
 
