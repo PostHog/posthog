@@ -15,10 +15,8 @@ use tower::{Service, ServiceExt};
 
 use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
 
-/// Set by the leader on any write it refuses because a lifecycle op holds
-/// the person, alongside the holding op's id. Mirrored here rather than
-/// imported: the router forwards these opaquely and must not take a
-/// dependency on the leader crate to do it.
+/// Set by the leader on writes refused for a lifecycle hold. Mirrored so
+/// the router does not depend on the leader crate.
 const FENCED_METADATA_KEY: &str = "x-person-fenced";
 const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
@@ -108,11 +106,8 @@ pub enum ForwardDecision {
         call_ms: f64,
     },
     Bounced(BounceReason),
-    /// Any non-semantic FAILED_PRECONDITION, carrying the refusal's own
-    /// metadata. The metadata exists for a person held by a lifecycle op:
-    /// such a fence resumes only on an explicit retry from the caller
-    /// driving that op, so the holder's identity is what lets that caller
-    /// tell "keep waiting" from "this one is mine to finish".
+    /// Any non-semantic FAILED_PRECONDITION with its refusal metadata;
+    /// the holder's op id tells a caller whether the fence is its own.
     BouncedFenced {
         headers: HeaderMap,
     },
@@ -409,9 +404,8 @@ impl LeaderBackend {
         frame: Bytes,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut consecutive_bounces = 0u32;
-        // Whether any attempt may have reached the leader and been applied,
-        // which the stash needs in order to treat a replay as at-least-once
-        // rather than exactly-once.
+        // Whether any attempt may have been applied, which the stash
+        // needs to treat a replay as at-least-once.
         let mut possibly_applied = false;
         loop {
             // The stash module emits its own enqueued/rejected counters
@@ -462,22 +456,15 @@ impl LeaderBackend {
                     }
                     consecutive_bounces += 1;
                     if consecutive_bounces >= MAX_CONSECUTIVE_BOUNCES {
-                        // Labelled by the reason that ended it: exhausting on
-                        // a fence makes the caller drop its operation and ack,
-                        // exhausting on transport makes it redeliver. An
-                        // unlabelled count cannot separate a lost merge from a
-                        // retried one.
+                        // The label separates a fence exhaustion (acked,
+                        // dropped) from a transport one (redelivered).
                         counter!(
                             "personhog_router_forward_retries_exhausted_total",
                             "reason" => reason.label(),
                         )
                         .increment(1);
-                        // The message follows what actually ended the
-                        // request. A refusal carrying fence metadata names a
-                        // lifecycle holder; a bare FAILED_PRECONDITION is the
-                        // handoff/ownership majority the Fenced class also
-                        // carries, and calling that a lifecycle operation
-                        // points triage at ops that do not exist.
+                        // Fence metadata names a lifecycle holder; a bare
+                        // FAILED_PRECONDITION is ordinary handoff/ownership.
                         let held_by_op = matches!(
                             &decision,
                             ForwardDecision::BouncedFenced { headers }
@@ -493,12 +480,8 @@ impl LeaderBackend {
                                 "leader unreachable or transitioning; retry"
                             },
                         );
-                        // Only the fence keys travel, and only from the
-                        // bounce that actually ended the request: taking
-                        // them from this decision rather than a remembered
-                        // one keeps a leader that died after being fenced
-                        // from coming back labelled as held — a verdict
-                        // callers ack rather than retry.
+                        // Keys travel only from the bounce that ended the
+                        // request, so a dead leader cannot report as held.
                         if let ForwardDecision::BouncedFenced { headers: fence } = &decision {
                             for key in [
                                 FENCED_METADATA_KEY,

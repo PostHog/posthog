@@ -98,11 +98,8 @@ impl MergeEntrance {
         // full-request mismatch; that surfaces as retryable UNAVAILABLE
         // (see MergeOpExecutor::execute) and the retry attaches here.
         let mut existing = self.ops.find(op_id).await?;
-        // A claim abort is a disposable record: nothing was destroyed and
-        // no fence installed, so a retry deserves a fresh run rather than
-        // a replay of the contention it met last time. Checked before the
-        // request comparison, because even a drifted or different request
-        // may safely reuse the id once the record is gone.
+        // A claim abort is disposable; checked before the request
+        // comparison so any request may reuse the id once it is gone.
         if let Some(row) = &existing {
             if MergeOpExecutor::is_claim_abort(row) {
                 self.ops.discard_claim_abort(op_id).await?;
@@ -122,10 +119,8 @@ impl MergeEntrance {
             let frozen = row.request.clone();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
             let delivered = self.deliver_aborted_writes(&request, &row).await?;
-            // Drives the recorded op with its own frozen request, so a
-            // terminal row is reproduced rather than reclassified. The
-            // event's properties apply only where the op aborted; see
-            // deliver_aborted_writes.
+            // Drives the recorded op with its own frozen request, never
+            // reclassified; properties apply only where the op aborted.
             return merge_response(&row, delivered);
         }
 
@@ -134,10 +129,8 @@ impl MergeEntrance {
         // destructive shape). The saga re-resolves
         // authoritatively at claim time; this pass only decides shape.
         //
-        // Illegal and oversized sources settle here, before resolution, and
-        // stay out of the resolve batch: their verdict does not depend on the
-        // world, and resolving them would let a caller pump arbitrarily large
-        // ids through the primary for free.
+        // Illegal and oversized sources settle before resolution, so a
+        // caller cannot pump arbitrarily large ids through the primary.
         let mut inline_results: HashMap<String, String> = HashMap::new();
         let mut keys: Vec<(i64, String)> =
             vec![(request.team_id, request.target_distinct_id.clone())];
@@ -248,8 +241,7 @@ impl MergeEntrance {
                     MergeSourceResult {
                         source_distinct_id: s.source_distinct_id.clone(),
                         outcome: outcome_enum(outcome).into(),
-                        // This arm runs only when no source reached the saga,
-                        // so nothing was destroyed and there is no id to report.
+                        // Nothing was destroyed, so there is no id to report.
                         source_person_id: None,
                         settled: outcome_settled(outcome),
                     }
@@ -331,12 +323,8 @@ impl MergeEntrance {
     }
 
     /// Apply the merge event's $set/$set_once and the identified flip to
-    /// the survivor. Called from the inline settlement, and again from
-    /// `deliver_aborted_writes` when a saga ran and aborted; a saga that
-    /// completes carries both through the fold instead. The ack means the changes are durable in the changelog.
-    /// Skipped entirely when there is nothing to change — a repeat
-    /// identify of an already-identified survivor with no new properties
-    /// costs no leader round trip.
+    /// the survivor; a completing saga carries both through the fold
+    /// instead. The ack means durability in the changelog.
     async fn push_event_properties(
         &self,
         request: &MergePersonsRequest,
@@ -345,11 +333,8 @@ impl MergeEntrance {
         was_born: bool,
     ) -> Result<Option<ProtoPerson>, Status> {
         let flip = flip_identified && !survivor.is_identified;
-        // A person the establish path just birthed records the event that
-        // created it, matching the Postgres backend's stamp-once-at-creation
-        // behavior; a survivor that already existed must not gain one. It
-        // travels in $set because a stub row never reaches the leader's
-        // changelog.
+        // Only a just-birthed person records its creating event. It
+        // travels in $set because a stub never reaches the changelog.
         let stamp_creator = was_born && !request.creator_event_uuid.is_empty();
         if request.event_set.is_empty()
             && request.event_set_once.is_empty()
@@ -366,8 +351,7 @@ impl MergeEntrance {
         let response = self
             .property_writer
             .update_person_properties(UpdatePersonPropertiesRequest {
-                // The merge event is a person event; its properties are forced,
-                // matching the Postgres backend applying them inside the merge.
+                // Forced: the Postgres backend applies these inside the merge.
                 force_update: true,
                 team_id: request.team_id,
                 person_id: survivor.id,
@@ -466,8 +450,7 @@ impl MergeEntrance {
             .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
         match outcomes.into_iter().next() {
             Some(StubOutcome::Committed { person, .. }) => Ok((person, true)),
-            // Losing the race means the winner's person survives, and it
-            // carries whatever creator its own establishment recorded.
+            // The race winner's person keeps its own establishment's creator.
             Some(StubOutcome::LostRace) | None => {
                 Ok((self.resolve_target_after_race(request).await?, false))
             }
@@ -494,10 +477,8 @@ impl MergeEntrance {
     }
 }
 
-/// The event's `$set` map with `$creator_event_uuid` added, for a person
-/// the establish path just birthed. It overwrites because the property
-/// names the event that created the person, so an event carrying its own
-/// value for the key does not get to decide it.
+/// The event's `$set` map with `$creator_event_uuid` added for a
+/// just-birthed person. It overwrites: the event does not name its own creator.
 // See `MergeEntrance::handle` for why result_large_err is allowed.
 #[allow(clippy::result_large_err)]
 fn with_creator_event_uuid(set: &[u8], creator_event_uuid: &str) -> Result<Vec<u8>, Status> {
@@ -540,12 +521,9 @@ fn merge_original(
     event_set: &Value,
     event_set_once: &Value,
 ) -> Value {
-    // event_uuid and creator_event_uuid are deliberately absent: the proto
-    // documents both as advisory, so a retry that regenerated either must
-    // still match the recorded request. Comparing the creator would refuse
-    // a retry that a deploy gave one to, and the refusal is terminal, so it
-    // would trade an attribution label for a lost merge. The fences keep
-    // the recorded creator, which is why ownership keys on the op id.
+    // event_uuid and creator_event_uuid are advisory: a retry that
+    // regenerated either must still match, and a mismatch here would be
+    // a terminal refusal. Ownership keys on the op id.
     serde_json::json!({
         "target_distinct_id": request.target_distinct_id,
         "sources": request
@@ -561,16 +539,12 @@ fn merge_original(
     })
 }
 
-/// Fields that describe how a merge runs rather than which merge it is:
-/// all three legitimately drift between deliveries of one event, so
-/// refusing on them would turn an ordinary redelivery into a permanent
-/// FAILED_PRECONDITION. Excluded from the comparison, not ignored (a
-/// replay still delivers the incoming properties); `move_limit` stays in
-/// the comparison because the client folds it into the op id.
+/// Fields that describe how a merge runs, not which merge it is; they
+/// drift between deliveries, so they are excluded from the comparison
+/// (a replay still delivers them). `move_limit` is folded into the op id.
 const MERGE_PARAMETERS: [&str; 3] = ["created_at", "event_set", "event_set_once"];
 
-/// Whether a retry is describing the merge the recorded op performed.
-/// Compared on identity only; see MERGE_PARAMETERS for what that excludes.
+/// Whether a retry describes the recorded merge; see MERGE_PARAMETERS.
 fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
     let strip = |value: &Value| {
         let mut copy = value.clone();
@@ -587,9 +561,8 @@ fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
     }
 }
 
-/// The caller's durability decision, stated by the side that recorded the
-/// verdict: every outcome is final under retry except a claim conflict,
-/// whose op row is not retained, so a retry genuinely re-runs.
+/// The caller's durability decision: every outcome is final under retry
+/// except a claim conflict, whose discarded op row lets a retry re-run.
 fn outcome_settled(outcome: &str) -> bool {
     outcome != OUTCOME_SKIPPED_CONFLICT
 }
@@ -619,9 +592,7 @@ fn survivor_to_proto(survivor: &Value, team_id: i64) -> ProtoPerson {
         team_id,
         properties: serde_json::to_vec(&survivor["properties"]).unwrap_or_default(),
         created_at: survivor["created_at"].as_i64().unwrap_or_default(),
-        // Absent in records written before the saga began carrying it, and
-        // absent from a fold whose people all had none, which the wire and
-        // the store both read as unset.
+        // Older records and creator-less folds both read as unset.
         last_seen_at: survivor["last_seen_at"].as_i64(),
         version: survivor["version"].as_i64().unwrap_or_default(),
         is_identified: survivor["is_identified"].as_bool().unwrap_or(true),
@@ -699,8 +670,7 @@ fn merge_response(
                 outcome: outcome_enum(outcome).into(),
                 settled: outcome_settled(outcome),
                 // Only a merged source names a person, because only that
-                // person is permanently gone; every other verdict names one
-                // still live.
+                // person is permanently gone.
                 source_person_id: match outcome {
                     OUTCOME_MERGED => record.and_then(|r| r.person_id),
                     _ => None,

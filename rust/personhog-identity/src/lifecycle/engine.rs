@@ -58,10 +58,8 @@ pub enum SagaError {
     /// Another instance held the lease past our deadline.
     #[error("another instance is driving this operation")]
     Busy,
-    /// This drive ran out its own execute deadline while the op was still
-    /// live. Distinct from `Busy` so the retry advice does not blame
-    /// contention that does not exist; a retry with the same op id
-    /// resumes the drive.
+    /// The drive's own execute deadline elapsed; a same-op-id retry
+    /// resumes it. `Busy` instead means contention.
     #[error("execute deadline elapsed")]
     DeadlineElapsed,
     /// A leader RPC (fence, release, fold) failed transiently. The step made
@@ -194,8 +192,8 @@ pub struct EngineConfig {
     pub attempt_alert_threshold: i32,
 }
 
-/// Rows one GC pass may delete. Sized so a post-backlog sweep finishes in
-/// well under a second rather than holding locks for the whole cleanup.
+/// Rows one GC pass may delete, so a post-backlog sweep never holds
+/// locks for long; the next pass continues.
 const GC_BATCH_LIMIT: i64 = 10_000;
 
 pub struct Engine {
@@ -340,11 +338,8 @@ impl Engine {
             };
             if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
-                    // We drove it over the line (vs attaching to an op that
-                    // was already done). A driver whose lease was stolen
-                    // before this reload double-counts alongside the stealer
-                    // — accepted, since attributing the terminal CAS would
-                    // cost a verification query per completion.
+                    // A stolen lease double-counts alongside the stealer;
+                    // exact attribution would cost a query per completion.
                     common_metrics::inc(
                         OPS_COMPLETED_TOTAL,
                         &[
@@ -364,10 +359,8 @@ impl Engine {
                 return Ok(row);
             }
             if tokio::time::Instant::now() >= deadline {
-                // Who ran the clock out decides the message: with the claim
-                // in hand this drive was simply slow, and blaming contention
-                // would point triage at another instance that does not
-                // exist. Without it, another driver genuinely held the op.
+                // With the claim in hand the drive was simply slow, not
+                // contended.
                 if let Some(attempt) = claim_attempt {
                     self.release_lease(op_id, attempt).await.ok();
                     return Err(SagaError::DeadlineElapsed);
@@ -433,11 +426,7 @@ impl Engine {
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
                     SagaError::CorruptState(_) => "corrupt_state",
-                    // RequestMismatch and DeadlineElapsed are never step
-                    // errors (only attach and drive() mint them); Busy can
-                    // arrive from a stale drive deferring to the op row,
-                    // which logs at its mint site. Collapsed so dashboards
-                    // never chase labels with no attribution behind them.
+                    // Collapsed: these carry no attribution worth a label.
                     SagaError::RequestMismatch(_)
                     | SagaError::Busy
                     | SagaError::DeadlineElapsed => "other",
@@ -706,8 +695,6 @@ impl Engine {
     /// The retention window exists only for op_id idempotency — the durable
     /// deletion shield is the person tombstone row, not the op row.
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
-        // Bounded per pass: an unbounded delete after a backlog would hold
-        // locks and WAL for the whole sweep; the next pass continues.
         let result = sqlx::query!(
             r#"
             DELETE FROM lifecycle_op

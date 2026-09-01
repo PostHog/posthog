@@ -62,9 +62,8 @@ use crate::cache::PersonCacheKey;
 pub struct FenceState {
     pub op_id: Uuid,
     pub op_type: LifecycleOpType,
-    /// The uuid of the event whose merge installed the fence, where the
-    /// saga supplied one. Advisory: echoed on rejections so callers can
-    /// attribute the fence to its event; ownership keys on the op id.
+    /// The event whose merge installed the fence, echoed on rejections.
+    /// Advisory: ownership keys on the op id.
     pub creator_event_uuid: Option<Uuid>,
 }
 
@@ -77,8 +76,7 @@ pub const FENCED_METADATA_KEY: &str = "x-person-fenced";
 /// Metadata key carrying the fencing operation's id on rejections.
 pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 /// Metadata key carrying the fencing operation's creator event uuid on
-/// rejections, absent where the fence carries none (delete ops, and merge
-/// ops frozen before the field existed).
+/// rejections, when the fence has one.
 pub const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
 
 /// A definitive FAILED_PRECONDITION the router passes through to the
@@ -184,8 +182,7 @@ pub async fn rebuild_partition_fences(
     drop_partition_fences(fences, partition, num_partitions);
 
     // Keep only this partition's rows before touching the frozen
-    // requests: extracting a jsonb field detoasts the whole request (both
-    // property maps, twice), and the scan reads every partition's marks.
+    // requests: extracting a jsonb field detoasts the whole request.
     let mut ours: Vec<(i64, i64, Uuid, String)> = Vec::new();
     for row in rows {
         let team_id: i32 = row.get("team_id");

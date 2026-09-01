@@ -267,11 +267,8 @@ pub struct Config {
     /// the dirty index prunes a mark as soon as the writer's committed
     /// offset shows the primary has the row, so reading an async replica
     /// here would serve stale rows for unmarked persons and silently
-    /// break read-your-write. Leader reads are strong reads. The
-    /// lifecycle mark verifications read this pool too, so a lagged
-    /// replica also makes the fold and release checks refuse fresh marks
-    /// — fail-closed, surfacing as spurious merge aborts and parked ops
-    /// rather than wrong destruction.
+    /// break read-your-write. Lifecycle mark verifications read this pool
+    /// too and fail closed on replica lag.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
