@@ -1,5 +1,6 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 
@@ -168,13 +169,11 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
-        [broadcastWizardLogic.actionTypes.setAudienceProperties]: () => {
+    // Reload on the value rather than on the edit action, so resuming a saved draft loads against
+    // the audience it hydrates with instead of the empty one the logic mounted on.
+    subscriptions(({ actions }) => ({
+        audienceProperties: () => {
             actions.loadPersons()
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadPersons()
-    }),
 ])
