@@ -8,7 +8,7 @@ from django.utils import timezone
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ABANDONED_UPLOAD_AGE
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads
+from posthog.tasks.uploaded_media import _sweep_abandoned_media_upload, sweep_abandoned_media_uploads
 
 
 class TestSweepAbandonedMediaUploads(APIBaseTest):
@@ -37,6 +37,16 @@ class TestSweepAbandonedMediaUploads(APIBaseTest):
         assert UploadedMedia.objects.filter(pk=still_in_flight.pk).exists()
         assert UploadedMedia.objects.filter(pk=completed.pk).exists()
         mock_delete.assert_called_once_with(abandoned.media_location)
+
+    @patch("posthog.tasks.uploaded_media.object_storage.delete")
+    def test_keeps_an_upload_completed_after_candidate_selection(self, mock_delete: MagicMock) -> None:
+        completed = self._create_media(pending=True, age=ABANDONED_UPLOAD_AGE + timedelta(hours=1))
+        cutoff = timezone.now() - ABANDONED_UPLOAD_AGE
+        UploadedMedia.objects.filter(pk=completed.pk).update(pending=False)
+
+        assert _sweep_abandoned_media_upload(completed.pk, cutoff) is False
+        assert UploadedMedia.objects.filter(pk=completed.pk).exists()
+        mock_delete.assert_not_called()
 
     @patch("posthog.tasks.uploaded_media.object_storage.delete", side_effect=ObjectStorageError("delete failed"))
     def test_keeps_the_row_when_its_object_cannot_be_deleted(self, _mock_delete: MagicMock) -> None:

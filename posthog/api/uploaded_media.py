@@ -3,7 +3,9 @@ from typing import NoReturn, Optional
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import transaction
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.http import content_disposition_header
 from django.views.decorators.csrf import csrf_exempt
 
@@ -420,18 +422,23 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             _discard_pending_upload(uploaded_media, code="invalid_image", detail="Uploaded media must be a valid image")
 
         # Move the verified bytes off the key the presigned form signed (see
-        # UploadedMedia.build_staging_location). Order is copy, save, delete: if save() fails,
-        # staging still holds the bytes and a retry re-reads them. Deleting staging first
-        # would leave a save failure pointing the row at a location that no longer exists.
+        # UploadedMedia.build_staging_location). The row lock serializes activation with the
+        # abandoned-upload sweep. Order is copy, save, delete so a save failure leaves the
+        # staging bytes available for retry.
         staging_location = uploaded_media.media_location
         permanent_location = UploadedMedia.build_media_location(self.team_id, uploaded_media.pk)
-        object_storage.copy(staging_location, permanent_location)
+        with transaction.atomic():
+            uploaded_media = get_object_or_404(
+                self.get_queryset().select_for_update(),
+                pk=uploaded_media.pk,
+            )
+            object_storage.copy(staging_location, permanent_location)
 
-        uploaded_media.media_location = permanent_location
-        uploaded_media.content_type = sniffed_content_type
-        uploaded_media.size_bytes = len(content)
-        uploaded_media.pending = False
-        uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
+            uploaded_media.media_location = permanent_location
+            uploaded_media.content_type = sniffed_content_type
+            uploaded_media.size_bytes = len(content)
+            uploaded_media.pending = False
+            uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
 
         # The image is live either way, so a failed cleanup must not fail the request — it
         # leaves a logged staging object that no longer costs the caller anything.

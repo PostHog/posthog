@@ -1,3 +1,7 @@
+from datetime import datetime
+from uuid import UUID
+
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -21,25 +25,17 @@ UPLOADED_MEDIA_ABANDONED_SWEPT_COUNTER = Counter(
 SWEEP_BATCH_SIZE = 1000
 
 
-def sweep_abandoned_media_uploads() -> int:
-    """Discard pending uploads nobody completed, and the staged bytes behind them.
+def _sweep_abandoned_media_upload(media_id: UUID, cutoff: datetime) -> bool:
+    with transaction.atomic():
+        media = (
+            UploadedMedia.objects.select_for_update(skip_locked=True)
+            .filter(pk=media_id, pending=True, created_at__lt=cutoff)
+            .first()
+        )
+        if media is None:
+            return False
 
-    `start_upload` reserves a row and a storage key before the caller has sent anything, so a
-    caller that stops there — a crashed agent, an upload that never ran, a rejected file whose
-    cleanup failed — leaves both behind. Nothing else revisits them, so without this they
-    accumulate for the lifetime of the team.
-
-    Returns the number of rows removed.
-    """
-    cutoff = timezone.now() - ABANDONED_UPLOAD_AGE
-    abandoned = UploadedMedia.objects.filter(pending=True, created_at__lt=cutoff).order_by("created_at")[
-        :SWEEP_BATCH_SIZE
-    ]
-
-    swept = 0
-    for media in abandoned:
-        # Drop the object first so a storage failure leaves the row for the next pass —
-        # deleting the row first would strand the object with nothing pointing at it.
+        # Drop the object first so a storage failure leaves the row for the next pass.
         try:
             if media.media_location:
                 object_storage.delete(media.media_location)
@@ -51,10 +47,30 @@ def sweep_abandoned_media_uploads() -> int:
                 team_id=media.team_id,
                 exc_info=True,
             )
-            continue
+            return False
 
         media.delete()
-        swept += 1
+        return True
+
+
+def sweep_abandoned_media_uploads() -> int:
+    """Discard pending uploads nobody completed, and the staged bytes behind them.
+
+    `start_upload` reserves a row and a storage key before the caller has sent anything, so a
+    caller that stops there — a crashed agent, an upload that never ran, a rejected file whose
+    cleanup failed — leaves both behind. Nothing else revisits them, so without this they
+    accumulate for the lifetime of the team.
+
+    Returns the number of rows removed.
+    """
+    cutoff = timezone.now() - ABANDONED_UPLOAD_AGE
+    abandoned_ids = list(
+        UploadedMedia.objects.filter(pending=True, created_at__lt=cutoff)
+        .order_by("created_at")
+        .values_list("pk", flat=True)[:SWEEP_BATCH_SIZE]
+    )
+
+    swept = sum(_sweep_abandoned_media_upload(media_id, cutoff) for media_id in abandoned_ids)
 
     UPLOADED_MEDIA_ABANDONED_SWEPT_COUNTER.labels(outcome="swept").inc(swept)
     if swept:
