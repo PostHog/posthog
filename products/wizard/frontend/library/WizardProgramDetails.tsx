@@ -99,7 +99,7 @@ export function WizardProgramDetails({
                 </div>
             )}
 
-            {environment === 'cloud' && githubConnected && (
+            {WIZARD_LOCAL_RUNS_VISIBLE && supportsLocal && environment === 'cloud' && githubConnected && (
                 <div className="mt-3">
                     <WizardCommand
                         command={command}
