@@ -24,7 +24,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.utils import ensure_utc, relative_date_parse_with_delta_mapping
+from posthog.utils import ensure_utc, relative_date_parse
 
 WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 7
@@ -301,29 +301,16 @@ def _build_series(
 _UTC_ZONE = ZoneInfo("UTC")
 
 
-def _parse_bound(value: str, *, now: dt.datetime, week_start_day: int | None) -> dt.datetime:
-    parsed, delta_mapping, position = relative_date_parse_with_delta_mapping(
-        value,
-        _UTC_ZONE,
-        now=now,
-        team_week_start_day=week_start_day,
-    )
-    # A week-commencing bound such as -1wStart has to land on a boundary, but
-    # truncating a plain -7d would push the span past its own length limit, so
-    # only the inputs that matched a Start/End position get snapped.
-    if position:
-        if "hours" in (delta_mapping or {}):
-            parsed = parsed.replace(minute=0, second=0, microsecond=0)
-        else:
-            parsed = parsed.replace(hour=0, minute=0, second=0, microsecond=0)
-    return ensure_utc(parsed)
+def _parse_bound(value: str, *, now: dt.datetime) -> dt.datetime:
+    # No calendar snapping here, so there is no calendar to snap in: a relative
+    # bound is an offset from now and an ISO bound carries its own offset.
+    return ensure_utc(relative_date_parse(value, _UTC_ZONE, now=now))
 
 
 def resolve_window(
     date_from: str | None,
     date_to: str | None,
     *,
-    week_start_day: int | None,
     interval_minutes: int = 60,
     now: dt.datetime | None = None,
 ) -> SeriesBandsWindow:
@@ -333,13 +320,9 @@ def resolve_window(
     # bound is what keeps them out of the observed line.
     now = ensure_utc(now) if now is not None else dt.datetime.now(dt.UTC)
 
-    window_end = _parse_bound(date_to, now=now, week_start_day=week_start_day) if date_to else now
+    window_end = _parse_bound(date_to, now=now) if date_to else now
     window_end = min(window_end, now)
-    window_start = (
-        _parse_bound(date_from, now=now, week_start_day=week_start_day)
-        if date_from
-        else window_end - dt.timedelta(days=WINDOW_DAYS)
-    )
+    window_start = _parse_bound(date_from, now=now) if date_from else window_end - dt.timedelta(days=WINDOW_DAYS)
     # Snapping can move either bound by up to one interval, so every check runs
     # on the snapped values the query will actually see.
     window_start = floor_to_interval(window_start, interval_minutes)

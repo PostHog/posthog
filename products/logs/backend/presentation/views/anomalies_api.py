@@ -391,7 +391,6 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             window = resolve_window(
                 date_range.get("date_from"),
                 date_range.get("date_to"),
-                week_start_day=self.team.week_start_day,
                 interval_minutes=interval_minutes,
             )
         except SeriesBandsWindowInvalid as err:

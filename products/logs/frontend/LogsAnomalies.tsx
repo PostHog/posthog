@@ -18,19 +18,14 @@ import { LogTag } from 'products/logs/frontend/components/LogTag'
 import type { LogsSeriesBandSeriesApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
-// The backend charts at most a week at a time, and cannot reach past 35 days because the
-// source table drops what it would need. Every option here stays inside those bounds:
-// `-4wStart` is the oldest, at 28 to 34 days back depending on the weekday.
+// The backend charts at most a week at a time and cannot reach past 35 days, because the
+// source table drops what it would need. Rolling options only: a fixed span needs no calendar,
+// so there is no week boundary to snap and no timezone to snap it in. Pick an arbitrary week
+// through the picker's own start and end fields.
 const DATE_OPTIONS: DateMappingOption[] = [
     { key: 'Last 24 hours', values: ['-24h'], defaultInterval: 'hour' },
     { key: 'Last 3 days', values: ['-3d'], defaultInterval: 'hour' },
     { key: 'Last 7 days', values: ['-7d'], defaultInterval: 'hour' },
-    { key: 'This week', values: ['wStart'], defaultInterval: 'hour' },
-    // Start to start, because `wEnd` lands on midnight and would cut the last day off the week.
-    { key: 'Last week', values: ['-1wStart', 'wStart'], defaultInterval: 'hour' },
-    { key: '2 weeks ago', values: ['-2wStart', '-1wStart'], defaultInterval: 'hour' },
-    { key: '3 weeks ago', values: ['-3wStart', '-2wStart'], defaultInterval: 'hour' },
-    { key: '4 weeks ago', values: ['-4wStart', '-3wStart'], defaultInterval: 'hour' },
 ]
 
 export function LogsAnomalies(): JSX.Element {

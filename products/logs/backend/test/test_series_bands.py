@@ -10,7 +10,6 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend.series_bands import (
-    MAX_WINDOW_START_AGE_DAYS,
     SeriesBandsWindow,
     SeriesBandsWindowInvalid,
     _band_gate,
@@ -165,8 +164,8 @@ NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
 
 
 class TestResolveWindow(SimpleTestCase):
-    def _resolve(self, date_from, date_to, week_start_day=0):
-        return resolve_window(date_from, date_to, week_start_day=week_start_day, now=NOW_FIXED)
+    def _resolve(self, date_from: str | None, date_to: str | None) -> SeriesBandsWindow:
+        return resolve_window(date_from, date_to, now=NOW_FIXED)
 
     def test_exactly_seven_days_is_accepted(self):
         assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == SeriesBandsWindow(
@@ -174,18 +173,10 @@ class TestResolveWindow(SimpleTestCase):
             end=dt.datetime(2026, 6, 15, tzinfo=UTC),
         )
 
-    def test_oldest_week_preset_resolves_on_the_worst_weekday(self):
-        # Last day of the week, so -4wStart sits at its furthest: 28 days plus the
-        # weekday offset, the closest any preset comes to the age cap.
-        last_day_of_week = dt.datetime(2026, 6, 20, 23, 0, tzinfo=UTC)
-        window = resolve_window("-4wStart", "-3wStart", week_start_day=0, now=last_day_of_week)
-        assert window.end - window.start == dt.timedelta(days=7)
-        assert last_day_of_week - window.start < dt.timedelta(days=MAX_WINDOW_START_AGE_DAYS)
-
     def test_window_that_collapses_after_snapping_is_rejected(self):
-        first_hour_of_week = dt.datetime(2026, 6, 14, 0, 30, tzinfo=UTC)
+        # Both bounds floor into the same hourly bucket, so the window holds no bucket at all.
         with pytest.raises(SeriesBandsWindowInvalid, match="empty"):
-            resolve_window("wStart", None, week_start_day=0, now=first_hour_of_week)
+            self._resolve("2026-06-17T15:05:00Z", "2026-06-17T15:20:00Z")
 
     def test_thirty_days_back_is_accepted(self):
         assert self._resolve("-30d", "-24d").start == (NOW_FIXED - dt.timedelta(days=30)).replace(minute=0)
@@ -194,12 +185,6 @@ class TestResolveWindow(SimpleTestCase):
         assert self._resolve(None, None) == SeriesBandsWindow(
             start=NOW_FIXED.replace(minute=0) - dt.timedelta(days=7),
             end=NOW_FIXED.replace(minute=0),
-        )
-
-    def test_week_commencing_bounds_land_on_midnight(self):
-        assert self._resolve("-1wStart", "-1wEnd") == SeriesBandsWindow(
-            start=dt.datetime(2026, 6, 7, tzinfo=UTC),
-            end=dt.datetime(2026, 6, 13, tzinfo=UTC),
         )
 
     def test_day_offset_keeps_its_time_of_day(self):
