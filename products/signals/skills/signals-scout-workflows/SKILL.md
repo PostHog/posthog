@@ -7,11 +7,9 @@ description: >
   a report in the inbox pointing at it.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
-  (scratchpad) + signal_scout_report:write (report channel), plus the workflows tools in the
-  MCP tools section. Requires the `self-optimising-workflows` flag on the project.
-allowed_tools:
-  - emit_report
-  - edit_report
+  (scratchpad) + hog_flow_proposal:write, plus the workflows tools in the MCP tools section.
+  Requires the `self-optimising-workflows` flag on the project. Deliberately not on the report
+  channel - see "Why this scout files no reports".
 metadata:
   owner_team: workflows
   scope: workflows
@@ -80,7 +78,7 @@ File a suggestion through `workflows-suggest` when, and only when, all of these 
 
 Send the workflow's full `actions` list with your edit applied — `actions` replaces the whole list, so a partial one is refused. Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), the click rate over that same denominator, and the counter-metrics with their own denominators. A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that. A rate without `n` is refused at create, and rightly.
 
-Then file one report through the report channel pointing at the workflow, so the suggestion is visible in the inbox as well as on the workflow page. The report is the notification; the suggestion is the thing a person acts on. Never edit the workflow itself, and never approve: there is no tool for it, by design.
+Your suggestion is the output. It appears on the workflow itself, which is where the person who owns that workflow decides. Never edit the workflow, and never approve: there is no tool for either, by design.
 
 ### Remember
 
@@ -89,6 +87,14 @@ Write scratchpad entries for what should change your next run:
 - `noise:<workflow>:<step>` — a step you looked at and ruled out, with why (sample, untracked share, deliverability).
 - `rejected:<workflow>:<step>` — a human rejected a suggestion for this step. Include what you suggested, so you do not re-file it.
 - `baseline:<workflow>:<step>` — the open rate you saw, so a later run can tell a real move from noise.
+
+## Why this scout files no reports
+
+Every other scout in the fleet files inbox reports. This one does not, and that is deliberate.
+
+A report carries an actionability the model sets and nothing judges. Set it to immediately actionable, with a priority and a reviewer that resolve, and Signals can dispatch an implementation run against the customer's own repository and open a pull request — which is also the moment Signals bills a flat charge. A workflow subject line is PostHog configuration; there is no code to change, so such a pull request would be wrong work at a real cost, and the only thing standing between here and there would be the model remembering to label its own report correctly.
+
+So the suggestion is the notification. It lands on the workflow page for the person who turned suggestions on, and this scout stays off the report channel until a report can be pinned as non-implementable by the harness rather than by the model's word.
 
 ## Disqualifiers
 
@@ -103,4 +109,4 @@ Do not file a suggestion when:
 
 ## Close out
 
-Write a one-paragraph run summary: which workflows you read, what you filed, and what you ruled out and why. A run that files nothing but records why is a good run.
+Write a one-paragraph run summary: which workflows you read, what you suggested, and what you ruled out and why. A run that suggests nothing but records why is a good run.

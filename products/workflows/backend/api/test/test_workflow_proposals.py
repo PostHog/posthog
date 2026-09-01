@@ -514,6 +514,43 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["after"]["version"] == 2
 
+    def test_suggesting_takes_its_own_scope_not_workflow_write(self, _mock_flag):
+        # A producer must be able to suggest without holding the scope that publishes, updates or
+        # test-sends a workflow — that is what keeps an autonomous run from putting mail in front of
+        # real people.
+        flow_id = self._create_active_flow()
+        payload = {
+            "title": "Point the webhook somewhere that answers",
+            "rationale": "Every call to the current URL failed over the last week.",
+            "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
+            "evidence": {"metric": "failure rate", "current_value": 1.0, "n": 240, "guardrails": []},
+            "source_type": "scout",
+        }
+        suggest_only = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(suggest_only),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+        self.client.logout()
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {suggest_only}"},
+        )
+        assert created.status_code == 201, created.json()
+
+        # The same key cannot publish what it suggested.
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {},
+            headers={"authorization": f"Bearer {suggest_only}"},
+        )
+        assert published.status_code == 403, published.json()
+
     def test_a_partial_action_list_is_refused(self, _mock_flag):
         flow_id = self._create_active_flow()
         # `actions` replaces the live list, so a caller that sends only the step it edited would stage a

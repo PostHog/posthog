@@ -12401,7 +12401,7 @@
         "feature": "workflows",
         "summary": "Suggest a workflow change",
         "title": "Suggest a workflow change",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow_proposal:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

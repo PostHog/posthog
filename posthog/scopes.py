@@ -61,6 +61,9 @@ APIScopeObject = Literal[
     "health_issue",
     "heatmap",
     "hog_flow",
+    # Suggesting a change to a workflow, and nothing else. Separate from `hog_flow` so an agent can
+    # propose without holding the scope that publishes, updates or test-sends a workflow.
+    "hog_flow_proposal",
     "hog_function",
     "ingestion_warning",
     "insight",
