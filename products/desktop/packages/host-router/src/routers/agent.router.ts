@@ -277,6 +277,10 @@ export const agentRouter = router({
     .query(({ ctx, input }) =>
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
-        .getPreviewConfigOptions(input.apiHost, input.adapter),
+        .getPreviewConfigOptions(
+          input.apiHost,
+          input.adapter,
+          input.allHarnessModels,
+        ),
     ),
 });

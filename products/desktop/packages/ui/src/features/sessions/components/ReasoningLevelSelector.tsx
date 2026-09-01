@@ -1,13 +1,9 @@
-import type {
-  SessionConfigOption,
-  SessionConfigSelectGroup,
-} from "@agentclientprotocol/sdk";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { ArrowCounterClockwise, Lightning } from "@phosphor-icons/react";
 import {
   getCapabilityLadder,
   getReasoningEffortOptions,
 } from "@posthog/agent/adapters/reasoning-effort";
-import { compareModelsForPicker } from "@posthog/agent/gateway-models";
 import {
   Button,
   DropdownMenu,
@@ -21,31 +17,31 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import {
+  adapterForModelId,
   FAST_MODE_FLAG,
   isAnthropicModelId,
   isDefaultSelectOption,
   isRestrictedModelOption,
   type ModelAccess,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "@posthog/shared";
 import {
   EFFORT_LEVEL_LABELS,
   FAST_MODE_DOCS_URLS,
 } from "@posthog/shared/domain-types";
-import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
-import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
-import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
+import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AnimatePresence, motion } from "framer-motion";
-import { Fragment, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { flattenSelectOptions } from "../sessionStore";
 import { useRetainedConfigOption } from "../useRetainedConfigOption";
 import {
@@ -68,6 +64,11 @@ interface ReasoningLevelSelectorProps {
   onModelChange?: (value: string) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
+  /**
+   * Called instead of onModelChange when the picked model runs on a
+   * different harness, so the caller can switch harness and keep the pick.
+   */
+  onHarnessModelChange?: (harness: AgentAdapter, model: string) => void;
   includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
   menuOpen?: boolean;
@@ -105,6 +106,7 @@ export function ReasoningLevelSelector({
   onModelChange,
   onAdapterChange,
   onHarnessChange,
+  onHarnessModelChange,
   includePiHarness,
   onConfigOptionChange,
   menuOpen,
@@ -165,6 +167,12 @@ export function ReasoningLevelSelector({
     onAdapterChange?.(harness);
   };
 
+  // The row stays visible even with model-first wiring: a model pick
+  // auto-selects its harness, and the row shows the result and allows a
+  // manual override (Pi can run models from both groups).
+  const showHarnessSubmenu =
+    !!adapter && !!(onAdapterChange || onHarnessChange);
+
   if (!hasEffort && !modelSelect) {
     if (isLoading) {
       // Keep the dropdown mounted while a harness switch reloads the config:
@@ -185,7 +193,11 @@ export function ReasoningLevelSelector({
             sideOffset={6}
             className="min-w-[230px]"
           >
-            {adapter && (onAdapterChange || onHarnessChange) && (
+            <DropdownMenuItem disabled>
+              <Spinner size={12} />
+              Loading models...
+            </DropdownMenuItem>
+            {showHarnessSubmenu && adapter && (
               <HarnessSubmenu
                 value={adapter}
                 includePi={includePiHarness && !!onHarnessChange}
@@ -193,10 +205,6 @@ export function ReasoningLevelSelector({
                 onChange={handleHarnessSelect}
               />
             )}
-            <DropdownMenuItem disabled>
-              <Spinner size={12} />
-              Loading models...
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       );
@@ -215,12 +223,6 @@ export function ReasoningLevelSelector({
   const modelEntries = modelSelect
     ? flattenSelectOptions(modelSelect.options)
     : [];
-  const modelGroups =
-    modelSelect &&
-    modelSelect.options.length > 0 &&
-    "group" in modelSelect.options[0]
-      ? (modelSelect.options as SessionConfigSelectGroup[])
-      : [];
   const currentModel =
     typeof modelSelect?.currentValue === "string"
       ? modelSelect.currentValue
@@ -444,17 +446,6 @@ export function ReasoningLevelSelector({
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
                 {showBack && <BackRow onClick={() => setAdvanced(false)} />}
-                {adapter && (onAdapterChange || onHarnessChange) && (
-                  <HarnessSubmenu
-                    value={adapter}
-                    includePi={includePiHarness && !!onHarnessChange}
-                    closeOnChange={false}
-                    onChange={handleHarnessSelect}
-                  />
-                )}
-                {showBillingMenu && adapter && (
-                  <SubscriptionSubmenu adapter={adapter} />
-                )}
                 {modelSelect && (
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
@@ -464,57 +455,42 @@ export function ReasoningLevelSelector({
                       </span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={currentModel ?? ""}
-                        onValueChange={(value) => {
-                          if (unavailableReason(value)) return;
-                          // A plan-restricted model opens the upgrade gate
-                          // instead of becoming the selection.
-                          if (gateRestrictedModelPick(modelEntries, value)) {
-                            setOpen(false);
-                            return;
+                      <ModelSelectList
+                        options={modelSelect.options}
+                        currentValue={currentModel}
+                        onGated={() => setOpen(false)}
+                        unavailableReason={unavailableReason}
+                        onSelect={(value) => {
+                          // A model the current harness cannot run switches
+                          // the harness and keeps the pick.
+                          if (adapter && onHarnessModelChange) {
+                            const entry = modelEntries.find(
+                              (candidate) => candidate.value === value,
+                            );
+                            const harness =
+                              selectOptionHarness(entry?._meta) ??
+                              adapterForModelId(value);
+                            if (harness !== adapter) {
+                              onHarnessModelChange(harness, value);
+                              return;
+                            }
                           }
                           changeModel(value);
                         }}
-                      >
-                        {modelGroups.length > 0
-                          ? modelGroups.map((group, index) => (
-                              <Fragment key={group.group}>
-                                {index > 0 && <DropdownMenuSeparator />}
-                                {group.options
-                                  .toSorted((a, b) =>
-                                    compareModelsForPicker(a.value, b.value),
-                                  )
-                                  .map((model) => (
-                                    <ModelRadioItem
-                                      key={model.value}
-                                      model={model}
-                                      closeOnClick={false}
-                                      unavailableReason={unavailableReason(
-                                        model.value,
-                                      )}
-                                    />
-                                  ))}
-                              </Fragment>
-                            ))
-                          : modelEntries
-                              .toSorted((a, b) =>
-                                compareModelsForPicker(a.value, b.value),
-                              )
-                              .map((model) => (
-                                <ModelRadioItem
-                                  key={model.value}
-                                  model={model}
-                                  closeOnClick={false}
-                                  unavailableReason={unavailableReason(
-                                    model.value,
-                                  )}
-                                />
-                              ))}
-                      </DropdownMenuRadioGroup>
-                      <ModelCostFooter />
+                      />
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
+                )}
+                {showHarnessSubmenu && adapter && (
+                  <HarnessSubmenu
+                    value={adapter}
+                    includePi={includePiHarness && !!onHarnessChange}
+                    closeOnChange={false}
+                    onChange={handleHarnessSelect}
+                  />
+                )}
+                {showBillingMenu && adapter && (
+                  <SubscriptionSubmenu adapter={adapter} />
                 )}
                 {hasEffort && (
                   <DropdownMenuSub>
