@@ -1,6 +1,6 @@
 import type { Adapter } from "./adapter";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { restrictedModelMeta } from "./models";
+import { modelHarnessMeta, restrictedModelMeta } from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
 export interface GatewayModel {
@@ -23,6 +23,12 @@ export interface CloudTaskConfigSelectOption {
   name: string;
   description?: string;
   _meta?: Record<string, unknown>;
+}
+
+export interface CloudTaskConfigSelectGroup {
+  group: Adapter;
+  name: string;
+  options: CloudTaskConfigSelectOption[];
 }
 
 export interface CloudTaskConfigOption {
@@ -323,6 +329,74 @@ function getAdapterModels(
   );
 }
 
+export function adapterForModelId(modelId: string): Adapter {
+  const normalized = modelId.toLowerCase();
+  return normalized.startsWith("gpt-") || normalized.startsWith("openai/")
+    ? "codex"
+    : "claude";
+}
+
+export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+};
+
+function buildModelSelectOptions(
+  models: readonly GatewayModel[],
+  adapter: Adapter,
+): CloudTaskConfigSelectOption[] {
+  const options = getAdapterModels(models, adapter).map((model) => ({
+    value: model.id,
+    name: formatGatewayModelName(model),
+    description: `Context: ${model.context_window.toLocaleString()} tokens`,
+    _meta: {
+      ...modelHarnessMeta(adapter),
+      ...(model.allowed ? {} : restrictedModelMeta()),
+    },
+  }));
+  if (adapter === "claude") {
+    options.sort(
+      (a, b) => getClaudeModelRecency(a.value) - getClaudeModelRecency(b.value),
+    );
+  }
+  return options;
+}
+
+/**
+ * Model options for every harness, the current harness's group first, so a
+ * picker can offer the full catalog and switch harness on a cross-harness
+ * pick. A currentValue missing from the catalog is kept as a custom entry.
+ */
+export function buildHarnessModelGroups(
+  models: readonly GatewayModel[],
+  adapter: Adapter,
+  currentValue?: string,
+): CloudTaskConfigSelectGroup[] {
+  const harnesses: Adapter[] =
+    adapter === "codex" ? ["codex", "claude"] : ["claude", "codex"];
+  const groups = harnesses
+    .map((harness) => ({
+      group: harness,
+      name: HARNESS_DISPLAY_NAMES[harness],
+      options: buildModelSelectOptions(models, harness),
+    }))
+    .filter((group) => group.options.length > 0);
+  const hasCurrent =
+    !currentValue ||
+    groups.some((group) =>
+      group.options.some((option) => option.value === currentValue),
+    );
+  if (!hasCurrent && currentValue && groups.length > 0) {
+    groups[0].options.unshift({
+      value: currentValue,
+      name: currentValue,
+      description: "Custom model",
+      _meta: modelHarnessMeta(adapter),
+    });
+  }
+  return groups;
+}
+
 function getModeOptions(
   adapter: Adapter,
   modePresets?: readonly CloudTaskModePreset[],
@@ -343,20 +417,7 @@ export function buildCloudTaskConfigOptions(
   modePresets?: readonly CloudTaskModePreset[],
 ): CloudTaskConfigOption[] {
   const adapterModels = getAdapterModels(models, adapter);
-  const modelOptions: CloudTaskConfigSelectOption[] = adapterModels.map(
-    (model) => ({
-      value: model.id,
-      name: formatGatewayModelName(model),
-      description: `Context: ${model.context_window.toLocaleString()} tokens`,
-      ...(model.allowed ? {} : { _meta: restrictedModelMeta() }),
-    }),
-  );
-
-  if (adapter === "claude") {
-    modelOptions.sort(
-      (a, b) => getClaudeModelRecency(a.value) - getClaudeModelRecency(b.value),
-    );
-  }
+  const modelOptions = buildModelSelectOptions(models, adapter);
 
   const defaultModel =
     adapter === "codex"

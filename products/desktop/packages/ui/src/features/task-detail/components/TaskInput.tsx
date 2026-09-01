@@ -705,7 +705,7 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
-  } = usePreviewConfig(adapter);
+  } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
 
@@ -1171,6 +1171,16 @@ export function TaskInput({
     [handleRuntimeChange, setAdapter],
   );
 
+  // Saving the model before the switch lets the new harness's config restore
+  // it instead of resetting to that harness's default.
+  const handleHarnessModelChange = useCallback(
+    (harness: AgentAdapter, model: string) => {
+      setLastUsedModel(model);
+      handleHarnessChange(harness);
+    },
+    [handleHarnessChange, setLastUsedModel],
+  );
+
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
       setSelectedPiModelId(model.id);
@@ -1585,6 +1595,7 @@ export function TaskInput({
                         onHarnessChange={
                           piHarnessEnabled ? handleHarnessChange : undefined
                         }
+                        onHarnessModelChange={handleHarnessModelChange}
                         includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
                         menuOpen={modelMenuOpen}

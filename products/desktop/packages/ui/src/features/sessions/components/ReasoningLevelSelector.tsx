@@ -12,7 +12,9 @@ import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -21,12 +23,14 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import {
+  adapterForModelId,
   FAST_MODE_FLAG,
   isAnthropicModelId,
   isDefaultSelectOption,
   isRestrictedModelOption,
   type ModelAccess,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "@posthog/shared";
 import {
   EFFORT_LEVEL_LABELS,
@@ -68,6 +72,11 @@ interface ReasoningLevelSelectorProps {
   onModelChange?: (value: string) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
+  /**
+   * Called instead of onModelChange when the picked model runs on a
+   * different harness, so the caller can switch harness and keep the pick.
+   */
+  onHarnessModelChange?: (harness: AgentAdapter, model: string) => void;
   includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
   menuOpen?: boolean;
@@ -105,6 +114,7 @@ export function ReasoningLevelSelector({
   onModelChange,
   onAdapterChange,
   onHarnessChange,
+  onHarnessModelChange,
   includePiHarness,
   onConfigOptionChange,
   menuOpen,
@@ -474,6 +484,20 @@ export function ReasoningLevelSelector({
                             setOpen(false);
                             return;
                           }
+                          // A model from another harness's group switches the
+                          // harness and keeps the pick.
+                          if (adapter && onHarnessModelChange) {
+                            const entry = modelEntries.find(
+                              (candidate) => candidate.value === value,
+                            );
+                            const harness =
+                              selectOptionHarness(entry?._meta) ??
+                              adapterForModelId(value);
+                            if (harness !== adapter) {
+                              onHarnessModelChange(harness, value);
+                              return;
+                            }
+                          }
                           changeModel(value);
                         }}
                       >
@@ -481,20 +505,27 @@ export function ReasoningLevelSelector({
                           ? modelGroups.map((group, index) => (
                               <Fragment key={group.group}>
                                 {index > 0 && <DropdownMenuSeparator />}
-                                {group.options
-                                  .toSorted((a, b) =>
-                                    compareModelsForPicker(a.value, b.value),
-                                  )
-                                  .map((model) => (
-                                    <ModelRadioItem
-                                      key={model.value}
-                                      model={model}
-                                      closeOnClick={false}
-                                      unavailableReason={unavailableReason(
-                                        model.value,
-                                      )}
-                                    />
-                                  ))}
+                                <DropdownMenuGroup>
+                                  {modelGroups.length > 1 && group.name && (
+                                    <DropdownMenuLabel>
+                                      {group.name}
+                                    </DropdownMenuLabel>
+                                  )}
+                                  {group.options
+                                    .toSorted((a, b) =>
+                                      compareModelsForPicker(a.value, b.value),
+                                    )
+                                    .map((model) => (
+                                      <ModelRadioItem
+                                        key={model.value}
+                                        model={model}
+                                        closeOnClick={false}
+                                        unavailableReason={unavailableReason(
+                                          model.value,
+                                        )}
+                                      />
+                                    ))}
+                                </DropdownMenuGroup>
                               </Fragment>
                             ))
                           : modelEntries

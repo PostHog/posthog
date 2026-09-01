@@ -79,6 +79,47 @@ function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
   } as unknown as SessionConfigOption;
 }
 
+function groupedModelOption(
+  currentValue = "claude-sonnet-5",
+): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue,
+    options: [
+      {
+        group: "claude",
+        name: "Claude Code",
+        options: [
+          {
+            name: "Claude Sonnet 5",
+            value: "claude-sonnet-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+          {
+            name: "Claude Opus 5",
+            value: "claude-opus-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
+      {
+        group: "codex",
+        name: "Codex",
+        options: [
+          {
+            name: "GPT-5.6 Sol",
+            value: "gpt-5.6-sol",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
 function effortlessModelOption(): SessionConfigOption {
   return {
     type: "select",
@@ -484,6 +525,41 @@ describe("ReasoningLevelSelector", () => {
     expect(
       screen.getByRole("menuitem", { name: /^Model/ }),
     ).toBeInTheDocument();
+  });
+
+  it("switches the harness when picking a model from the other harness's group", async () => {
+    const onModelChange = vi.fn();
+    const onHarnessModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={groupedModelOption("claude-sonnet-5")}
+          adapter="claude"
+          onModelChange={onModelChange}
+          onHarnessModelChange={onHarnessModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "GPT-5.6 Sol" }),
+    );
+
+    expect(onHarnessModelChange).toHaveBeenCalledWith("codex", "gpt-5.6-sol");
+    expect(onModelChange).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+    );
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onHarnessModelChange).toHaveBeenCalledTimes(1);
   });
 
   it("moves the model and effort together on a ladder notch that changes both", async () => {

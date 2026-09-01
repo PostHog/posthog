@@ -186,7 +186,7 @@ export const ChannelHomeComposer = forwardRef<
     fastModeOption,
     isLoading,
     setConfigOption,
-  } = usePreviewConfig(adapter);
+  } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const currentModel =
     modelOption?.type === "select" ? modelOption.currentValue : undefined;
@@ -352,6 +352,15 @@ export const ChannelHomeComposer = forwardRef<
     },
     [handleRuntimeChange, setAdapter],
   );
+  // Saving the model before the switch lets the new harness's config restore
+  // it instead of resetting to that harness's default.
+  const handleHarnessModelChange = useCallback(
+    (harness: AgentAdapter, model: string) => {
+      setLastUsedModel(model);
+      handleHarnessChange(harness);
+    },
+    [handleHarnessChange, setLastUsedModel],
+  );
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
       setSelectedPiModelId(model.id);
@@ -495,6 +504,7 @@ export const ChannelHomeComposer = forwardRef<
               onHarnessChange={
                 piHarnessEnabled ? handleHarnessChange : undefined
               }
+              onHarnessModelChange={handleHarnessModelChange}
               includePiHarness={piHarnessEnabled}
               onConfigOptionChange={setConfigOption}
               menuOpen={modelMenuOpen}

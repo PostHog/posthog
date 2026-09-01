@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  adapterForModelId,
   buildCloudTaskConfigOptions,
+  buildHarnessModelGroups,
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
@@ -274,5 +276,75 @@ describe("buildCloudTaskConfigOptions", () => {
     expect(codexModelOptions).not.toContainEqual(
       expect.objectContaining({ value: "deepseek-ai/deepseek-v4-flash-0731" }),
     );
+  });
+});
+
+describe("adapterForModelId", () => {
+  it.each([
+    ["gpt-5.6-sol", "codex"],
+    ["openai/gpt-5.5", "codex"],
+    ["claude-opus-5", "claude"],
+    ["@cf/zai-org/glm-5.2", "claude"],
+    ["moonshotai/kimi-k3", "claude"],
+    ["deepseek-ai/deepseek-v4-flash-0731", "claude"],
+  ])("maps %s to the %s harness", (modelId, adapter) => {
+    expect(adapterForModelId(modelId)).toBe(adapter);
+  });
+});
+
+describe("buildHarnessModelGroups", () => {
+  const catalog = [
+    model("gpt-5.6-sol", "openai"),
+    model("claude-opus-5", "anthropic"),
+    model("claude-opus-4-8", "anthropic", false),
+    model("moonshotai/kimi-k3", "modal"),
+  ];
+
+  it.each([
+    ["claude", ["claude", "codex"]],
+    ["codex", ["codex", "claude"]],
+  ] as const)("puts the %s harness's group first", (adapter, expectedOrder) => {
+    const groups = buildHarnessModelGroups(catalog, adapter);
+    expect(groups.map((group) => group.group)).toEqual(expectedOrder);
+  });
+
+  it("splits models by harness and stamps each option with its harness", () => {
+    const groups = buildHarnessModelGroups(catalog, "claude");
+
+    expect(groups).toMatchObject([
+      {
+        group: "claude",
+        name: "Claude Code",
+        options: [
+          {
+            value: "claude-opus-4-8",
+            _meta: {
+              "posthog.code/modelHarness": "claude",
+              "posthog.code/restrictedModel": true,
+            },
+          },
+          { value: "claude-opus-5" },
+          { value: "moonshotai/kimi-k3" },
+        ],
+      },
+      {
+        group: "codex",
+        name: "Codex",
+        options: [
+          {
+            value: "gpt-5.6-sol",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a current model missing from the catalog as a custom entry", () => {
+    const groups = buildHarnessModelGroups(catalog, "claude", "my-custom");
+    expect(groups[0].options[0]).toMatchObject({
+      value: "my-custom",
+      description: "Custom model",
+    });
   });
 });
