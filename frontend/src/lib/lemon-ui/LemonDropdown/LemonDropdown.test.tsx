@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { LemonDropdown } from './LemonDropdown'
 
@@ -10,6 +11,30 @@ describe('LemonDropdown', () => {
         cleanup()
         jest.useRealTimers()
     })
+
+    // The press that opened the dropdown must not also count as an outside press, or the dismiss
+    // and the trigger's own toggle cancel out and the dropdown can never be closed from its trigger.
+    it.each([{ closeOnClickInside: true }, { closeOnClickInside: false }])(
+        'closes on a second trigger click with closeOnClickInside $closeOnClickInside',
+        async ({ closeOnClickInside }) => {
+            const visibilities: boolean[] = []
+
+            render(
+                <LemonDropdown
+                    closeOnClickInside={closeOnClickInside}
+                    onVisibilityChange={(visible) => visibilities.push(visible)}
+                    overlay={<div>Menu</div>}
+                >
+                    <button>Open</button>
+                </LemonDropdown>
+            )
+
+            await userEvent.click(screen.getByText('Open'))
+            await userEvent.click(screen.getByText('Open'))
+
+            expect(visibilities).toEqual([true, false])
+        }
+    )
 
     it('delays opening a hover dropdown when configured', () => {
         jest.useFakeTimers()
