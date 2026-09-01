@@ -768,6 +768,13 @@ def _database_rows_stream(
                     NotionResumeConfig(remaining_data_source_ids=[data_source_id, *remaining])
                 )
         data_source_ids = remaining
+        # Once the batcher holds nothing pending, every row read so far is already flushed, so drop
+        # the finished data source from the resume queue. On an incremental run most data sources
+        # return no rows and never fill a 2000-row chunk, so without this a late failure makes the
+        # retry re-query every earlier data source. Skip while rows are buffered — they may belong to
+        # a finished data source, and advancing past it would lose them on resume.
+        if not batcher.should_yield(include_incomplete_chunk=True):
+            resumable_source_manager.save_state(NotionResumeConfig(remaining_data_source_ids=remaining))
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()

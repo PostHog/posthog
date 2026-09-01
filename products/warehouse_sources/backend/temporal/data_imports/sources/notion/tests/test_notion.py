@@ -796,6 +796,60 @@ class TestNotion:
         assert len(session.calls) == 1
         assert session.calls[0]["url"].endswith("/v1/data_sources/ds-2/query")
 
+    def test_database_rows_stream_advances_checkpoint_across_empty_data_sources(self) -> None:
+        # On an incremental run most data sources return no rows, so the in-loop checkpoint (which
+        # only fires on a 2000-row flush) never advances. When the batcher holds nothing pending, the
+        # finished source must drop from the resume queue, or a late failure re-queries every earlier
+        # source on retry.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "ds-1"}, {"id": "ds-2"}, {"id": "ds-3"}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2026-01-01T00:00:00Z",
+            )
+        )
+
+        saved = [call.args[0].remaining_data_source_ids for call in manager.save_state.call_args_list]
+        assert saved == [["ds-2", "ds-3"], ["ds-3"], []]
+
+    def test_database_rows_stream_keeps_buffered_source_in_checkpoint(self) -> None:
+        # A finished data source whose rows are still buffered (below the 2000-row flush) must stay in
+        # the queue — advancing past it would drop those unpersisted rows on resume. Here ds-1's one
+        # row buffers for the whole run, so the checkpoint never advances.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "ds-1"}, {"id": "ds-2"}], has_more=False, next_cursor=None)
+            if index == 1:
+                return _list_response([{"id": "row-1", "properties": {}}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+        )
+
+        assert manager.save_state.call_args_list == []
+
 
 @pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))
 def test_every_endpoint_has_config(endpoint: str) -> None:
