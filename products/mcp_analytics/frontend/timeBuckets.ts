@@ -91,9 +91,9 @@ export function parseIntervalParam(raw: unknown): IntervalType | null {
     return SELECTABLE_INTERVALS.find((interval) => interval === raw) ?? null
 }
 
-// Estimate how many full-width buckets fit in a window without materializing every key. Measure from
-// the window start so a short range that crosses a calendar boundary does not appear long enough for
-// a coarse interval.
+// How many buckets a window spans at an interval, without materializing every key. Approximate by
+// design: month lengths and DST shifts move the count by one, which never changes the judgement it
+// feeds.
 export function approximateBucketCount(
     dateFrom: string | null,
     dateTo: string | null,
@@ -101,7 +101,7 @@ export function approximateBucketCount(
     interval: IntervalType
 ): number {
     const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
-    return Math.max(1, Math.floor(end.diff(start, interval, true)) + 1)
+    return Math.max(1, Math.floor(end.diff(startOfBucket(start, interval), interval, true)) + 1)
 }
 
 // The picker's options for a window, with the intervals that would draw an unreadable line or
