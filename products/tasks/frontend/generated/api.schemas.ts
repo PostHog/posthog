@@ -4350,7 +4350,7 @@ export interface TasksResolvedAIRunDefaultsApi {
  * The requesting user's per-project tasks configuration.
  */
 export interface TasksUserConfigResponseApi {
-    /** The requesting user's per-project default AI run triple; empty object when unset. */
+    /** The requesting user's per-project default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
@@ -4378,7 +4378,7 @@ export interface WizardCloudRunDTOApi {
  * Team-level tasks configuration.
  */
 export interface TasksTeamConfigResponseApi {
-    /** Project-wide default AI run triple; empty object when unset. */
+    /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
 }
 

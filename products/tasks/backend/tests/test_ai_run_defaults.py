@@ -327,7 +327,9 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_team_config_round_trip(self):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": {}}
+        assert response.json() == {
+            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        }
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         assert response.status_code == 200
@@ -360,8 +362,12 @@ class TestTasksConfigAPI(APIBaseTest):
             {"runtime_adapter": None, "model": None, "reasoning_effort": None},
         )
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": {}}
-        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {"ai_run_preferences": {}}
+        assert response.json() == {
+            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        }
+        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
+            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        }
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
@@ -385,7 +391,7 @@ class TestTasksConfigAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == {}
+        assert body["ai_run_preferences"] == {"runtime_adapter": None, "model": None, "reasoning_effort": None}
         assert body["resolved_ai_run_defaults"]["source"] == "team"
         assert body["resolved_ai_run_defaults"]["model"] == "claude-opus-4-8"
 
@@ -402,7 +408,7 @@ class TestTasksConfigAPI(APIBaseTest):
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == {}
+        assert body["ai_run_preferences"] == {"runtime_adapter": None, "model": None, "reasoning_effort": None}
         assert body["resolved_ai_run_defaults"]["source"] == "team"
 
     # The project default decides what every unpinned run on the project launches with, so a member
@@ -421,7 +427,11 @@ class TestTasksConfigAPI(APIBaseTest):
             team_id=self.team.id, user_id=other.id, defaults={"ai_run_preferences": USER_TRIPLE}
         )
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
-        assert response.json()["ai_run_preferences"] == {}
+        assert response.json()["ai_run_preferences"] == {
+            "runtime_adapter": None,
+            "model": None,
+            "reasoning_effort": None,
+        }
 
 
 class TestConfigEndpointScopes(APIBaseTest):

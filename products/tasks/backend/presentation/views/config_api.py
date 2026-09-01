@@ -17,7 +17,7 @@ from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
 from products.tasks.backend.facade import ai_run_defaults
-from products.tasks.backend.feature_flags import get_model_access_error
+from products.tasks.backend.facade.run_config import get_model_access_error
 from products.tasks.backend.presentation.serializers import (
     TasksAIRunPreferencesSerializer,
     TasksTeamConfigResponseSerializer,
@@ -65,7 +65,8 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve the project-wide default AI run preferences for task runs.",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return Response({"ai_run_preferences": ai_run_defaults.get_team_ai_run_preferences(self.team_id)})
+        preferences = ai_run_defaults.get_team_ai_run_preferences(self.team_id)
+        return Response(TasksTeamConfigResponseSerializer({"ai_run_preferences": preferences}).data)
 
     @extend_schema(
         request=TasksAIRunPreferencesSerializer,
@@ -81,7 +82,7 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             payload = ai_run_defaults.update_team_ai_run_preferences(self.team_id, **triple)
         except DjangoValidationError as e:
             raise ValidationError(e.messages)
-        return Response({"ai_run_preferences": payload})
+        return Response(TasksTeamConfigResponseSerializer({"ai_run_preferences": payload}).data)
 
 
 class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -100,7 +101,11 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         resolved = ai_run_defaults.resolve_ai_run_defaults(
             self.team_id, _user_id(request), user_preferences=preferences
         )
-        return Response({"ai_run_preferences": preferences, "resolved_ai_run_defaults": asdict(resolved)})
+        return Response(
+            TasksUserConfigResponseSerializer(
+                {"ai_run_preferences": preferences, "resolved_ai_run_defaults": asdict(resolved)}
+            ).data
+        )
 
     @extend_schema(
         # `@me` is not identifier-safe, so the URL-derived default operationId is rejected.
