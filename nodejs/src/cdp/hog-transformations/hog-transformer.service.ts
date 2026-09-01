@@ -102,6 +102,15 @@ export class HogTransformerService implements HogTransformer {
         await this.hogFunctionMonitoringService.flush()
     }
 
+    public async prefetchHogFunctionsForTeams(teamIds: number[]): Promise<void> {
+        // Warm the by-team and by-id loaders directly, skipping the per-team assembly and sort
+        // that getHogFunctionsForTeams would do and the event path redoes anyway.
+        const idsByTeam = await this.hogFunctionManager.getHogFunctionIdsForTeams(teamIds, ['transformation'], {
+            flush: true,
+        })
+        await this.hogFunctionManager.getHogFunctions(Object.values(idsByTeam).flat(), { flush: true })
+    }
+
     private async getTransformationFunctions() {
         if (!this.cachedTransformationFunctions) {
             this.cachedGeoIp = await this.geoipService.get()
