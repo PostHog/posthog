@@ -1,4 +1,6 @@
 import { buildResolveRequest } from "@posthog/core/inbox/bulkActions";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
+import type { ResolveReasonOptionValue } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import {
@@ -12,14 +14,20 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useCallback, useState } from "react";
 
-export function useInboxReportResolveAction(report: SignalReport): {
+export function useInboxReportResolveAction(
+  report: SignalReport,
+  surface: InboxReportActionSurface = "detail_pane",
+): {
   isPending: boolean;
   dialog: ReactElement | null;
-  openDialog: () => void;
+  openDialog: (initialReason?: ResolveReasonOptionValue) => void;
+  resolveWithReason: (reason: ResolveReasonOptionValue, note?: string) => void;
 } {
   const [open, setOpen] = useState(false);
+  const [initialReason, setInitialReason] =
+    useState<ResolveReasonOptionValue>();
   const queryClient = useQueryClient();
-  const fireAction = useReportActionTracker(report);
+  const fireAction = useReportActionTracker(report, surface);
   const hasOpenPr =
     Boolean(report.implementation_pr_url) &&
     report.implementation_pr_merged !== true;
@@ -52,19 +60,32 @@ export function useInboxReportResolveAction(report: SignalReport): {
     },
   );
 
-  const openDialog = useCallback(() => setOpen(true), []);
+  const openDialog = useCallback((reason?: ResolveReasonOptionValue) => {
+    setInitialReason(reason);
+    setOpen(true);
+  }, []);
+  const resolveWithReason = useCallback(
+    (reason: ResolveReasonOptionValue, note = "") => {
+      fireAction("resolve", { dismissal_reason: reason });
+      mutation.mutate({ reason, note });
+    },
+    [fireAction, mutation],
+  );
   const dialog = open ? (
     <ResolveReportDialog
       open={open}
       onOpenChange={setOpen}
       report={report}
       isSubmitting={mutation.isPending}
-      onConfirm={(result) => {
-        fireAction("resolve", { dismissal_reason: result.reason });
-        mutation.mutate(result);
-      }}
+      initialReason={initialReason}
+      onConfirm={(result) => resolveWithReason(result.reason, result.note)}
     />
   ) : null;
 
-  return { isPending: mutation.isPending, dialog, openDialog };
+  return {
+    isPending: mutation.isPending,
+    dialog,
+    openDialog,
+    resolveWithReason,
+  };
 }

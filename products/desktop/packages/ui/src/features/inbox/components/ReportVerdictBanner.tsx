@@ -332,7 +332,7 @@ export function ReportVerdictBanner({
     <Button
       type="button"
       variant="outline"
-      onClick={openDismissDialog}
+      onClick={() => openDismissDialog()}
       className={buttonClass}
     >
       <EyeSlashIcon size={15} />

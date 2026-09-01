@@ -45,4 +45,23 @@ describe("DismissReportDialog", () => {
       screen.getByRole("button", { name: "Pause report" }),
     ).toBeInTheDocument();
   });
+
+  it("preselects a context-menu reason and focuses the note", () => {
+    render(
+      <DismissReportDialog
+        open
+        onOpenChange={vi.fn()}
+        report={report}
+        isSubmitting={false}
+        snoozeDisabledReason={null}
+        initialReason="other"
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("radio", { name: "Something else…" }),
+    ).toBeChecked();
+    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveFocus();
+  });
 });

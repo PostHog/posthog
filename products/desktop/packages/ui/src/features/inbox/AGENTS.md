@@ -100,6 +100,8 @@ Ready and pending-input report details offer Resolve and Dismiss beside the othe
 
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
 
+Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens.
+
 ## Backend Contracts
 
 The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented in the legacy `products/signals/backend` Django app:

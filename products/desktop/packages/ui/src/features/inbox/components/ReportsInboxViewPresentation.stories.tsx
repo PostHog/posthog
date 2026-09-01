@@ -1,5 +1,6 @@
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
 import { InboxReportSection } from "@posthog/ui/features/inbox/components/InboxReportSection";
@@ -51,19 +52,20 @@ const resolved = [
 
 function reportRow(report: SignalReport): React.JSX.Element {
   return (
-    <InboxReportRowView
-      key={report.id}
-      report={report}
-      reviewers={
-        <span
-          className="h-5 w-5 rounded-full border-(--color-panel-solid) border-2 bg-(--accent-5)"
-          role="img"
-          aria-label="One suggested reviewer"
-        />
-      }
-      onOpen={() => {}}
-      onOpenPr={() => {}}
-    />
+    <InboxReportContextMenu key={report.id} report={report}>
+      <InboxReportRowView
+        report={report}
+        reviewers={
+          <span
+            className="h-5 w-5 rounded-full border-(--color-panel-solid) border-2 bg-(--accent-5)"
+            role="img"
+            aria-label="One suggested reviewer"
+          />
+        }
+        onOpen={() => {}}
+        onOpenPr={() => {}}
+      />
+    </InboxReportContextMenu>
   );
 }
 

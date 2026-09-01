@@ -688,6 +688,7 @@ export type InboxReportCloseMethod =
 export type InboxReportActionType =
   | "dismiss"
   | "resolve"
+  | "restore"
   | "snooze"
   | "delete"
   | "reingest"
@@ -714,6 +715,7 @@ export type InboxReportActionSurface =
   | "toolbar"
   | "keyboard"
   | "list_row"
+  | "context_menu"
   | "triage";
 
 export type InboxReportActionOutcome = "succeeded" | "failed";

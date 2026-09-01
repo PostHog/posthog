@@ -37,6 +37,7 @@ export interface DismissReportDialogProps {
   selectedCount?: number;
   isSubmitting: boolean;
   snoozeDisabledReason: string | null;
+  initialReason?: DismissalReasonOptionValue;
   onConfirm: (result: DismissReportDialogResult) => void;
 }
 
@@ -47,6 +48,7 @@ export function DismissReportDialog({
   selectedCount = 1,
   isSubmitting,
   snoozeDisabledReason,
+  initialReason,
   onConfirm,
 }: DismissReportDialogProps): React.JSX.Element {
   return (
@@ -63,6 +65,7 @@ export function DismissReportDialog({
           selectedCount={selectedCount}
           isSubmitting={isSubmitting}
           snoozeDisabledReason={snoozeDisabledReason}
+          initialReason={initialReason}
           onConfirm={onConfirm}
         />
       </DialogContent>
@@ -75,16 +78,22 @@ function DismissReportDialogBody({
   selectedCount,
   isSubmitting,
   snoozeDisabledReason,
+  initialReason,
   onConfirm,
 }: Omit<DismissReportDialogProps, "open" | "onOpenChange"> & {
   selectedCount: number;
 }): React.JSX.Element {
-  const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
+  const [reason, setReason] = useState<DismissalReasonOptionValue | null>(
+    initialReason ?? null,
+  );
   const [note, setNote] = useState("");
   const fieldId = useId();
   const pausesReport = reason != null && isDismissalReasonSnooze(reason);
   const reportNoun = selectedCount > 1 ? "reports" : "report";
   const title = report.title?.trim() ? report.title : "Untitled report";
+  const hasOpenPr =
+    Boolean(report.implementation_pr_url) &&
+    report.implementation_pr_merged !== true;
 
   return (
     <>
@@ -102,6 +111,9 @@ function DismissReportDialogBody({
           {pausesReport
             ? `This pauses the ${reportNoun} until another matching signal arrives.`
             : `This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
+          {hasOpenPr && !pausesReport
+            ? " The open pull request will be closed."
+            : ""}
         </DialogDescription>
       </DialogHeader>
 
@@ -153,6 +165,7 @@ function DismissReportDialogBody({
           </RadioGroup>
 
           <Textarea
+            autoFocus={initialReason != null}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Optional: add detail"

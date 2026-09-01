@@ -188,7 +188,7 @@ export function ReportDetailActions({
             loading={resolve.isPending}
             disabled={resolve.isPending}
             data-attr="inbox-report-resolve"
-            onClick={resolve.openDialog}
+            onClick={() => resolve.openDialog()}
           >
             <CheckCircleIcon size={14} />
             Resolve
@@ -201,7 +201,7 @@ export function ReportDetailActions({
             size="xs"
             className={HEADER_ACTION_CLASS}
             data-attr="inbox-report-dismiss"
-            onClick={dismiss.openDialog}
+            onClick={() => dismiss.openDialog()}
           >
             <EyeSlashIcon size={14} />
             Dismiss

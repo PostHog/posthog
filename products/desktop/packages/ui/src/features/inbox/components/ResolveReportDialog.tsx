@@ -30,15 +30,19 @@ export function ResolveReportDialog({
   onOpenChange,
   report,
   isSubmitting,
+  initialReason,
   onConfirm,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   report: SignalReport;
   isSubmitting: boolean;
+  initialReason?: ResolveReasonOptionValue;
   onConfirm: (result: ResolveReportDialogResult) => void;
 }): React.JSX.Element {
-  const [reason, setReason] = useState<ResolveReasonOptionValue | null>(null);
+  const [reason, setReason] = useState<ResolveReasonOptionValue | null>(
+    initialReason ?? null,
+  );
   const [note, setNote] = useState("");
   const fieldId = useId();
   const title = report.title?.trim() ? report.title : "Untitled report";
@@ -85,6 +89,7 @@ export function ResolveReportDialog({
               })}
             </RadioGroup>
             <Textarea
+              autoFocus={initialReason != null}
               value={note}
               onChange={(event) => setNote(event.target.value)}
               placeholder="Optional: link to the fix or explain what changed"
