@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { unzipSync } from "fflate";
 
@@ -9,8 +10,15 @@ import { unzipSync } from "fflate";
  */
 export const STORE_SKILLS_BUNDLE_LIMIT = 20;
 
-/** Frontmatter marker the store writes into every stub SKILL.md. */
-const STORE_SKILL_MARKER = "source: posthog-skills-store";
+/**
+ * The store stamps every stub's frontmatter with `metadata.source`. Only a
+ * SKILL.md whose frontmatter carries it is treated as disposable: matching the
+ * text anywhere in the file would let a real skill that mentions the store be
+ * deleted on the next install.
+ */
+const STORE_SKILL_MARKER_RE =
+  /^\s+source:\s*['"]?posthog-skills-store['"]?\s*$/m;
+const FRONTMATTER_RE = /^---[^\n]*\n([\s\S]*?)\n---/;
 
 const SKILL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -19,56 +27,114 @@ export interface StoreSkillsInstallResult {
   installed: string[];
   /** Skill names left alone because a non-store skill of that name is already on disk. */
   collisions: string[];
+  /** Stubs from an earlier install that are not in this bundle, removed from at least one root. */
+  removed: string[];
   /** Archive entries dropped for an unsafe name or path. */
   rejected: number;
+  /** Filesystem failures, one per root and skill, so one broken root does not hide the rest. */
+  errors: StoreSkillsInstallError[];
+}
+
+export interface StoreSkillsInstallError {
+  root: string;
+  skillName: string | null;
+  message: string;
+}
+
+export interface StoreSkillRootsOptions {
+  home?: string;
+  /** Where Claude Code keeps user state; `CLAUDE_CONFIG_DIR` moves it off `~/.claude`. */
+  claudeConfigDir?: string;
 }
 
 export function getStoreSkillRoots(
-  home: string = process.env.HOME ?? "/tmp",
+  options: StoreSkillRootsOptions = {},
 ): string[] {
-  return [join(home, ".claude", "skills"), join(home, ".agents", "skills")];
+  const home = options.home ?? homedir();
+  const claudeConfigDir =
+    options.claudeConfigDir ??
+    process.env.CLAUDE_CONFIG_DIR ??
+    join(home, ".claude");
+  return [join(claudeConfigDir, "skills"), join(home, ".agents", "skills")];
 }
 
 /**
  * Unpack a skills-store bundle (`<skill-name>/SKILL.md` per skill) into each
- * skill root. A directory that already holds a skill not written by the store
- * is never replaced: the sandbox image ships bundled PostHog skills into the
- * same roots, and a stub must not shadow a real skill of the same name.
+ * skill root, and remove any stub from an earlier install that the bundle no
+ * longer contains, so a skill the user lost is not advertised on the next
+ * session. A directory that already holds a skill not written by the store is
+ * never replaced: the sandbox image ships bundled PostHog skills into the same
+ * roots, and a stub must not shadow a real skill of the same name.
+ *
+ * Each root is handled on its own: a read-only or missing root is reported in
+ * `errors` and the other roots still get their stubs.
  */
 export async function installStoreSkillsArchive(
   archive: Uint8Array,
   skillRoots: string[],
 ): Promise<StoreSkillsInstallResult> {
   const { skills, rejected } = groupArchiveBySkill(archive);
-  const installed: string[] = [];
-  const collisions: string[] = [];
+  const written = new Set<string>();
+  const collided = new Set<string>();
+  const removed = new Set<string>();
+  const errors: StoreSkillsInstallError[] = [];
 
-  for (const [skillName, files] of skills) {
-    let writtenAnywhere = false;
-    let collided = false;
-    for (const root of skillRoots) {
-      const skillDir = join(root, skillName);
-      if (!(await isReplaceable(skillDir))) {
-        collided = true;
-        continue;
+  for (const root of skillRoots) {
+    for (const [skillName, files] of skills) {
+      try {
+        const skillDir = join(root, skillName);
+        if (!(await isReplaceable(skillDir))) {
+          collided.add(skillName);
+          continue;
+        }
+        await rm(skillDir, { recursive: true, force: true });
+        for (const [relPath, content] of files) {
+          const destination = join(skillDir, relPath);
+          await mkdir(join(destination, ".."), { recursive: true });
+          await writeFile(destination, Buffer.from(content));
+        }
+        written.add(skillName);
+      } catch (error) {
+        errors.push({ root, skillName, message: errorMessage(error) });
       }
-      await rm(skillDir, { recursive: true, force: true });
-      for (const [relPath, content] of files) {
-        const destination = join(skillDir, relPath);
-        await mkdir(join(destination, ".."), { recursive: true });
-        await writeFile(destination, Buffer.from(content));
+    }
+    try {
+      for (const name of await pruneStaleStubs(root, skills)) {
+        removed.add(name);
       }
-      writtenAnywhere = true;
-    }
-    if (writtenAnywhere) {
-      installed.push(skillName);
-    }
-    if (collided) {
-      collisions.push(skillName);
+    } catch (error) {
+      errors.push({ root, skillName: null, message: errorMessage(error) });
     }
   }
 
-  return { installed, collisions, rejected };
+  return {
+    installed: [...skills.keys()].filter((name) => written.has(name)),
+    collisions: [...skills.keys()].filter((name) => collided.has(name)),
+    removed: [...removed].sort(),
+    rejected,
+    errors,
+  };
+}
+
+/**
+ * Remove every stub the store wrote earlier. Used when the bundle is empty or
+ * the feature is off for this user, so stale discovery does not outlive access.
+ */
+export async function removeStoreSkillStubs(
+  skillRoots: string[],
+): Promise<Pick<StoreSkillsInstallResult, "removed" | "errors">> {
+  const removed = new Set<string>();
+  const errors: StoreSkillsInstallError[] = [];
+  for (const root of skillRoots) {
+    try {
+      for (const name of await pruneStaleStubs(root, new Map())) {
+        removed.add(name);
+      }
+    } catch (error) {
+      errors.push({ root, skillName: null, message: errorMessage(error) });
+    }
+  }
+  return { removed: [...removed].sort(), errors };
 }
 
 export function buildStoreSkillsInstructions(installedCount: number): string {
@@ -140,10 +206,56 @@ function isSafeRelativePath(relPath: string): boolean {
   return !!resolved && !resolved.startsWith("..") && !isAbsolute(resolved);
 }
 
+/** Delete store stubs under `root` that are not in `keep`; return their names. */
+async function pruneStaleStubs(
+  root: string,
+  keep: ReadonlyMap<string, unknown>,
+): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    },
+  );
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || keep.has(entry.name)) {
+      continue;
+    }
+    const skillDir = join(root, entry.name);
+    if (await isStoreStub(skillDir)) {
+      await rm(skillDir, { recursive: true, force: true });
+      removed.push(entry.name);
+    }
+  }
+  return removed;
+}
+
 /** True when nothing is there, or when what is there is a stub the store wrote earlier. */
 async function isReplaceable(skillDir: string): Promise<boolean> {
-  const existing = await readFile(join(skillDir, "SKILL.md"), "utf-8").catch(
+  const existing = await readSkillMd(skillDir);
+  return existing === null || hasStoreMarker(existing);
+}
+
+async function isStoreStub(skillDir: string): Promise<boolean> {
+  const existing = await readSkillMd(skillDir);
+  return existing !== null && hasStoreMarker(existing);
+}
+
+/** The SKILL.md text, null when the directory has none, "" when it cannot be read. */
+function readSkillMd(skillDir: string): Promise<string | null> {
+  return readFile(join(skillDir, "SKILL.md"), "utf-8").catch(
     (error: NodeJS.ErrnoException) => (error.code === "ENOENT" ? null : ""),
   );
-  return existing === null || existing.includes(STORE_SKILL_MARKER);
+}
+
+function hasStoreMarker(skillMd: string): boolean {
+  const frontmatter = FRONTMATTER_RE.exec(skillMd)?.[1];
+  return frontmatter !== undefined && STORE_SKILL_MARKER_RE.test(frontmatter);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

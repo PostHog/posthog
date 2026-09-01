@@ -139,6 +139,7 @@ import {
   buildStoreSkillsInstructions,
   getStoreSkillRoots,
   installStoreSkillsArchive,
+  removeStoreSkillStubs,
   STORE_SKILLS_BUNDLE_LIMIT,
 } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
@@ -3796,10 +3797,9 @@ export class AgentServer {
       const result = await this.posthogAPI.downloadSkillsBundle(
         STORE_SKILLS_BUNDLE_LIMIT,
       );
-      if (result.kind === "not_enabled") {
-        return;
-      }
       if (result.kind === "error") {
+        // Stubs from an earlier session stay: a transient failure says nothing
+        // about what the user can still access.
         this.logger.warn("Skills store bundle fetch failed", {
           ...context,
           status: result.status,
@@ -3807,7 +3807,15 @@ export class AgentServer {
         });
         return;
       }
-      if (result.included === 0) {
+      if (result.kind === "not_enabled" || result.included === 0) {
+        const cleanup = await removeStoreSkillStubs(getStoreSkillRoots());
+        if (cleanup.removed.length > 0 || cleanup.errors.length > 0) {
+          this.logger.info("Removed stale skills store stubs", {
+            ...context,
+            removed: cleanup.removed,
+            errors: cleanup.errors,
+          });
+        }
         return;
       }
       const install = await installStoreSkillsArchive(
@@ -3823,7 +3831,9 @@ export class AgentServer {
         bundleSkipped: result.skipped,
         installed: install.installed,
         collisions: install.collisions,
+        removed: install.removed,
         rejected: install.rejected,
+        errors: install.errors,
       });
     } catch (error) {
       this.logger.warn("Skills store install failed", { ...context, error });

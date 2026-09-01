@@ -721,6 +721,11 @@ export class PostHogAPIClient {
     try {
       const response = await this.performRequestWithRetry(
         `/api/projects/${teamId}/llm_skills/bundle/?${query.toString()}`,
+        {
+          // Session start awaits this; a stalled socket must not hold up the
+          // run. The signal also aborts the body read below.
+          signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
+        },
       );
       if (response.status === 404) {
         return { kind: "not_enabled" };

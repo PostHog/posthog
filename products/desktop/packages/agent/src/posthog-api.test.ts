@@ -259,7 +259,11 @@ describe("PostHogAPIClient", () => {
     });
     expect(mockFetch).toHaveBeenCalledWith(
       "https://app.posthog.com/api/projects/7/llm_skills/bundle/?content=stub&limit=20",
-      expect.objectContaining({ headers: expect.any(Headers) }),
+      expect.objectContaining({
+        headers: expect.any(Headers),
+        // Session start awaits this fetch, so it must be bounded.
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 
