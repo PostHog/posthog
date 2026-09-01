@@ -205,7 +205,10 @@ export type CdpConfig = ClickhouseConfig & {
 export function getDefaultCdpConfig(): CdpConfig {
     return {
         ...getDefaultClickhouseConfig(),
-        CDP_WATCHER_COST_ERROR: 100,
+        // Off by default because enabling shedding across every destination is a rollout
+        // decision, taken per environment in charts. A non-zero cost only drains the bucket on
+        // net once a function exceeds CDP_WATCHER_REFILL_RATE failures per second.
+        CDP_WATCHER_COST_ERROR: 0,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,
         CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: 550,
