@@ -109,7 +109,10 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         setMarkdownAIPresenceActive,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const remoteMarkdown = normalizeWidgetMarkdownTags(getMarkdownNotebookMarkdown(notebook?.content))
+    const remoteMarkdown = useMemo(
+        () => normalizeWidgetMarkdownTags(getMarkdownNotebookMarkdown(notebook?.content)),
+        [notebook?.content]
+    )
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)

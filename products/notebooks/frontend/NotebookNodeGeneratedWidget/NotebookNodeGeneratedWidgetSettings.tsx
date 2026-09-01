@@ -254,6 +254,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                             generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
                         }
                         loading={generationRequestLoading}
+                        disabledReason={!isEditable ? 'You need edit access to generate a widget.' : undefined}
                     >
                         Generate widget
                     </LemonButton>

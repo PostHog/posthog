@@ -5,11 +5,11 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Successful source, generated titles, prompts, models, dataframe contracts, and security reviews are stored as immutable versions.
 - People can inspect history and source, request source changes, restore an earlier version, improve the current widget, or regenerate it.
-- A new widget uses “visualize the data in this notebook in weird and wonderful ways” when its instruction field is left empty.
+- A new widget uses “Create an interactive visualization of the data in this notebook” when its instruction field is left empty.
 - Running a widget re-runs only its connected SQL and Python data cells in dependency order. It reloads the existing preview without generating a new version.
 - A fast model reviews the exact generated source before Canvas publishes it. A review failure stops publication.
-- A preview starts automatically when the review finds no concrete issues. Findings and legacy unreviewed versions stop at a gate that shows the review result and links to the source.
-- Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. “Run widget anyway” records consent for that hash, so source or artifact changes require a new decision.
+- Every preview stops at a gate that shows the automated review result and links to the source. The viewer must choose to run the exact build.
+- Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. “Run widget” records consent for that hash, so source or artifact changes require a new decision.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
 - Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows without sending values to the model.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
@@ -30,8 +30,8 @@ Generation and execution use two separate checks:
 2. A fast model reviews the validated source as untrusted input. It looks for concrete exfiltration, deception, dynamic execution, browser access, side effects, and resource-abuse risks that static checks cannot reliably identify.
 3. The immutable widget version stores the highest severity, summary, findings, review model, review-instruction version, and review time. Restoring a version carries forward the review of that exact source.
 4. Canvas publishes the source only after the review returns a valid result. A missing, malformed, or failed review fails the generation job closed.
-5. A review with no findings allows the frontend to mount the artifact automatically.
-6. A review with findings stops before execution and shows the result. The viewer can inspect the source or run that exact build anyway.
+5. Every reviewed build stops before execution and shows the result. The viewer can inspect the source before choosing to run that exact build.
+6. A review with findings changes the gate warning and requires the viewer to run the widget anyway.
 7. Legacy versions without a persisted review also stop before execution.
 8. Canvas records a SHA-256 over the complete frozen artifact manifest. A rebuilt or changed artifact has a different hash and requires a new execution decision when gated.
 

@@ -52,6 +52,7 @@ import {
 const STATUS_POLL_INTERVAL_MS = 2_000
 const STATUS_POLL_MAX_INTERVAL_MS = 30_000
 const VERSION_PAGE_SIZE = 25
+const SAFE_WIDGET_NODE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 export type WidgetGenerationOperation = 'initial' | 'regenerate' | 'improve'
 export type WidgetGenerationModalOperation = Exclude<WidgetGenerationOperation, 'initial'> | null
@@ -103,6 +104,8 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     sourceError: string | null
     sourceLoading: boolean
     sourceModalOpen: boolean
+    sourceImprovementDisabledReason: string | null
+    sourceVersionId: string | null
     versions: WidgetVersionApi[]
     versionsCount: number
     versionsError: string | null
@@ -159,9 +162,11 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     setRuntimeError: (error: string | null) => { error: string | null }
     setSourceChangePrompt: (prompt: string) => { prompt: string }
     sourceFailed: (error: string) => { error: string }
-    sourceReceived: (source: string) => { source: string }
+    sourceReceived: (source: string, versionId: string | null) => { source: string; versionId: string | null }
     statusFailed: (error: string) => { error: string }
     statusReceived: (status: WidgetStatusApi) => { status: WidgetStatusApi }
+    statusRequestFinished: () => { value: true }
+    statusRequestStarted: () => { value: true }
     tickElapsed: (elapsedSeconds: number) => { elapsedSeconds: number }
     versionRefreshed: (version: WidgetVersionApi) => { version: WidgetVersionApi }
     versionsFailed: (error: string) => { error: string }
@@ -209,6 +214,10 @@ function shouldPoll(status: WidgetStatusApi | null): boolean {
         status?.lifecycle_status === 'generating' ||
         status?.lifecycle_status === 'building'
     )
+}
+
+export function isSafeWidgetNodeId(nodeId: string): boolean {
+    return SAFE_WIDGET_NODE_ID.test(nodeId)
 }
 
 export function getWidgetDataDependencyNodeIds(content: JSONContent | null, frameNames: string[]): string[] {
@@ -311,6 +320,9 @@ export async function loadWidgetFrame(
     runId: string | undefined,
     signal: AbortSignal
 ): Promise<WidgetFrameApi> {
+    if (!isSafeWidgetNodeId(nodeId)) {
+        throw new Error('This widget has an invalid identifier.')
+    }
     return await notebooksWidgetFrame(
         projectId,
         notebookShortId,
@@ -381,9 +393,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             setRuntimeError: (error: string | null) => ({ error }),
             setSourceChangePrompt: (prompt: string) => ({ prompt }),
             sourceFailed: (error: string) => ({ error }),
-            sourceReceived: (source: string) => ({ source }),
+            sourceReceived: (source: string, versionId: string | null) => ({ source, versionId }),
             statusFailed: (error: string) => ({ error }),
             statusReceived: (status: WidgetStatusApi) => ({ status }),
+            statusRequestFinished: true,
+            statusRequestStarted: true,
             tickElapsed: (elapsedSeconds: number) => ({ elapsedSeconds }),
             versionsFailed: (error: string) => ({ error }),
             versionRefreshed: (version: WidgetVersionApi) => ({ version }),
@@ -464,7 +478,6 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     dataRefreshFinished: () => false,
                     abortChain: () => false,
                     refreshData: () => true,
-                    statusFailed: () => false,
                 },
             ],
             restoreInFlight: [
@@ -490,8 +503,23 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 null as string | null,
                 { loadSource: () => null, sourceFailed: (_, { error }) => error, sourceReceived: () => null },
             ],
-            sourceLoading: [false, { loadSource: () => true, sourceFailed: () => false, sourceReceived: () => false }],
+            sourceLoading: [
+                false,
+                {
+                    closeSourceModal: () => false,
+                    loadSource: () => true,
+                    sourceFailed: () => false,
+                    sourceReceived: () => false,
+                },
+            ],
             sourceModalOpen: [false, { closeSourceModal: () => false, openSourceModal: () => true }],
+            sourceVersionId: [
+                null as string | null,
+                {
+                    openSourceModal: () => null,
+                    sourceReceived: (_, { versionId }) => versionId,
+                },
+            ],
             selectedVersionId: [
                 null as string | null,
                 {
@@ -515,10 +543,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             statusLoading: [
                 false,
                 {
-                    loadStatus: () => true,
-                    refreshData: () => true,
                     statusFailed: () => false,
                     statusReceived: () => false,
+                    statusRequestFinished: () => false,
+                    statusRequestStarted: () => true,
                 },
             ],
             versions: [
@@ -617,8 +645,71 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     return null
                 },
             ],
+            sourceImprovementDisabledReason: [
+                (selectors) => [
+                    selectors.generationRequestLoading,
+                    selectors.isWorking,
+                    selectors.selectedVersionId,
+                    selectors.sourceChangePrompt,
+                    selectors.sourceError,
+                    selectors.sourceLoading,
+                    selectors.sourceVersionId,
+                    selectors.status,
+                ],
+                (
+                    generationRequestLoading,
+                    isWorking,
+                    selectedVersionId,
+                    sourceChangePrompt,
+                    sourceError,
+                    sourceLoading,
+                    sourceVersionId,
+                    status
+                ): string | null => {
+                    if (selectedVersionId !== status?.current_version_id) {
+                        return 'Restore this version before building changes.'
+                    }
+                    if (!sourceChangePrompt.trim()) {
+                        return 'Describe the changes you want.'
+                    }
+                    if (sourceError) {
+                        return 'Reload the widget source first.'
+                    }
+                    if (sourceLoading || sourceVersionId !== selectedVersionId) {
+                        return 'Loading the widget source.'
+                    }
+                    if (isWorking || generationRequestLoading) {
+                        return 'Wait for widget generation to finish.'
+                    }
+                    return null
+                },
+            ],
         }),
         listeners(({ actions, values, props, cache }) => {
+            const nextStatusRequestId = (): number => {
+                const requestId = Number(cache.statusRequestId ?? 0) + 1
+                cache.statusRequestId = requestId
+                return requestId
+            }
+
+            const isCurrentStatusRequest = (requestId: number): boolean => requestId === cache.statusRequestId
+
+            const invalidateStatusRequests = (): void => {
+                nextStatusRequestId()
+                actions.statusRequestFinished()
+            }
+
+            const loadStatusAfterMutationFailure = async (): Promise<WidgetStatusApi | null> => {
+                if (!props.projectId || !isSafeWidgetNodeId(props.nodeId)) {
+                    return null
+                }
+                try {
+                    return await notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId)
+                } catch {
+                    return null
+                }
+            }
+
             const scheduleStatusPoll = (): void => {
                 cache.disposables.dispose('statusPoll')
                 if (document.hidden) {
@@ -648,7 +739,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             return {
                 cancelGeneration: async () => {
                     const generationId = values.status?.active_job?.id
-                    if (!props.isEditable || !generationId || !props.projectId || values.cancellationInFlight) {
+                    if (
+                        !props.isEditable ||
+                        !generationId ||
+                        !props.projectId ||
+                        !isSafeWidgetNodeId(props.nodeId) ||
+                        values.cancellationInFlight
+                    ) {
                         return
                     }
                     actions.cancellationStarted()
@@ -659,6 +756,15 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.generationCanceled()
                         actions.loadStatus()
                     } catch (error) {
+                        const recoveredStatus = await loadStatusAfterMutationFailure()
+                        if (recoveredStatus && recoveredStatus.active_job?.id !== generationId) {
+                            actions.generationCanceled()
+                            invalidateStatusRequests()
+                            if (recoveredStatus) {
+                                actions.statusReceived(recoveredStatus)
+                            }
+                            return
+                        }
                         const message = errorMessage(error)
                         posthog.captureException(error instanceof Error ? error : new Error(message), {
                             action: 'cancel notebook widget generation',
@@ -668,6 +774,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 generateWidget: async ({ prompt, model, operation }) => {
                     if (!props.isEditable || values.generationRequestLoading || values.isWorking) {
+                        return
+                    }
+                    if (!isSafeWidgetNodeId(props.nodeId)) {
+                        actions.generationFailed('This widget has an invalid identifier.')
                         return
                     }
                     if (!props.projectId) {
@@ -684,6 +794,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         return
                     }
                     actions.generationRequestStarted()
+                    invalidateStatusRequests()
+                    const expectedCurrentVersionId = values.status?.current_version_id
                     const generationId = uuidv4()
                     try {
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
@@ -710,8 +822,24 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         }
                         actions.closeGenerationModal()
                         actions.closeSourceModal()
+                        invalidateStatusRequests()
                         actions.statusReceived(queuedStatus)
                     } catch (error) {
+                        const recoveredStatus = await loadStatusAfterMutationFailure()
+                        if (
+                            recoveredStatus &&
+                            (recoveredStatus.active_job?.id === generationId ||
+                                Boolean(
+                                    recoveredStatus.current_version_id &&
+                                    recoveredStatus.current_version_id !== expectedCurrentVersionId
+                                ))
+                        ) {
+                            actions.closeGenerationModal()
+                            actions.closeSourceModal()
+                            invalidateStatusRequests()
+                            actions.statusReceived(recoveredStatus)
+                            return
+                        }
                         const message = errorMessage(error)
                         posthog.captureException(error instanceof Error ? error : new Error(message), {
                             action: 'generate notebook widget',
@@ -727,6 +855,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 improveSource: () => {
+                    if (values.sourceImprovementDisabledReason) {
+                        return
+                    }
                     const model = isWidgetModel(values.selectedVersion?.model)
                         ? values.selectedVersion.model
                         : props.model
@@ -737,33 +868,56 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.sourceFailed('The current project is unavailable.')
                         return
                     }
+                    if (!isSafeWidgetNodeId(props.nodeId)) {
+                        actions.sourceFailed('This widget has an invalid identifier.')
+                        return
+                    }
+                    const requestedVersionId = values.selectedVersionId
+                    const requestId = Number(cache.sourceRequestId ?? 0) + 1
+                    cache.sourceRequestId = requestId
                     try {
                         const result = await notebooksWidgetSource(
                             String(props.projectId),
                             props.notebookShortId,
                             props.nodeId,
-                            { version_id: values.selectedVersionId ?? undefined }
+                            { version_id: requestedVersionId ?? undefined }
                         )
-                        actions.sourceReceived(result.source)
+                        if (requestId === cache.sourceRequestId && requestedVersionId === values.selectedVersionId) {
+                            actions.sourceReceived(result.source, requestedVersionId)
+                        }
                     } catch (error) {
-                        actions.sourceFailed(errorMessage(error))
+                        if (requestId === cache.sourceRequestId) {
+                            actions.sourceFailed(errorMessage(error))
+                        }
                     }
                 },
                 refreshData: async () => {
                     if (!props.projectId) {
+                        actions.dataRefreshFinished()
                         actions.statusFailed('The current project is unavailable. Refresh and try again.')
+                        return
+                    }
+                    if (!isSafeWidgetNodeId(props.nodeId)) {
+                        actions.dataRefreshFinished()
+                        actions.statusFailed('This widget has an invalid identifier.')
                         return
                     }
                     if (cache.refreshDataRequestInFlight) {
                         return
                     }
                     cache.refreshDataRequestInFlight = true
+                    const requestId = nextStatusRequestId()
+                    actions.statusRequestStarted()
                     try {
                         const refreshedStatus = await notebooksWidgetStatus(
                             String(props.projectId),
                             props.notebookShortId,
                             props.nodeId
                         )
+                        if (!isCurrentStatusRequest(requestId)) {
+                            actions.dataRefreshFinished()
+                            return
+                        }
                         actions.statusReceived(refreshedStatus)
                         if (
                             values.selectedVersionId &&
@@ -778,6 +932,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                                 props.nodeId,
                                 { offset, limit: VERSION_PAGE_SIZE }
                             )
+                            if (!isCurrentStatusRequest(requestId)) {
+                                actions.dataRefreshFinished()
+                                return
+                            }
                             const refreshedVersion = page.results.find(({ id }) => id === values.selectedVersionId)
                             if (!refreshedVersion) {
                                 throw new Error('The selected widget version is no longer available.')
@@ -786,26 +944,53 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         }
                         actions.artifactRefreshReady()
                     } catch (error) {
-                        actions.statusFailed(errorMessage(error))
+                        actions.dataRefreshFinished()
+                        if (isCurrentStatusRequest(requestId)) {
+                            actions.statusFailed(errorMessage(error))
+                        }
                     } finally {
                         cache.refreshDataRequestInFlight = false
+                        if (isCurrentStatusRequest(requestId)) {
+                            actions.statusRequestFinished()
+                        }
                     }
                 },
                 loadStatus: async () => {
                     if (!props.projectId) {
                         return
                     }
+                    if (!isSafeWidgetNodeId(props.nodeId)) {
+                        actions.statusFailed('This widget has an invalid identifier.')
+                        return
+                    }
+                    const requestId = nextStatusRequestId()
+                    actions.statusRequestStarted()
                     try {
-                        actions.statusReceived(
-                            await notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId)
+                        const loadedStatus = await notebooksWidgetStatus(
+                            String(props.projectId),
+                            props.notebookShortId,
+                            props.nodeId
                         )
+                        if (isCurrentStatusRequest(requestId)) {
+                            actions.statusReceived(loadedStatus)
+                        }
                     } catch (error) {
-                        actions.statusFailed(errorMessage(error))
+                        if (isCurrentStatusRequest(requestId)) {
+                            actions.statusFailed(errorMessage(error))
+                        }
+                    } finally {
+                        if (isCurrentStatusRequest(requestId)) {
+                            actions.statusRequestFinished()
+                        }
                     }
                 },
                 loadVersions: async ({ reset }) => {
                     if (!props.projectId) {
                         actions.versionsFailed('The current project is unavailable.')
+                        return
+                    }
+                    if (!isSafeWidgetNodeId(props.nodeId)) {
+                        actions.versionsFailed('This widget has an invalid identifier.')
                         return
                     }
                     if (cache.versionsRequestInFlight) {
@@ -860,17 +1045,20 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.runWidgetDataChain(content, nodeIds)
                 },
                 restoreSelectedVersion: async () => {
+                    const expectedCurrentVersionId = values.status?.current_version_id
                     if (
                         !props.isEditable ||
                         !props.projectId ||
+                        !isSafeWidgetNodeId(props.nodeId) ||
                         !values.selectedVersionId ||
-                        !values.status?.current_version_id ||
-                        values.selectedVersionId === values.status.current_version_id ||
+                        !expectedCurrentVersionId ||
+                        values.selectedVersionId === expectedCurrentVersionId ||
                         values.restoreInFlight
                     ) {
                         return
                     }
                     actions.restoreStarted()
+                    invalidateStatusRequests()
                     try {
                         const restoredStatus = await notebooksWidgetRevert(
                             String(props.projectId),
@@ -878,9 +1066,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             props.nodeId,
                             {
                                 version_id: values.selectedVersionId,
-                                expected_current_version_id: values.status.current_version_id,
+                                expected_current_version_id: expectedCurrentVersionId,
                             }
                         )
+                        invalidateStatusRequests()
                         actions.statusReceived(restoredStatus)
                         if (restoredStatus.current_version_id) {
                             actions.selectVersion(restoredStatus.current_version_id)
@@ -888,7 +1077,24 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.loadVersions(true)
                         actions.refreshData()
                     } catch (error) {
+                        const recoveredStatus = await loadStatusAfterMutationFailure()
+                        if (
+                            recoveredStatus?.current_version_id &&
+                            recoveredStatus.current_version_id !== expectedCurrentVersionId
+                        ) {
+                            invalidateStatusRequests()
+                            actions.statusReceived(recoveredStatus)
+                            actions.selectVersion(recoveredStatus.current_version_id)
+                            actions.loadVersions(true)
+                            actions.refreshData()
+                            return
+                        }
                         actions.restoreFailed(errorMessage(error))
+                    }
+                },
+                selectVersion: () => {
+                    if (values.sourceModalOpen) {
+                        actions.loadSource()
                     }
                 },
                 statusReceived: ({ status }) => {

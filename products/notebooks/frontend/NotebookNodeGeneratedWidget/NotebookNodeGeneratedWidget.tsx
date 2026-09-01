@@ -151,6 +151,7 @@ function ExpandedWidget({
     const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (
         <NotebookWidgetTrustControls
             buildHash={selectedBuildHash}
+            isEditable={isEditable}
             securityReview={selectedSecurityReview}
             variant={variant}
             onRun={() => {
@@ -175,7 +176,7 @@ function ExpandedWidget({
     }
 
     if (selectedArtifactUrl && selectedVersionId && currentTeamId) {
-        if (selectedSecurityReview?.severity !== 'none' && !widgetTrust.buildTrusted) {
+        if (!widgetTrust.buildTrusted) {
             return (
                 <>
                     {trustControls('gate')}
@@ -296,6 +297,12 @@ function ExpandedWidget({
                                 {workingStatus.timing}
                             </span>
                         </div>
+                    ) : null}
+                    {generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
+                    {statusLoadError ? (
+                        <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadStatus }}>
+                            The widget status couldn't be refreshed. The last confirmed generation state is shown.
+                        </LemonBanner>
                     ) : null}
                     {status?.active_job && isEditable ? (
                         <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>

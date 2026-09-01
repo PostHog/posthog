@@ -46,6 +46,7 @@ import {
     useMemo,
     useRef,
 } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
@@ -70,6 +71,7 @@ import { getSerializableProps, isNotebookPropValue } from 'lib/components/Markdo
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -808,6 +810,17 @@ export function MountedRealNotebookNodeComponent({
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: !options.unmountWhenOutOfView,
+        fallbackInView: true,
+    })
+    const setContentRefs = useCallback(
+        (element: HTMLDivElement | null): void => {
+            contentRef.current = element
+            inViewRef(element)
+        },
+        [inViewRef]
+    )
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
         [forceEditing, node.id, node.props, notebookNodeType, options]
@@ -962,7 +975,7 @@ export function MountedRealNotebookNodeComponent({
                     ) : null}
                     {showContent ? (
                         <div
-                            ref={contentRef}
+                            ref={setContentRefs}
                             className={clsx(
                                 'MarkdownNotebook__real-node-content',
                                 isResizeable && 'MarkdownNotebook__real-node-content--resizeable'
@@ -970,7 +983,11 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            {!options.unmountWhenOutOfView || inView ? (
+                                <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            ) : (
+                                <LemonSkeleton className="h-full w-full" />
+                            )}
                             {isResizeable ? (
                                 <div
                                     className="MarkdownNotebook__real-node-resize-handle"

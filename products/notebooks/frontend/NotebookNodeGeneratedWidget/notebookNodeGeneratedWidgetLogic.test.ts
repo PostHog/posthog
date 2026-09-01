@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import {
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
+    notebooksWidgetRevert,
     notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
@@ -75,6 +76,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         initKeaTests()
         jest.mocked(notebooksWidgetCancel).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
+        jest.mocked(notebooksWidgetRevert).mockReset()
         jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
         jest.mocked(notebooksWidgetVersions).mockReset().mockResolvedValue(emptyVersions)
@@ -96,6 +98,18 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(notebooksWidgetStatus).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe')
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
     })
+
+    it.each(['../other-widget', 'folder/widget', 'widget?status', 'widget#status'])(
+        'rejects the unsafe widget identifier %s before making a request',
+        async (nodeId) => {
+            logic = notebookNodeGeneratedWidgetLogic({ ...props, nodeId })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(notebooksWidgetStatus).not.toHaveBeenCalled()
+            expect(logic.values.statusLoadError).toBe('This widget has an invalid identifier.')
+        }
+    )
 
     it('loads version history when the widget has generated versions', async () => {
         const version: WidgetVersionApi = {
@@ -225,6 +239,32 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.refreshData()
         expect(logic.values.dataRefreshInFlight).toBe(true)
         resolveReload(status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
+        expect(logic.values.frameRevision).toBe(1)
+        expect(logic.values.dataRefreshInFlight).toBe(false)
+    })
+
+    it('reloads the preview when a status poll fails while widget data cells are running', async () => {
+        jest.mocked(notebooksWidgetStatus)
+            .mockResolvedValueOnce(
+                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' })
+            )
+            .mockRejectedValueOnce(new Error('Temporary status failure'))
+            .mockResolvedValueOnce(
+                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' })
+            )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.dataRefreshStarted()
+        logic.actions.loadStatus()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dataRefreshInFlight).toBe(true)
+
+        logic.actions.widgetDataChainFinished([])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
@@ -445,6 +485,45 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.isWorking).toBe(true)
     })
 
+    it('does not let an older status request overwrite a newly queued generation', async () => {
+        const queued = status({
+            lifecycle_status: 'generating',
+            active_job: {
+                id: '00000000-0000-0000-0000-000000000001',
+                status: 'queued',
+                phase: 'queued',
+                model: 'claude-sonnet-4-6',
+                created_at: '2026-08-26T12:00:00Z',
+                started_at: null,
+            },
+        })
+        let resolveOldStatus: (value: WidgetStatusApi) => void = () => undefined
+        jest.mocked(notebooksWidgetStatus)
+            .mockResolvedValueOnce(status())
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveOldStatus = resolve
+                    })
+            )
+        jest.mocked(notebooksWidgetGenerate).mockResolvedValue(queued)
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.loadStatus()
+        await expectLogic(logic, () =>
+            logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
+        ).toDispatchActions(['generationRequestStarted', 'statusReceived', 'generationRequestFinished'])
+
+        expect(logic.values.status?.active_job?.status).toBe('queued')
+        resolveOldStatus(status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/stale.html' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status?.active_job?.status).toBe('queued')
+        expect(logic.values.isWorking).toBe(true)
+    })
+
     it('finds the data producer and its transitive dependencies without unrelated cells', () => {
         const content: JSONContent = {
             type: 'doc',
@@ -507,6 +586,73 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.sourceModalOpen).toBe(false)
     })
 
+    it('does not improve a historical version as though it were current', async () => {
+        const currentVersionId = '00000000-0000-0000-0000-000000000009'
+        const historicalVersionId = '00000000-0000-0000-0000-000000000008'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', current_version_id: currentVersionId, has_versions: true })
+        )
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.selectVersion(historicalVersionId)
+        logic.actions.openSourceModal()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSourceChangePrompt('Use a darker background')
+        logic.actions.improveSource()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sourceImprovementDisabledReason).toBe('Restore this version before building changes.')
+        expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+    })
+
+    it('keeps source responses bound to the selected version', async () => {
+        const firstVersionId = '00000000-0000-0000-0000-000000000008'
+        const secondVersionId = '00000000-0000-0000-0000-000000000009'
+        let resolveFirstSource: (value: { source: string }) => void = () => undefined
+        let resolveSecondSource: (value: { source: string }) => void = () => undefined
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', current_version_id: firstVersionId })
+        )
+        jest.mocked(notebooksWidgetSource)
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFirstSource = resolve
+                    })
+            )
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveSecondSource = resolve
+                    })
+            )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openSourceModal()
+        logic.actions.closeSourceModal()
+        logic.actions.statusReceived(status({ lifecycle_status: 'ready', current_version_id: secondVersionId }))
+        logic.actions.selectVersion(secondVersionId)
+        logic.actions.openSourceModal()
+
+        await expectLogic(logic, () => resolveSecondSource({ source: 'source for version two' })).toDispatchActions([
+            'sourceReceived',
+        ])
+        expect(logic.values.source).toBe('source for version two')
+        expect(logic.values.sourceVersionId).toBe(secondVersionId)
+
+        resolveFirstSource({ source: 'source for version one' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.source).toBe('source for version two')
+        expect(logic.values.sourceVersionId).toBe(secondVersionId)
+    })
+
     it('persists an older Markdown widget and retries with the same generation identifier', async () => {
         const queued = status({
             lifecycle_status: 'generating',
@@ -541,6 +687,70 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             jest.mocked(notebooksWidgetGenerate).mock.calls[0][3].generation_id
         )
         expect(logic.values.status?.active_job?.status).toBe('queued')
+    })
+
+    it('recovers a durable generation when its response is lost', async () => {
+        jest.mocked(notebooksWidgetStatus).mockImplementation(async () => {
+            const generationId = jest.mocked(notebooksWidgetGenerate).mock.calls[0]?.[3].generation_id
+            return generationId
+                ? status({
+                      lifecycle_status: 'generating',
+                      active_job: {
+                          id: generationId,
+                          status: 'queued',
+                          phase: 'queued',
+                          model: 'claude-sonnet-4-6',
+                          created_at: '2026-08-26T12:00:00Z',
+                          started_at: null,
+                      },
+                  })
+                : status()
+        })
+        jest.mocked(notebooksWidgetGenerate).mockRejectedValue(new Error('Connection closed'))
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status?.active_job?.status).toBe('queued')
+        expect(logic.values.generationError).toBeNull()
+        expect(logic.values.isWorking).toBe(true)
+    })
+
+    it('recovers a restored version when its response is lost', async () => {
+        const currentVersionId = '00000000-0000-0000-0000-000000000010'
+        const historicalVersionId = '00000000-0000-0000-0000-000000000009'
+        const restoredVersionId = '00000000-0000-0000-0000-000000000011'
+        const initialStatus = status({
+            lifecycle_status: 'ready',
+            current_version_id: currentVersionId,
+            has_versions: true,
+        })
+        const restoredStatus = status({
+            lifecycle_status: 'ready',
+            artifact_url: 'https://example.com/restored.html',
+            current_version_id: restoredVersionId,
+            has_versions: true,
+        })
+        jest.mocked(notebooksWidgetStatus)
+            .mockResolvedValueOnce(initialStatus)
+            .mockResolvedValueOnce(restoredStatus)
+            .mockResolvedValue(restoredStatus)
+        jest.mocked(notebooksWidgetRevert).mockRejectedValue(new Error('Connection closed'))
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.selectVersion(historicalVersionId)
+        logic.actions.restoreSelectedVersion()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status?.current_version_id).toBe(restoredVersionId)
+        expect(logic.values.selectedVersionId).toBe(restoredVersionId)
+        expect(logic.values.restoreInFlight).toBe(false)
+        expect(logic.values.generationError).toBeNull()
     })
 
     it('cancels the shared durable job from its status identifier', async () => {

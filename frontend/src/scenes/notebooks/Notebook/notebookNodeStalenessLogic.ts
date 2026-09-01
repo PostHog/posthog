@@ -399,19 +399,20 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             }
             const graph = buildNotebookDependencyGraph(content)
             const requestedNodeIds = new Set(nodeIds)
-            const queue = graph.nodes
-                .filter(
-                    (node) =>
-                        V2_NODE_TYPES.includes(node.nodeType) &&
-                        requestedNodeIds.has(node.nodeId) &&
-                        values.mountedNodeIds[node.nodeId]
+            const requestedNodes = graph.nodes.filter(
+                (node) => V2_NODE_TYPES.includes(node.nodeType) && requestedNodeIds.has(node.nodeId)
+            )
+            const allRequestedNodesAreMounted =
+                requestedNodes.length === requestedNodeIds.size &&
+                requestedNodes.every((node) => values.mountedNodeIds[node.nodeId])
+            if (!allRequestedNodesAreMounted) {
+                lemonToast.info(
+                    'Some connected data cells are not available. Scroll through the notebook and try again.'
                 )
-                .map((node) => node.nodeId)
-            if (!queue.length) {
-                lemonToast.info('No connected data cells are ready to run.')
                 actions.abortChain(null)
                 return
             }
+            const queue = requestedNodes.map((node) => node.nodeId)
             actions.markStaleNodeIds(queue)
             actions.setChainRoot(null)
             actions.setWidgetDataChainNodeIds(queue)

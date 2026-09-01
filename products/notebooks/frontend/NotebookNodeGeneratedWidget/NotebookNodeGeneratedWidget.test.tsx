@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import {
+    notebooksWidgetCancel,
     notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
@@ -32,6 +33,10 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
     notebooksWidgetVersions: jest.fn(),
+}))
+
+jest.mock('react-intersection-observer', () => ({
+    useInView: () => ({ ref: () => undefined, inView: true }),
 }))
 
 const SHORT_ID = 'generated-widget-progress'
@@ -104,6 +109,21 @@ describe('NotebookNodeGeneratedWidget', () => {
 
         expect(screen.getByText('Widget')).toBeTruthy()
         await waitFor(() => expect(screen.getAllByText('Regenerating widget…')).toHaveLength(1))
+    })
+
+    it('shows cancellation errors while initial generation is still running', async () => {
+        jest.mocked(notebooksWidgetCancel).mockRejectedValue(new Error('Cancel request failed'))
+        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        fireEvent.click(await screen.findByText('Cancel'))
+
+        expect(await screen.findByText('Cancel request failed')).toBeTruthy()
     })
 
     it('opens the current source with an improvement prompt', async () => {
@@ -259,7 +279,7 @@ describe('NotebookNodeGeneratedWidget', () => {
         )
     })
 
-    it('mounts a widget automatically when the security review passes', async () => {
+    it('requires exact-build consent when the security review passes', async () => {
         const versionId = '00000000-0000-0000-0000-000000000008'
         const buildHash = 'c'.repeat(64)
         const securityReview = {
@@ -313,8 +333,13 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
+        await screen.findByText('Review this widget before running it')
+        expect(container.querySelector('iframe')).toBeNull()
+        expect(screen.getByText('Security review: No issues found')).toBeTruthy()
+
+        fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
+
         await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
         expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull()
-        expect(screen.getByText('Security review: No issues found')).toBeTruthy()
     })
 })

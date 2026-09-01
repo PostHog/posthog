@@ -16,10 +16,10 @@ export function NotebookWidgetSourceModal(props: NotebookNodeGeneratedWidgetLogi
     const {
         generationError,
         generationRequestLoading,
-        isWorking,
         source,
         sourceChangePrompt,
         sourceError,
+        sourceImprovementDisabledReason,
         sourceLoading,
         sourceModalOpen,
     } = useValues(logic)
@@ -39,17 +39,7 @@ export function NotebookWidgetSourceModal(props: NotebookNodeGeneratedWidgetLogi
                         <LemonButton
                             type="primary"
                             onClick={improveSource}
-                            disabledReason={
-                                !sourceChangePrompt.trim()
-                                    ? 'Describe the changes you want.'
-                                    : sourceLoading
-                                      ? 'Loading the widget source.'
-                                      : sourceError
-                                        ? 'Reload the widget source first.'
-                                        : isWorking
-                                          ? 'Wait for widget generation to finish.'
-                                          : undefined
-                            }
+                            disabledReason={sourceImprovementDisabledReason ?? undefined}
                             loading={generationRequestLoading}
                             data-attr="notebook-widget-build-source-changes"
                         >
