@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -238,5 +239,43 @@ describe('pageReportsLogic setPageUrl', () => {
 
         expect(router.values.searchParams).toEqual({ ...paramsBeforePick, pageURL: '/pricing' })
         expect(router.values.searchParams.domain).toEqual('posthog.com')
+    })
+})
+
+describe('pageReportsLogic page loading failures', () => {
+    let logic: ReturnType<typeof pageReportsLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        logic = pageReportsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    test('a failed load flags the failure and stops the loading state', async () => {
+        jest.spyOn(api, 'query').mockRejectedValue(new Error('Malformed JSON response'))
+
+        await expectLogic(logic, () => logic.actions.loadPages('')).toDispatchActions(['loadPagesUrlsFailure'])
+
+        expect(logic.values.pagesUrlsFailed).toBe(true)
+        expect(logic.values.isInitialLoad).toBe(false)
+    })
+
+    test('a later successful load clears the failure flag', async () => {
+        jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('Malformed JSON response'))
+
+        await expectLogic(logic, () => logic.actions.loadPages('')).toDispatchActions(['loadPagesUrlsFailure'])
+        expect(logic.values.pagesUrlsFailed).toBe(true)
+
+        jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+        await expectLogic(logic, () => logic.actions.loadPages('')).toDispatchActions(['loadPagesUrlsSuccess'])
+        expect(logic.values.pagesUrlsFailed).toBe(false)
     })
 })

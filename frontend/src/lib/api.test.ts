@@ -2,6 +2,7 @@ import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
+import { GarbledResponseError } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -161,6 +162,40 @@ describe('API helper', () => {
                     }
                 )
             ).rejects.toThrow('Query kind mismatch')
+        })
+
+        const garbledResponse = (): any => ({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve('{"results": [1, 2'),
+        })
+        const jsonResponse = (body: any): any => ({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(body)),
+        })
+
+        it('retries once and succeeds when the first response body is garbled', async () => {
+            fakeFetch.mockResolvedValueOnce(garbledResponse()).mockResolvedValueOnce(jsonResponse({ results: [1] }))
+
+            await expect(api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })).resolves.toEqual({ results: [1] })
+            expect(fakeFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('gives up after one retry when the body stays garbled', async () => {
+            fakeFetch.mockResolvedValue(garbledResponse())
+
+            const error = await api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' }).catch((e) => e)
+            expect(error).toBeInstanceOf(GarbledResponseError)
+            expect(fakeFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not retry a create on a garbled body, since a POST is not safe to repeat', async () => {
+            fakeFetch.mockResolvedValue(garbledResponse())
+
+            const error = await api.create('api/environments/2/insights', {}).catch((e) => e)
+            expect(error).toBeInstanceOf(GarbledResponseError)
+            expect(fakeFetch).toHaveBeenCalledTimes(1)
         })
     })
 
