@@ -543,10 +543,13 @@ function TableCard({
     // manifest-path error, so warn here where the fields are.
     const nameMissing = !table.name.trim()
     const pathMissing = !table.path.trim()
-    // A body that won't parse to a JSON object is dropped by buildManifest, so warn here where it's
-    // edited. Only for POST — that's where the field renders and where a body is meaningful.
-    const bodyInvalid =
-        table.method === 'POST' && table.request_body.trim().length > 0 && parseJsonObject(table.request_body) === null
+    const hasRequestBody = table.request_body.trim().length > 0
+    // Render the body field for POST, and for any table that still carries a body — otherwise a
+    // POST→GET switch (or an API-authored GET body) hides a body the manifest still sends, with no
+    // way to see or clear it.
+    const showRequestBody = table.method === 'POST' || hasRequestBody
+    // A body that won't parse to a JSON object is dropped by buildManifest, so warn here where it's edited.
+    const bodyInvalid = hasRequestBody && parseJsonObject(table.request_body) === null
     return (
         <div className="rounded border border-border p-3 space-y-3">
             <div className="flex items-center justify-between">
@@ -605,7 +608,7 @@ function TableCard({
                     <p className="m-0 text-xs text-danger">Enter a path. Creating the source fails without one.</p>
                 )}
             </div>
-            {table.method === 'POST' && (
+            {showRequestBody && (
                 <LemonField.Pure label="Request body (JSON)" htmlFor={`custom-source-request-body-${index}`}>
                     <LemonTextArea
                         id={`custom-source-request-body-${index}`}
