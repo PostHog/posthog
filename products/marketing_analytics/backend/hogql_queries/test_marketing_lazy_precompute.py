@@ -14,6 +14,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
     PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
     _query_shape_key,
+    handle_not_ready,
     handle_stale_served,
     marketing_ensure_precomputed,
 )
@@ -67,6 +68,15 @@ class TestMarketingLazyPrecompute(BaseTest):
         else:
             assert kwargs["run_inserts"] is False, "user-facing read must never materialize inline"
             assert kwargs["stale_while_revalidate_seconds"] == PRECOMPUTE_ONLY_MAX_STALE_SECONDS
+
+    @mock.patch(_DELAY)
+    def test_handle_not_ready_enqueues_a_background_warm(self, delay):
+        # A cold team outside the rolling warm set reads not-ready; that must trigger a one-off background
+        # warm so its next visit is served. Without this, cold teams stay not-ready forever.
+        handle_not_ready(team=self.team, query=self.query)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["team_id"] == self.team.pk
 
     @mock.patch(_DELAY)
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self, delay):
