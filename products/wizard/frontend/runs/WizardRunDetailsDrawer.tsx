@@ -1,8 +1,11 @@
+import { Suspense } from 'react'
+
 import { IconArrowLeft, IconCopy, IconFolder, IconGithub, IconRefresh, IconStopFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDrawer, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
 import {
@@ -16,10 +19,15 @@ import {
 } from '../wizardRunDisplay'
 import { WizardRunDetailsArtifacts } from './WizardRunDetailsArtifacts'
 import { WizardRunDiffStats } from './WizardRunDiffStats'
-import { WizardRunDiffViewer } from './WizardRunDiffViewer'
 import { WizardRunEnvironmentTag } from './WizardRunEnvironmentTag'
 import { WizardRunProgress } from './WizardRunProgress'
 import { WizardRunStatusTag } from './WizardRunStatusTag'
+
+// The diff renderer pulls in @pierre/diffs and Shiki, so load it only when a user opens a diff
+// instead of shipping it in the runs scene chunk.
+const WizardRunDiffViewer = lazyWithRetry(() =>
+    import('./WizardRunDiffViewer').then((module) => ({ default: module.WizardRunDiffViewer }))
+)
 
 export function WizardRunDetailsDrawer({
     run,
@@ -121,37 +129,39 @@ export function WizardRunDetailsDrawer({
                         </LemonButton>
                         <WizardRunDiffStats additions={selectedDiff.additions} removals={selectedDiff.removals} />
                     </div>
-                    {!wizardRunDiffCanRender(selectedDiff.size_bytes) ? (
-                        <WizardRunDiffViewer
-                            diff=""
-                            contentHash={selectedDiff.content_hash}
-                            sizeBytes={selectedDiff.size_bytes}
-                            pullRequestUrl={pullRequest?.url ?? null}
-                        />
-                    ) : diffLoading ? (
-                        <LemonSkeleton repeat={8} className="h-6 w-full" />
-                    ) : diffError ? (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Try again', onClick: () => onOpenDiff(selectedDiff) }}
-                        >
-                            {diffError}
-                        </LemonBanner>
-                    ) : diffContent !== null ? (
-                        <WizardRunDiffViewer
-                            diff={diffContent}
-                            contentHash={selectedDiff.content_hash}
-                            sizeBytes={selectedDiff.size_bytes}
-                            pullRequestUrl={pullRequest?.url ?? null}
-                        />
-                    ) : (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Try again', onClick: () => onOpenDiff(selectedDiff) }}
-                        >
-                            Couldn't load this diff. Try again.
-                        </LemonBanner>
-                    )}
+                    <Suspense fallback={<LemonSkeleton repeat={8} className="h-6 w-full" />}>
+                        {!wizardRunDiffCanRender(selectedDiff.size_bytes) ? (
+                            <WizardRunDiffViewer
+                                diff=""
+                                contentHash={selectedDiff.content_hash}
+                                sizeBytes={selectedDiff.size_bytes}
+                                pullRequestUrl={pullRequest?.url ?? null}
+                            />
+                        ) : diffLoading ? (
+                            <LemonSkeleton repeat={8} className="h-6 w-full" />
+                        ) : diffError ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Try again', onClick: () => onOpenDiff(selectedDiff) }}
+                            >
+                                {diffError}
+                            </LemonBanner>
+                        ) : diffContent !== null ? (
+                            <WizardRunDiffViewer
+                                diff={diffContent}
+                                contentHash={selectedDiff.content_hash}
+                                sizeBytes={selectedDiff.size_bytes}
+                                pullRequestUrl={pullRequest?.url ?? null}
+                            />
+                        ) : (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Try again', onClick: () => onOpenDiff(selectedDiff) }}
+                            >
+                                Couldn't load this diff. Try again.
+                            </LemonBanner>
+                        )}
+                    </Suspense>
                 </div>
             ) : run ? (
                 <div className="space-y-5">
