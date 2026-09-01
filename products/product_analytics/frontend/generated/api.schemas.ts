@@ -8181,6 +8181,14 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export type EffectiveRestrictionLevelEnumApi =
+    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+
+export const EffectiveRestrictionLevelEnumApi = {
+    Number21: 21,
+    Number37: 37,
+} as const
+
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -8372,7 +8380,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -8500,7 +8508,7 @@ export interface PatchedInsightApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object

@@ -7,10 +7,9 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
 
-export const EffectiveMembershipLevelEnumApi = {
+export const MembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -65,7 +64,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi
+    readonly membership_level: MembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -173,7 +172,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: EffectiveMembershipLevelEnumApi
+    readonly membership_level?: MembershipLevelEnumApi
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
