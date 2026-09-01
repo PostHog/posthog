@@ -78,8 +78,16 @@ def create_event_definitions_sql(
     # split this query's load across hundreds of fingerprints and none of them looks expensive.
     selected_fields = sorted(event_definition_fields)
 
+    # LEFT, not FULL OUTER. The two return the same rows here, on two independent grounds:
+    # `eventdefinition_ptr_id` is the child's primary key and a validated NOT NULL foreign key, so an
+    # enterprise row without a base row cannot be committed; and even if one existed, the scope
+    # filter below reads base-table columns, so that row's `COALESCE(project_id, team_id)` would be
+    # NULL and it would be filtered out regardless of join type.
+    # The join type does change the plan. A full join can be neither a nested loop nor a filter
+    # pushed into the scan, which leaves a sequential scan of the whole table available to the
+    # planner — and it picked that plan in production once statistics shifted.
     enterprise_join = (
-        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+        "LEFT JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
         if is_enterprise
         else ""
     )

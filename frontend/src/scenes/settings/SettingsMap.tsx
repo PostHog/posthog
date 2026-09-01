@@ -39,6 +39,7 @@ import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/Sessions
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
+import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -1930,6 +1931,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Automatically assign a role to new members when they join the organization. New users will inherit all permissions from this role.',
                 component: <DefaultRoleSelector />,
                 keywords: ['default', 'role', 'new member', 'onboarding'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-access-resolution',
+        title: 'Access resolution preview',
+        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
+        // Temporary migration surface: reachable only from the access control
+        // settings banner, never from the settings navigation or search
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'organization-access-resolution-preview',
+                title: 'Access resolution preview',
+                description:
+                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
+                component: <AccessResolutionPreview />,
+                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
             },
         ],
     },

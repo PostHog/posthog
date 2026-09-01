@@ -25,8 +25,14 @@ const ROSTER_COLUMN_CLASS = '@container mx-auto flex w-full max-w-4xl flex-col g
  * stays in the scene header, so it is reachable even when the filters narrow the roster to nothing.
  */
 export function ScoutsRoster(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, scoutFleetSynced, enabledCount, customScoutCount } =
-        useValues(scoutFleetLogic)
+    const {
+        scoutConfigs,
+        scoutConfigsLoading,
+        scoutFleetSynced,
+        scoutFleetSyncOutcome,
+        enabledCount,
+        customScoutCount,
+    } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, materializeScoutFleet, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
 
     useEffect(() => {
@@ -41,11 +47,12 @@ export function ScoutsRoster(): JSX.Element {
     }, [materializeScoutFleet])
 
     // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
-    // and reports nothing — an unreachable scout API isn't an empty troop. An empty fleet waits for
-    // the materialization too, so a troop that is about to arrive is never counted as no troop.
+    // and reports nothing — an unreachable scout API isn't an empty troop. The report waits for the
+    // materialization either way: an empty troop that is about to arrive is never counted as no
+    // troop, and `sync_outcome` only means something once the sync has settled.
     const fleetViewedFiredRef = useRef(false)
     useEffect(() => {
-        if (scoutConfigs === null || (scoutConfigs.length === 0 && !scoutFleetSynced) || fleetViewedFiredRef.current) {
+        if (scoutConfigs === null || !scoutFleetSynced || fleetViewedFiredRef.current) {
             return
         }
         fleetViewedFiredRef.current = true
@@ -54,8 +61,9 @@ export function ScoutsRoster(): JSX.Element {
             enabledCount,
             customCount: customScoutCount,
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
+            syncOutcome: scoutFleetSyncOutcome,
         })
-    }, [scoutConfigs, scoutFleetSynced, enabledCount, customScoutCount])
+    }, [scoutConfigs, scoutFleetSynced, scoutFleetSyncOutcome, enabledCount, customScoutCount])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return (

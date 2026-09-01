@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     success_rate_expr,
     window_pair_predicates,
 )
+from products.engineering_analytics.backend.logic.queries.delivery_pipeline import query_delivery_pipeline
 from products.engineering_analytics.backend.logic.queries.merge_queue_overview import (
     query_merge_queue_overview,
     query_merge_queue_trunk_outcomes,
@@ -481,6 +482,7 @@ def query_repo_overview(
     time_to_green = query_time_to_green_window(
         curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
     )
+    pipeline = query_delivery_pipeline(curated=curated, date_from=date_from, date_to=date_to)
     costs = _derive_cost_headlines(
         query_workflow_window_costs_with_prev(
             curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
@@ -545,4 +547,5 @@ def query_repo_overview(
         open_to_merge_series_granularity=series.granularity,
         ready_to_merge_series=series.ready_to_merge,
         ready_to_merge_series_granularity=series.granularity,
+        delivery_pipeline=pipeline,
     )

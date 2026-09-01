@@ -167,7 +167,7 @@ export const FEATURE_FLAGS = {
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: #team-billing, see `Billing.tsx`, used to raise a warning when billing is having problems
     COMING_SOON_WAITLIST_SURVEYS: 'coming-soon-waitlist-surveys', // owner: #team-growth, see `FeaturePreviews.tsx`, swaps concept-stage one-click for an email waitlist survey
     HOG: 'hog', // owner: #team-data-tools, see `DebugScene.tsx` and also insights
-    NAV_PANEL_CAMPAIGN: 'nav-panel-campaign', // owner: #team-growth, sidebar promotional campaign, payload-driven. See NavPanelAdvertisement.tsx
+    NAV_PANEL_BROADCAST: 'nav-panel-broadcast', // owner: #team-growth, hand-authored sidebar broadcast, payload-driven. See NavPanelAdvertisement.tsx
     QUERY_TIMINGS: 'query-timings', // owner: #team-analytics-platform, usage: see `dataTableLogic.ts`
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith, see `signupLogic.ts`
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite, usage: see `loadPosthogJS.tsx`
@@ -182,12 +182,14 @@ export const FEATURE_FLAGS = {
 
     // UX flags, used to control the UX of the app
     CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
+    GITHUB_FIRST_SELF_DRIVING_ONBOARDING: 'github-first-self-driving-onboarding', // owner: #team-self-driving
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     ACCESS_CONTROL_DETAIL_PANEL: 'access-control-detail-panel', // owner: @a-lider #team-platform-features, gates the member and role access detail side panel
+    ACCESS_CONTROL_RESOLUTION_PREVIEW: 'access-control-resolution-preview', // owner: @a-lider #team-platform-features, gates the access resolution preview settings section and its banner
     AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST: 'ai-observability-instrumentation-checklist', // owner: #team-ai-observability, gates the instrumentation checklist card and empty states
     AI_OBSERVABILITY_SELF_DRIVING: 'ai-observability-daily-digest-scout', // owner: #team-ai-observability, gates the AI observability Self-driving tab
     AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
@@ -270,6 +272,7 @@ export const FEATURE_FLAGS = {
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
+    BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_DWH_VIEW_SOURCE: 'cdp-dwh-view-source', // owner: #team-workflows-cdp
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
@@ -284,6 +287,7 @@ export const FEATURE_FLAGS = {
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
     CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOMER_ANALYTICS_ACCOUNT_SCENE: 'customer-analytics-account-scene', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS: 'customer-analytics-feature-requests',
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
@@ -482,7 +486,6 @@ export const FEATURE_FLAGS = {
     REPLAY_VISION_ANALYSIS_NUDGE: 'replay-vision-analysis-nudge', // owner: #team-replay, in-player nudge offering an AI-drafted scanner after analyzing several recordings
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REPLAY_VISION_SCOUT_DIGESTS: 'replay-vision-scout-digests', // owner: #team-replay, scanner digests backed by Signals scouts instead of vision actions
-    REPLAY_VISION_SEND_REASONING: 'replay-vision-send-reasoning', // owner: #team-replay, gates the "include reasoning" checkbox on scanner alerts
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry and scene (staff bypass the flag)
