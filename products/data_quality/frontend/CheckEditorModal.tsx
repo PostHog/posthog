@@ -275,12 +275,12 @@ function CustomSqlField(): JSX.Element {
     } = useValues(dataQualityCheckEditorLogic)
     const { runCustomSqlPreview, setCustomSqlEditorError } = useActions(dataQualityCheckEditorLogic)
 
-    const previewRows =
-        customSqlPreview?.rows.map((row) =>
-            Object.fromEntries(customSqlPreview.columns.map((column, index) => [column, row[index]]))
-        ) ?? []
-    const previewColumns: LemonTableColumns<Record<string, unknown>> =
-        customSqlPreview?.columns.map((column) => ({ title: column, key: column, dataIndex: column })) ?? []
+    const previewRows = customSqlPreview?.rows ?? []
+    // Key and index by position, not by column name: HogQL can return two columns with the same name
+    // (e.g. `SELECT id, id`), which would collide on an object key and on the React header key.
+    const previewColumns: LemonTableColumns<unknown[]> =
+        customSqlPreview?.columns.map((column, index) => ({ title: column, key: String(index), dataIndex: index })) ??
+        []
 
     return (
         <LemonField
@@ -337,7 +337,7 @@ function CustomSqlField(): JSX.Element {
                                         {customSqlPreview.hasMore ? 'at least ' : ''}
                                         {customSqlPreview.rowCount} failures.
                                     </LemonBanner>
-                                    <LemonTable<Record<string, unknown>>
+                                    <LemonTable<unknown[]>
                                         className="mt-2"
                                         columns={previewColumns}
                                         dataSource={previewRows}
