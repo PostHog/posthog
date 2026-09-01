@@ -616,9 +616,12 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.row_filters = None
     schema.api_version = None
     schema.delta_revive_required = None
+    # The model reads this marker out of the persisted config through a property. Set both, because
+    # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
     schema.sync_type_config = {
         "incremental_field_last_value": "2026-06-14T15:33:31.802833",
         "incremental_field_type": "timestamp",
+        "delta_revive_required": None,
     }
     return schema
 
