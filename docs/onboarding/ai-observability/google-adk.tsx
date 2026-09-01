@@ -24,7 +24,8 @@ export const getGoogleADKSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         TypeScript](https://github.com/google/adk-js) (`@google/adk`). For the Python and Go ADKs, use
                         the [OpenTelemetry
                         integration](https://posthog.com/docs/ai-observability/installation/opentelemetry) instead: they
-                        emit `gen_ai.*` spans that PostHog captures automatically.
+                        emit `gen_ai.*` spans that PostHog captures automatically. ADK Go sends message content as log
+                        records, so its generations arrive without prompts and responses.
                     </Markdown>
 
                     <CodeBlock
