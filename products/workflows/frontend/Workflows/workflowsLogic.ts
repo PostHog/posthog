@@ -310,10 +310,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 loadWorkflowsSuccess: () => true,
             },
         ],
-        // The list read that follows a create can be served before the create is visible to it — the
-        // replica the read lands on may not have caught up yet — so the index can come back without
-        // the workflow the user just made, and a first workflow takes the whole table down to the
-        // onboarding empty state. Remember the id so the load that misses it can be retried once.
+        // Returning to the index after a create sometimes shows a list without the new workflow, and
+        // a project's first workflow then takes the table down to the onboarding empty state. The
+        // cause is not established: the read hits the writer, access control admits the creator's own
+        // rows, the create is committed before the redirect, and the newest row sorts first. So this
+        // remembers the id and re-reads once rather than leaving the index looking like the create
+        // never happened. Remove it if a real cause turns up and gets fixed at the source.
         // This logic stays mounted while the editor is open (workflowLogic connects to it), so the
         // id survives the trip back to the index.
         pendingCreatedWorkflowId: [
@@ -488,9 +490,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 actions.setFilters({ page: lastPage })
                 return
             }
-            // The reducer keeps the id only while the response missed it. Retry exactly once: the write
-            // is committed, so a moment is all the read side needs, and clearing first means a filter
-            // that legitimately excludes the workflow can't loop.
+            // The reducer keeps the id only while the response missed it. Retry once and no more:
+            // with no known cause there is nothing to say a further attempt would do better, and
+            // clearing first means a filter that legitimately excludes the workflow can't loop.
             if (values.pendingCreatedWorkflowId) {
                 await breakpoint(PENDING_CREATED_WORKFLOW_RETRY_MS)
                 actions.clearPendingCreatedWorkflow()
