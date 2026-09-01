@@ -162,7 +162,7 @@ def _step_runs_whenever_gate_runs(condition: object) -> bool:
     normalized = _normalized_condition(condition)
     if normalized is None:
         return False
-    return ALWAYS.fullmatch(normalized) is not None or NOT_CANCELLED.fullmatch(normalized) is not None
+    return ALWAYS.fullmatch(normalized) is not None
 
 
 def _without_heredocs(bash: str) -> str:
