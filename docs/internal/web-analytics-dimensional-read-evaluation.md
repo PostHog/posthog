@@ -77,12 +77,22 @@ The lazy precompute gate refuses any filter whose type is not `event` or `person
 (`check_common_eligibility` in
 `products/web_analytics/backend/hogql_queries/web_lazy_precompute_common.py`).
 
-| Reason a filtered view misses lazy precompute      | Share of filtered views |
+| Filter type that keeps a view off lazy precompute  | Share of filtered views |
 | -------------------------------------------------- | ----------------------- |
-| None. It is eligible today (event and person only) | 65.0%                   |
+| None. Only event and person filters                | 65.0%                   |
 | One or more session entry attribution filters      | 29.9%                   |
 | Other session filters (duration, bounce, pathname) | 3.7%                    |
 | A cohort filter                                    | 0.9%                    |
+
+This table classifies filtered views by filter type only.
+The filter-type check is one of the gate's checks, alongside team enrollment
+(`is_precompute_enabled_for_team`), timezone, conversion goal, sampling, sessions join mode,
+property access rules, and the 90 day range cap, plus per-runner checks for bounce rate,
+scroll depth, breakdown, and order by.
+A read also serves live on a freshness miss or when the team sits at its shape ceiling.
+This measurement reads the URL filter set, so it sees none of those.
+So the 65.0% row means the filter type does not block the view, not that the view is eligible,
+and these shares rank filter types, not the full set of reasons a view serves live.
 
 The 29.9% row uses only these seven keys: `$channel_type`, `$entry_referring_domain`, and
 the five `$entry_utm_*` keys.
@@ -133,6 +143,8 @@ This decision rejects one use for the tables, not the tables.
 
 1. Close [#92926](https://github.com/PostHog/posthog/issues/92926) as not planned.
 2. Evaluate wiring the first-pageview rewrite into the lazy precompute gate.
-   It addresses 29.9% of filtered views, which is the largest single reason they serve live.
+   It addresses 29.9% of filtered views, the largest filter-type reason they fall to the live
+   path. The measurement does not rank the other gate checks, so this is the largest
+   filter-type share, not the overall largest cause.
    The open question is population parity: a rewritten filter must select the same sessions
    as the live fallback, or the precomputed bucket answers a different question.
