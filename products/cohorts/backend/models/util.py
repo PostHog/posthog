@@ -19,6 +19,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_hogql_global_settings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
@@ -79,6 +80,7 @@ class CohortErrorCode(StrEnum):
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
+    INVALID_QUERY = "invalid_query"
     UNKNOWN = "unknown"
 
 
@@ -97,13 +99,18 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.INVALID_QUERY: "This cohort's matching criteria could not be run. A data warehouse table or property it uses may have been changed or removed. Please review your matching criteria.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
 
-def get_friendly_error_message(error_code: str | None) -> str | None:
+def get_friendly_error_message(error_code: str | None, raw_error: str | None = None) -> str | None:
     if error_code is None:
         return None
+    # An ExposedHogQLError message is safe to show and names the real problem (e.g. a deleted
+    # data warehouse join), so prefer it over the generic fallback when it was recorded.
+    if error_code == CohortErrorCode.INVALID_QUERY and raw_error:
+        return raw_error
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 
@@ -132,6 +139,10 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
+        case ExposedHogQLError():
+            # The saved criteria compiled to an invalid query — a user-fixable definition problem,
+            # not a system fault (e.g. a data warehouse join the filter points at was deleted).
+            return CohortErrorCode.INVALID_QUERY
 
     code_name = getattr(e, "code_name", "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:

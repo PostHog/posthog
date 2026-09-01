@@ -1390,6 +1390,24 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNone(cohort.last_error_at)
 
+    def test_calculate_cohort_ch_swallows_an_invalid_query_error(self) -> None:
+        # A cohort whose saved criteria compile to an invalid query (e.g. a deleted data warehouse
+        # join) raises ExposedHogQLError. That is a user-fixable definition problem, so the task must
+        # not re-raise it - re-raising would let posthog's context autocapture report it to error
+        # tracking as a system bug. The failure is still recorded as a terminal error.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
+
+        with patch(
+            "products.cohorts.backend.models.util.recalculate_cohortpeople",
+            side_effect=QueryError("Field not found: <join field>"),
+        ):
+            self._run_calculate_cohort_ch(cohort.id)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+
     def test_calculate_cohort_ch_skips_an_obsolete_pending_version(self) -> None:
         # A newer save superseded this task's version. Without the guard both tasks would run a
         # full ClickHouse recalculation of the same cohort side by side.

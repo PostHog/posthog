@@ -697,7 +697,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Prefer the annotated last_error_code when available
         if hasattr(cohort, "last_error_code"):
             if cohort.last_error_code:
-                return get_friendly_error_message(cohort.last_error_code)
+                return get_friendly_error_message(cohort.last_error_code, getattr(cohort, "last_error_raw", None))
             return None
 
         # Fall back to querying calculation history.
@@ -711,7 +711,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             .first()
         )
         if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code)
+            return get_friendly_error_message(last_failed_calculation.error_code, last_failed_calculation.error)
         return None
 
     def validate_cohort_type(self, value):
@@ -1705,16 +1705,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # hot-path fetch would otherwise run a subquery per row for teams with thousands of
         # cohorts.
         if not is_basic_list:
-            last_error_code_subquery = Subquery(
+            last_failed_history = (
                 CohortCalculationHistory.objects.filter(
                     cohort=OuterRef("pk"),
                     error__isnull=False,
                 )
                 .exclude(error="")
                 .order_by("-started_at")
-                .values("error_code")[:1]
             )
-            queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
+            queryset = queryset.prefetch_related("experiment_set").annotate(
+                last_error_code=Subquery(last_failed_history.values("error_code")[:1]),
+                last_error_raw=Subquery(last_failed_history.values("error")[:1]),
+            )
 
         if not search_ordered:
             queryset = queryset.order_by("-created_at")
