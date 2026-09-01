@@ -55,6 +55,32 @@ def test_connect_trino_uses_tracked_session_and_closes_resources() -> None:
     session.close.assert_called_once_with()
 
 
+@pytest.mark.parametrize(
+    ("host", "expected_trust_env"),
+    [
+        ("trino.dw.us.postwh.com", False),
+        ("TRINO.DW.DEV.POSTWH.COM.", False),
+        ("trino.example.com", True),
+        ("other.dw.us.postwh.com", True),
+    ],
+)
+def test_connect_trino_bypasses_proxy_only_for_posthog_managed_hosts(host: str, expected_trust_env: bool) -> None:
+    connection = MagicMock()
+    session = MagicMock(trust_env=True)
+
+    with (
+        patch("trino.dbapi.connect", return_value=connection),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.make_tracked_session",
+            return_value=session,
+        ),
+        connect_trino(_config(host=host)),
+    ):
+        pass
+
+    assert session.trust_env is expected_trust_env
+
+
 def test_connect_trino_rejects_credentials_over_http() -> None:
     with pytest.raises(ValueError, match="require HTTPS"):
         with connect_trino(_config(use_ssl=False)):
