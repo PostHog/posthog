@@ -57,7 +57,7 @@ Responder configuration is **not** an Inbox tab. It is the top-level Responders 
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
 
-The Reports page keeps priority, report status, sort, triage, and reviewer scope above one flat list in the page body. Review and merge plus Needs decision are selected by default; Resolved and Dismissed can be added without switching tabs. PR-backed and resolved rows use a solid border, other report rows use a dashed border, and terminal rows recede until hover. Hovered rows gain a stronger background and border. Report rows show PR repository context and source icons, and omit signal counts. Triage contains only reports that need a decision, not reports waiting for a PR review.
+The Reports page keeps priority, report status, sort, triage, and reviewer scope above one flat list in the page body. Review and merge plus Needs decision are selected by default; Resolved and Dismissed can be added without switching tabs. PR-backed and resolved rows use a solid neutral border. Reports that need a decision use a dotted accent border; dismissed rows keep a dotted neutral border. Terminal rows recede until hover. Hovered rows gain a stronger background and border. Report rows show PR repository context and source icons, and omit signal counts. Triage contains only reports that need a decision, not reports waiting for a PR review.
 
 ## Ownership Boundaries
 
