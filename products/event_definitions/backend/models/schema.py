@@ -43,9 +43,6 @@ class SchemaPropertyGroup(UUIDTModel):
 
     class Meta:
         db_table = "posthog_schemapropertygroup"
-        indexes = [
-            models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "name"],

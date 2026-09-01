@@ -20,7 +20,7 @@ class HogFunctionTemplate(UUIDTModel):
 
     # Core Template Information
     template_id = models.CharField(max_length=255, db_index=True)
-    sha = models.CharField(max_length=100, db_index=True)
+    sha = models.CharField(max_length=100)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, null=True)
 
@@ -62,9 +62,7 @@ class HogFunctionTemplate(UUIDTModel):
         db_table = "posthog_hogfunctiontemplate"
         unique_together = ("template_id", "sha")
         indexes = [
-            models.Index(fields=["template_id", "sha"]),
             models.Index(fields=["type", "status"]),
-            models.Index(fields=["created_at"]),
             models.Index(fields=["template_id", "created_at"]),
         ]
 
