@@ -99,14 +99,17 @@ export function ReportVerdictBanner({
   // that task rather than spin up a duplicate PR. `report.implementation_pr_url`
   // alone is unreliable here — it can be stale or not yet set — so we also look
   // at the linked implementation task's own state.
-  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
-    report.id,
-    report.status,
-  );
+  const {
+    data: reportTasks,
+    isLoading: reportTasksLoading,
+    isError: reportTasksFailed,
+  } = useReportTasks(report.id, report.status);
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
-    isTaskLookupPending: reportTasksLoading,
+    // A failed lookup leaves task state unknown, same as a pending one. Reading it
+    // as "no live task" would offer a second PR on work that already has one.
+    isTaskLookupPending: reportTasksLoading || reportTasksFailed,
   });
   // A merged PR is history, not live work: the report only still exists
   // because evidence kept arriving after the fix, so it reads by its own
