@@ -54,9 +54,14 @@ EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
 
 @frozen
 class MetronomeResumeConfig:
-    """Paginator checkpoint — the `next_page` cursor of the page we have not yet fetched."""
+    """Paginator checkpoint — the `next_page` cursor of the page we have not yet fetched, plus the
+    request window that cursor belongs to."""
 
     next_page: str
+    # For a window-body endpoint (`usage`), the `ending_before` cutoff pinned at the walk's start.
+    # A resumed attempt replays it instead of recomputing from the clock, so one table never mixes
+    # rows aggregated to two different cutoffs. None for endpoints that send no window.
+    ending_before: str | None = None
 
 
 class MetronomeCursorPaginator(JSONResponseCursorPaginator):
@@ -165,6 +170,7 @@ def get_resource(
     endpoint: str,
     should_use_incremental_field: bool,
     incremental_field_name: str | None = None,
+    window_ending_before: str | None = None,
 ) -> EndpointResource:
     config = METRONOME_ENDPOINTS[endpoint]
     if config.fanout or config.body_fanout:
@@ -185,10 +191,13 @@ def get_resource(
     if config.method == "post":
         json_body = dict(config.json_body)
         if config.window_body:
-            # `starting_on` at the epoch means "all usage the account has"; `ending_before` is the
-            # sync time, so each run sees usage through now.
+            # `starting_on` at the epoch means "all usage the account has". `ending_before` is the
+            # sync time; the caller pins it for the whole walk so a resumed attempt replays the same
+            # cutoff, and this falls back to now only for a one-shot build with no pinned window.
             json_body["starting_on"] = EPOCH_RFC_3339
-            json_body["ending_before"] = _format_rfc3339(datetime.now(UTC))
+            json_body["ending_before"] = (
+                window_ending_before if window_ending_before is not None else _format_rfc3339(datetime.now(UTC))
+            )
         endpoint_config["json"] = json_body
 
     incremental = _incremental_window(config, incremental_field_name or config.default_incremental_field or "")
@@ -304,28 +313,45 @@ def metronome_source(
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
+    # Load resume state before building the resource. A window-body endpoint (`usage`) pins its
+    # `ending_before` cutoff for the whole walk, and a resumed attempt has to replay the cutoff its
+    # checkpoint stored. Recomputing the cutoff each attempt would pair an old cursor with a later
+    # window and mix two snapshots in one table.
+    resume_config: Optional[MetronomeResumeConfig] = None
+    if resumable_source_manager is not None and resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+
+    window_ending_before: str | None = None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume_config is not None:
+        # A checkpoint written before the cutoff was stored carries none. Restart the walk rather
+        # than replay its stale cursor against a freshly computed window.
+        stale_pre_window_checkpoint = endpoint_config.window_body and resume_config.ending_before is None
+        if not stale_pre_window_checkpoint:
+            initial_paginator_state = {"cursor": resume_config.next_page}
+            window_ending_before = resume_config.ending_before
+    if endpoint_config.window_body and window_ending_before is None:
+        window_ending_before = _format_rfc3339(datetime.now(UTC))
+
     config: RESTAPIConfig = {
         "client": _rest_api_client_config(api_key),
         "resource_defaults": {},
-        "resources": [get_resource(endpoint, should_use_incremental_field, incremental_field)],
+        "resources": [get_resource(endpoint, should_use_incremental_field, incremental_field, window_ending_before)],
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
     if resumable_source_manager is not None:
-        if resumable_source_manager.can_resume():
-            resume_config = resumable_source_manager.load_state()
-            if resume_config is not None:
-                initial_paginator_state = {"cursor": resume_config.next_page}
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
             # Persist only while there is another page to resume to; the Redis TTL cleans up on
-            # completion.
+            # completion. The pinned window rides along so a resumed attempt replays it.
             if resumable_source_manager is None or not state:
                 return
             cursor = state.get("cursor")
             if cursor:
-                resumable_source_manager.save_state(MetronomeResumeConfig(next_page=str(cursor)))
+                resumable_source_manager.save_state(
+                    MetronomeResumeConfig(next_page=str(cursor), ending_before=window_ending_before)
+                )
 
         resume_hook = save_checkpoint
 

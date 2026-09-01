@@ -187,6 +187,54 @@ class TestMetronomeSourceResponse:
 
         assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "cursor-9"}
 
+    @parameterized.expand(
+        [
+            # Stored a cutoff: replay that exact window and resume from its cursor.
+            (
+                "with_stored_window",
+                MetronomeResumeConfig(next_page="cursor-9", ending_before="2020-06-01T00:00:00Z"),
+                "2020-06-01T00:00:00Z",
+                {"cursor": "cursor-9"},
+            ),
+            # A checkpoint written before the cutoff was stored carries none, so the walk restarts
+            # with a fresh window and no seeded cursor rather than mixing two windows.
+            ("pre_window_checkpoint", MetronomeResumeConfig(next_page="cursor-9"), None, None),
+        ]
+    )
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_resumed_usage_run_pins_the_window(
+        self, _name, resume_state, expected_window, expected_paginator_state, mock_rest_api_resource
+    ) -> None:
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = resume_state
+
+        metronome_source(api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager)
+
+        body = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]
+        if expected_window is not None:
+            assert body["ending_before"] == expected_window
+        else:
+            assert body["ending_before"] > EPOCH_RFC_3339
+        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == expected_paginator_state
+
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_usage_checkpoint_saves_the_window_it_synced_with(self, mock_rest_api_resource) -> None:
+        # The cutoff written into the request body and the cutoff saved for a resume must be the
+        # same instant, or a retry can't replay the identical window.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        metronome_source(api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager)
+
+        synced_window = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]["ending_before"]
+        save_checkpoint = mock_rest_api_resource.call_args.kwargs["resume_hook"]
+        save_checkpoint({"cursor": "cursor-3"})
+
+        manager.save_state.assert_called_once_with(
+            MetronomeResumeConfig(next_page="cursor-3", ending_before=synced_window)
+        )
+
     @patch(f"{TRANSPORT}.build_dependent_resource")
     def test_invoices_fan_out_over_customers(self, mock_build) -> None:
         mock_build.return_value = iter([])
