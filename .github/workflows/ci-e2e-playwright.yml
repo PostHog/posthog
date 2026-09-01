@@ -633,10 +633,6 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
-            # Workaround for SIGABRT (exit 134) raised after all tests pass.
-            # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
-            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
-
             - name: Install plugin_transpiler
               shell: bash
               run: |
@@ -888,7 +884,7 @@ jobs:
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
-              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
+              run: pnpm --filter=@posthog/playwright exec playwright install chromium
 
             - name: Wait for PostHog to be ready
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
