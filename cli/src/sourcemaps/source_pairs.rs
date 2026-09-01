@@ -113,6 +113,7 @@ pub fn read_pairs(
     selection: impl Iterator<Item = DirEntry>,
     prefix: &Option<String>,
 ) -> Vec<SourcePair> {
+    let mut seen_paths = std::collections::HashSet::new();
     let pairs = selection
         .filter_map(|entry| {
             let path = entry.path();
@@ -121,6 +122,11 @@ pub fn read_pairs(
                 .context("failed to canonicalize path")
                 .map_err(|e| warn!("skip: {e:?}"))
                 .ok()?;
+            // Overlapping selection roots yield the same file more than once; a second
+            // pass would stamp a fresh chunk id over the first and upload a stale copy.
+            if !seen_paths.insert(entry_path.clone()) {
+                return None;
+            }
             let source = MinifiedSourceFile::load(&entry_path)
                 .context("failed to read source")
                 .map_err(|e| warn!("skip: {e:?}"))
@@ -162,9 +168,12 @@ impl SourcePair {
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
     pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
-        let chunk_id = self
-            .get_chunk_id()
-            .ok_or_else(|| anyhow!("Chunk ID not found"))?;
+        let chunk_id = self.get_chunk_id().ok_or_else(|| {
+            anyhow!(
+                "Chunk ID not found in {}. Run 'sourcemap inject' before 'sourcemap upload', or use 'sourcemap process' to do both.",
+                self.source.inner.path.display()
+            )
+        })?;
         let release_id = self.sourcemap.get_release_id();
         let source_content = self.source.inner.content.clone();
         let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;
