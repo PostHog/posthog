@@ -62,6 +62,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SimpleSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
+    is_byte_bounded_extraction_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
@@ -122,17 +125,26 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+# An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
+# streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
+# history, so either would fan the child out once per duplicate. Webhook qualifies because its
+# drains merge on the primary key — the pipeline maps it to `sync_type = "incremental"`.
+WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.FULL_REFRESH,
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+    }
+)
+
+
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
     """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
     if parent is None:
         return "missing"
     if not parent.should_sync:
         return "disabled"
-    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
-        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
-        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
-        # which streams the table as-is, with no dedupe state — would fan the child out once
-        # per duplicate. New sync types have to opt in here deliberately.
+    if parent.sync_type not in WAREHOUSE_READABLE_PARENT_SYNC_TYPES:
         return "unsupported_sync_type"
     if not parent.initial_sync_complete:
         return "no_initial_sync"
@@ -181,12 +193,43 @@ async def _warehouse_parent_reuse_available(
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
     """Whether an in-flight repartition should pause this schema's import for one run.
 
-    Both conditions have to hold: the schema opted into the hold, and a rewrite checkpoint is fresh
-    enough to be worth waiting for. The flag is checked second so a schema without it never pays for
-    the evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    Two situations hold the import. A staged swap holds it unconditionally, because the table's
+    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
+    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
+    be worth waiting for; the flag is checked second so a schema without it never pays for the
+    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
     ingestion is the more expensive way to be wrong.
     """
-    if schema is None or not schema.repartition_holds_import:
+    if schema is None:
+        return False
+
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready":
+        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
+        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
+        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
+        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
+        # lookback window duplicated, with the job still reporting Completed. The repartition activity
+        # runs ahead of this one on every sync and resolves the marker, so waiting costs one run's
+        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
+        # can finish, and this trades it for not corrupting the table.
+        logger.warning(
+            "Holding import: a repartition swap is staged, so the table's partition layout is mid-change",
+            schema_id=str(schema.id),
+            temp_uri=swap.get("temp_uri"),
+        )
+        capture_repartition_event(
+            "warehouse_repartition_import_held",
+            {
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "resource_name": schema.name,
+                "reason": "swap_staged",
+            },
+        )
+        return True
+
+    if not schema.repartition_holds_import:
         return False
     try:
         if not is_repartition_hold_enabled(schema):
@@ -208,6 +251,7 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
             "team_id": schema.team_id,
             "schema_id": str(schema.id),
             "resource_name": schema.name,
+            "reason": "rewrite_converging",
             "rows_written": rewrite.get("rows_written"),
             "held_at": rewrite.get("held_at"),
         },
@@ -335,7 +379,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
 
-        if reset_pipeline is not True:
+        # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
+        # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
+        # extraction has to re-pull every row to match that overwrite. Keeping the incremental cursor
+        # would extract only the rows after the stored watermark and collapse the table to that slice.
+        delta_rebuild_pending = schema.delta_revive_required is not None
+        if delta_rebuild_pending:
+            await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
+
+        if reset_pipeline is not True and not delta_rebuild_pending:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -384,6 +436,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
+            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
+                inputs.team_id, str(source_type)
+            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -421,6 +476,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
+                byte_bounded_extraction=byte_bounded_extraction,
             )
 
             try:

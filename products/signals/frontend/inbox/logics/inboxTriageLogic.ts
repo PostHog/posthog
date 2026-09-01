@@ -3,13 +3,13 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { canCreateImplementationPr } from '../components/detail/ReportDetailActions'
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
+import { canCreateImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
@@ -394,7 +394,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (!report) {
                     return
                 }
-                // Triage walks Needs a PR, so no report here has an open PR to close.
+                // Triage walks Needs decision, so no report here has an open PR to close.
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
                     hotkeys: true,

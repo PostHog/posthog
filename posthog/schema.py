@@ -33,6 +33,7 @@ from posthog.schema_enums import (
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
     AssistantArrayPropertyFilterOperator as AssistantArrayPropertyFilterOperator,
+    AssistantBehavioralPropertyFilterOperator as AssistantBehavioralPropertyFilterOperator,
     AssistantDataVisualizationDisplayType as AssistantDataVisualizationDisplayType,
     AssistantDateTimePropertyFilterOperator as AssistantDateTimePropertyFilterOperator,
     AssistantEventMultipleBreakdownFilterType as AssistantEventMultipleBreakdownFilterType,
@@ -188,8 +189,11 @@ from posthog.schema_enums import (
     Metric as Metric,
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
+    MetricsAxisScale as MetricsAxisScale,
+    MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
     MetricsOtelType as MetricsOtelType,
+    MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -528,6 +532,32 @@ class AssistantDataVisualizationAxisSettings(BaseModel):
     formatting: AssistantDataVisualizationAxisFormatting | None = Field(
         default=None,
         description="Number-formatting settings for the values on this axis or series.",
+    )
+
+
+class AssistantDataVisualizationBoxPlotSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    excludeOutliers: bool | None = Field(
+        default=None,
+        description=("Clip whiskers to 1.5 times the interquartile range. Defaults to true."),
+    )
+    maxColumn: str = Field(..., description="Numeric column containing the maximum for each box.")
+    meanColumn: str = Field(..., description="Numeric column containing the mean for each box.")
+    medianColumn: str = Field(..., description="Numeric column containing the median for each box.")
+    minColumn: str = Field(..., description="Numeric column containing the minimum for each box.")
+    p25Column: str = Field(..., description="Numeric column containing the 25th percentile for each box.")
+    p75Column: str = Field(..., description="Numeric column containing the 75th percentile for each box.")
+    seriesColumn: str | None = Field(
+        default=None,
+        description=(
+            "Optional column that groups each X-axis value into separate colored series. Set to `null` for one series."
+        ),
+    )
+    xAxisColumn: str | None = Field(
+        default=None,
+        description=("X-axis category column. Set to `null` for one overall distribution or one box per series."),
     )
 
 
@@ -2293,6 +2323,32 @@ class MetricsQuerySeries(BaseModel):
     points: list[MetricsQueryPoint]
 
 
+class MetricsYAxisSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max: float | None = Field(
+        default=None,
+        description=(
+            "Pins the top of the axis; unset means automatic. Pinning both ends drops"
+            " the automatic stretch that keeps an off-scale goal line on-plot."
+        ),
+    )
+    min: float | None = Field(
+        default=None,
+        description=("Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on."),
+    )
+    scale: MetricsAxisScale | None = MetricsAxisScale.LINEAR
+    startAtZero: bool | None = Field(
+        default=True,
+        description=(
+            "When false the axis floats to the data range instead of starting at zero."
+            " Ignored on a logarithmic scale, and on the bar display, where a bar's"
+            " length encodes magnitude from zero."
+        ),
+    )
+
+
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3390,6 +3446,12 @@ class AssistantDataVisualizationAxis(BaseModel):
 class AssistantDataVisualizationChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
+        default=None,
+        description=(
+            "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+        ),
     )
     goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
         default=None, description="Horizontal goal lines drawn across the chart."
@@ -6104,6 +6166,19 @@ class MetricPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class MetricsDisplaySettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: list[GoalLine] | None = None
+    statSummary: MetricsStatSummary | None = Field(
+        default=MetricsStatSummary.LATEST,
+        description="`stat` display only: which summary the headline value shows.",
+    )
+    type: MetricsDisplayType | None = MetricsDisplayType.LINE
+    yAxis: MetricsYAxisSettings | None = None
+
+
 class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8611,6 +8686,13 @@ class WebGoalsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8712,6 +8794,13 @@ class WebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8815,6 +8904,13 @@ class WebStatsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -9172,6 +9268,55 @@ class AnalyticsQueryResponseBase(BaseModel):
     )
 
 
+class AssistantBehavioralPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_filters: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | FeaturePropertyFilter
+            | HogQLPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Extra property filters the matching events must satisfy. Deliberately"
+            " excludes nested behavioral/cohort filters and groups"
+        ),
+    )
+    event_type: BehavioralEventSource
+    explicit_datetime: str | None = Field(
+        default=None,
+        description=("Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"),
+    )
+    explicit_datetime_to: str | None = None
+    key: str = Field(..., description="Event name, or action id when event_type is 'actions'")
+    label: str | None = None
+    negation: bool | None = Field(
+        default=None,
+        description=(
+            "Match persons who did NOT satisfy the criterion. Not the same as a low"
+            " count — zero-occurrence persons never match count operators"
+        ),
+    )
+    operator: AssistantBehavioralPropertyFilterOperator | None = None
+    operator_value: int | None = Field(default=None, description="Count threshold for performed_event_multiple")
+    time_interval: TimeUnitType | None = None
+    time_value: int | None = Field(default=None, description="Relative time window size, paired with time_interval")
+    type: Literal["behavioral"] = Field(
+        default="behavioral",
+        description=(
+            "Person performed (or didn't perform) an event in a time window."
+            " ClickHouse-only — not evaluable by flags or CDP"
+        ),
+    )
+    value: InlineBehavioralType
+
+
 class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9190,7 +9335,8 @@ class AssistantDataVisualizationNode(BaseModel):
             " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
             " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
             " between two numeric measures, one point per row → `ScatterPlot`.\n-"
-            " Otherwise → `ActionsTable`."
+            " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"
+            " `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -9428,84 +9574,6 @@ class AssistantFunnelsGroupNode(BaseModel):
     operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
 
 
-class AssistantFunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=(
-            "Use this field to define the aggregation by a specific group from the"
-            " provided group mapping, which is NOT users or sessions."
-        ),
-    )
-    breakdownFilter: AssistantFunnelsBreakdownFilter | None = Field(
-        default=None,
-        description=(
-            "A breakdown is used to segment data by a single property value. They"
-            " divide all defined funnel series into multiple subseries based on the"
-            " values of the property. Include a breakdown **only when it is essential"
-            " to directly answer the user’s question**. You must not add a breakdown if"
-            " the question can be addressed without additional segmentation. When using"
-            " breakdowns, you must:\n- **Identify the property group** and name for a"
-            " breakdown.\n- **Provide the property name** for a breakdown.\n-"
-            " **Validate that the property value accurately reflects the intended"
-            " criteria**. Examples of using a breakdown:\n- page views to sign up"
-            " funnel by country: you need to find a property such as"
-            " `$geoip_country_code` and set it as a breakdown.\n- conversion rate of"
-            " users who have completed onboarding after signing up by an organization:"
-            " you need to find a property such as `organization name` and set it as a"
-            " breakdown."
-        ),
-    )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
-        default=None, description="Date range for the query"
-    )
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the respective filters"),
-    )
-    funnelsFilter: AssistantFunnelsFilter | None = Field(
-        default=None, description="Properties specific to the funnels insight"
-    )
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
-    )
-    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    properties: (
-        list[
-            AssistantCohortPropertyFilter
-            | AssistantHogQLPropertyFilter
-            | AssistantFlagPropertyFilter
-            | AssistantGenericPropertyFilter1
-            | AssistantGenericPropertyFilter2
-            | AssistantGenericPropertyFilter3
-            | AssistantGenericPropertyFilter4
-            | AssistantGenericPropertyFilter5
-            | AssistantGroupPropertyFilter1
-            | AssistantGroupPropertyFilter2
-            | AssistantGroupPropertyFilter3
-            | AssistantGroupPropertyFilter4
-            | AssistantGroupPropertyFilter5
-            | AssistantElementPropertyFilter1
-            | AssistantElementPropertyFilter2
-            | AssistantElementPropertyFilter3
-            | AssistantElementPropertyFilter4
-            | AssistantElementPropertyFilter5
-        ]
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    samplingFactor: float | None = Field(
-        default=None,
-        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
-    )
-    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
-        ...,
-        description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
-    )
-
-
 class AssistantInsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9520,7 +9588,8 @@ class AssistantInsightsQueryBase(BaseModel):
     )
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -9660,7 +9729,8 @@ class AssistantPathsQuery(BaseModel):
     )
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -9867,7 +9937,8 @@ class AssistantRetentionQuery(BaseModel):
     kind: Literal["RetentionQuery"] = "RetentionQuery"
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -10085,7 +10156,8 @@ class AssistantStickinessQuery(BaseModel):
     kind: Literal["StickinessQuery"] = "StickinessQuery"
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -10332,7 +10404,8 @@ class AssistantTrendsQuery(BaseModel):
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -15051,6 +15124,13 @@ class CachedWebGoalsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -15174,6 +15254,13 @@ class CachedWebOverviewQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -15299,6 +15386,13 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -15367,6 +15461,13 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -15676,6 +15777,13 @@ class Response4(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15729,6 +15837,13 @@ class Response5(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -15895,6 +16010,13 @@ class Response8(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15945,6 +16067,13 @@ class Response9(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19893,6 +20022,13 @@ class QueryResponseAlternative23(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19946,6 +20082,13 @@ class QueryResponseAlternative24(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -20112,6 +20255,13 @@ class QueryResponseAlternative28(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20162,6 +20312,13 @@ class QueryResponseAlternative29(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20877,6 +21034,13 @@ class QueryResponseAlternative43(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20930,6 +21094,13 @@ class QueryResponseAlternative44(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStale: bool | None = Field(
         default=None,
         description=(
@@ -21096,6 +21267,13 @@ class QueryResponseAlternative47(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -21146,6 +21324,13 @@ class QueryResponseAlternative48(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -24633,6 +24818,13 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeIneligibleReason: str | None = Field(
+        default=None,
+        description=(
+            "Why a live response skipped precompute: the eligibility-gate reason that"
+            " refused it. Unset when the query was eligible."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -24900,67 +25092,82 @@ class AssistantBasePropertyFilter(
     )
 
 
-class AssistantFunnelsActorsQuery(BaseModel):
+class AssistantFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelStep: int | None = Field(
+    aggregation_group_type_index: int | None = Field(
         default=None,
         description=(
-            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the'
-            " step to drill into.\n**Positive** lists actors who converted through that"
-            " step; **negative** lists actors who dropped off at it. E.g. `2` ="
-            " converted through step 2, `-2` = dropped off at step 2. The smallest"
-            " negative value is `-2` (no one can drop off at the entry step)."
+            "Use this field to define the aggregation by a specific group from the"
+            " provided group mapping, which is NOT users or sessions."
         ),
     )
-    funnelStepBreakdown: list[str] | None = Field(
+    breakdownFilter: AssistantFunnelsBreakdownFilter | None = Field(
         default=None,
         description=(
-            "Step mode only. Scope the actors to a single breakdown series. Pass the"
-            " breakdown value(s) from the matching `query-funnel` result row verbatim"
-            ' (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown)'
-            " series."
+            "A breakdown is used to segment data by a single property value. They"
+            " divide all defined funnel series into multiple subseries based on the"
+            " values of the property. Include a breakdown **only when it is essential"
+            " to directly answer the user’s question**. You must not add a breakdown if"
+            " the question can be addressed without additional segmentation. When using"
+            " breakdowns, you must:\n- **Identify the property group** and name for a"
+            " breakdown.\n- **Provide the property name** for a breakdown.\n-"
+            " **Validate that the property value accurately reflects the intended"
+            " criteria**. Examples of using a breakdown:\n- page views to sign up"
+            " funnel by country: you need to find a property such as"
+            " `$geoip_country_code` and set it as a breakdown.\n- conversion rate of"
+            " users who have completed onboarding after signing up by an organization:"
+            " you need to find a property such as `organization name` and set it as a"
+            " breakdown."
         ),
     )
-    funnelTrendsDropOff: bool | None = Field(
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    funnelsFilter: AssistantFunnelsFilter | None = Field(
+        default=None, description="Properties specific to the funnels insight"
+    )
+    interval: IntervalType | None = Field(
         default=None,
-        description=(
-            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`,'
-            " list the actors who dropped off; when `false`, list those who converted."
-            " Use together with `funnelTrendsEntrancePeriodStart`."
-        ),
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
     )
-    funnelTrendsEntrancePeriodStart: str | None = Field(
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    properties: (
+        list[
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
         default=None,
-        description=(
-            "Trends-dropoff mode only. The entrance period to drill into, as a"
-            " `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from"
-            " the funnel-trends point the user is asking about. Use together with"
-            " `funnelTrendsDropOff`."
-        ),
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    includeRecordings: bool | None = Field(
-        default=True,
-        description="Whether to include matched session recordings for each actor.",
-    )
-    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
-    limit: int | None = Field(
-        default=100,
-        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
-    )
-    offset: int | None = Field(
-        default=0,
-        description=(
-            "Number of persons to skip before the returned page. Use it with `limit` to"
-            " walk the whole result set: the response reports `limit`, `offset`, and"
-            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
-            " `limit`."
-        ),
-    )
-    source: AssistantFunnelsQuery = Field(
+    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
         ...,
-        description=("The source funnel insight query whose step (or trends point) we are drilling into."),
+        description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
     )
 
 
@@ -24986,7 +25193,8 @@ class AssistantLifecycleQuery(BaseModel):
     )
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -27329,6 +27537,10 @@ class MetricsQuery(BaseModel):
         default=None,
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
     )
+    display: MetricsDisplaySettings | None = Field(
+        default=None,
+        description="Chart presentation. A node without it renders as a line chart.",
+    )
     formula: str | None = Field(
         default=None,
         description=('Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned'),
@@ -27950,6 +28162,70 @@ class AnyDataWarehouseNode(RootModel[DataWarehouseNode | FunnelsDataWarehouseNod
 
 class AnyEntityNodeDataWarehouseNode(RootModel[EventsNode | ActionsNode | DataWarehouseNode]):
     root: EventsNode | ActionsNode | DataWarehouseNode
+
+
+class AssistantFunnelsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelStep: int | None = Field(
+        default=None,
+        description=(
+            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the'
+            " step to drill into.\n**Positive** lists actors who converted through that"
+            " step; **negative** lists actors who dropped off at it. E.g. `2` ="
+            " converted through step 2, `-2` = dropped off at step 2. The smallest"
+            " negative value is `-2` (no one can drop off at the entry step)."
+        ),
+    )
+    funnelStepBreakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Step mode only. Scope the actors to a single breakdown series. Pass the"
+            " breakdown value(s) from the matching `query-funnel` result row verbatim"
+            ' (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown)'
+            " series."
+        ),
+    )
+    funnelTrendsDropOff: bool | None = Field(
+        default=None,
+        description=(
+            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`,'
+            " list the actors who dropped off; when `false`, list those who converted."
+            " Use together with `funnelTrendsEntrancePeriodStart`."
+        ),
+    )
+    funnelTrendsEntrancePeriodStart: str | None = Field(
+        default=None,
+        description=(
+            "Trends-dropoff mode only. The entrance period to drill into, as a"
+            " `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from"
+            " the funnel-trends point the user is asking about. Use together with"
+            " `funnelTrendsDropOff`."
+        ),
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
+    source: AssistantFunnelsQuery = Field(
+        ...,
+        description=("The source funnel insight query whose step (or trends point) we are drilling into."),
+    )
 
 
 class AssistantLifecycleActorsQuery(BaseModel):

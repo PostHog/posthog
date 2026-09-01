@@ -73,6 +73,11 @@ _HOST_IS_URL_ERROR = (
     "password, port, or path."
 )
 
+_HOST_HAS_PORT_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com). Put the port number "
+    "in the port field instead."
+)
+
 # ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
 # route to. The common cause is a host that only accepts IPv6 (PostHog egresses over IPv4) — for
 # example a Supabase direct-connection host — or a firewall dropping PostHog's IPs. Deterministic
@@ -514,7 +519,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
-            "does not exist": None,
+            # A relation or column the sync reads was dropped or renamed on the source, so the
+            # streaming query fails with SQLSTATE 42P01 ("relation ... does not exist") or 42703
+            # ("column ... does not exist"). The stored schema/query is fixed until the customer
+            # changes it, so every retry replays the same statement. Already non-retryable through
+            # this bucket; the actionable message replaces the raw psycopg text, which echoes the
+            # relation name and a SQL fragment back into `latest_error`. This key is a broad
+            # substring match (case-insensitive `does not exist` anywhere in the driver text), so it
+            # can also catch other dropped Postgres objects (e.g. a type or role); the message is
+            # worded to not overclaim it's always a table or column.
+            "does not exist": (
+                "Something this sync depends on (a table, column, or other object) no longer exists in "
+                "your source database. Remove it from the source's selected tables, or reset and re-sync "
+                "this table, then re-enable the sync."
+            ),
             "timestamp too small": None,
             "QueryTimeoutException": None,
             # Activity-layer twin of the `QueryTimeoutException` key above. That key only matches once
@@ -1211,6 +1229,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if "://" in config.host:
             return False, _HOST_IS_URL_ERROR
 
+        # A bare "host:port" pasted into the host field (no scheme, so the URL guard above misses it)
+        # otherwise fails DNS with a confusing "check the spelling" message that echoes the value
+        # back. A bare IPv6 literal has several colons, so guard only the single-colon host:port shape.
+        host_value = config.host.strip()
+        if host_value.count(":") == 1 and not host_value.startswith("["):
+            return False, _HOST_HAS_PORT_ERROR
+
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
         )
@@ -1449,6 +1474,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 is_xmin=schema.is_xmin,
                 xmin_last_value=schema.xmin_last_value,
                 xmin_num_wraparound=schema.xmin_num_wraparound,
+                byte_bounded_extraction=inputs.byte_bounded_extraction,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

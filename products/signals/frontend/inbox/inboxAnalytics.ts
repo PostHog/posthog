@@ -30,7 +30,6 @@ export const INBOX_EVENTS = {
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
-    SECTION_TOGGLED: 'Inbox section toggled',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
@@ -55,8 +54,14 @@ export const INBOX_EVENTS = {
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
-/** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'triage_mode'
+/** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
+export type InboxReportActionSurface =
+    | 'detail_pane'
+    | 'detail_footer'
+    | 'list_row'
+    | 'bulk_bar'
+    | 'triage_mode'
+    | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -131,7 +136,16 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
-export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
+export type InboxQueryChange =
+    | 'scope'
+    | 'sort'
+    | 'source_product'
+    | 'scout'
+    | 'priority'
+    | 'state'
+    | 'search'
+    | 'clear'
+    | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
@@ -287,6 +301,8 @@ export function captureInboxViewed(params: {
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
+    /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
+    stateFilter?: string[]
     scope: string
 }): void {
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
@@ -299,6 +315,7 @@ export function captureInboxViewed(params: {
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter ?? [],
         scope: params.scope,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
@@ -364,18 +381,6 @@ export function captureInboxReportOpened(params: {
         rank: params.rank,
         list_size: params.listSize,
         section: params.section,
-    })
-}
-
-/**
- * A Reports list section was expanded or collapsed. Resolved and Not actionable start collapsed,
- * so without this a reader who scrolls down to the resolved work is invisible until a card in it
- * impresses. Cloud-only: the desktop app has no collapsible sections.
- */
-export function captureInboxSectionToggled(params: { section: InboxReportSectionKey; isOpen: boolean }): void {
-    captureInboxEvent(INBOX_EVENTS.SECTION_TOGGLED, {
-        section: params.section,
-        is_open: params.isOpen,
     })
 }
 
@@ -587,6 +592,7 @@ export function captureInboxQueryChanged(params: {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: string[]
+    stateFilter: string[]
     searchQuery: string
     hasActiveFilters: boolean
 }): void {
@@ -600,6 +606,7 @@ export function captureInboxQueryChanged(params: {
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter,
         has_search: search.length > 0,
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,

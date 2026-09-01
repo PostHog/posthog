@@ -217,6 +217,10 @@ export const RestrictionLevelEnumApi = {
     Number37: 37,
 } as const
 
+/**
+ * * `21` - Can view dashboard
+ * * `37` - Can edit dashboard
+ */
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -276,7 +280,7 @@ export interface DashboardBasicApi {
      * * `21` - Everyone in the project can edit
      * * `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: RestrictionLevelEnumApi
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: RestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -414,7 +418,7 @@ export interface DashboardApi {
     data_color_theme_id?: number | null
     tags?: unknown[]
     restriction_level?: RestrictionLevelEnumApi
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: RestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -1017,7 +1021,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      */
     data_color_theme_id?: number | null
     tags?: string[]
-    restriction_level?: EffectivePrivilegeLevelEnumApi
+    /** Who can edit this dashboard.
+     *
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit */
+    restriction_level?: RestrictionLevelEnumApi
     /**
      * List of quick filter IDs associated with this dashboard.
      * @nullable
@@ -4193,6 +4201,8 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
@@ -4287,6 +4297,8 @@ export interface WebOverviewQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4605,6 +4617,8 @@ export interface Response4Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4633,6 +4647,8 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
@@ -4719,6 +4735,8 @@ export interface Response8Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4755,6 +4773,8 @@ export interface Response9Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -6802,6 +6822,8 @@ export interface WebGoalsQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -6923,6 +6945,8 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -9138,7 +9162,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: RestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
