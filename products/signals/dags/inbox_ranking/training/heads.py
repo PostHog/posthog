@@ -6,8 +6,8 @@ cumulative label columns the dataset dag snapshots. Cohort and label are vectori
 of `inbox_report_labels` columns, so the same definitions read the snapshot at scoring time (label
 must still be 0) and the snapshot `horizon_days` later (the label).
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the four heads with
-enough positives to ship; the other ten stay workspace-only until they are readable.
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the seven heads with
+enough positives to ship; the other seven stay workspace-only until they are readable.
 """
 
 from collections.abc import Callable
@@ -53,6 +53,18 @@ def pr_created(frame: pd.DataFrame) -> pd.Series:
     return _count(frame, "pr_created_count") > 0
 
 
+def pr_merged(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "pr_merged_count") > 0
+
+
+def discussed(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "discuss_count") > 0
+
+
+def refunded(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "refund_count") > 0
+
+
 @frozen
 class Head:
     name: str
@@ -83,6 +95,15 @@ HEADS: tuple[Head, ...] = (
     ),
     # Which reports get a PR at all? Cohort is every report the sweep would score.
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
+    # Of the reports that got a PR, which got it merged? Completes the open -> pr_created -> pr_merged
+    # funnel; the negative is "pr_created, no merge within the horizon".
+    Head(name="pr_merged", cohort=pr_created, label=pr_merged, horizon_days=14, min_holdout_positives=30),
+    # Of the reports users saw, which drew a discuss? Overlaps the action head, which is fine - each
+    # head trains independently.
+    Head(name="discuss", cohort=impressed, label=discussed, horizon_days=7, min_holdout_positives=30),
+    # Which reports led to a refund? Cohort is everyone, not pr_created: a minority of refunded reports
+    # carry no pr_created event, since the refund stream is minted server-side on its own event.
+    Head(name="refund", cohort=everyone, label=refunded, horizon_days=14, min_holdout_positives=20),
 )
 
 HEADS_BY_NAME: dict[str, Head] = {head.name: head for head in HEADS}

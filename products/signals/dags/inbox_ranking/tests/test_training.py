@@ -210,6 +210,38 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
     assert dismissed_as_wrong(frame).tolist() == expected
 
 
+@pytest.mark.parametrize(
+    "head_name,frame,expected_cohort,expected_label",
+    [
+        # pr_merged: cohort is reports with a PR, label is the merge within the horizon.
+        (
+            "pr_merged",
+            pd.DataFrame({"pr_created_count": [1, 1, 0], "pr_merged_count": [1, 0, 0]}),
+            [True, True, False],
+            [True, False, False],
+        ),
+        # discuss: cohort is impressed reports, label is a discuss action.
+        (
+            "discuss",
+            pd.DataFrame({"impression_unit_count": [1, 1, 0], "discuss_count": [2, 0, 0]}),
+            [True, True, False],
+            [True, False, False],
+        ),
+        # refund: cohort is everyone, label is a refund event.
+        (
+            "refund",
+            pd.DataFrame({"refund_count": [1, 0, 0]}),
+            [True, True, True],
+            [True, False, False],
+        ),
+    ],
+)
+def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
+    head = HEADS_BY_NAME[head_name]
+    assert head.cohort(frame).tolist() == expected_cohort
+    assert head.label(frame).tolist() == expected_label
+
+
 def test_build_examples_skips_label_only_rows():
     head = HEADS_BY_NAME["pr_created"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
