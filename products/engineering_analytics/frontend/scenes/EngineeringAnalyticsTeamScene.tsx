@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPeople } from '@posthog/icons'
+import { IconExternal, IconPeople } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
@@ -18,6 +18,7 @@ import { EntityHeader } from '../components/EntityHeader'
 import { CountWithPrior, MetricTile, percentChange } from '../components/MetricTile'
 import { Section } from '../components/Section'
 import { compactHoursLabel } from '../lib/format'
+import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import { TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, UNOWNED_TEAM, isTeamsWindow } from './teamsLogic'
 
@@ -76,7 +77,9 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         ownerTeam,
     } = useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
+    const { activeSource } = useValues(engineeringAnalyticsLogic)
     const { timezone } = useValues(teamLogic)
+    const repository = activeSource?.repo ?? null
     const chartTheme = useChartTheme()
 
     const labels = TEAMS_WINDOW_LABELS[window]
@@ -86,25 +89,48 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         {
             title: 'Test',
             key: 'nodeid',
-            render: (_, row) => (
-                <Tooltip title={row.selector}>
-                    <span className="truncate font-mono text-xs">{row.nodeid}</span>
-                </Tooltip>
-            ),
+            // max-w-0 lets the auto-layout cell shrink to the distributed width, so a long
+            // nodeid truncates instead of pushing the table wider than the scene.
+            className: 'w-full max-w-0',
+            render: (_, row) => {
+                const file = row.selector.split('::')[0]
+                const url = repository && file ? `https://github.com/${repository}/blob/master/${file}` : null
+                if (!url) {
+                    return (
+                        <Tooltip title={row.selector}>
+                            <span className="block max-w-full truncate font-mono text-xs">{row.nodeid}</span>
+                        </Tooltip>
+                    )
+                }
+                return (
+                    <Tooltip title={row.selector}>
+                        <Link
+                            to={url}
+                            target="_blank"
+                            targetBlankIcon={false}
+                            className="flex max-w-full items-center gap-1 font-mono text-xs"
+                        >
+                            {/* Icon leads so truncating a long nodeid never clips it away. */}
+                            <IconExternal className="shrink-0" />
+                            <span className="truncate">{row.nodeid}</span>
+                        </Link>
+                    </Tooltip>
+                )
+            },
         },
         {
-            title: labels.prior,
-            key: 'signalCountPrior',
-            width: 140,
-            align: 'right',
-            sorter: (a, b) => a.signalCountPrior - b.signalCountPrior,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.signalCountPrior)}</span>,
+            title: 'Runner',
+            key: 'runner',
+            width: 90,
+            render: (_, row) => row.runner,
         },
         {
             title: labels.current,
             key: 'signalCount',
-            width: 140,
+            width: 160,
             align: 'right',
+            tooltip:
+                'Runs where this test failed, errored, or a retry recovered it, with the previous window beside it.',
             sorter: (a, b) => a.signalCount - b.signalCount,
             render: (_, row) => <CountWithPrior current={row.signalCount} prior={row.signalCountPrior} />,
         },
