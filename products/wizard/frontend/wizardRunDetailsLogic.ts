@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -246,8 +247,18 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         ],
         selectedRun: [
             (s) => [s.runDetails, s.selectedRunSummary],
-            (runDetails: WizardRunApi | null, selectedRunSummary: WizardRunApi | null): WizardRunApi | null =>
-                runDetails?.id === selectedRunSummary?.id ? runDetails : selectedRunSummary,
+            (runDetails: WizardRunApi | null, selectedRunSummary: WizardRunApi | null): WizardRunApi | null => {
+                if (!runDetails || runDetails.id !== selectedRunSummary?.id) {
+                    return selectedRunSummary
+                }
+
+                // Details cached from an earlier drawer session can be older than a fresh table
+                // summary or a cancellation response, so defer to whichever changed more recently.
+                const detailsTime = runDetails.updated_at ? dayjs(runDetails.updated_at).valueOf() : 0
+                const summaryTime = selectedRunSummary.updated_at ? dayjs(selectedRunSummary.updated_at).valueOf() : 0
+
+                return summaryTime > detailsTime ? selectedRunSummary : runDetails
+            },
         ],
         selectedRunArtifacts: [
             (s) => [s.selectedRunId, s.runArtifacts],

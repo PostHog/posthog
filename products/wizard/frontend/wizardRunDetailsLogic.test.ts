@@ -144,6 +144,27 @@ describe('wizardRunDetailsLogic', () => {
         )
     })
 
+    it('prefers a newer run summary over stale cached details', async () => {
+        logic.actions.selectRun(makeRun())
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ selectedRun: expect.objectContaining({ status: 'running' }) })
+
+        // Reopen after the run finished while the drawer was closed: the table summary is newer
+        // than the details still cached from the previous session, and the refresh has not landed.
+        mockWizardRunsRetrieve.mockReturnValue(new Promise(() => {}))
+        logic.actions.selectRun({
+            ...makeRun(),
+            status: 'completed',
+            updated_at: '2026-08-26T10:05:00Z',
+            finished_at: '2026-08-26T10:05:00Z',
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedRun: expect.objectContaining({ status: 'completed' }),
+        })
+    })
+
     it('keeps resolved artifact state visible during a refresh', async () => {
         logic.actions.selectRun(makeRun())
         await expectLogic(logic).toFinishAllListeners()
