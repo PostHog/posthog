@@ -69,6 +69,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
+    DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
     NON_WRITABLE_ARTEFACT_TYPES,
     SIGNALS_PRODUCT,
@@ -442,7 +443,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
 
-SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
+SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = DISMISSAL_NOTE_MAX_LENGTH
 # Upper bound on how far a snooze can push out re-promotion. Generous enough for any
 # realistic snooze, but bounded so a caller can't effectively block a report forever.
 SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
