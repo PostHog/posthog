@@ -927,6 +927,7 @@ export interface sourceWizardLogicActions {
             | 'DeelFlows'
             | 'Deepgram'
             | 'Deepsource'
+            | 'Demodesk'
             | 'DenoDeploy'
             | 'Depot'
             | 'Deputy'

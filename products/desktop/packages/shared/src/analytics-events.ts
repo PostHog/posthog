@@ -1,6 +1,6 @@
 // Analytics event types and properties
 
-import type { Adapter } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { EffortLevel } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
@@ -45,6 +45,7 @@ export type SkillButtonId =
 export type CommandMenuAction =
   | "home"
   | "new-task"
+  | "create-channel"
   | "settings"
   | "logout"
   | "toggle-theme"
@@ -101,7 +102,8 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
-  codex_model_access?: "posthog-gateway" | "own-subscription";
+  codex_model_access?: ModelAccess;
+  claude_model_access?: ModelAccess;
 }
 
 export interface TaskViewProperties {
@@ -685,6 +687,7 @@ export type InboxReportActionType =
   | "reingest"
   | "create_pr"
   | "open_pr"
+  | "open_task"
   | "copy_link"
   | "discuss"
   | "expand_signal"
@@ -704,7 +707,23 @@ export type InboxReportActionSurface =
   | "detail_footer"
   | "toolbar"
   | "keyboard"
-  | "list_row";
+  | "list_row"
+  | "triage";
+
+export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
+
+export interface InboxTriageStartedProperties {
+  queue_size: number;
+  scope: InboxReviewerScope;
+  has_active_filters: boolean;
+}
+
+export interface InboxTriageEndedProperties
+  extends InboxTriageStartedProperties {
+  reports_reviewed: number;
+  duration_ms: number;
+  end_reason: "completed" | "exited";
+}
 
 /** Sentiment captured by the report usefulness thumbs. */
 export type InboxReportFeedbackSentiment = "positive" | "negative";
@@ -737,6 +756,8 @@ export interface InboxViewedProperties {
    */
   pulls_tab_count?: number;
   reports_tab_count?: number;
+  /** Reviewer scope on Desktop. Mobile omits this until it exposes the same control. */
+  scope?: InboxReviewerScope;
 }
 
 export interface InboxReportOpenedProperties {
@@ -1518,6 +1539,8 @@ export const ANALYTICS_EVENTS = {
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
+  CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
+  CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1584,6 +1607,8 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_TRIAGE_STARTED: "Inbox triage started",
+  INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
 
   // Agents page events
@@ -1720,6 +1745,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
+  [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
   [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
@@ -1785,6 +1812,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
 
   // Agents page events

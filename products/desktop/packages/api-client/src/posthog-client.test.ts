@@ -1720,7 +1720,7 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getSignalReports", () => {
-    it("sends count-only requests to the reports endpoint", async () => {
+    it("sends report filters to the reports endpoint", async () => {
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ count: 3, results: [] }),
@@ -1741,12 +1741,15 @@ describe("PostHogAPIClient", () => {
       };
 
       await expect(
-        client.getSignalReports({ count_only: true }),
+        client.getSignalReports({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+        }),
       ).resolves.toEqual({ count: 3, results: [] });
 
       const request = fetch.mock.calls[0]?.[0] as { url: URL };
       expect(request.url.toString()).toBe(
-        "http://localhost:8000/api/projects/123/signals/reports/?count_only=true",
+        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
       );
     });
   });

@@ -41,6 +41,20 @@ Every link is automatically rewritten through a click-tracking redirect. This br
 
 The marker must be on the `<a>` tag itself, not a child element. Opted-out links get no click metrics.
 
+## Images
+
+Call `media-images-list` with `purpose="email"` first — reuse an existing image (a logo, a header banner) instead of uploading a duplicate.
+
+To add a new image, upload it with the presigned flow rather than embedding bytes in the design:
+
+1. `media-image-upload-start` with the file's name and `purpose="email"` — returns `id`, `upload_url`, and `form_fields`.
+2. From a shell, POST the local file to `upload_url`: `curl -X POST <upload_url> -F key=value... -F file=@/path/to/image.png` (the `form_fields` from the response, `file` last). Never base64-encode image bytes into a tool call — a flipped token corrupts the image.
+3. `media-image-upload-complete` with the `id` — returns the permanent `url`.
+
+Put that `url` in the image block's `values.src.url` (see [references/unlayer-design-json.md](references/unlayer-design-json.md)). The block also takes `values.src.width`/`height`; the media tools don't return dimensions, so if you have shell access to the local file, measure it yourself rather than guessing.
+
+Images must be under 4MB and decode as PNG, JPEG, GIF, WebP, AVIF or BMP.
+
 ## Creating a template
 
 Call `workflows-create-email-template` with:

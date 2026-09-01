@@ -3147,12 +3147,14 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         assert body["limits"]["runs_today"] == 1
 
 
-_QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
-_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
+# The gates themselves live in `run_gates`, shared with the workflow-triggered run path, so
+# that's where they're patched; the view only maps their outcome onto DRF exceptions.
+_QUOTA = "products.signals.backend.scout_harness.run_gates.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
+_FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
-_FLAG = "products.signals.backend.scout_harness.views._read_flag_payload"
 
 
 class TestScoutHarnessConfigRunAPI(APIBaseTest):

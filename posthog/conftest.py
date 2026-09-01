@@ -438,7 +438,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 
 _original_flush_handle = FlushCommand.handle
-FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
 @pytest.fixture
@@ -504,22 +504,6 @@ def mock_code_based_verifier(request, mocker):
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
         return_value=CodeBasedVerificationCheckResult(should_send=False),
-    )
-
-
-@pytest.fixture(autouse=True)
-def mock_email_code_verification(request, mocker):
-    """
-    Keep the pre-existing email-verification tests on the link flow. Codes are the default and
-    would bypass every mock of the link-email sender. Code-flow tests opt out with
-    @pytest.mark.disable_mock_email_code_verification.
-    """
-    if "disable_mock_email_code_verification" in request.keywords:
-        return
-
-    mocker.patch(
-        "posthog.api.email_verification.EmailVerifier.use_verification_code",
-        return_value=False,
     )
 
 

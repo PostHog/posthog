@@ -19,6 +19,7 @@ pub mod partition;
 pub mod person;
 pub mod pinned;
 pub mod plan;
+pub mod projection;
 pub mod window;
 
 pub use aggregate::{
@@ -63,4 +64,5 @@ pub use pinned::{
     PinnedRunSnapshot, PinnedWarning, TriggerKind, UnknownTriggerKind, ValidatedPinnedRun,
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
+pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};
 pub use window::{Boundary, DomainError, PlanCaps, SeedDomain};
