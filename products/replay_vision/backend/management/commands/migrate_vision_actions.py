@@ -17,6 +17,7 @@ Every touched row is stamped with a `migrated_to` pointer (or `retired`), which
 makes the command idempotent and the cutover scriptably reversible.
 """
 
+import os
 import re
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+import requests
 import structlog
 
 from posthog.models import Team, User
@@ -57,6 +59,61 @@ SCOUTS_FLAG_KEY = "replay-vision-scout-digests"
 # Legacy on_breach alerts were evaluated at their action's schedule cadence; the new
 # scheduler takes a minute interval instead.
 _FREQ_TO_MINUTES = {"MINUTELY": 15, "HOURLY": 60, "DAILY": 1440, "WEEKLY": 10080}
+
+
+FLAGS_API_KEY_ENV = "POSTHOG_FLAGS_API_KEY"
+
+
+class _FlagsApiTargeting:
+    """Widens org targeting on flags that live on another PostHog instance.
+
+    EU evaluates the rollout flags against the US instance (`posthog.ph_client` self-capture), so a
+    migration run on EU must widen the US flags. Mirrors `add_group_to_flag_targeting`: returns False
+    when the flag, its `$group_key` condition, or the write is missing, so the org is not counted.
+    """
+
+    def __init__(self, host: str, project_id: int, api_key: str) -> None:
+        self._base = f"{host.rstrip('/')}/api/projects/{project_id}/feature_flags"
+        self._session = requests.Session()
+        self._session.headers["Authorization"] = f"Bearer {api_key}"
+        self._flags: dict[str, dict[str, Any]] = {}
+
+    def _fetch(self, key: str) -> dict[str, Any] | None:
+        response = self._session.get(self._base, params={"search": key}, timeout=15)
+        response.raise_for_status()
+        for flag in response.json().get("results", []):
+            if flag.get("key") == key and not flag.get("deleted"):
+                return {"id": flag["id"], "filters": flag.get("filters") or {}}
+        return None
+
+    def add_group(self, key: str, group_key: str) -> bool:
+        try:
+            flag = self._flags.get(key) or self._fetch(key)
+            if flag is None:
+                return False
+            self._flags[key] = flag
+            conditions = [
+                prop
+                for group in flag["filters"].get("groups") or []
+                for prop in group.get("properties", [])
+                if prop.get("key") == "$group_key"
+            ]
+            if not conditions:
+                return False
+            values = conditions[0].get("value")
+            if not isinstance(values, list):
+                return False
+            if group_key in values:
+                return True
+            values.append(group_key)
+            response = self._session.patch(f"{self._base}/{flag['id']}/", json={"filters": flag["filters"]}, timeout=15)
+            response.raise_for_status()
+            return True
+        except requests.RequestException as error:
+            # Drop the cached copy so the next org re-reads instead of replaying a stale list.
+            self._flags.pop(key, None)
+            logger.exception("vision_action_migration.flags_api_failed", key=key, error=str(error))
+            return False
 
 
 @dataclass(frozen=False)
@@ -127,13 +184,37 @@ class Command(BaseCommand):
         parser.add_argument(
             "--flag-team-id",
             type=int,
-            required=True,
-            help="Team id of this instance's internal flags project (US: 2).",
+            default=None,
+            help="Team id of this instance's internal flags project (US: 2). Mutually exclusive with --flags-api-host.",
+        )
+        parser.add_argument(
+            "--flags-api-host",
+            default=None,
+            help="Widen the rollout flags over the REST API of this PostHog instance instead of the local ORM. "
+            "Use from EU: the flags live on the US instance. Requires --flags-api-project and "
+            f"a personal API key with feature flag write scope in ${FLAGS_API_KEY_ENV}.",
+        )
+        parser.add_argument(
+            "--flags-api-project",
+            type=int,
+            default=None,
+            help="Project id holding the rollout flags on --flags-api-host (US: 2).",
         )
         parser.add_argument("--limit-orgs", type=int, default=None, help="Stop after this many organizations.")
 
     def handle(self, *args: Any, **options: Any) -> None:
         execute: bool = options["execute"]
+        api_mode = options["flags_api_host"] is not None or options["flags_api_project"] is not None
+        if api_mode and (options["flags_api_host"] is None or options["flags_api_project"] is None):
+            raise CommandError("--flags-api-host and --flags-api-project must be passed together.")
+        if api_mode == (options["flag_team_id"] is not None):
+            raise CommandError("Pass exactly one of --flag-team-id or --flags-api-host/--flags-api-project.")
+        self._flags_api: _FlagsApiTargeting | None = None
+        if api_mode:
+            api_key = os.environ.get(FLAGS_API_KEY_ENV)
+            if not api_key:
+                raise CommandError(f"--flags-api-host requires a personal API key in ${FLAGS_API_KEY_ENV}.")
+            self._flags_api = _FlagsApiTargeting(options["flags_api_host"], options["flags_api_project"], api_key)
         report = _Report()
 
         actions = (
@@ -168,7 +249,7 @@ class Command(BaseCommand):
             raise CommandError(f"{len(report.problems)} rows need manual attention; see above.")
 
     def _migrate_org(
-        self, org_id: Any, org_actions: list[VisionAction], execute: bool, flag_team_id: int, report: _Report
+        self, org_id: Any, org_actions: list[VisionAction], execute: bool, flag_team_id: int | None, report: _Report
     ) -> None:
         # "This org has migrated rows", not "this run migrated something": an interrupted run that
         # already moved the rows must still be able to flag the org on a re-run, or its users sit on
@@ -413,18 +494,24 @@ class Command(BaseCommand):
         action.save(update_fields=["synthesis_config", "enabled", "updated_at"])
         return True
 
-    def _flag_org(self, org_id: Any, execute: bool, flag_team_id: int, report: _Report) -> None:
+    def _flag_org(self, org_id: Any, execute: bool, flag_team_id: int | None, report: _Report) -> None:
         from products.feature_flags.backend.facade.api import (  # noqa: PLC0415 — keeps the flags API surface off the command's import path
             add_group_to_flag_targeting,
         )
 
-        team = Team.objects.get(id=flag_team_id)
+        team = Team.objects.get(id=flag_team_id) if self._flags_api is None else None
         widened = True
         for key in (ALERTS_FLAG_KEY, SCOUTS_FLAG_KEY):
             if not execute:
                 continue
-            if not add_group_to_flag_targeting(team=team, key=key, group_key=str(org_id)):
-                report.problems.append(f"flag {key}: no organization targeting to widen on team {flag_team_id}")
+            if self._flags_api is not None:
+                took = self._flags_api.add_group(key, str(org_id))
+                where = "the flags API instance"
+            else:
+                took = add_group_to_flag_targeting(team=cast(Team, team), key=key, group_key=str(org_id))
+                where = f"team {flag_team_id}"
+            if not took:
+                report.problems.append(f"flag {key}: no organization targeting to widen on {where}")
                 widened = False
         # Counting an org as flagged when the flag never took would report a rollout that did not
         # happen, and its users would sit on the legacy surface with their rows already migrated.

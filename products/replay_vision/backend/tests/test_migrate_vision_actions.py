@@ -1,7 +1,8 @@
+import os
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -10,7 +11,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.replay_vision.backend.management.commands.migrate_vision_actions import rrule_to_cron
+from products.replay_vision.backend.management.commands.migrate_vision_actions import (
+    ALERTS_FLAG_KEY,
+    SCOUTS_FLAG_KEY,
+    _FlagsApiTargeting,
+    rrule_to_cron,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
 from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
@@ -281,6 +287,59 @@ class TestMigrateVisionActions(APIBaseTest):
             flag = FeatureFlag.objects.get(team=self.team, key=key)
             assert flag.filters["groups"][0]["properties"][0]["value"] == []
 
+    def test_flag_mode_arguments_are_validated(self) -> None:
+        with self.assertRaises(CommandError):
+            call_command("migrate_vision_actions")
+        with self.assertRaises(CommandError):
+            call_command(
+                "migrate_vision_actions",
+                "--flag-team-id",
+                "2",
+                "--flags-api-host",
+                "https://example.com",
+                "--flags-api-project",
+                "2",
+            )
+        with patch.dict(os.environ), self.assertRaises(CommandError):
+            os.environ.pop("POSTHOG_FLAGS_API_KEY", None)
+            call_command(
+                "migrate_vision_actions", "--flags-api-host", "https://example.com", "--flags-api-project", "2"
+            )
+
+    def test_flags_api_mode_widens_remote_flags(self) -> None:
+        action = self._make_action(alert_config={"frequency": "every_match"}, selection={})
+        results = [
+            {
+                "id": 5,
+                "key": ALERTS_FLAG_KEY,
+                "filters": {"groups": [{"properties": [{"key": "$group_key", "value": []}]}]},
+            },
+            {
+                "id": 6,
+                "key": SCOUTS_FLAG_KEY,
+                "filters": {"groups": [{"properties": [{"key": "$group_key", "value": []}]}]},
+            },
+        ]
+        session = MagicMock()
+        session.get.return_value.json.return_value = {"results": results}
+        with (
+            patch(f"{_CMD}.requests.Session", return_value=session),
+            patch(f"{_CMD}.Command._create_destinations"),
+            patch.dict(os.environ, {"POSTHOG_FLAGS_API_KEY": "phx_test"}),
+        ):
+            call_command(
+                "migrate_vision_actions",
+                "--execute",
+                "--flags-api-host",
+                "https://example.com",
+                "--flags-api-project",
+                "2",
+            )
+        assert session.patch.call_count == 2
+        for call in session.patch.call_args_list:
+            values = call.kwargs["json"]["filters"]["groups"][0]["properties"][0]["value"]
+            assert str(action.team.organization_id) in values
+
 
 class TestComposeDigestScoutBody(SimpleTestCase):
     def test_legacy_narrowing_shapes(self) -> None:
@@ -294,3 +353,22 @@ class TestComposeDigestScoutBody(SimpleTestCase):
 
         malformed = compose_digest_scout_body("sid", selection={"window_days": "7"}, prompt_guide=None)
         assert "fall back to the last 24 hours" in malformed
+
+
+class TestFlagsApiTargeting(SimpleTestCase):
+    def _client_with(self, results: list[dict]) -> tuple[_FlagsApiTargeting, MagicMock]:
+        session = MagicMock()
+        session.get.return_value.json.return_value = {"results": results}
+        with patch(f"{_CMD}.requests.Session", return_value=session):
+            return _FlagsApiTargeting("https://example.com/", 2, "phx_test"), session
+
+    def test_add_group_is_idempotent_and_fails_closed(self) -> None:
+        filters = {"groups": [{"properties": [{"key": "$group_key", "value": ["org-a"]}]}]}
+        client, session = self._client_with([{"id": 5, "key": "k", "filters": filters}])
+        assert client.add_group("k", "org-a") is True
+        session.patch.assert_not_called()
+        assert client.add_group("k", "org-b") is True
+        session.patch.assert_called_once()
+        assert client.add_group("missing", "org-a") is False
+        client2, _ = self._client_with([{"id": 6, "key": "k", "filters": {"groups": []}}])
+        assert client2.add_group("k", "org-a") is False
