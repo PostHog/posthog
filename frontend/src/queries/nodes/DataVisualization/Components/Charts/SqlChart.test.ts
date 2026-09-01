@@ -1,7 +1,6 @@
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries } from '../../dataVisualizationLogic'
-import { AxisSeriesSettings } from '../../types'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { SqlChartProps, sqlChartComponentFor } from './SqlChart'
 
 const baseProps = (visualizationType: ChartDisplayType): SqlChartProps => ({

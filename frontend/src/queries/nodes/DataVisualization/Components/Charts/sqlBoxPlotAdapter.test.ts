@@ -1,6 +1,6 @@
 import { BoxPlotSettings } from '~/queries/schema/schema-general'
 
-import { Column } from '../../types'
+import { Column } from '../../dataVisualizationLogic'
 import { buildSqlBoxPlotModel, getAutoBoxPlotSettings } from './sqlBoxPlotAdapter'
 
 const columns: Column[] = [

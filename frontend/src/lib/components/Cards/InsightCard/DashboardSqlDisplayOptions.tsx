@@ -4,12 +4,12 @@ import { BindLogic, useValues } from 'kea'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { rowCountFromResponse } from '~/queries/nodes/DataVisualization/columnUtils'
 import { DisplayTab } from '~/queries/nodes/DataVisualization/Components/DisplayTab'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
 import {
     DataVisualizationLogicProps,
     dataVisualizationLogic,
+    rowCountFromResponse,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'

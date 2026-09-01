@@ -10,7 +10,7 @@ import {
     EmptyYAxisSeries,
     dataVisualizationLogic,
 } from '../dataVisualizationLogic'
-import type { AxisSeriesSettings } from '../types'
+import type { AxisSeriesSettings } from '../dataVisualizationLogic'
 
 export interface YSeriesLogicProps {
     series: AxisSeries<number | null>

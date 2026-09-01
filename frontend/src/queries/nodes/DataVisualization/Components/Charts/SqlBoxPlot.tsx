@@ -11,7 +11,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { Column } from '../../types'
+import { Column } from '../../dataVisualizationLogic'
 import { buildSqlBoxPlotModel } from './sqlBoxPlotAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-box-plot')

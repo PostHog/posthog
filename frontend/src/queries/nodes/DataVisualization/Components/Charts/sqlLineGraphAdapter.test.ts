@@ -11,8 +11,7 @@ import { compactNumber } from 'lib/utils/numbers'
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries } from '../../dataVisualizationLogic'
-import { AxisSeriesSettings } from '../../types'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlChartProps } from './SqlChart'
 import {

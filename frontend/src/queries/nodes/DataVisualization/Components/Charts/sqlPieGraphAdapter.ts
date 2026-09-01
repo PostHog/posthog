@@ -2,8 +2,7 @@ import { type Series } from '@posthog/quill-charts'
 
 import { getSeriesColor } from 'lib/colors'
 
-import { AxisSeries } from '../../dataVisualizationLogic'
-import { AxisSeriesSettings } from '../../types'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 

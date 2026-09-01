@@ -7,7 +7,7 @@ import type { BoxPlotConfig, BoxPlotSeries } from '@posthog/quill-charts'
 import { BoxPlotSettings, ChartSettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { Column } from '../../types'
+import { Column } from '../../dataVisualizationLogic'
 import { SqlBoxPlot } from './SqlBoxPlot'
 
 let latestBoxPlotProps: { labels: string[]; series: BoxPlotSeries[]; config?: BoxPlotConfig } | null = null

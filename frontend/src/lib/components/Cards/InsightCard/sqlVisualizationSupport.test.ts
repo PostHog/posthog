@@ -1,7 +1,10 @@
-import { columnsFromResponse, getAutoVisualizationType } from '~/queries/nodes/DataVisualization/columnUtils'
 import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
+import {
+    applyVisualizationType,
+    columnsFromResponse,
+    getAutoVisualizationType,
+} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
-import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 

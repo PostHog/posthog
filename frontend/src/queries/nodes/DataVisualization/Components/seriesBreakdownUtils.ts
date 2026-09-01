@@ -1,5 +1,4 @@
-import { SelectedYAxis } from '../dataVisualizationLogic'
-import { Column } from '../types'
+import { Column, SelectedYAxis } from '../dataVisualizationLogic'
 
 export const getAvailableSeriesBreakdownColumns = (
     columns: Column[],

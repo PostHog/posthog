@@ -1,7 +1,6 @@
 import { ChartDisplayType } from '~/types'
 
-import { Column } from './types'
-import { applyVisualizationType } from './visualizationTypeSetup'
+import { Column, applyVisualizationType } from './dataVisualizationLogic'
 
 type VisualizationSupport = 'none' | 'axes' | 'manual'
 

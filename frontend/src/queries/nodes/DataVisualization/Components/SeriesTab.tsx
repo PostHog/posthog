@@ -26,8 +26,7 @@ import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisForma
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { Column } from '../types'
+import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'

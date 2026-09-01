@@ -24,8 +24,7 @@ import { ChartDisplayType } from '~/types'
 import { chartStyleCurve } from 'products/product_analytics/frontend/insights/shared/chartStyleAdapter'
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
-import { AxisSeries, formatDataWithSettings } from '../../dataVisualizationLogic'
-import { AxisSeriesSettings } from '../../types'
+import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { type SqlChartProps } from './SqlChart'
 

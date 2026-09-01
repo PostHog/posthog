@@ -31,12 +31,12 @@ import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
+    applyVisualizationType,
     columnsFromResponse,
     getAutoVisualizationType,
     rowCountFromResponse,
-} from '~/queries/nodes/DataVisualization/columnUtils'
+} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
-import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'

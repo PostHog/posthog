@@ -31,6 +31,8 @@ import {
     AnyResponseType,
     ChartAxis,
     ChartSettings,
+    ChartSettingsDisplay,
+    ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
     HeatmapSettings,
@@ -57,15 +59,25 @@ import type {
 } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
-import { columnsFromResponse, deriveDefaultAxes, getAutoVisualizationType, rowCountFromResponse } from './columnUtils'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
-import { AxisSeriesSettings, Column, ColumnScalar, FORMATTING_TEMPLATES, defaultAxisSettings } from './types'
-import { applyVisualizationType, getHeatmapAutoSettings, resolveScatterXAxisColumn } from './visualizationTypeSetup'
+import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
     Series = 'series',
     Display = 'display',
     ConditionalFormatting = 'conditional_formatting',
+}
+
+export interface ColumnType {
+    name: ColumnScalar
+    isNumerical: boolean
+}
+
+export interface Column {
+    name: string
+    type: ColumnType
+    label: string
+    dataIndex: number
 }
 
 export interface TableDataCell<T extends string | number | boolean | Date | null> {
@@ -74,6 +86,11 @@ export interface TableDataCell<T extends string | number | boolean | Date | null
     type: ColumnScalar
     sourceColumnName?: string
     isTransposedHeader?: boolean
+}
+
+export interface AxisSeriesSettings {
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
 }
 
 export interface AxisSeries<T> {
@@ -116,7 +133,12 @@ export const EmptyYAxisSeries: AxisSeries<number> = {
     data: [],
 }
 
-const DefaultAxisSettings = defaultAxisSettings
+const DefaultAxisSettings = (): AxisSeriesSettings => ({
+    formatting: {
+        prefix: '',
+        suffix: '',
+    },
+})
 
 /** Deep clone settings to prevent shared references between Y-axis entries */
 const cloneSettings = (settings: AxisSeriesSettings): AxisSeriesSettings =>
@@ -210,6 +232,152 @@ export const convertTableValue = (
     return value
 }
 
+const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+    if (!type) {
+        return 'UNKNOWN'
+    }
+
+    if (type.indexOf('Array') !== -1) {
+        return 'ARRAY'
+    }
+    if (type.indexOf('Tuple') !== -1) {
+        return 'TUPLE'
+    }
+    if (type.indexOf('Int') !== -1) {
+        return 'INTEGER'
+    }
+    if (type.indexOf('Float') !== -1) {
+        return 'FLOAT'
+    }
+    if (type.indexOf('DateTime') !== -1) {
+        return 'DATETIME'
+    }
+    if (type.indexOf('Date') !== -1) {
+        return 'DATE'
+    }
+    if (type.indexOf('Boolean') !== -1) {
+        return 'BOOLEAN'
+    }
+    if (type.indexOf('Decimal') !== -1) {
+        return 'DECIMAL'
+    }
+    if (type.indexOf('String') !== -1) {
+        return 'STRING'
+    }
+
+    return type as ColumnScalar
+}
+
+const isNumericalType = (type: ColumnScalar): boolean => {
+    if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
+        return true
+    }
+
+    return false
+}
+
+const columnsFromResponseFields = (columns: string[] = [], types: string[][] = []): Column[] => {
+    return columns.map((column, index) => {
+        const type = types[index]?.[1]
+        const friendlyClickhouseTypeName = toFriendlyClickhouseTypeName(type)
+
+        return {
+            name: column,
+            type: {
+                name: friendlyClickhouseTypeName,
+                isNumerical: isNumericalType(friendlyClickhouseTypeName),
+            },
+            label: `${column} - ${type}`,
+            dataIndex: index,
+        }
+    })
+}
+
+export const columnsFromResponse = (response: AnyResponseType | null): Column[] => {
+    if (!response) {
+        return []
+    }
+
+    return columnsFromResponseFields(
+        'columns' in response && Array.isArray(response.columns) ? response.columns : [],
+        'types' in response && Array.isArray(response.types) ? response.types : []
+    )
+}
+
+const deriveDefaultAxes = (columns: Column[]): { xAxis: string | null; yAxis: string[] } => {
+    const dateColumn = columns.find((column) => column.type.name.indexOf('DATE') !== -1)
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+    const yAxis = numericalColumns.map((column) => column.name)
+
+    if (dateColumn) {
+        return { xAxis: dateColumn.name, yAxis }
+    }
+
+    const claimed = new Set(yAxis)
+    return { xAxis: columns.find((column) => !claimed.has(column.name))?.name ?? null, yAxis }
+}
+
+const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayType => {
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    if (stringColumns.length >= 2 && numericalColumns.length >= 1) {
+        return ChartDisplayType.TwoDimensionalHeatmap
+    }
+
+    if (numericalColumns.length === 1 && columns.length === 1) {
+        return ChartDisplayType.BoldNumber
+    }
+
+    if (numericalColumns.length > 0) {
+        return ChartDisplayType.ActionsBar
+    }
+
+    return ChartDisplayType.ActionsTable
+}
+
+export const rowCountFromResponse = (response: AnyResponseType | null): number => {
+    const rawResults =
+        response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
+    return Array.isArray(rawResults) ? rawResults.length : 0
+}
+
+const hasTimeSeriesData = (columns: Column[], rowCount: number): boolean => {
+    const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+    const hasNumericColumn = columns.some((column) => column.type.isNumerical)
+
+    return hasDateColumn && hasNumericColumn && rowCount > 1
+}
+
+export const getAutoVisualizationType = (columns: Column[], rowCount: number): ChartDisplayType => {
+    if (hasTimeSeriesData(columns, rowCount)) {
+        return ChartDisplayType.ActionsLineGraph
+    }
+
+    return resolveNonTimeSeriesVisualizationType(columns)
+}
+
+const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    const nextSettings: Partial<HeatmapSettings> = {}
+
+    if (!heatmapSettings.xAxisColumn && stringColumns[0]) {
+        nextSettings.xAxisColumn = stringColumns[0].name
+    }
+
+    if (!heatmapSettings.yAxisColumn && stringColumns[1]) {
+        nextSettings.yAxisColumn = stringColumns[1].name
+    }
+
+    if (!heatmapSettings.valueColumn && numericalColumns[0]) {
+        nextSettings.valueColumn = numericalColumns[0].name
+    }
+
+    return nextSettings
+}
+
 const applyAutoHeatmapSettings = (
     actions: { updateChartSettings: (settings: ChartSettings) => void },
     columns: Column[],
@@ -285,8 +453,127 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
     }
 }
 
-const selectedYAxisNames = (selectedYAxis: (SelectedYAxis | null)[] | null): string[] =>
-    (selectedYAxis ?? []).map((series) => series?.name).filter((name): name is string => !!name)
+const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
+    columns: Column[],
+    numericalColumns: Column[],
+    selectedXAxis: string | null,
+    selectedYAxis: (Pick<SelectedYAxis, 'name'> | null)[] | null
+): boolean => {
+    if (selectedXAxis !== null || columns.length < 2 || numericalColumns.length < 2) {
+        return false
+    }
+
+    if (!columns.every((column) => column.type.isNumerical)) {
+        return false
+    }
+
+    if (!selectedYAxis || selectedYAxis.length !== numericalColumns.length) {
+        return false
+    }
+
+    const selectedYAxisNames = new Set(selectedYAxis.map((series) => series?.name))
+
+    return numericalColumns.every((column) => selectedYAxisNames.has(column.name))
+}
+
+const resolveScatterXAxisColumn = (
+    columns: Column[],
+    numericalColumns: Column[],
+    selectedXAxis: string | null,
+    selectedYAxis: (Pick<SelectedYAxis, 'name'> | null)[] | null
+): Column | null => {
+    if (numericalColumns.length < 2) {
+        return null
+    }
+
+    const currentXAxis = columns.find((column) => column.name === selectedXAxis)
+    if (currentXAxis?.type.isNumerical) {
+        return currentXAxis
+    }
+
+    const selectedYAxisNames = new Set((selectedYAxis ?? []).map((series) => series?.name))
+    return numericalColumns.find((column) => !selectedYAxisNames.has(column.name)) ?? numericalColumns[0]
+}
+
+export function applyVisualizationType(
+    query: DataVisualizationNode,
+    visualizationType: ChartDisplayType,
+    columns: Column[],
+    rowCount: number
+): DataVisualizationNode {
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+    const chartSettings: ChartSettings = { ...query.chartSettings }
+
+    const columnNames = new Set(columns.map((column) => column.name))
+    const invalidX = chartSettings.xAxis !== undefined && !columnNames.has(chartSettings.xAxis.column)
+    const invalidY =
+        chartSettings.yAxis?.some(
+            (series) => !columns.find((column) => column.name === series.column)?.type.isNumerical
+        ) ?? false
+
+    if (columns.length > 0 && (invalidX || invalidY)) {
+        chartSettings.xAxis = undefined
+        chartSettings.yAxis = undefined
+    }
+
+    // An empty yAxis records that the user deleted every series, so only absent axes are seeded.
+    if (chartSettings.xAxis === undefined && chartSettings.yAxis === undefined) {
+        const seeded = deriveDefaultAxes(columns)
+        if (seeded.yAxis.length > 0) {
+            chartSettings.yAxis = seeded.yAxis.map((column) => ({ column, settings: DefaultAxisSettings() }))
+        }
+        if (seeded.xAxis) {
+            chartSettings.xAxis = { column: seeded.xAxis }
+        }
+    }
+
+    const selectedXAxis = chartSettings.xAxis?.column ?? null
+    let yAxis = chartSettings.yAxis ? [...chartSettings.yAxis] : []
+    const selectedYAxis = yAxis.map((series) => ({ name: series.column }))
+
+    if (visualizationType === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
+        chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
+    }
+
+    if (
+        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
+        shouldUseFirstNumericColumnAsContinuousChartXAxis(columns, numericalColumns, selectedXAxis, selectedYAxis)
+    ) {
+        const [xAxisColumn] = numericalColumns
+        chartSettings.xAxis = { column: xAxisColumn.name }
+        yAxis = yAxis.filter((series) => series.column !== xAxisColumn.name)
+    }
+
+    if (visualizationType === ChartDisplayType.ScatterPlot) {
+        const xAxisColumn = resolveScatterXAxisColumn(columns, numericalColumns, selectedXAxis, selectedYAxis)
+        if (xAxisColumn) {
+            chartSettings.xAxis = { column: xAxisColumn.name }
+            yAxis = yAxis.filter((series) => series.column !== xAxisColumn.name)
+        }
+    }
+
+    if (visualizationType === ChartDisplayType.BoxPlot) {
+        chartSettings.boxPlot = getAutoBoxPlotSettings(columns, chartSettings.boxPlot)
+    }
+
+    const isAutoHeatmap =
+        visualizationType === ChartDisplayType.Auto &&
+        getAutoVisualizationType(columns, rowCount) === ChartDisplayType.TwoDimensionalHeatmap
+
+    if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
+        const heatmap = chartSettings.heatmap ?? {}
+        const autoSettings = getHeatmapAutoSettings(columns, heatmap)
+        if (Object.keys(autoSettings).length > 0) {
+            chartSettings.heatmap = { ...heatmap, ...autoSettings }
+        }
+    }
+
+    if (chartSettings.yAxis !== undefined) {
+        chartSettings.yAxis = yAxis
+    }
+
+    return { ...query, display: visualizationType, chartSettings }
+}
 
 /**
  * Establishes the scatter x-axis invariant: a numeric column on the x axis that isn't also a
@@ -304,12 +591,7 @@ const applyScatterXAxis = (
     selectedYAxis: (SelectedYAxis | null)[] | null
 ): void => {
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
-    const xAxisColumn = resolveScatterXAxisColumn(
-        columns,
-        numericalColumns,
-        selectedXAxis,
-        selectedYAxisNames(selectedYAxis)
-    )
+    const xAxisColumn = resolveScatterXAxisColumn(columns, numericalColumns, selectedXAxis, selectedYAxis)
     if (!xAxisColumn) {
         return
     }

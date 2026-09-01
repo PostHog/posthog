@@ -19,9 +19,8 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../schema/schema-general'
-import { AxisSeries, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { AxisSeriesSettings } from '../types'
-import type { Column } from '../types'
+import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
+import type { Column } from '../dataVisualizationLogic'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -267,7 +266,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     | import('../../../schema').TraceSpansAggregationQueryResponse
                     | import('../../../schema').TraceSpansAttributeBreakdownQueryResponse
                     | import('../../../schema').TraceSpansQueryResponse,
-                columns: import('../types').Column[]
+                columns: import('../dataVisualizationLogic').Column[]
             ): string[] => {
                 if (!response || breakdownColumn === null) {
                     return []
@@ -315,7 +314,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     | import('../../../schema').TraceSpansAggregationQueryResponse
                     | import('../../../schema').TraceSpansAttributeBreakdownQueryResponse
                     | import('../../../schema').TraceSpansQueryResponse,
-                columns: import('../types').Column[],
+                columns: import('../dataVisualizationLogic').Column[],
                 chartSettings: import('../../../schema').ChartSettings,
                 getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null
             ): BreakdownSeriesData<number | null> => {

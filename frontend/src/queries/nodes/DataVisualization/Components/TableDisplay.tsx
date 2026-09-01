@@ -9,8 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
-import { dataVisualizationLogic } from '../dataVisualizationLogic'
-import { Column } from '../types'
+import { Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.Auto]: 'Auto',
