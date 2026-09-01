@@ -75,8 +75,10 @@ pub fn upload(args: &Args) -> Result<()> {
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
 
-    // Bind the mapping to the release created for this build, so an exception symbolicated with
-    // this mapping is attributed to that release.
+    // Bind the mapping to the release this build resolved, so an exception symbolicated with this
+    // mapping takes that release. A build with no release name or version resolves none, and the
+    // upload then carries no release id. `--skip-release-on-fail` can also drop the binding when
+    // the server rejects it.
     file.release_id = release.map(|r| r.id.to_string());
 
     let to_upload: SymbolSetUpload = file.try_into()?;
