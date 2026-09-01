@@ -1070,6 +1070,7 @@ type ChannelActionType =
   | "view_more_tasks"
   | "create"
   | "rename"
+  | "auto_archive_update"
   | "delete"
   | "star"
   | "unstar"
@@ -1119,6 +1120,8 @@ export interface ChannelActionProperties {
   tab?: string;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
+  /** For auto_archive_update: the selected inactivity window. Null disables it. */
+  inactivity_days?: number | null;
 }
 
 type DashboardActionType =
