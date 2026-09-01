@@ -6,15 +6,16 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import AggregationType, BreakdownFilter, EntityType, RetentionFilter, RetentionQuery, TimeWindowMode
 
-from posthog.hogql_queries.insights.retention.retention_validation_rules import (
+from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
+from posthog.hogql_queries.validation.validation import QueryValidationContext
+
+from products.product_analytics.backend.hogql_queries.retention.retention_validation_rules import (
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
     RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
 )
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
-from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
 class TestRetentionValidationRules(BaseTest):
