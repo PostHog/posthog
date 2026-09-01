@@ -8,8 +8,8 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
-        ("warehouse_sources", "0156_alter_customoauth2integration_created_by_and_more"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
+        ("warehouse_sources", "0157_alter_customoauth2integration_created_by_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

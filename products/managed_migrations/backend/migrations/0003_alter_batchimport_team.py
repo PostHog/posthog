@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("managed_migrations", "0002_alter_batchimport_secrets_nullable"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
     ]
 
     operations = [

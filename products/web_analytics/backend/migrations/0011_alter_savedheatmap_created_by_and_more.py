@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
         ("web_analytics", "0010_contentautopilotrun_content_auto_run_active"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

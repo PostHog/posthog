@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("messaging", "0004_alter_messagesuppression_source"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

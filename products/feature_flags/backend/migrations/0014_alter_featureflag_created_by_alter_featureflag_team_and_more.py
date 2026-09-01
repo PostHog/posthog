@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
             "0016_alter_buttontile_created_by_alter_buttontile_team_and_more",
         ),
         ("feature_flags", "0013_narrow_whole_rollout_percentages"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

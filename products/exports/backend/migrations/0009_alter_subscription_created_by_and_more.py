@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
             "0016_alter_buttontile_created_by_alter_buttontile_team_and_more",
         ),
         ("exports", "0008_exportedasset_source_authentication"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
         ("product_analytics", "0007_alter_insightvariable_team"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

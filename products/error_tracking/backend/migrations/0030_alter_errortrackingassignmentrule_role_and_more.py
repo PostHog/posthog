@@ -7,10 +7,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("cohorts", "0012_alter_cohort_created_by_alter_cohort_people_and_more"),
+        ("cohorts", "0013_alter_cohort_created_by_alter_cohort_people_and_more"),
         ("ee", "0060_backfill_evaluation_access_control"),
         ("error_tracking", "0029_remove_symbolset_used_created_index"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

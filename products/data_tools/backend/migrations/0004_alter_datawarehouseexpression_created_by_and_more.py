@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0032_alter_dag_team_and_more"),
         ("data_tools", "0003_datawarehouseexpression"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -27,9 +27,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="cohort",
             name="people",
-            field=models.ManyToManyField(
-                related_name="+", through="cohorts.CohortPeople", to="posthog.person"
-            ),
+            field=models.ManyToManyField(related_name="+", through="cohorts.CohortPeople", to="posthog.person"),
         ),
         migrations.AlterField(
             model_name="cohort",
