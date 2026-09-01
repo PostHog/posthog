@@ -13,7 +13,7 @@ import { Experiment } from '~/types'
 
 import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
 
-import { experimentMetricsLogic } from './experimentMetricsLogic'
+import { experimentMetricsLogic, strongerRerunTrigger } from './experimentMetricsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -947,6 +947,43 @@ describe('experimentMetricsLogic', () => {
                 logic.actions.triggerRecalculation()
             }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
             expect(createMock).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('strongerRerunTrigger', () => {
+        it('ranks experiment_config_change above metric_config_change', () => {
+            expect(strongerRerunTrigger('metric_config_change', 'experiment_config_change')).toBe(
+                'experiment_config_change'
+            )
+            expect(strongerRerunTrigger('experiment_config_change', 'metric_config_change')).toBe(
+                'experiment_config_change'
+            )
+        })
+        it('keeps metric_config_change when both are metric-scoped', () => {
+            expect(strongerRerunTrigger('metric_config_change', 'metric_config_change')).toBe('metric_config_change')
+        })
+        it('treats manual and cold_run as full-advance (>= experiment scope)', () => {
+            expect(strongerRerunTrigger('metric_config_change', 'manual')).toBe('manual')
+            expect(strongerRerunTrigger('metric_config_change', 'cold_run')).toBe('cold_run')
+        })
+    })
+
+    describe('queuedRerun reducer', () => {
+        beforeEach(() => {
+            mountLogic()
+        })
+        it('coalesces to the stronger scope', () => {
+            logic.actions.setQueuedRerun('metric_config_change')
+            expect(logic.values.queuedRerun).toBe('metric_config_change')
+            logic.actions.setQueuedRerun('experiment_config_change')
+            expect(logic.values.queuedRerun).toBe('experiment_config_change')
+            logic.actions.setQueuedRerun('metric_config_change')
+            expect(logic.values.queuedRerun).toBe('experiment_config_change')
+        })
+        it('clears on null', () => {
+            logic.actions.setQueuedRerun('metric_config_change')
+            logic.actions.setQueuedRerun(null)
+            expect(logic.values.queuedRerun).toBeNull()
         })
     })
 })
