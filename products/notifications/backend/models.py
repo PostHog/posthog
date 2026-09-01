@@ -50,6 +50,14 @@ class NotificationEvent(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["organization", "-created_at"]),
+            # Serves the has_been_dispatched idempotency check, which filters on all five columns
+            # with no organization or team predicate.
+            models.Index(
+                fields=["notification_type", "target_type", "target_id", "resource_id", "source_id"],
+                name="notification_event_dedupe_idx",
+            ),
+            # Serves the 90-day cleanup task, which filters created_at with no organization predicate.
+            models.Index(fields=["created_at"], name="notification_event_created_at_idx"),
         ]
 
 
