@@ -19,10 +19,12 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
 
 from products.batch_exports.backend.api.file_download import (
+    COUNT_ROWS_TIMEOUT_MESSAGE,
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
@@ -980,3 +982,21 @@ class TestFileDownloadHogQL:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert mock_flag.call_args[0][0] == "hogql-batch-exports"
+
+    @pytest.mark.usefixtures("enable_hogql_flag")
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows_timeout_reports_potentially_large_export(self, async_client: AsyncClient, team, user):
+        await async_client.aforce_login(user)
+
+        with unittest.mock.patch(
+            "products.batch_exports.backend.api.file_download.execute_hogql_query",
+            side_effect=ClickHouseQueryTimeOut(),
+        ):
+            response = await async_client.post(
+                f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+                {"model": "hogql", "hogql_query": "SELECT event AS event FROM events"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert COUNT_ROWS_TIMEOUT_MESSAGE in response.content.decode()

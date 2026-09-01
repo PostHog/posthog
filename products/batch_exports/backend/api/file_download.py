@@ -27,6 +27,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
@@ -163,6 +164,13 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
         send_feature_flag_events=False,
     ):
         raise PermissionDenied("HogQL batch exports are not enabled for this team.")
+
+
+COUNT_ROWS_TIMEOUT_MESSAGE = (
+    "Timeout exceeded while counting rows. The query may be too complex, or the count may be too "
+    "large to finish in time. A timeout can mean the export would be very large. Narrow the query "
+    "with a WHERE clause to count and export less data."
+)
 
 
 def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int = 30) -> int:
@@ -622,7 +630,11 @@ class FileDownloadBatchExportOnDemandViewSet(
                 response=FileDownloadCountRowsResponseSerializer,
                 description="Number of rows the export would produce if started now.",
             ),
-            400: OpenApiResponse(description="The request or the HogQL query is invalid."),
+            400: OpenApiResponse(
+                description="The request or the HogQL query is invalid, or counting timed out because "
+                "the query is too complex or the count is too large, which can mean the export would "
+                "be very large."
+            ),
             403: OpenApiResponse(description="HogQL batch exports are not enabled for this team."),
         },
     )
@@ -637,6 +649,10 @@ class FileDownloadBatchExportOnDemandViewSet(
             raise ValidationError({"hogql_query": str(e)}) from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None)) from e
+        except ClickHouseQueryTimeOut as e:
+            # For a count, a timeout is feedback about the user's query, so report it as a 400
+            # with guidance instead of the generic 504.
+            raise ValidationError(COUNT_ROWS_TIMEOUT_MESSAGE, "timeout_exceeded") from e
 
         return response.Response({"count": count})
 
