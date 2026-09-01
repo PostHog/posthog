@@ -29,6 +29,3 @@ class WebAnalyticsFilterPreset(UUIDModel):
     class Meta:
         db_table = "posthog_webanalyticsfilterpreset"
         unique_together = ("team", "short_id")
-        indexes = [
-            models.Index(fields=["deleted", "-last_modified_at"], name="wa_preset_del_mod_idx"),
-        ]
