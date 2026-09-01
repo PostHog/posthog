@@ -3,9 +3,10 @@
 Per tick (driven by `schedule.py`):
     1. `list_chunks_activity` plans the fan-out — N deterministic hash-partitioned
        chunks, each carrying a `(chunk_id, of_chunks, chunk_size)` spec only.
-    2. All chunks are dispatched via `asyncio.gather` so they run in parallel
-       across the worker pool. Each `score_chunk_activity` is fully self-
-       contained (fetch + predict + write happen inside one activity).
+    2. Chunks are dispatched via `asyncio.gather` behind a semaphore, so at most
+       `MAX_CONCURRENT_SCORE_CHUNKS` run at once and the rest start as slots free.
+       Each `score_chunk_activity` is fully self-contained (fetch + predict +
+       write happen inside one activity).
 
 The workflow stays tiny on purpose:
     * No per-session work in the workflow code path (workflow CPU is precious).
@@ -79,11 +80,9 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
 
         # Activity dispatch order is recorded in Temporal history, so gate the bound for
         # deterministic replay of runs that started before it.
-        concurrency = len(plan.chunks)
-        if workflow.patched(_PATCH_BOUNDED_CHUNK_FANOUT):
-            concurrency = min(MAX_CONCURRENT_SCORE_CHUNKS, concurrency)
-
-        semaphore = asyncio.Semaphore(concurrency)
+        semaphore = asyncio.Semaphore(
+            MAX_CONCURRENT_SCORE_CHUNKS if workflow.patched(_PATCH_BOUNDED_CHUNK_FANOUT) else len(plan.chunks)
+        )
 
         async def _score_with_semaphore(spec: ChunkSpec) -> ChunkResult:
             async with semaphore:

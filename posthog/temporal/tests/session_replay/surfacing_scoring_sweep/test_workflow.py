@@ -225,9 +225,11 @@ async def test_workflow_survives_empty_chunk_results() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bounds_concurrent_score_chunk_activities() -> None:
+@pytest.mark.parametrize("patched", [True, False])
+async def test_bounds_concurrent_score_chunk_activities(patched: bool) -> None:
     # ClickHouse rejects queries past the per-user concurrency limit outright, and a rejected
     # chunk scores nothing until the next tick, so the sweep must not dispatch every chunk at once.
+    # Unpatched runs keep dispatching everything, which is what makes replay deterministic.
     chunk_count = MAX_CONCURRENT_SCORE_CHUNKS + 3
     chunks = [_chunk(chunk_id, of_chunks=chunk_count) for chunk_id in range(chunk_count)]
     active = 0
@@ -251,11 +253,11 @@ async def test_bounds_concurrent_score_chunk_activities() -> None:
 
     with (
         mock.patch("temporalio.workflow.execute_activity", side_effect=execute_activity),
-        mock.patch("temporalio.workflow.patched", return_value=True),
+        mock.patch("temporalio.workflow.patched", return_value=patched),
         mock.patch("temporalio.workflow.logger", mock.MagicMock()),
         mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary"),
     ):
         result = await ScoreSessionsBatchWorkflow().run(ScoreSessionsBatchInputs())
 
-    assert peak_active == MAX_CONCURRENT_SCORE_CHUNKS
+    assert peak_active == (MAX_CONCURRENT_SCORE_CHUNKS if patched else chunk_count)
     assert _as_batch_result(result).chunks_dispatched == chunk_count
