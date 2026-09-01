@@ -104,6 +104,14 @@ CSP_REPORT_ENDPOINT: str | None = os.getenv("CSP_REPORT_ENDPOINT")
 CSP_REPORT_MAX_BODY_BYTES = get_from_env("CSP_REPORT_MAX_BODY_BYTES", type_cast=int, default=256 * 1024)
 CSP_REPORT_MAX_REPORTS = get_from_env("CSP_REPORT_MAX_REPORTS", type_cast=int, default=100)
 
+# Self-hosted report drop: when enabled, Cloud discards a report that carries PostHog's own
+# project token from a document URL that is not a PostHog or local host — a legacy self-hosted
+# install reporting to Cloud. Off = dry run: the classifier still runs and the
+# `csp_report_self_hosted_filter` counter records `would_drop`, but every report is ingested.
+# Validate the counter against expected volumes before turning this on, because a
+# misclassification here silently discards customer reports.
+CSP_DROP_SELF_HOSTED_REPORTS = get_from_env("CSP_DROP_SELF_HOSTED_REPORTS", False, type_cast=str_to_bool)
+
 # Buffered CSP capture-forward: when enabled, /report/ enqueues accepted reports to a
 # bounded in-process buffer and returns 204 immediately; a background thread batches
 # them to capture-rs. Keeps request-worker hold time independent of capture-rs latency,

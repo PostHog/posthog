@@ -10,7 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 from structlog.testing import capture_logs
 
-from posthog.api.csp import CSP_REPORT_REJECTED
+from posthog.api.csp import CSP_REPORT_REJECTED, CSP_SELF_HOSTED_FILTER
 from posthog.ph_client import PH_US_API_KEY
 
 SINGLE_VIOLATION_REPORT_URI = {
@@ -137,7 +137,7 @@ class TestCspReport(BaseTest):
         token = PH_US_API_KEY if self_hosted_token else self.team.api_token
 
         with (
-            self.settings(CLOUD_DEPLOYMENT="US"),
+            self.settings(CLOUD_DEPLOYMENT="US", CSP_DROP_SELF_HOSTED_REPORTS=True),
             patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
             patch("posthog.api.report.capture_internal") as mock_capture,
             patch("posthog.api.report.csp_report_buffer") as mock_buffer,
@@ -156,6 +156,23 @@ class TestCspReport(BaseTest):
         mock_buffer.enqueue.assert_not_called()
 
     @patch("posthog.api.report.capture_batch_internal")
+    def test_cloud_counts_but_keeps_self_hosted_reports_while_the_drop_is_off(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        would_drop_before = CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get()
+
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            response = self.client.post(
+                f"/report/?token={PH_US_API_KEY}",
+                data=json.dumps([SINGLE_VIOLATION_REPORT_TO]),
+                content_type="application/reports+json",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert [event["properties"]["$current_url"] for event in events] == ["https://example.com/foo/bar"]
+        assert CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get() - would_drop_before == 1
+
+    @patch("posthog.api.report.capture_batch_internal")
     def test_cloud_keeps_non_hobby_reports_from_a_mixed_bundle(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
         posthog_violation = {
@@ -172,7 +189,7 @@ class TestCspReport(BaseTest):
         }
         posthog_crash = {**CRASH_REPORT, "url": "https://eu.posthog.com/project/1"}
 
-        with self.settings(CLOUD_DEPLOYMENT="US"):
+        with self.settings(CLOUD_DEPLOYMENT="US", CSP_DROP_SELF_HOSTED_REPORTS=True):
             response = self.client.post(
                 f"/report/?token={PH_US_API_KEY}",
                 data=json.dumps(

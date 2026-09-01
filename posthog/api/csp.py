@@ -28,6 +28,12 @@ CSP_REPORT_REJECTED = Counter(
     labelnames=["reason"],
 )
 
+CSP_SELF_HOSTED_FILTER = Counter(
+    "csp_report_self_hosted_filter",
+    "CSP reports seen by the self-hosted origin filter on Cloud, by decision.",
+    labelnames=["decision"],
+)
+
 CSP_REPORT_TYPES_MAPPING_TABLE = """
 | Normalized Key             | report-to format                     | report-uri format                  |
 | -------------------------- | ------------------------------------ | ---------------------------------- |
@@ -54,17 +60,26 @@ def _drop_self_hosted_reports(reports: list[dict[str, object]], token: Optional[
     Self-hosted installs run the same `CSPMiddleware` as Cloud, so they report with PostHog's
     own project token until the operator upgrades. Customers configure this endpoint with their
     own project token, so the token separates the two; the document URL alone cannot.
+
+    `CSP_DROP_SELF_HOSTED_REPORTS` gates the drop itself. While it is off the classifier still
+    runs and records `would_drop`, so the counter shows what enabling it costs before it costs it.
     """
-    if not is_cloud() or token != PH_US_API_KEY:
+    if not is_cloud():
         return reports
 
+    if token != PH_US_API_KEY:
+        CSP_SELF_HOSTED_FILTER.labels(decision="kept").inc(len(reports))
+        return reports
+
+    enforcing = settings.CSP_DROP_SELF_HOSTED_REPORTS
     accepted_reports = [report for report in reports if not is_hobby_url(report.get("document_url"))]
-    dropped_reports = len(reports) - len(accepted_reports)
+    self_hosted_reports = len(reports) - len(accepted_reports)
 
-    if dropped_reports:
-        CSP_REPORT_REJECTED.labels(reason="self_hosted_origin").inc(dropped_reports)
+    CSP_SELF_HOSTED_FILTER.labels(decision="kept").inc(len(accepted_reports))
+    if self_hosted_reports:
+        CSP_SELF_HOSTED_FILTER.labels(decision="dropped" if enforcing else "would_drop").inc(self_hosted_reports)
 
-    return accepted_reports
+    return accepted_reports if enforcing else reports
 
 
 def sample_csp_report(properties: dict, percent: float, add_metadata: bool = False) -> bool:
