@@ -1845,6 +1845,10 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  Failed to connect to database: {:error, :econnrefused}"
             ),
+            # The generic GenServer-timeout sibling: Supavisor reports a pool checkout or internal
+            # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
+            # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
@@ -4103,6 +4107,40 @@ class TestPostgresSchemaDiscovery:
         assert set(schemas.keys()) == {"public.users"}
         conflicted_connection.close.assert_called_once()
         good_connection.close.assert_called_once()
+
+    def test_get_schemas_retries_supavisor_generic_timeout_on_discovery_query(self):
+        # Supavisor reports a pool checkout or backend-connect timeout as a ConnectionFailure
+        # carrying "{:error, :timeout}", the generic Erlang GenServer call-timeout atom. Discovery
+        # must retry on a fresh connection; the failed connection must not be rolled back (rollback
+        # on a dead connection raises a misleading secondary exception that buries the real cause).
+        drop = psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}")
+        dropped_connection = self._drop_on_execute_connection(drop)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[dropped_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        dropped_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+        dropped_connection.rollback.assert_not_called()
 
     def test_get_schemas_retries_connection_limit_refused_on_connect(self):
         # The customer database can refuse the discovery connect outright once it's out of slots
