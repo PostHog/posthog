@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -26,8 +27,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
@@ -56,6 +58,8 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_signals_for_report_activity,
 )
 from products.signals.backend.temporal.types import (
+    IMPLEMENTATION_DEBOUNCE_SECONDS,
+    NEW_SELF_DRIVING_GRACE,
     RERESEARCH_MAX_SIGNALS,
     SignalData,
     SignalReportSummaryWorkflowInputs,
@@ -538,6 +542,43 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to dispatch inbox notification for {inputs.report_id}",
                     )
+                # Start implementation once the report has settled, after an optional buffer. A signal
+                # landing just after the report went READY would otherwise ship a PR for a summary the
+                # re-research is about to rewrite; waiting lets that signal fold into a re-research run.
+                # The whole block is best-effort — the report is already READY, so a failure here must
+                # not flip it to FAILED via the outer handler. patched(): in-flight histories predate it
+                # and already auto-started from the research activity, so they skip this.
+                if workflow.patched("signals-autostart-on-settle"):
+                    try:
+                        buffer_seconds = await workflow.execute_activity(
+                            implementation_buffer_seconds_activity,
+                            ImplementationBufferInput(team_id=inputs.team_id),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        if buffer_seconds > 0:
+                            await workflow.sleep(timedelta(seconds=buffer_seconds))
+                            # A signal arriving during the wait collapsed into this run and re-promoted
+                            # the report; loop to re-research it rather than implement a stale summary.
+                            became_candidate = await workflow.execute_activity(
+                                report_is_candidate_activity,
+                                ReportIsCandidateInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                                start_to_close_timeout=timedelta(minutes=1),
+                                retry_policy=RetryPolicy(maximum_attempts=3),
+                            )
+                            if became_candidate:
+                                log.info("New signal arrived during implementation buffer, looping to re-research")
+                                return True
+                        await workflow.execute_activity(
+                            maybe_autostart_implementation_activity,
+                            MaybeAutostartImplementationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                    except Exception:
+                        workflow.logger.exception(
+                            f"Implementation buffer/auto-start failed for {inputs.report_id}",
+                        )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
@@ -792,6 +833,75 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         has_new_signals=has_new_signals,
     )
     return has_new_signals
+
+
+@dataclass
+class ImplementationBufferInput:
+    team_id: int
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def implementation_buffer_seconds_activity(input: ImplementationBufferInput) -> int:
+    """Effective wait, in seconds, before a settled report starts its implementation task.
+
+    0 (no wait) when the buffer is disabled globally, or when the team is new to self-driving — a
+    team whose signals config was created within NEW_SELF_DRIVING_GRACE implements without the extra
+    delay while it's still evaluating the product. Otherwise IMPLEMENTATION_DEBOUNCE_SECONDS.
+    """
+    if IMPLEMENTATION_DEBOUNCE_SECONDS <= 0:
+        return 0
+    created_at = (
+        await SignalTeamConfig.objects.filter(team_id=input.team_id).values_list("created_at", flat=True).afirst()
+    )
+    if created_at is not None and (timezone.now() - created_at) < NEW_SELF_DRIVING_GRACE:
+        return 0
+    return IMPLEMENTATION_DEBOUNCE_SECONDS
+
+
+@dataclass
+class ReportIsCandidateInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_is_candidate_activity(input: ReportIsCandidateInput) -> bool:
+    """Whether the report is back in CANDIDATE.
+
+    A signal landing during the implementation buffer collapses into this workflow's id and
+    re-promotes the report, so a CANDIDATE status is the signal to re-research instead of
+    implementing the now-stale summary.
+    """
+    status = (
+        await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id)
+        .values_list("status", flat=True)
+        .afirst()
+    )
+    return status == SignalReport.Status.CANDIDATE
+
+
+@dataclass
+class MaybeAutostartImplementationInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def maybe_autostart_implementation_activity(input: MaybeAutostartImplementationInput) -> None:
+    """Evaluate self-driving auto-start from the report's current artefacts, once it has settled.
+
+    Runs at the workflow's settle point (report READY, no pending signals) rather than per research
+    run, so the implementation task is scoped to the report's final summary — not whichever research
+    pass finished first. Idempotent: `maybe_autostart_from_report_artefacts` no-ops if an
+    implementation task already exists for the report.
+    """
+    await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
 
 
 @dataclass
