@@ -173,37 +173,58 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                              )
                     END, 2
                 ) AS total_latency,
-                nullIf(sumIf(input_tokens,
-                      event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS input_tokens,
-                nullIf(sumIf(output_tokens,
-                      event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS output_tokens,
-                nullIf(round(
-                    sumIf(input_cost_usd,
-                          event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS input_cost,
-                nullIf(round(
-                    sumIf(output_cost_usd,
-                          event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS output_cost,
-                nullIf(round(
-                    sumIf(request_cost_usd,
-                          event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS request_cost,
-                nullIf(round(
-                    sumIf(web_search_cost_usd,
-                          event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS web_search_cost,
-                nullIf(round(
-                    sumIf(total_cost_usd,
-                          event IN ('$ai_generation', '$ai_embedding')
-                    ), 10
-                ), 0) AS total_cost,
+                -- NULL means no event carried the field, 0 is a reported zero.
+                -- nullIf(sum, 0) would collapse a real zero into NULL. Matches
+                -- trace_query_runner and traces_query_runner.
+                if(countIf(isNotNull(input_tokens)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   sumIf(input_tokens,
+                         event IN ('$ai_generation', '$ai_embedding')
+                   ),
+                   NULL
+                ) AS input_tokens,
+                if(countIf(isNotNull(output_tokens)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   sumIf(output_tokens,
+                         event IN ('$ai_generation', '$ai_embedding')
+                   ),
+                   NULL
+                ) AS output_tokens,
+                if(countIf(isNotNull(input_cost_usd)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(input_cost_usd,
+                               event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS input_cost,
+                if(countIf(isNotNull(output_cost_usd)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(output_cost_usd,
+                               event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS output_cost,
+                if(countIf(isNotNull(request_cost_usd)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(request_cost_usd,
+                               event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS request_cost,
+                if(countIf(isNotNull(web_search_cost_usd)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(web_search_cost_usd,
+                               event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS web_search_cost,
+                if(countIf(isNotNull(total_cost_usd)
+                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
+                   round(sumIf(total_cost_usd,
+                               event IN ('$ai_generation', '$ai_embedding')
+                   ), 10),
+                   NULL
+                ) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
