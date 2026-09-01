@@ -37,7 +37,12 @@ export const logsPatternRuleFiredCounter = new Counter({
 
 export const logsPatternInputCappedCounter = new Counter({
     name: 'logs_ingestion_pattern_input_capped_total',
-    help: 'Log bodies cut at the masking input ceiling. Sizes the long-line problem.',
+    help: 'Mask inputs cut at the masking input ceiling, after the message is extracted. Sizes the long-line problem.',
+})
+
+export const logsPatternParseSkippedCounter = new Counter({
+    name: 'logs_ingestion_pattern_parse_skipped_total',
+    help: 'Bodies too long to parse, masked as prose instead. Separates giving up from genuinely unstructured in the body-kind split.',
 })
 
 export const logsPatternForcedDecodeCounter = new Counter({
@@ -69,6 +74,7 @@ function stampBatch(records: LogRecord[]): void {
     const kindCounts = new Map<string, number>()
     const ruleFires: number[] = new Array(MASK_RULES.length).fill(0)
     let inputCapped = 0
+    let parseSkipped = 0
 
     for (const record of records) {
         const start = performance.now()
@@ -88,6 +94,9 @@ function stampBatch(records: LogRecord[]): void {
         if (result.inputCapped) {
             inputCapped++
         }
+        if (result.parseSkipped) {
+            parseSkipped++
+        }
     }
 
     for (const [kind, count] of kindCounts) {
@@ -100,5 +109,8 @@ function stampBatch(records: LogRecord[]): void {
     }
     if (inputCapped > 0) {
         logsPatternInputCappedCounter.inc(inputCapped)
+    }
+    if (parseSkipped > 0) {
+        logsPatternParseSkippedCounter.inc(parseSkipped)
     }
 }

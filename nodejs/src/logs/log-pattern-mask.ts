@@ -2,7 +2,7 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 3
+export const PATTERN_VERSION = 4
 
 /**
  * Everything here shapes the emitted pattern, so it sits inside `PATTERN_VERSION`: two records may
@@ -17,13 +17,18 @@ export const PATTERN_VERSION = 3
  * this object through an `any` would otherwise reshape every pattern under an unchanged version.
  */
 export type PatternCaps = {
-    /** Ceiling on the body chars fed to the masker; longer bodies are cut first (CPU guard). */
+    /** Bodies longer than this skip the JSON parse and mask as prose, bounding one record's parse cost. */
+    readonly maxParseChars: number
+    /** Ceiling on the chars handed to the masker, applied after the message is extracted. */
     readonly maxInputChars: number
     /** Truncation applied to the masked pattern, after masking, so more real content survives the cut. */
     readonly maxOutputChars: number
 }
 
 export const PATTERN_CAPS: PatternCaps = Object.freeze({
+    // 0.2% of bodies pass 8 KiB, but the tail collapses fast above it and the largest seen is ~6 MiB.
+    // 256 KiB covers all but a handful of records per hour while still bounding one synchronous parse.
+    maxParseChars: 262144,
     maxInputChars: 8192,
     maxOutputChars: 1024,
 })
@@ -121,6 +126,8 @@ export type LogPatternResult = {
     pattern: string
     bodyKind: PatternBodyKind
     inputCapped: boolean
+    /** Body was too long to parse, so it masked as prose without a structured read. */
+    parseSkipped: boolean
     maskedLength: number
     jsonKeyCount?: number
     ruleFires: number[]
@@ -153,12 +160,22 @@ function jsonKeySetPattern(value: object): string {
 
 export function computeLogPattern(body: string | null | undefined): LogPatternResult {
     if (body === null || body === undefined || body === '') {
-        return { pattern: '', bodyKind: 'empty', inputCapped: false, maskedLength: 0, ruleFires: [] }
+        return {
+            pattern: '',
+            bodyKind: 'empty',
+            inputCapped: false,
+            parseSkipped: false,
+            maskedLength: 0,
+            ruleFires: [],
+        }
     }
 
-    const inputCapped = body.length > PATTERN_CAPS.maxInputChars
-    const cappedBody = inputCapped ? body.slice(0, PATTERN_CAPS.maxInputChars) : body
-    const parsed = parseLogBodyForIngestion(cappedBody)
+    // Parse before capping, so a long structured body still yields its message rather than a slice of
+    // itself. Cutting first left every JSON body over the cap as invalid JSON, and a truncated-prose
+    // pattern is near-unique per record: it carries hostnames and field order past the cut, so each
+    // oversized record minted its own pattern. `maxParseChars` keeps a bound on one record's parse cost.
+    const parseSkipped = body.length > PATTERN_CAPS.maxParseChars
+    const parsed = parseSkipped ? ({ kind: 'invalid_json', raw: body } as const) : parseLogBodyForIngestion(body)
     const bodyKind: PatternBodyKind =
         parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
 
@@ -175,7 +192,8 @@ export function computeLogPattern(body: string | null | undefined): LogPatternRe
                 return {
                     pattern: capOutput(pattern),
                     bodyKind,
-                    inputCapped,
+                    inputCapped: false,
+                    parseSkipped,
                     maskedLength: pattern.length,
                     ...(isArray ? {} : { jsonKeyCount: Object.keys(parsed.value).length }),
                     ruleFires: [],
@@ -188,18 +206,20 @@ export function computeLogPattern(body: string | null | undefined): LogPatternRe
             maskInput = parsed.value
             break
         case 'json_primitive':
-            maskInput = cappedBody
+            maskInput = body
             break
         case 'invalid_json':
             maskInput = parsed.raw
             break
     }
 
-    const { masked, ruleFires } = maskString(maskInput)
+    const inputCapped = maskInput.length > PATTERN_CAPS.maxInputChars
+    const { masked, ruleFires } = maskString(inputCapped ? maskInput.slice(0, PATTERN_CAPS.maxInputChars) : maskInput)
     return {
         pattern: capOutput(masked),
         bodyKind,
         inputCapped,
+        parseSkipped,
         maskedLength: masked.length,
         ruleFires,
     }

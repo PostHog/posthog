@@ -4,6 +4,7 @@ import { PATTERN_CAPS, PATTERN_VERSION } from './log-pattern-mask'
 import {
     logsPatternBodyKindCounter,
     logsPatternInputCappedCounter,
+    logsPatternParseSkippedCounter,
     logsPatternRuleFiredCounter,
     logsPatternStageErrorCounter,
     makePatternMaskingStage,
@@ -32,6 +33,7 @@ describe('log-pattern-stage', () => {
         logsPatternBodyKindCounter.reset()
         logsPatternRuleFiredCounter.reset()
         logsPatternInputCappedCounter.reset()
+        logsPatternParseSkippedCounter.reset()
         logsPatternStageErrorCounter.reset()
     })
 
@@ -77,6 +79,16 @@ describe('log-pattern-stage', () => {
         await stage.run([record])
 
         expect(record).toMatchObject({ pattern: expected, pattern_version: PATTERN_VERSION })
+    })
+
+    it('counts a body too long to parse apart from a genuinely unstructured one', async () => {
+        const stage = makePatternMaskingStage()
+        const oversized = JSON.stringify({ msg: 'hi', pad: 'x'.repeat(PATTERN_CAPS.maxParseChars) })
+
+        await stage.run([oversized, 'plain prose'].map(makeRecord))
+
+        expect((await logsPatternParseSkippedCounter.get()).values[0].value).toEqual(1)
+        expect(await counterValues(logsPatternBodyKindCounter)).toEqual({ plaintext: 2 })
     })
 
     it('keeps the batch when masking throws, so a measurement fault cannot DLQ customer logs', async () => {

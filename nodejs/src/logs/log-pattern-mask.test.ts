@@ -147,12 +147,37 @@ describe('log-pattern-mask', () => {
             expect(result.ruleFires.every((fires) => fires === 0)).toEqual(true)
         })
 
-        it('caps the raw body before the JSON parse, so an oversized JSON body is treated as truncated prose', () => {
-            const body = JSON.stringify({ message: 'x'.repeat(PATTERN_CAPS.maxInputChars) })
+        it('parses before capping, so a JSON body past the mask-input cap still yields its message', () => {
+            const body = JSON.stringify({ message: 'served 7 requests', pad: 'x'.repeat(PATTERN_CAPS.maxInputChars) })
             const result = computeLogPattern(body)
-            expect(result.inputCapped).toEqual(true)
+            expect(result.bodyKind).toEqual('json_object_or_array')
+            expect(result.inputCapped).toEqual(false)
+            expect(result.pattern).toEqual('served <N> requests')
+        })
+
+        it('reduces a verbose structured line to its message, not to a slice of its own fields', () => {
+            // Shaped like a Go service logger: a short message, then a nested array that dwarfs it.
+            const body = JSON.stringify({
+                time: '2026-08-24T10:20:45.123Z',
+                level: 'INFO',
+                msg: 'successfully discovered 3 peer addresses',
+                host: 'worker-01.example.com',
+                peers: Array.from({ length: 400 }, (_unused, index) => ({
+                    host: `10.0.0.${index % 256}`,
+                    port: 9092 + index,
+                    zone: 'zone-a',
+                })),
+            })
+
+            expect(body.length).toBeGreaterThan(PATTERN_CAPS.maxInputChars)
+            expect(computeLogPattern(body).pattern).toEqual('successfully discovered <N> peer addresses')
+        })
+
+        it('skips the parse past the parse ceiling, so one record cannot stall the loop', () => {
+            const body = JSON.stringify({ msg: 'hi', pad: 'x'.repeat(PATTERN_CAPS.maxParseChars) })
+            const result = computeLogPattern(body)
+            expect(result.parseSkipped).toEqual(true)
             expect(result.bodyKind).toEqual('plaintext')
-            expect(result.pattern).toEqual(body.slice(0, PATTERN_CAPS.maxOutputChars))
         })
 
         it.each([
@@ -252,6 +277,8 @@ describe('log-pattern-mask', () => {
             'x'.repeat(PATTERN_CAPS.maxInputChars + 10),
             JSON.stringify({ msg: 'discovered 3 peers', pad: 'y'.repeat(PATTERN_CAPS.maxInputChars) }),
             `head ${'z'.repeat(PATTERN_CAPS.maxOutputChars)} tail`,
+            JSON.stringify({ msg: 'past the parse ceiling', pad: 'w'.repeat(PATTERN_CAPS.maxParseChars) }),
+            JSON.stringify({ msg: 'past the parse ceiling', pad: 'w'.repeat(PATTERN_CAPS.maxParseChars) }),
         ]
 
         const RATCHET_FIRST_VERSION = 3
@@ -267,6 +294,7 @@ describe('log-pattern-mask', () => {
          */
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
+            4: '00bc38384cb92f37',
         }
 
         /**
