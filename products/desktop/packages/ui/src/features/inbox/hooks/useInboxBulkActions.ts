@@ -32,8 +32,8 @@ type BulkActionName =
 
 /**
  * Map an enriched reviewer list back to the write shape the artefact PUT expects
- * (mirrors `ReportReviewersHeader`). The server takes the full replacement
- * list, not a diff, so removing a reviewer means sending everyone else.
+ * The server takes the full replacement list, not a diff, so removing a
+ * reviewer means sending everyone else.
  */
 function toReviewerWriteContent(
   reviewers: SuggestedReviewer[],
@@ -124,7 +124,7 @@ function formatBulkActionSummary(
   const pluralized = successCount === 1 ? "report" : "reports";
   const formulated =
     action === "suppress"
-      ? `${pluralized} archived`
+      ? `${pluralized} dismissed`
       : action === "snooze"
         ? `${pluralized} snoozed`
         : action === "delete"
@@ -371,7 +371,7 @@ export function useInboxBulkActions(
         toast.success(formatBulkActionSummary("suppress", result));
       },
       onError: (error) => {
-        toast.error(error.message || "Failed to archive reports");
+        toast.error(error.message || "Failed to dismiss reports");
       },
     },
   );

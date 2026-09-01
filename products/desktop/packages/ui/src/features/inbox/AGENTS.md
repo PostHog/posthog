@@ -57,6 +57,8 @@ Responder configuration is **not** an Inbox tab. It is the top-level Responders 
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
 
+The Reports page keeps priority, report status, and sort controls on one line. Review and merge plus Needs decision are selected by default; Resolved and Dismissed can be added without switching tabs. Report rows show source icons and omit signal counts.
+
 ## Ownership Boundaries
 
 Keep the renderer thin:
@@ -93,6 +95,8 @@ Detail screens layer additional data on top of the base report:
 - `useInboxReportSignals(reportId)` for contributing findings.
 - `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers and repo selection.
 - `useReportTasks(reportId, status)` for linked research/implementation tasks.
+
+Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
 
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
 

@@ -687,6 +687,7 @@ export type InboxReportCloseMethod =
 
 export type InboxReportActionType =
   | "dismiss"
+  | "resolve"
   | "snooze"
   | "delete"
   | "reingest"

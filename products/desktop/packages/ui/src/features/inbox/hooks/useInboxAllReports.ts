@@ -57,11 +57,14 @@ export function useInboxAllReports(options?: {
    * that control, so it opts out to avoid a stored value filtering the list.
    */
   applySourceFilter?: boolean;
+  /** Ignore the shared search value on surfaces that do not render search. */
+  applySearchFilter?: boolean;
 }) {
   const enabled = options?.enabled ?? true;
   const ignoreScope = options?.ignoreScope ?? false;
   const ignoreFilters = options?.ignoreFilters ?? false;
   const applySourceFilter = options?.applySourceFilter ?? true;
+  const applySearchFilter = options?.applySearchFilter ?? true;
   const refetchIntervalMs =
     options?.refetchIntervalMs ?? INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
@@ -72,7 +75,7 @@ export function useInboxAllReports(options?: {
   const withReportsCount = options?.withReportsCount ?? false;
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const searchQuery = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? "" : s.searchQuery,
+    ignoreFilters || !applySearchFilter ? "" : s.searchQuery,
   );
   const sortField = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? "updated_at" : s.sortField,

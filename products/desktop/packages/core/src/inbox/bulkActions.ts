@@ -1,4 +1,7 @@
-import type { DismissalReasonOptionValue } from "@posthog/shared";
+import type {
+  DismissalReasonOptionValue,
+  ResolveReasonOptionValue,
+} from "@posthog/shared";
 
 export interface BulkActionResult {
   successCount: number;
@@ -38,6 +41,24 @@ export type SnoozeStateRequest = {
 /** Body for `updateSignalReportState` when snoozing. */
 export function buildSnoozeRequest(): SnoozeStateRequest {
   return { state: "potential", snooze_for: 1 };
+}
+
+export type ResolveStateRequest = {
+  state: "resolved";
+  dismissal_reason: ResolveReasonOptionValue;
+  dismissal_note?: string;
+};
+
+export function buildResolveRequest(
+  reason: ResolveReasonOptionValue,
+  note: string,
+): ResolveStateRequest {
+  const trimmedNote = note.trim().slice(0, 4000);
+  return {
+    state: "resolved",
+    dismissal_reason: reason,
+    ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),
+  };
 }
 
 /** Tally `Promise.allSettled` results into a success/failure count. */

@@ -32,15 +32,17 @@ import type { ReactNode } from "react";
 export interface ReportsInboxViewPresentationProps {
   reviewAndMerge: SignalReport[];
   reviewAndMergeCount: number;
+  showReviewAndMerge: boolean;
   needsPr: SignalReport[];
   needsPrCount: number;
+  showNeedsDecision: boolean;
   isLoading: boolean;
   isFetchingNextPage: boolean;
   isEmpty: boolean;
   hasActiveFilters: boolean;
   triageEnabled: boolean;
+  filterControl: ReactNode;
   scopeControl: ReactNode;
-  searchControl: ReactNode;
   resolvedSection?: ReactNode;
   renderReport: (report: SignalReport) => ReactNode;
   onConfigureAgents: () => void;
@@ -51,22 +53,24 @@ export interface ReportsInboxViewPresentationProps {
 export function ReportsInboxViewPresentation({
   reviewAndMerge,
   reviewAndMergeCount,
+  showReviewAndMerge,
   needsPr,
   needsPrCount,
+  showNeedsDecision,
   isLoading,
   isFetchingNextPage,
   isEmpty,
   hasActiveFilters,
   triageEnabled,
+  filterControl,
   scopeControl,
-  searchControl,
   resolvedSection,
   renderReport,
   onConfigureAgents,
   onEnterTriage,
   onClearFilters,
 }: ReportsInboxViewPresentationProps): React.JSX.Element {
-  const triageReportCount = reviewAndMerge.length + needsPr.length;
+  const triageReportCount = reviewAndMergeCount + needsPrCount;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
@@ -89,41 +93,38 @@ export function ReportsInboxViewPresentation({
             Issues and opportunities found in your product, ready to review
           </PageHeaderDescription>
         </PageHeaderHeading>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {triageEnabled && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-2"
-                    disabled={triageReportCount === 0}
-                    onClick={onEnterTriage}
-                  >
-                    <ListChecksIcon />
-                    Triage mode
-                    <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
-                      T
-                    </kbd>
-                  </Button>
-                }
-              />
-              <TooltipContent side="bottom">
-                Step through reports that need a decision, one at a time. Open,
-                create a PR, or archive each from the keyboard.
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {scopeControl}
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+          {filterControl}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {triageEnabled && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      disabled={triageReportCount === 0}
+                      onClick={onEnterTriage}
+                    >
+                      <ListChecksIcon />
+                      Triage mode
+                      <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
+                        T
+                      </kbd>
+                    </Button>
+                  }
+                />
+                <TooltipContent side="bottom">
+                  Step through reports that need a decision, one at a time.
+                  Open, create a PR, or dismiss each from the keyboard.
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {scopeControl}
+          </div>
         </div>
       </PageHeader>
-
-      <div className="shrink-0 border-(--gray-5) border-b">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-2.5 px-6 py-3">
-          {searchControl}
-        </div>
-      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-4">
@@ -170,20 +171,24 @@ export function ReportsInboxViewPresentation({
             </Empty>
           ) : (
             <>
-              <InboxReportSection
-                title="Review and merge"
-                reports={reviewAndMerge}
-                count={reviewAndMergeCount}
-                emptyNote="No pull requests open yet. Start one from a report below."
-                renderReport={renderReport}
-              />
-              <InboxReportSection
-                title="Needs a PR"
-                reports={needsPr}
-                count={needsPrCount}
-                emptyNote="No reports are waiting for a pull request."
-                renderReport={renderReport}
-              />
+              {showReviewAndMerge && (
+                <InboxReportSection
+                  title="Review and merge"
+                  reports={reviewAndMerge}
+                  count={reviewAndMergeCount}
+                  emptyNote="No pull requests are waiting for review."
+                  renderReport={renderReport}
+                />
+              )}
+              {showNeedsDecision && (
+                <InboxReportSection
+                  title="Needs decision"
+                  reports={needsPr}
+                  count={needsPrCount}
+                  emptyNote="No reports are waiting for a decision."
+                  renderReport={renderReport}
+                />
+              )}
               {isFetchingNextPage && (
                 <div className="flex justify-center py-2">
                   <Spinner />

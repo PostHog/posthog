@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { Adapter } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
-import type { DismissalReasonOptionValue } from "./dismissal-reasons";
+import type {
+  DismissalReasonOptionValue,
+  ReportStateReason,
+} from "./dismissal-reasons";
 import type { StoredLogEntry } from "./session-events";
 import type { UploadableSkillSource } from "./skills";
 
@@ -712,8 +715,8 @@ export interface SignalReport {
   actionability?: SignalReportActionability | null;
   /** Whether the issue appears already fixed, from the actionability judgment artefact. */
   already_addressed?: boolean | null;
-  /** Reason code from the latest dismissal artefact, set when the report was suppressed. */
-  dismissal_reason?: DismissalReasonOptionValue | null;
+  /** Reason code from the latest dismiss or resolve artefact. */
+  dismissal_reason?: ReportStateReason | null;
   /** Free-form note captured alongside the dismissal reason. */
   dismissal_note?: string | null;
   /** Whether the current user is a suggested reviewer for this report (server-annotated). */

@@ -1,6 +1,6 @@
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,8 +21,10 @@ const mocks = vi.hoisted(() => ({
     inboxTriageOrigin?: { reportId: string };
   },
   navigate: vi.fn(),
-  allReportsOptions: null as { applySourceFilter?: boolean } | null,
-  filterBarProps: null as { showSourceFilter?: boolean } | null,
+  allReportsOptions: null as {
+    applySourceFilter?: boolean;
+    applySearchFilter?: boolean;
+  } | null,
 }));
 
 vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
@@ -36,7 +38,10 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: (options: { applySourceFilter?: boolean }) => {
+  useInboxAllReports: (options: {
+    applySourceFilter?: boolean;
+    applySearchFilter?: boolean;
+  }) => {
     mocks.allReportsOptions = options;
     return {
       scopedReports: mocks.activeReports,
@@ -45,7 +50,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
       hasNextPage: false,
       isFetchingNextPage: false,
       fetchNextPage: vi.fn(),
-      searchQuery: mocks.searchQuery,
+      searchQuery: options.applySearchFilter === false ? "" : mocks.searchQuery,
       totalCount: 0,
       scope: "entire_project",
       isSuccess: true,
@@ -77,6 +82,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxSectionCounts", () => ({
         !report.implementation_pr_url,
     ).length,
     resolved: mocks.archivedReports.length,
+    dismissed: mocks.archivedReports.length,
     isLoading: false,
   }),
 }));
@@ -128,11 +134,8 @@ vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
   },
 }));
 
-vi.mock("@posthog/ui/features/inbox/components/InboxSearchFilterBar", () => ({
-  InboxSearchFilterBar: (props: { showSourceFilter?: boolean }) => {
-    mocks.filterBarProps = props;
-    return null;
-  },
+vi.mock("@posthog/ui/features/inbox/components/InboxReportFilters", () => ({
+  InboxReportFilters: () => null,
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/InboxScopeSelect", () => ({
@@ -177,29 +180,29 @@ describe("ReportsInboxView", () => {
     mocks.triageProps = null;
     mocks.locationState = {};
     mocks.allReportsOptions = null;
-    mocks.filterBarProps = null;
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
       sourceProductFilter: [],
       priorityFilter: [],
+      reportStateFilter: ["review_and_merge", "needs_decision"],
     });
   });
 
-  it("applies report search to the resolved and archived section", async () => {
+  it("shows resolved reports when that status is selected", async () => {
     mocks.activeReports = [activeReport("active-report", "Checkout summary")];
+    useInboxSignalsFilterStore.getState().toggleReportState("resolved");
     render(<ReportsInboxView />);
 
     await userEvent.click(screen.getByText("Resolved"));
 
     expect(screen.getByText("Checkout errors")).toBeInTheDocument();
-    expect(screen.queryByText("Slow dashboards")).not.toBeInTheDocument();
-    await waitFor(() => expect(mocks.fetchNextPage).toHaveBeenCalledOnce());
+    expect(screen.getByText("Slow dashboards")).toBeInTheDocument();
   });
 
   it("does not show terminal sections when the active inbox is empty", () => {
     render(<ReportsInboxView />);
 
-    expect(screen.getByText("No reports match your filters")).toBeTruthy();
+    expect(screen.getByText("Nothing to review")).toBeTruthy();
     expect(screen.queryByText("Resolved")).toBeNull();
   });
 
@@ -262,7 +265,9 @@ describe("ReportsInboxView", () => {
     const reviewSection = screen
       .getByText("Review and merge")
       .closest("section");
-    const needsPrSection = screen.getByText("Needs a PR").closest("section");
+    const needsPrSection = screen
+      .getByText("Needs decision")
+      .closest("section");
 
     expect(reviewSection).toHaveTextContent("Report with PR");
     expect(reviewSection).toHaveTextContent("feat(cohorts)");
@@ -273,8 +278,8 @@ describe("ReportsInboxView", () => {
     expect(screen.queryByText(/need a decision/)).toBeNull();
     expect(screen.queryByText("Review")).toBeNull();
     expect(screen.queryByLabelText(/Archive this report/)).toBeNull();
-    expect(mocks.filterBarProps?.showSourceFilter).toBe(false);
     expect(mocks.allReportsOptions?.applySourceFilter).toBe(false);
+    expect(mocks.allReportsOptions?.applySearchFilter).toBe(false);
   });
 
   it("returns to the same report in triage mode", () => {

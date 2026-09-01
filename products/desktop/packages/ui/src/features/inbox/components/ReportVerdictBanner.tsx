@@ -1,8 +1,8 @@
 import {
-  ArchiveIcon,
   ArrowSquareOutIcon,
   ArrowsOutSimpleIcon,
   ChatCircleIcon,
+  EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
@@ -77,7 +77,7 @@ interface ReportVerdictBannerProps {
 /**
  * The report's decision bar, closing the document: what state the report is
  * in, what it asks of the reader, and every action that answers the ask -
- * start the fix, review work in flight, discuss, or archive.
+ * start the fix, review work in flight, discuss, or dismiss.
  */
 export function ReportVerdictBanner({
   report,
@@ -195,14 +195,14 @@ export function ReportVerdictBanner({
     onTaskCreated: handleTaskCreated,
   });
 
-  // Keep Archive beside Create PR because both resolve the review decision.
+  // Keep Dismiss beside Create PR because both resolve the review decision.
   // Offer it wherever the report is waiting on a person
   // (several verdict bodies tell the reader to archive; the button should be
   // right there). Running reports keep it out of the banner because the header's
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
     useInboxReportDismissAction(report, surface, triageId);
-  const canArchiveHere =
+  const canDismissHere =
     report.status === "ready" ||
     report.status === "failed" ||
     report.status === "pending_input";
@@ -328,21 +328,21 @@ export function ReportVerdictBanner({
     return null;
   }
 
-  const archiveButton = canArchiveHere && !compact && (
+  const dismissButton = canDismissHere && !compact && (
     <Button
       type="button"
       variant="outline"
       onClick={openDismissDialog}
       className={buttonClass}
     >
-      <ArchiveIcon size={15} />
-      Archive…
+      <EyeSlashIcon size={15} />
+      Dismiss…
     </Button>
   );
 
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
-      {triageActions && archiveButton}
+      {triageActions && dismissButton}
       {report.status === "ready" && externalPrUrl ? (
         <Button
           type="button"
@@ -517,7 +517,7 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       )}
-      {!triageActions && archiveButton}
+      {!triageActions && dismissButton}
     </div>
   ) : null;
 

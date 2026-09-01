@@ -112,6 +112,8 @@ function ReportDetailContent({
           summarySection={{ Icon: FileTextIcon, title: "Summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+          showDismiss={false}
+          showMetadata={false}
         >
           <ReportReviewersSection report={report} />
           <ReportRunsSection report={report} />

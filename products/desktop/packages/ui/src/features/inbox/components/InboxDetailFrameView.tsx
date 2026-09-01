@@ -39,7 +39,6 @@ export interface InboxDetailFrameViewProps {
   metaPrefix?: ReactNode;
   metaSuffix?: ReactNode;
   primaryAction?: ReactNode;
-  reviewerHeader?: ReactNode;
   aboveSummary?: ReactNode;
   summarySection: { Icon: ComponentType<IconProps>; title: string };
   belowSummary?: ReactNode;
@@ -55,6 +54,7 @@ export interface InboxDetailFrameViewProps {
   secondaryTab?: { label: ReactNode; content: ReactNode };
   dismissButton?: ReactNode;
   dismissDialog?: ReactNode;
+  showMetadata?: boolean;
   children?: ReactNode;
 }
 
@@ -67,7 +67,6 @@ export function InboxDetailFrameView({
   metaPrefix,
   metaSuffix,
   primaryAction,
-  reviewerHeader,
   aboveSummary,
   summarySection,
   belowSummary,
@@ -80,6 +79,7 @@ export function InboxDetailFrameView({
   secondaryTab,
   dismissButton,
   dismissDialog,
+  showMetadata = true,
   children,
 }: InboxDetailFrameViewProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState("overview");
@@ -157,8 +157,7 @@ export function InboxDetailFrameView({
           <DetailBackLink to={backTo} label={backLabel} />
           {breadcrumb}
         </div>
-        <div className="flex items-center gap-2.5">
-          {reviewerHeader}
+        <div className="flex flex-wrap items-center justify-end gap-2.5">
           {primaryAction}
           {dismissButton}
         </div>
@@ -232,13 +231,15 @@ export function InboxDetailFrameView({
                   <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
                     {title}
                   </h1>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {report.status !== "ready" && (
-                      <SignalReportStatusBadge status={report.status} />
-                    )}
-                    {report.is_suggested_reviewer && <ForYouBadge />}
-                    <InboxMetaRow>{reportMeta}</InboxMetaRow>
-                  </div>
+                  {showMetadata && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {report.status !== "ready" && (
+                        <SignalReportStatusBadge status={report.status} />
+                      )}
+                      {report.is_suggested_reviewer && <ForYouBadge />}
+                      <InboxMetaRow>{reportMeta}</InboxMetaRow>
+                    </div>
+                  )}
                 </div>
                 {aboveSummary}
                 <ReportSummaryDocument report={report} />

@@ -18,7 +18,7 @@ import { type ReactElement, useCallback, useMemo, useState } from "react";
 
 const EMPTY_REPORTS: SignalReport[] = [];
 
-/** Archive flow used by every inbox detail screen – one report, one button + dialog. */
+/** Dismiss flow used by every inbox detail screen – one report, one button + dialog. */
 export function useInboxReportDismissAction(
   report: SignalReport,
   surface: InboxReportActionSurface = "detail_pane",
@@ -66,7 +66,7 @@ export function useInboxReportDismissAction(
             variant="outline"
             size="icon-xs"
             className="h-7 w-7"
-            aria-label="Archive this report for everyone in the project"
+            aria-label="Dismiss this report for everyone in the project"
             disabled={isPending}
             onClick={() => setOpen(true)}
           />
@@ -74,7 +74,7 @@ export function useInboxReportDismissAction(
       >
         {isPending ? <Spinner /> : <ArchiveIcon size={12} />}
       </TooltipTrigger>
-      <TooltipContent>Archive for everyone in this project</TooltipContent>
+      <TooltipContent>Dismiss for everyone in this project</TooltipContent>
     </Tooltip>
   );
 

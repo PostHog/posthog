@@ -1,18 +1,136 @@
-import { UsersThreeIcon } from "@phosphor-icons/react";
-import { suggestedReviewerDisplayName } from "@posthog/core/inbox/artefacts";
+import {
+  CheckIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  UsersThreeIcon,
+  XIcon,
+} from "@phosphor-icons/react";
+import {
+  suggestedReviewerDisplayName,
+  toSuggestedReviewerWriteContent,
+} from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
-import type { SignalReport } from "@posthog/shared/types";
+import {
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Spinner,
+} from "@posthog/quill";
+import type {
+  AvailableSuggestedReviewer,
+  SignalReport,
+  SuggestedReviewer,
+} from "@posthog/shared/types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  buildSuggestedReviewerFilterOptions,
+  getSuggestedReviewerDisplayName,
+} from "@posthog/ui/features/inbox/filterOptions";
+import {
+  useInboxAvailableSuggestedReviewers,
+  useInboxReportArtefacts,
+  useUpdateSuggestedReviewers,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { useDeferredValue, useMemo, useState } from "react";
+
+function reviewerMatchesAvailable(
+  reviewer: SuggestedReviewer,
+  available: AvailableSuggestedReviewer,
+): boolean {
+  if (reviewer.user?.uuid && reviewer.user.uuid === available.uuid) return true;
+  return (
+    !!reviewer.github_login &&
+    !!available.github_login &&
+    reviewer.github_login.toLowerCase() === available.github_login.toLowerCase()
+  );
+}
 
 export function ReportReviewersSection({ report }: { report: SignalReport }) {
+  const client = useOptionalAuthenticatedClient();
+  const fireAction = useReportActionTracker(report);
+  const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
   const { data } = useInboxReportArtefacts(report.id);
-  const reviewers = selectSuggestedReviewersArtefact(
-    data?.results ?? [],
-  )?.content;
+  const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
+  const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
+    report.id,
+  );
+  const { data: availableReviewers, isFetching } =
+    useInboxAvailableSuggestedReviewers({
+      enabled: !!client && addOpen,
+      query: deferredQuery,
+    });
+  const options = useMemo(() => {
+    const built = buildSuggestedReviewerFilterOptions(
+      availableReviewers?.results ?? [],
+      currentUser,
+    );
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
+    if (!normalizedQuery) return built;
+    return built.filter(
+      (option) =>
+        option.name.toLowerCase().includes(normalizedQuery) ||
+        option.email.toLowerCase().includes(normalizedQuery) ||
+        option.github_login.toLowerCase().includes(normalizedQuery),
+    );
+  }, [availableReviewers?.results, currentUser, deferredQuery]);
 
-  if (!reviewers || reviewers.length === 0) return null;
+  if (!artefact) return null;
+
+  const updateReviewer = (option: AvailableSuggestedReviewer): void => {
+    const existing = reviewers.find((reviewer) =>
+      reviewerMatchesAvailable(reviewer, option),
+    );
+    if (existing) {
+      removeReviewer(existing);
+      return;
+    }
+    const optimisticEntry: SuggestedReviewer = {
+      github_login: option.github_login,
+      github_name: option.name || null,
+      relevant_commits: [],
+      user: {
+        id: 0,
+        uuid: option.uuid,
+        email: option.email,
+        first_name: option.name,
+        last_name: "",
+      },
+    };
+    fireAction("add_suggested_reviewer", {
+      suggested_reviewer_login: option.github_login || undefined,
+      suggested_reviewer_uuid: option.uuid,
+    });
+    updateReviewers({
+      artefactId: artefact.id,
+      content: [
+        ...toSuggestedReviewerWriteContent(reviewers),
+        { user_uuid: option.uuid },
+      ],
+      optimisticReviewers: [...reviewers, optimisticEntry],
+    });
+  };
+
+  const removeReviewer = (reviewer: SuggestedReviewer): void => {
+    const next = reviewers.filter((candidate) => candidate !== reviewer);
+    fireAction("remove_suggested_reviewer", {
+      suggested_reviewer_login: reviewer.github_login || undefined,
+      suggested_reviewer_uuid: reviewer.user?.uuid,
+    });
+    updateReviewers({
+      artefactId: artefact.id,
+      content: toSuggestedReviewerWriteContent(next),
+      optimisticReviewers: next,
+    });
+  };
 
   return (
     <DetailSection
@@ -20,39 +138,155 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
       title="Reviewers"
       collapsible
       rightSlot={
-        <span className="text-[12px] text-gray-10 tabular-nums">
-          {reviewers.length}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-gray-10 tabular-nums">
+            {reviewers.length}
+          </span>
+          <Popover
+            open={addOpen}
+            onOpenChange={(next) => {
+              setAddOpen(next);
+              if (!next) setQuery("");
+            }}
+          >
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="link-muted"
+                  size="xs"
+                  disabled={isPending}
+                  data-attr="inbox-report-add-reviewer"
+                >
+                  {isPending ? <Spinner /> : <PlusIcon size={12} />}
+                  Add
+                </Button>
+              }
+            />
+            <PopoverContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="flex min-w-[280px] max-w-[320px] flex-col gap-2 p-2"
+            >
+              <div className="flex items-center gap-2 rounded-(--radius-2) border border-(--gray-6) bg-(--color-background) px-2 py-1">
+                <MagnifyingGlassIcon
+                  size={12}
+                  className="shrink-0 text-gray-10"
+                />
+                <input
+                  type="text"
+                  placeholder="Filter users…"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-(--gray-9)"
+                />
+              </div>
+              <div className="max-h-[280px] overflow-y-auto">
+                {isFetching && !availableReviewers?.results?.length ? (
+                  <div className="flex items-center justify-center py-3">
+                    <Spinner />
+                  </div>
+                ) : options.length === 0 ? (
+                  <span className="block px-1 py-2 text-[13px] text-gray-10">
+                    No users found.
+                  </span>
+                ) : (
+                  <div className="flex flex-col">
+                    {options.map((option) => {
+                      const assigned = reviewers.some((reviewer) =>
+                        reviewerMatchesAvailable(reviewer, option),
+                      );
+                      return (
+                        <button
+                          key={option.uuid}
+                          type="button"
+                          disabled={isPending}
+                          className="flex w-full items-center justify-between gap-2 rounded-(--radius-1) px-1 py-1 text-left text-[13px] text-gray-12 transition-colors hover:bg-(--gray-3) focus-visible:bg-(--gray-3) focus-visible:outline-none disabled:opacity-60"
+                          onClick={() => updateReviewer(option)}
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            {option.github_login ? (
+                              <SuggestedReviewerAvatar
+                                githubLogin={option.github_login}
+                                size="sm"
+                              />
+                            ) : null}
+                            <span className="flex min-w-0 flex-col">
+                              <span className="truncate">
+                                {getSuggestedReviewerDisplayName(option)}
+                              </span>
+                              {option.email ? (
+                                <span className="truncate text-[12px] text-gray-10">
+                                  {option.email}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                          <span
+                            className="flex h-4 w-4 shrink-0 items-center justify-center"
+                            aria-hidden
+                          >
+                            {assigned ? (
+                              <CheckIcon size={12} weight="bold" />
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       }
     >
-      <div className="flex flex-col gap-4">
-        {reviewers.map((reviewer) => (
-          <div
-            key={reviewer.user?.uuid ?? reviewer.github_login}
-            className="flex min-w-0 flex-col gap-1.5"
-          >
-            <div className="flex items-center gap-2">
-              {reviewer.github_login && (
-                <SuggestedReviewerAvatar
-                  githubLogin={reviewer.github_login}
-                  size="sm"
-                />
-              )}
-              <span className="truncate font-medium text-[13px] text-gray-12">
-                {suggestedReviewerDisplayName(reviewer)}
-              </span>
-            </div>
-            {reviewer.relevant_commits.map((commit) => (
-              <p
-                key={commit.sha}
-                className="m-0 text-[12px] text-gray-10 leading-relaxed"
+      {reviewers.length === 0 ? (
+        <p className="m-0 text-[12px] text-gray-10">No reviewers assigned.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {reviewers.map((reviewer) => (
+            <div
+              key={reviewer.user?.uuid ?? reviewer.github_login}
+              className="flex min-w-0 items-start justify-between gap-2"
+            >
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  {reviewer.github_login && (
+                    <SuggestedReviewerAvatar
+                      githubLogin={reviewer.github_login}
+                      size="sm"
+                    />
+                  )}
+                  <span className="truncate font-medium text-[13px] text-gray-12">
+                    {suggestedReviewerDisplayName(reviewer)}
+                  </span>
+                </div>
+                {reviewer.relevant_commits.map((commit) => (
+                  <p
+                    key={commit.sha}
+                    className="m-0 text-[12px] text-gray-10 leading-relaxed"
+                  >
+                    {commit.reason}
+                  </p>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="link-muted"
+                size="icon-xs"
+                aria-label={`Remove ${suggestedReviewerDisplayName(reviewer)}`}
+                disabled={isPending}
+                data-attr="inbox-report-remove-reviewer"
+                onClick={() => removeReviewer(reviewer)}
               >
-                {commit.reason}
-              </p>
-            ))}
-          </div>
-        ))}
-      </div>
+                <XIcon size={12} />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </DetailSection>
   );
 }

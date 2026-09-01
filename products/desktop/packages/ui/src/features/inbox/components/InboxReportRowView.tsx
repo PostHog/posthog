@@ -13,6 +13,7 @@ import {
 } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
+import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import type { HTMLAttributes, ReactNode } from "react";
@@ -38,9 +39,6 @@ export function InboxReportRowView({
   onOpenPr,
 }: InboxReportRowViewProps): React.JSX.Element {
   const conventionalTitle = parseConventionalCommitTitle(report.title);
-  const products = (report.source_products ?? [])
-    .map((product) => humanizeIdentifier(product).toLowerCase())
-    .join(" · ");
   const headline = deriveHeadline(report.summary);
   const prUrl = report.implementation_pr_url ?? null;
   const pr = prUrl ? parsePrUrl(prUrl) : null;
@@ -76,7 +74,7 @@ export function InboxReportRowView({
           </span>
         )}
         <span className="flex items-center gap-1.5 text-[12.5px] text-gray-10">
-          {products && <span className="truncate">{products}</span>}
+          <InboxMetaSourceStack sourceProducts={report.source_products} />
           <RelativeTimestamp
             timestamp={report.created_at}
             className="shrink-0 text-[12.5px]"
@@ -107,9 +105,6 @@ export function InboxReportRowView({
         )}
         {reviewers}
         <SignalReportPriorityBadge priority={report.priority} />
-        <span className="font-mono text-[13px] text-gray-11 tabular-nums">
-          {report.signal_count} signal{report.signal_count === 1 ? "" : "s"}
-        </span>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: This span only stops nested controls from opening the row. */}
         <span
           onClick={(event) => event.stopPropagation()}

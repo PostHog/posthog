@@ -1,5 +1,6 @@
-import { Button, Input } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
 import { InboxReportSection } from "@posthog/ui/features/inbox/components/InboxReportSection";
 import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
@@ -80,19 +81,21 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
   args: {
     reviewAndMerge,
     reviewAndMergeCount: reviewAndMerge.length,
+    showReviewAndMerge: true,
     needsPr,
     needsPrCount: needsPr.length,
+    showNeedsDecision: true,
     isLoading: false,
     isFetchingNextPage: false,
     isEmpty: false,
     hasActiveFilters: false,
     triageEnabled: true,
+    filterControl: <InboxReportFilters />,
     scopeControl: (
       <Button type="button" variant="outline" size="sm">
         For you
       </Button>
     ),
-    searchControl: <Input placeholder="Search reports…" />,
     resolvedSection: (
       <InboxReportSection
         title="Resolved"

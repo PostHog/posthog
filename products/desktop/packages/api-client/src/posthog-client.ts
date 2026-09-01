@@ -19,6 +19,7 @@ import {
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
+  type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
 } from "@posthog/shared";
 import type {
@@ -5116,6 +5117,11 @@ export class PostHogAPIClient {
           dismissal_note?: string;
           reset_weight?: boolean;
           error?: string;
+        }
+      | {
+          state: "resolved";
+          dismissal_reason: ResolveReasonOptionValue;
+          dismissal_note?: string;
         },
   ): Promise<SignalReport> {
     const teamId = await this.getTeamId();

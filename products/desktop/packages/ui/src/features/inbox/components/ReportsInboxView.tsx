@@ -2,9 +2,9 @@ import { INBOX_ACTIONABLE_REPORT_STATUS_FILTER } from "@posthog/core/inbox/repor
 import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
 import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
 import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
+import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRow } from "@posthog/ui/features/inbox/components/InboxReportRow";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
-import { InboxSearchFilterBar } from "@posthog/ui/features/inbox/components/InboxSearchFilterBar";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { ResolvedReportsSection } from "@posthog/ui/features/inbox/components/ResolvedReportsSection";
@@ -48,6 +48,7 @@ export function ReportsInboxView(): React.JSX.Element {
   } = useInboxAllReports({
     statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
     applySourceFilter: false,
+    applySearchFilter: false,
   });
   const triageFocusEnabled = useTriageFocusEnabled();
   const triageOrigin = useInboxTriageOrigin();
@@ -76,21 +77,39 @@ export function ReportsInboxView(): React.JSX.Element {
     hasActiveInboxFilters(state, {
       includePrFilter: false,
       includeSourceFilter: false,
+      includeReportStateFilter: true,
+      includeSearchFilter: false,
     }),
   );
   const resetFilters = useInboxSignalsFilterStore(
     (state) => state.resetFilters,
   );
-  const searchActive = searchQuery.trim().length > 0;
-  const reviewAndMergeCount = searchActive
-    ? sections.reviewAndMerge.length
-    : serverCounts.reviewAndMerge;
-  const needsPrCount = searchActive
-    ? sections.needsPr.length
-    : serverCounts.needsPr;
+  const reportStateFilter = useInboxSignalsFilterStore(
+    (state) => state.reportStateFilter,
+  );
+  const showAllStates = reportStateFilter.length === 0;
+  const showReviewAndMerge =
+    showAllStates || reportStateFilter.includes("review_and_merge");
+  const showNeedsDecision =
+    showAllStates || reportStateFilter.includes("needs_decision");
+  const showResolved = showAllStates || reportStateFilter.includes("resolved");
+  const showDismissed =
+    showAllStates || reportStateFilter.includes("dismissed");
+  const reviewAndMergeCount = showReviewAndMerge
+    ? serverCounts.reviewAndMerge
+    : 0;
+  const needsPrCount = showNeedsDecision ? serverCounts.needsPr : 0;
   const triageReports = useMemo(
-    () => [...sections.reviewAndMerge, ...sections.needsPr],
-    [sections.reviewAndMerge, sections.needsPr],
+    () => [
+      ...(showReviewAndMerge ? sections.reviewAndMerge : []),
+      ...(showNeedsDecision ? sections.needsPr : []),
+    ],
+    [
+      sections.reviewAndMerge,
+      sections.needsPr,
+      showNeedsDecision,
+      showReviewAndMerge,
+    ],
   );
 
   useTrackReportsInboxViewed({
@@ -150,35 +169,39 @@ export function ReportsInboxView(): React.JSX.Element {
     );
   }
 
-  const isEmpty = searchActive
-    ? sections.reviewAndMerge.length === 0 && sections.needsPr.length === 0
-    : !serverCounts.isLoading &&
-      serverCounts.reviewAndMerge === 0 &&
-      serverCounts.needsPr === 0;
+  const terminalCount =
+    (showResolved ? serverCounts.resolved : 0) +
+    (showDismissed ? serverCounts.dismissed : 0);
+  const isEmpty =
+    !serverCounts.isLoading &&
+    reviewAndMergeCount === 0 &&
+    needsPrCount === 0 &&
+    terminalCount === 0;
 
   return (
     <ReportsInboxViewPresentation
       reviewAndMerge={sections.reviewAndMerge}
       reviewAndMergeCount={reviewAndMergeCount}
+      showReviewAndMerge={showReviewAndMerge}
       needsPr={sections.needsPr}
       needsPrCount={needsPrCount}
+      showNeedsDecision={showNeedsDecision}
       isLoading={isLoading}
       isFetchingNextPage={isFetchingNextPage}
       isEmpty={isEmpty}
       hasActiveFilters={hasActiveFilters}
       triageEnabled={triageFocusEnabled}
+      filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}
-      searchControl={
-        <InboxSearchFilterBar
-          searchPlaceholder="Search reports…"
-          showSourceFilter={false}
-        />
-      }
       resolvedSection={
-        !isEmpty ? (
+        !isEmpty && (showResolved || showDismissed) ? (
           <ResolvedReportsSection
             searchQuery={searchQuery}
-            count={serverCounts.resolved}
+            statuses={[
+              ...(showResolved ? (["resolved"] as const) : []),
+              ...(showDismissed ? (["suppressed"] as const) : []),
+            ]}
+            count={terminalCount}
           />
         ) : undefined
       }
