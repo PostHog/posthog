@@ -1,14 +1,11 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -97,7 +94,7 @@ function DashboardInsightRefreshHintOrLoading({
                 key={queryId}
                 insightProps={insightProps}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+                suppressSlowQuerySuggestions
             />
         )
     }
@@ -174,7 +171,6 @@ export function InsightVizDisplay({
         theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { defaultTheme, themesLoading } = useValues(dataThemeLogic)
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
@@ -500,23 +496,10 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    // Themes resolved but none matched (empty list, or matching neither the environment default nor a
-    // global theme). getTheme then falls back to the built-in colors, so charts draw instead of a blank
-    // tile; capture the state to keep it measurable. Web Analytics insights don't use themes, so exempt.
-    const colorThemeMissing = !themesLoading && !defaultTheme && activeView !== InsightType.WEB_ANALYTICS
-    useEffect(() => {
-        if (colorThemeMissing) {
-            posthog.capture('insight color theme missing', {
-                dashboard_id: insightProps?.dashboardId ?? null,
-                insight_short_id:
-                    typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
-            })
-        }
-    }, [colorThemeMissing, insightProps?.dashboardId, insightProps?.dashboardItemId])
-
     // While the color theme is still loading, show loading rather than a blank tile. Once themes resolve,
-    // getTheme falls back to the built-in colors when none match, so `theme` is only null during load and
-    // the chart renders once, after the theme is ready. Web Analytics insights don't use themes.
+    // getTheme falls back to the built-in colors when none match or the request fails. `theme` is only
+    // null during an active load, so the chart renders once its color theme is ready. Web Analytics
+    // insights do not use themes.
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
         return (
             <InsightLoadingState

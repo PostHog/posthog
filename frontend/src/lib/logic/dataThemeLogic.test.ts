@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { DEFAULT_DATA_COLOR_THEME } from 'lib/colors'
 import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 describe('dataThemeLogic', () => {
@@ -11,6 +13,8 @@ describe('dataThemeLogic', () => {
     afterEach(() => {
         logic?.unmount()
         delete window.POSTHOG_RENDER_QUERY_PAYLOAD
+        jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it('getTheme falls back to the built-in default when the list resolved but no theme matched', async () => {
@@ -37,5 +41,16 @@ describe('dataThemeLogic', () => {
 
         await expectLogic(logic).toMatchValues({ themes: null })
         expect(logic.values.getTheme(undefined)).toBeNull()
+    })
+
+    it('getTheme falls back to the built-in default when loading themes fails', async () => {
+        silenceKeaLoadersErrors()
+        jest.spyOn(api.dataColorThemes, 'list').mockRejectedValue(new Error('Unable to load themes'))
+        initKeaTests()
+        logic = dataThemeLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadThemesFailure']).toMatchValues({ themes: [] })
+        expect(logic.values.getTheme(undefined)).toEqual(DEFAULT_DATA_COLOR_THEME)
     })
 })
