@@ -322,6 +322,19 @@ def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Sta
     return SignalReport.Status(value) if value is not None else None
 
 
+def get_content_revision_count(*, team_id: int, report_id: str) -> int:
+    """Team-scoped read of the report's running content-revision total, so an edit that doesn't itself
+    revise content (a note, a reviewer change, a restatement) can still echo the running total the
+    scout reasons about the cap with. Returns 0 when the report doesn't exist for the team, matching
+    the field's default — `record_content_revision` above is what mutates it."""
+    value = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .values_list("content_revision_count", flat=True)
+        .first()
+    )
+    return value if value is not None else 0
+
+
 def update_scout_report(
     *,
     team_id: int,

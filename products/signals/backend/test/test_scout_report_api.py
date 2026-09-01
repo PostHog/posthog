@@ -350,6 +350,35 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("note_only", {"append_note": "still there"}),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}),
+        ]
+    )
+    def test_non_revision_edit_returns_the_stored_running_total(self, _name, edit) -> None:
+        # The count is a running total, not a per-edit sentinel: a note or reviewer change on a report
+        # that has already been rewritten must echo the stored total, not the 0 initializer. The
+        # freshly-emitted case above (count 0) can't tell the two apart, so revise once first.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with patch(AUTOSTART_PATH, new=AsyncMock()):
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "the queue, not the handler"},
+                format="json",
+            )
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is False
+        assert response.json()["content_revision_count"] == 1
+        assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == 1
+
+    @parameterized.expand(
+        [
             # A note says the finding still holds. It is not an argument that the fix changed, so it
             # must not be a way to close someone's open pull request.
             ("note_only", {"append_note": "still there"}),
