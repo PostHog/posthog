@@ -10,9 +10,9 @@ import { FLAGS_PER_PAGE } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagType } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
-import type { FeatureFlagModalFilters } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
-import type { TeamPublicType, TeamType } from '../../../types'
+import type { FeatureFlagModalFilters } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 // Canonical definition lives in experimentsLogic; re-exported so existing importers keep working.
 export type { FeatureFlagModalFilters }
