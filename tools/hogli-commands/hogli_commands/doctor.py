@@ -2370,21 +2370,24 @@ def _check_git_health(repo_root: Path) -> CheckResult:
         return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="not a git checkout")
 
     health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
+    packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
     problems = []
     if health.stale_lock:
         problems.append("scheduled maintenance disabled by a stale lock")
-    if health.pack_count > _GIT_PACK_WARNING_THRESHOLD:
+    if packs_high:
         count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
         problems.append(f"{count} pack files")
     if health.missing_commit_graph:
         problems.append("no commit-graph")
 
     if problems:
+        # The default path repacks in the background, but only --fix writes the graph.
+        graph_only = health.missing_commit_graph and not health.stale_lock and not packs_high
         return CheckResult(
             name="Git housekeeping",
             status=CheckStatus.WARNING,
             summary=", ".join(problems),
-            remediation="run `hogli doctor:git`",
+            remediation="run `hogli doctor:git --fix`" if graph_only else "run `hogli doctor:git`",
         )
     return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="clean")
 
@@ -2549,9 +2552,14 @@ def _git_housekeeping_running() -> bool:
     return result.returncode == 0
 
 
-def _git_main_worktree(common_dir: Path) -> Path:
-    """The checkout that owns the object store, which is what maintenance registers."""
-    return common_dir.parent if common_dir.name == ".git" else common_dir
+def _git_main_worktree(repo_root: Path, common_dir: Path) -> Path:
+    """The checkout that owns the object store, which is what maintenance registers.
+
+    Preferring the owner over ``repo_root`` keeps a machine with many linked worktrees
+    from registering each one against the same object store. A separate git directory
+    (``git init --separate-git-dir``) has no work tree above it, so fall back.
+    """
+    return common_dir.parent if common_dir.name == ".git" else repo_root
 
 
 def _git_maintenance_registered(main_worktree: Path) -> bool:
@@ -2639,7 +2647,7 @@ def doctor_git(fix: bool) -> None:
         click.echo("Not a git checkout, nothing to check.")
         return
 
-    main_worktree = _git_main_worktree(common_dir)
+    main_worktree = _git_main_worktree(REPO_ROOT, common_dir)
     health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
     packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
     # Run the process scan only when a result depends on it.
@@ -2673,7 +2681,8 @@ def doctor_git(fix: bool) -> None:
             click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
             ok = _run_git(main_worktree, ["repack", "-adl", "--threads=0"], "repack")
         ok = ok and _write_commit_graph(main_worktree)
-        ok = ok and _run_git(main_worktree, ["multi-pack-index", "write", "--no-progress"], "multi-pack-index write")
+        if ok and health.pack_count:
+            ok = _run_git(main_worktree, ["multi-pack-index", "write", "--no-progress"], "multi-pack-index write")
         if not ok:
             click.secho("Repair stopped. The repository still needs work.", fg="red", err=True)
             raise SystemExit(1)

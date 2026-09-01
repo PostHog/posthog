@@ -18,6 +18,7 @@ from hogli_commands.doctor import (
     FLOX_LOG_MAX_AGE_DAYS,
     FLOX_LOG_MAX_TOTAL_BYTES,
     _binary_arches,
+    _check_git_health,
     _collect_import_targets,
     _config_procs,
     _confirm_stack_teardown,
@@ -1263,8 +1264,16 @@ def test_git_maintenance_registered_fails_safe_when_git_is_unavailable(monkeypat
     assert _git_maintenance_registered(Path("/repo")) is True
 
 
-def test_git_main_worktree_strips_the_dot_git_suffix(tmp_path: Path) -> None:
-    assert _git_main_worktree(tmp_path / "posthog" / ".git") == tmp_path / "posthog"
+def test_git_main_worktree_prefers_the_object_store_owner(tmp_path: Path) -> None:
+    repo = tmp_path / "worktree"
+    assert _git_main_worktree(repo, tmp_path / "posthog" / ".git") == tmp_path / "posthog"
+
+
+def test_git_main_worktree_falls_back_for_a_separate_git_dir(tmp_path: Path) -> None:
+    # `git init --separate-git-dir` puts the metadata outside the tree, so the parent
+    # of the common dir is not a work tree and git commands there fail.
+    repo = tmp_path / "checkout"
+    assert _git_main_worktree(repo, tmp_path / "elsewhere" / "myrepo.git") == repo
 
 
 def test_doctor_git_spawns_the_repack_detached_instead_of_blocking(
@@ -1407,3 +1416,38 @@ def test_doctor_git_fix_reports_a_failed_step_instead_of_success(
 
     assert result.exit_code == 1
     assert "Done." not in result.output
+
+
+@pytest.mark.parametrize(
+    "stale_lock, packs_over, missing_graph, expected",
+    [
+        (False, False, True, "run `hogli doctor:git --fix`"),
+        (False, True, True, "run `hogli doctor:git`"),
+        (True, False, True, "run `hogli doctor:git`"),
+        (False, True, False, "run `hogli doctor:git`"),
+    ],
+)
+def test_git_health_remediation_names_a_command_that_repairs_the_problem(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stale_lock: bool,
+    packs_over: bool,
+    missing_graph: bool,
+    expected: str,
+) -> None:
+    # Only --fix writes the commit-graph. Sending a graph-only warning to the default
+    # path prints "clean" and leaves the warning standing on the next run.
+    repo = tmp_path / "posthog"
+    (repo / ".git").mkdir(parents=True)
+    monkeypatch.setattr(
+        "hogli_commands.doctor._git_health",
+        lambda common, pack_cap: SimpleNamespace(
+            pack_count=pack_cap + 1 if packs_over else 3,
+            packs_capped=False,
+            has_promisor=True,
+            stale_lock=tmp_path / "lock" if stale_lock else None,
+            missing_commit_graph=missing_graph,
+        ),
+    )
+
+    assert _check_git_health(repo).remediation == expected
