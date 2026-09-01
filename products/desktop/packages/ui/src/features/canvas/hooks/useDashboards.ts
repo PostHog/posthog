@@ -1,5 +1,6 @@
 import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasVersion,
   DashboardRecord,
@@ -20,13 +21,8 @@ import {
 } from "./spaceQueryPolicy";
 
 const log = logger.scope("dashboards");
-
 // The naming helpers moved to @posthog/core (CanvasApplicationService uses them
 // for auto-naming); re-exported here for the UI surfaces that import them.
-export {
-  isPlaceholderCanvasName,
-  UNTITLED_CANVAS_NAME,
-} from "@posthog/core/canvas/canvasNaming";
 
 /** Saved canvases for a channel. */
 export function useDashboards(
@@ -56,29 +52,21 @@ export function useDashboards(
   return { dashboards: data ?? [], isLoading };
 }
 
-/**
- * Warm the dashboards-list cache for a channel ahead of opening it (e.g. on
- * hover), so expanding the channel shows its canvases without a cold fetch.
- * Respects the same staleTime, so it no-ops when the data is already fresh.
- */
-export function usePrefetchDashboards(): (channelId: string) => void {
+/** Every canvas across every visible space. */
+export function useAllCanvases(): {
+  dashboards: DashboardRecord[];
+  isLoading: boolean;
+} {
   const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.dashboards.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
-    },
-    [trpc, queryClient],
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.listAll.queryOptions(undefined, {
+      gcTime: SPACE_QUERY_GC_TIME_MS,
+      meta: AUTH_SCOPED_QUERY_META,
+      refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
+      staleTime: SPACE_QUERY_STALE_TIME_MS,
+    }),
   );
+  return { dashboards: data ?? [], isLoading };
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
@@ -130,6 +118,21 @@ export function useCanvasVersions(id: string | undefined): {
   return { versions: data ?? [], isLoading };
 }
 
+/** A canvas's staged drafts, newest first, each with its latest build status. */
+export function useCanvasDrafts(id: string | undefined): {
+  drafts: CanvasDraft[];
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.drafts.queryOptions(
+      { id: id ?? "" },
+      { enabled: !!id, staleTime: 5_000 },
+    ),
+  );
+  return { drafts: data ?? [], isLoading };
+}
+
 /** Create + delete + metadata mutations, invalidating the list + record. */
 export function useDashboardMutations() {
   const trpc = useHostTRPC();
@@ -159,6 +162,16 @@ export function useDashboardMutations() {
       },
     }),
   );
+  const promoteDraft = useMutation(
+    trpc.dashboards.promoteDraft.mutationOptions({
+      // Promote makes a draft the head and queues (or adopts) its build, and
+      // the version leaves the drafts list for published history — refresh the
+      // whole lifecycle (which includes drafts) for that canvas.
+      onSuccess: (_data, variables) => {
+        void invalidateCanvasLifecycle(queryClient, trpc, variables.id);
+      },
+    }),
+  );
   const setGenerationTask = useMutation(
     trpc.dashboards.setGenerationTask.mutationOptions({
       onSuccess: invalidate,
@@ -169,6 +182,9 @@ export function useDashboardMutations() {
   );
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
+  );
+  const file = useMutation(
+    trpc.dashboards.file.mutationOptions({ onSuccess: invalidate }),
   );
 
   return {
@@ -188,6 +204,12 @@ export function useDashboardMutations() {
       expectedCurrentVersionId: string | null,
     ) =>
       revertToVersion.mutateAsync({ id, versionId, expectedCurrentVersionId }),
+    // Make a staged draft the canvas's live head (and rebuild it if needed).
+    promoteDraft: (
+      id: string,
+      versionId: string,
+      expectedCurrentVersionId: string | null,
+    ) => promoteDraft.mutateAsync({ id, versionId, expectedCurrentVersionId }),
     // Record (or clear) the task generating this canvas. Shared on the canvas
     // row so every client polling the canvas sees the in-flight generation.
     setGenerationTask: (id: string, taskId: string | null) =>
@@ -200,17 +222,20 @@ export function useDashboardMutations() {
     // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
+    fileDashboard: (id: string, channelId: string) =>
+      file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
+    isPromoting: promoteDraft.isPending,
   };
 }
 
 /**
  * Create an empty canvas in a channel, enter edit mode, and navigate to it.
- * `opts.channelId` overrides the bound channel, for callers whose channel is
- * provisioned lazily and so has no id at render time (the "me" row).
+ * `opts.channelId` overrides the bound channel, for callers whose channel has no id at
+ * render time because the list has not loaded (the "me" row).
  */
 export function useCreateAndOpenDashboard(
   channelId: string | undefined,
@@ -233,7 +258,7 @@ export function useCreateAndOpenDashboard(
         const record = await createDashboard(targetChannelId, name, templateId);
         setEditing(record.id, true);
         await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
+          to: "/spaces/$channelId/dashboards/$dashboardId",
           params: { channelId: targetChannelId, dashboardId: record.id },
         });
       } catch (error) {

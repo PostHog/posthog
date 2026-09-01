@@ -11,13 +11,13 @@ import type {
   ReadResourceResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
 import type { McpUiResource } from "@posthog/core/mcp-apps/schemas";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { useCallback, useEffect, useRef } from "react";
 import { logger } from "../../../shell/logger";
 import { useDraftStore } from "../../message-editor/draftStore";
 import type { ToolCall } from "../../sessions/types";
-import { applyCspToHtml } from "../utils/mcp-app-csp";
 import {
   computeContainerDimensions,
   INLINE_MAX_HEIGHT,

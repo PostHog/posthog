@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { ExecCommandError } from '@/lib/errors'
 import { buildGatewayTools } from '@/lib/gateway-tools'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, type ExecCommandMeta } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 const INPUT_SCHEMA = {
@@ -204,5 +204,91 @@ describe('gateway tools', () => {
         await exec.handler(mockContext(), { command: 'search issue' })
 
         expect(provider).toHaveBeenCalledTimes(1)
+    })
+
+    describe('command tracking', () => {
+        function createTrackedExec(gatewayPayload: Schemas.AvailableToolsResponse = payload()): {
+            exec: Tool<any>
+            tracked: ExecCommandMeta[]
+        } {
+            const tracked: ExecCommandMeta[] = []
+            const gatewayTools = buildGatewayTools(gatewayPayload, mockContext(), '1')
+            const exec = createExecTool(
+                [posthogTool()],
+                mockContext(),
+                'description',
+                'command reference',
+                undefined,
+                undefined,
+                [],
+                {
+                    gatewayToolsProvider: async () => gatewayTools,
+                    trackCommand: (meta) => tracked.push(meta),
+                }
+            )
+            return { exec, tracked }
+        }
+
+        // The zero-match row is the reason this tracking exists: a search that finds
+        // nothing is the only record of a capability someone wanted and we lack. The
+        // gateway count separates "we have this" from "a vendor has this".
+        it.each([
+            ['matches both a PostHog and a gateway tool', 'create issue', 2, 1],
+            ['matches a PostHog tool only', 'feature flag', 1, 0],
+            ['matches nothing', 'kubernetes', 0, 0],
+        ])('reports a search that %s', async (_label, query, matchCount, gatewayMatchCount) => {
+            const { exec, tracked } = createTrackedExec()
+
+            await exec.handler(mockContext(), { command: `search ${query}` })
+
+            expect(tracked.at(-1)).toEqual({
+                exec_verb: 'search',
+                exec_search_query: query,
+                exec_search_match_count: matchCount,
+                exec_search_gateway_match_count: gatewayMatchCount,
+            })
+        })
+
+        it('counts every match, not just the page a truncated search returns', async () => {
+            // A ranked search returns only its top page, so counting what was returned
+            // would make a query matching far more tools look as narrow as one that
+            // matched exactly a page — flattening the demand signal this exists to measure.
+            const manyTools = {
+                servers: [
+                    {
+                        installation_id: 'inst-1',
+                        name: 'Linear',
+                        slug: 'linear',
+                        tools: Array.from({ length: 30 }, (_, i) => ({
+                            name: `issue_action_${i}`,
+                            description: 'Act on an issue',
+                            input_schema: INPUT_SCHEMA,
+                            annotations: {},
+                            approval_state: 'approved',
+                        })),
+                    },
+                ],
+            } as Schemas.AvailableToolsResponse
+            const { exec, tracked } = createTrackedExec(manyTools)
+
+            const result = JSON.parse((await exec.handler(mockContext(), { command: 'search issue' })) as string)
+
+            expect(result.truncated).toBe(true)
+            expect(result.matches.length).toBeLessThan(30)
+            expect(tracked.at(-1)).toEqual({
+                exec_verb: 'search',
+                exec_search_query: 'issue',
+                exec_search_match_count: 30,
+                exec_search_gateway_match_count: 30,
+            })
+        })
+
+        it('reports the verb even when the command throws', async () => {
+            const { exec, tracked } = createTrackedExec()
+
+            await expect(exec.handler(mockContext(), { command: 'call nope {}' })).rejects.toThrow()
+
+            expect(tracked).toEqual([{ exec_verb: 'call' }])
+        })
     })
 })

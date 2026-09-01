@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "An evaluation that scores LLM generations, traces, or sessions.",
     "properties": {
         "conditions": {
             "description": "Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.",
@@ -86,7 +87,7 @@
                     "properties": {
                         "source": {
                             "default": "user_messages",
-                            "description": "Classify sentiment from user messages in the generation input.",
+                            "description": "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents.",
                             "enum": ["user_messages"],
                             "type": "string"
                         }
@@ -97,7 +98,7 @@
             "description": "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
         },
         "evaluation_type": {
-            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
             "enum": ["llm_judge", "hog", "sentiment"],
             "type": "string"
         },

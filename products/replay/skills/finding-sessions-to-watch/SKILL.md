@@ -159,3 +159,9 @@ posthog:query-session-recordings-list
 - `activity_score` is a solid default proxy for "worth watching" when there's no sharper signal — but it
   rewards raw interaction volume, so prefer a goal-based filter (errors, a key page) when you have one.
 - Keep the shortlist short. The value is in choosing _for_ the user, not handing back the haystack.
+
+## Related skills
+
+- **`investigating-replay`** — analyze one of the shortlisted sessions in depth
+- **`diagnosing-missing-recordings`** — when queries keep coming back empty and capture itself is in doubt
+- **`creating-replay-vision-scanners`** — turn a recurring shortlist into a scheduled Replay Vision scanner

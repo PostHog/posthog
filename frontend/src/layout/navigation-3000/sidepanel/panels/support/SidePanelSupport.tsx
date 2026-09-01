@@ -254,7 +254,7 @@ export function SidePanelSupport(): JSX.Element {
     useValues(userLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { tickets, canCreateTicket } = useValues(sidepanelTicketsLogic)
+    const { tickets, canCreateTicket, view, currentTicket } = useValues(sidepanelTicketsLogic)
 
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
     const showMaxAI = isCloudOrDev
@@ -271,7 +271,7 @@ export function SidePanelSupport(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconExpand45 />}
-                            to={urls.myTickets()}
+                            to={urls.myTickets(view === 'ticket' ? currentTicket?.id : undefined)}
                             onClick={() => closeSidePanel()}
                             tooltip="View your tickets full screen"
                             // LemonButton's tooltip→aria-label fallback only applies to plain buttons,
@@ -389,7 +389,7 @@ export function SidePanelSupport(): JSX.Element {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to="https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml"
+                                    to="https://posthog.com/roadmap?idea=new"
                                     icon={<IconFeatures />}
                                     targetBlank
                                 >

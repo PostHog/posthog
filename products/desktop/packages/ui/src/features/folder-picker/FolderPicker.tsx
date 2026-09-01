@@ -28,9 +28,10 @@ import {
 } from "@posthog/quill";
 import type { RegisteredFolder } from "@posthog/ui/features/folders/types";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { FIELD_TRIGGER_CLASS } from "@posthog/ui/styles/fieldTrigger";
-import { Flex, Text } from "@radix-ui/themes";
+import { Text } from "@radix-ui/themes";
 import { useQueries } from "@tanstack/react-query";
 import { type RefObject, useMemo, useState } from "react";
 
@@ -168,7 +169,7 @@ export function FolderPicker({
 
   const fieldContent = (
     <>
-      <Flex align="center" gap="2" className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <FolderIcon size={16} className="shrink-0 text-(--gray-12)" />
         <Text
           className="min-w-0 max-w-full truncate text-left font-medium text-(--gray-12)"
@@ -176,12 +177,11 @@ export function FolderPicker({
         >
           {isOpening ? "Opening..." : displayValue || placeholder}
         </Text>
-      </Flex>
+      </div>
       {isOpening ? (
-        <CircleNotch
-          size={14}
-          className="shrink-0 animate-spin text-(--gray-9)"
-        />
+        <Spin className="shrink-0 text-(--gray-9)">
+          <CircleNotch size={14} />
+        </Spin>
       ) : (
         <CaretDown size={14} className="shrink-0 text-(--gray-9)" />
       )}
@@ -195,7 +195,9 @@ export function FolderPicker({
         {isOpening ? "Opening..." : displayValue || placeholder}
       </span>
       {isOpening ? (
-        <CircleNotch size={10} className="animate-spin text-muted-foreground" />
+        <Spin className="text-muted-foreground">
+          <CircleNotch size={10} />
+        </Spin>
       ) : (
         <CaretDown size={10} weight="bold" className="text-muted-foreground" />
       )}

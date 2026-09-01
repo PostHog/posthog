@@ -71,19 +71,6 @@ class TrpcPiSession implements PiSession {
     });
   }
 
-  getProjectTrust() {
-    return this.hostClient.piSession.getProjectTrust.query({
-      taskId: this.taskId,
-    });
-  }
-
-  setProjectTrusted(trusted: boolean) {
-    return this.hostClient.piSession.setProjectTrusted.mutate({
-      taskId: this.taskId,
-      trusted,
-    });
-  }
-
   respondToExtensionUI(
     response: Parameters<NonNullable<PiSession["respondToExtensionUI"]>>[0],
   ) {
@@ -116,7 +103,7 @@ class TrpcPiSession implements PiSession {
   ): () => void {
     const subscription = this.hostClient.piSession.onEvent.subscribe(
       { taskId: this.taskId },
-      { onData: onEvent, onError },
+      { onData: (event) => onEvent(event, { isLive: true }), onError },
     );
 
     return () => subscription.unsubscribe();

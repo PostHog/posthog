@@ -2,14 +2,15 @@
 
 Maps the raw GitHub pull-requests warehouse snapshot (GitHub's PR JSON, landed
 verbatim) into honest, query-able columns. This is the ONLY place PR-snapshot domain
-rules live — bot detection, repo identity from ``base.repo.full_name``, label
-extraction, the canonical PR state, and the coarse open-to-merge duration; the
-draft/ready-transition rules live once in ``issue_events`` + ``_curated``. The source table name
-is resolved per-team and passed in (see ``logic.sources``); it is never hardcoded,
-because a warehouse table's name is ``prefix + "github_pull_requests"`` and the prefix
-is user-chosen. Every query module embeds this ``SELECT`` as a subquery (see
-``_curated``) rather than re-deriving the columns from JSON; nothing registers it as a
-global HogQL view, so the product stays off the per-query catalog hot path.
+rules live — bot detection, repo identity from ``base.repo.full_name``, the repo's
+reported default branch, label extraction, the canonical PR state, and the coarse
+open-to-merge duration; the draft/ready-transition rules live once in ``issue_events`` +
+``_curated``. The source table name is resolved per-team and passed in (see
+``logic.sources``); it is never hardcoded, because a warehouse table's name is
+``prefix + "github_pull_requests"`` and the prefix is user-chosen. Every query module
+embeds this ``SELECT`` as a subquery (see ``_curated``) rather than re-deriving the
+columns from JSON; nothing registers it as a global HogQL view, so the product stays
+off the per-query catalog hot path.
 
 Merge-queue gate branches are filtered out here (see ``logic.merge_queue``). A queue opens a
 draft PR per merge attempt — a third of this repo's PR rows — and those are CI artifacts, not
@@ -68,9 +69,11 @@ def build_query(table_name: str) -> str:
             updated_at,
             merged_at,
             closed_at,
+            merge_commit_sha,
             head_sha,
             head_branch,
             base_branch,
+            default_branch,
             if(merged_at IS NOT NULL, dateDiff('second', created_at, merged_at), NULL) AS open_to_merge_seconds
         FROM (
             SELECT
@@ -91,10 +94,16 @@ def build_query(table_name: str) -> str:
                 -- base.ref is the branch the PR merges into (usually the default branch); the LLM-spend
                 -- session join treats it as neutral, since agents stamp pre-branch exploration with it.
                 JSONExtractString(base, 'ref') AS base_branch,
+                -- base.repo is a full repository object, so unlike the run payload it carries the
+                -- repo's reported default branch (see query_default_branches).
+                ifNull(JSONExtractString(base, 'repo', 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(created_at) AS created_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(merged_at) AS merged_at,
-                parseDateTimeBestEffort(closed_at) AS closed_at
+                parseDateTimeBestEffort(closed_at) AS closed_at,
+                -- Terminal only on a merged PR; on an open PR GitHub fills it with a throwaway
+                -- test-merge commit, so every read joining on it must gate on merged_at.
+                ifNull(merge_commit_sha, '') AS merge_commit_sha
             FROM {table_name}
         )
         WHERE NOT {merge_queue_branch_expr("head_branch", queue_actor_column="author_handle")}

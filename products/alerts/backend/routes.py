@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-import products.alerts.backend.api.alert as alert
+import products.alerts.backend.presentation.views.alert as alert
 
 
 def register_routes(routers: RouterRegistry) -> None:

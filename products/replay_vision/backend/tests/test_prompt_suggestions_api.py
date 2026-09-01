@@ -134,16 +134,6 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertIn("Couldn't generate a suggestion right now", resp.json()["detail"])
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
 
-    def test_product_flag_off_hides_endpoints(self) -> None:
-        self._create_rated_observation("sess-1", True)
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
-            current_resp = self.client.get(self._suggestions_url("current/"))
-            generate_resp = self.client.post(self._suggestions_url("generate/"))
-        self.assertEqual(current_resp.status_code, 404, current_resp.content)
-        self.assertEqual(generate_resp.status_code, 404, generate_resp.content)
-        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
-
     def test_current_reports_staleness_when_ratings_change(self) -> None:
         observation = self._create_rated_observation("sess-1", False, "should be yes")
         self.client.post(self._suggestions_url("generate/"))
@@ -481,7 +471,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def test_mutations_require_editor_access(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         ):
             resp = self.client.post(self._suggestions_url("generate/"))

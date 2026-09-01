@@ -1,0 +1,109 @@
+import { Meta, StoryObj } from '@storybook/react'
+import { BindLogic } from 'kea'
+
+import __dashboard1 from 'scenes/dashboard/__mocks__/dashboard1.json'
+import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
+import { AddInsightToDashboardModal } from 'scenes/dashboard/addInsightToDashboardModal/AddInsightToDashboardModal'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
+import { mswDecorator } from '~/mocks/browser'
+
+const dashboardRaw = __dashboard1 as any
+
+const dashboard = {
+    ...dashboardRaw,
+    tiles: dashboardRaw.tiles.map((tile: any) => ({
+        ...tile,
+        is_cached: true,
+        ...(tile.insight
+            ? {
+                  insight: {
+                      ...tile.insight,
+                      last_refresh: new Date().toISOString(),
+                      is_cached: true,
+                      cache_target_age: new Date(Date.now() + 3600000).toISOString(),
+                  },
+              }
+            : {}),
+    })),
+}
+
+const mockInsightsList = {
+    results: dashboard.tiles
+        .filter((tile: any) => tile.insight)
+        .map((tile: any) => ({
+            ...tile.insight,
+            tags: tile.insight.tags || ['marketing'],
+            description: tile.insight.description || 'A sample insight for testing',
+        })),
+    count: dashboard.tiles.filter((tile: any) => tile.insight).length,
+    next: null,
+    previous: null,
+}
+
+const DASHBOARD_ID = 1
+
+const meta: Meta = {
+    component: AddInsightToDashboardModal,
+    title: 'Products/Dashboards/Add Insight to Dashboard Modal',
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
+                [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/`]: dashboard,
+                '/api/environments/:team_id/insights/': mockInsightsList,
+            },
+            post: {
+                '/api/environments/:team_id/insights/cancel/': [201],
+            },
+        }),
+    ],
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2023-02-01',
+        testOptions: { waitForSelector: '.LemonModal', viewport: { width: 1300, height: 2000 } },
+    },
+}
+export default meta
+
+type Story = StoryObj<{}>
+
+function ModalStory({ showMore = false }: { showMore?: boolean }): JSX.Element {
+    addInsightToDashboardLogic.mount()
+    addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
+    if (showMore) {
+        addInsightToDashboardLogic.actions.toggleShowMoreInsightTypes()
+    }
+
+    return (
+        <BindLogic logic={dashboardLogic} props={{ id: DASHBOARD_ID }}>
+            <AddInsightToDashboardModal />
+        </BindLogic>
+    )
+}
+
+export const Default: Story = {
+    render: () => <ModalStory />,
+}
+
+export const WithMoreInsightTypes: Story = {
+    render: () => <ModalStory showMore />,
+}
+
+export const Empty: Story = {
+    render: () => <ModalStory />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
+                [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/`]: dashboard,
+                '/api/environments/:team_id/insights/': { results: [], count: 0, next: null, previous: null },
+            },
+            post: {
+                '/api/environments/:team_id/insights/cancel/': [201],
+            },
+        }),
+    ],
+}

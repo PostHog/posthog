@@ -14,6 +14,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+
 import { NewProductTourModal } from './components/NewProductTourModal'
 import { ProductToursTable } from './components/ProductToursTable'
 import { ProductToursTabs, productToursLogic } from './productToursLogic'
@@ -22,6 +24,7 @@ export const scene: SceneExport = {
     component: ProductTours,
     logic: productToursLogic,
     productKey: ProductKey.PRODUCT_TOURS,
+    emptyState: productToursEmptyState,
 }
 
 function NewTourButton(): JSX.Element {

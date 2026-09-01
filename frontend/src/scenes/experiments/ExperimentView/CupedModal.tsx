@@ -4,7 +4,8 @@ import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@p
 
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
-import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from '../constants'
+import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { CupedSelection, getCupedSelection, resolveCupedLookbackDays } from './cuped'

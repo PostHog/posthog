@@ -295,3 +295,9 @@ filter is too narrow — widen it.
   separate fingerprints back out of a merged issue.
 - Grouping rules are visible in the UI under Project settings → Error tracking →
   Grouping rules; mention this when the user asks where rules live.
+
+## Related skills
+
+- **`suppressing-noisy-errors`** — drop worthless events entirely instead of regrouping them
+- **`triaging-error-issues`** — re-rank the issue queue once grouping is cleaned up
+- **`investigating-error-issue`** — inspect a merged issue end to end

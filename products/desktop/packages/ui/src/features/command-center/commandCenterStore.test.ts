@@ -1,5 +1,6 @@
 import {
   BRAINROT_CELL,
+  makeCanvasCellValue,
   makeTerminalCellValue,
 } from "@posthog/core/command-center/grid";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,13 +115,11 @@ describe("commandCenterStore", () => {
       ]);
     });
 
-    it("focuses the cell, clears its creating state, and marks the grid curated", () => {
-      useCommandCenterStore.setState({ creatingCells: [3] });
+    it("focuses the cell and marks the grid curated", () => {
       useCommandCenterStore.getState().setBrainrotCell(3);
       const state = useCommandCenterStore.getState();
       expect(state.activeCellIndex).toBe(3);
       expect(state.activeTaskId).toBeNull();
-      expect(state.creatingCells).toEqual([]);
       expect(state.hasAutofilled).toBe(true);
     });
 
@@ -147,13 +146,11 @@ describe("commandCenterStore", () => {
       ]);
     });
 
-    it("focuses the cell, clears its creating state, and marks the grid curated", () => {
-      useCommandCenterStore.setState({ creatingCells: [3] });
+    it("focuses the cell and marks the grid curated", () => {
       useCommandCenterStore.getState().setTerminalCell(3, "term-1");
       const state = useCommandCenterStore.getState();
       expect(state.activeCellIndex).toBe(3);
       expect(state.activeTaskId).toBeNull();
-      expect(state.creatingCells).toEqual([]);
       expect(state.hasAutofilled).toBe(true);
     });
 
@@ -168,6 +165,35 @@ describe("commandCenterStore", () => {
     });
   });
 
+  describe("setCanvasCell", () => {
+    it("stores one canvas once and focuses its cell", () => {
+      useCommandCenterStore.getState().setCanvasCell(1, "canvas-1");
+      useCommandCenterStore.getState().setCanvasCell(3, "canvas-1");
+
+      const state = useCommandCenterStore.getState();
+      expect(state.cells).toEqual([
+        null,
+        null,
+        null,
+        makeCanvasCellValue("canvas-1"),
+      ]);
+      expect(state.activeCellIndex).toBe(3);
+      expect(state.activeTaskId).toBeNull();
+      expect(state.hasAutofilled).toBe(true);
+    });
+
+    it("clears a pending canvas placement", () => {
+      useCommandCenterStore.getState().requestPlacement({
+        kind: "canvas",
+        id: "canvas-1",
+        title: "Activation overview",
+      });
+      useCommandCenterStore.getState().setCanvasCell(2, "canvas-1");
+
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+    });
+  });
+
   describe("hasAutofilled", () => {
     it("assigning a task marks the grid as curated", () => {
       useCommandCenterStore.getState().assignTask(0, "t1");
@@ -178,6 +204,82 @@ describe("commandCenterStore", () => {
       useCommandCenterStore.setState({ cells: ["a", "b", "c", "d"] });
       useCommandCenterStore.getState().autofillCells([]);
       expect(useCommandCenterStore.getState().hasAutofilled).toBe(true);
+    });
+  });
+
+  // The write every bulk placement lands through. The plan itself is covered by
+  // placement.test.ts; what's here is the reconciliation only this write does.
+  describe("applyPlacement", () => {
+    it("follows the active task to its new index when the grid grows", () => {
+      useCommandCenterStore.setState({
+        layout: "2x2",
+        cells: ["a", "b", "c", null],
+        activeTaskId: "c",
+        activeCellIndex: 2,
+      });
+
+      useCommandCenterStore.getState().applyPlacement({
+        layout: "3x2",
+        cells: ["a", "b", "d", "c", "e", "f"],
+      });
+
+      const state = useCommandCenterStore.getState();
+      expect(state.layout).toBe("3x2");
+      expect(state.activeTaskId).toBe("c");
+      expect(state.activeCellIndex).toBe(3);
+    });
+
+    it("drops the active task when the placement left it off the grid", () => {
+      useCommandCenterStore.setState({
+        cells: ["a", null, null, null],
+        activeTaskId: "a",
+        activeCellIndex: 0,
+      });
+
+      useCommandCenterStore
+        .getState()
+        .applyPlacement({ layout: "2x2", cells: ["b", null, null, null] });
+
+      const state = useCommandCenterStore.getState();
+      expect(state.activeTaskId).toBeNull();
+      expect(state.activeCellIndex).toBe(0);
+    });
+
+    it("marks the grid curated so autofill can't stuff it later", () => {
+      useCommandCenterStore
+        .getState()
+        .applyPlacement({ layout: "2x2", cells: ["a", null, null, null] });
+
+      expect(useCommandCenterStore.getState().hasAutofilled).toBe(true);
+    });
+  });
+
+  describe("pending placement", () => {
+    it("keeps the requested task available until placement is canceled", () => {
+      useCommandCenterStore.getState().requestPlacement({
+        kind: "task",
+        id: "t1",
+        title: "Fix signup",
+      });
+      expect(useCommandCenterStore.getState().pendingPlacement).toEqual({
+        kind: "task",
+        id: "t1",
+        title: "Fix signup",
+      });
+
+      useCommandCenterStore.getState().cancelPlacement();
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+    });
+
+    it("clears the request when the task is assigned", () => {
+      useCommandCenterStore.getState().requestPlacement({
+        kind: "task",
+        id: "t1",
+        title: "Fix signup",
+      });
+      useCommandCenterStore.getState().assignTask(2, "t1");
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+      expect(useCommandCenterStore.getState().cells[2]).toBe("t1");
     });
   });
 });

@@ -241,7 +241,7 @@ describe("CloudPiSessionClient", () => {
     }
   });
 
-  it("waits for a fresh start when a queued resume snapshot contains an old start", async () => {
+  it("waits for a fresh start when a resume snapshot's sandbox has stopped", async () => {
     const cloud = createCloudTaskClient();
     vi.mocked(cloud.client.sendCommand).mockResolvedValue({
       success: true,
@@ -261,6 +261,7 @@ describe("CloudPiSessionClient", () => {
       runId: "run-1",
       kind: "snapshot",
       status: "in_progress",
+      sandboxAlive: false,
       newEntries: [{ type: "pi_run_started" }],
       totalEntryCount: 1,
     });
@@ -274,6 +275,35 @@ describe("CloudPiSessionClient", () => {
       kind: "logs",
       newEntries: [{ type: "pi_run_started" }],
       totalEntryCount: 2,
+    });
+
+    await expect(state).resolves.toMatchObject({ isStreaming: false });
+    expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
+  });
+
+  it("becomes ready from a live snapshot when the fetched status was stale", async () => {
+    const cloud = createCloudTaskClient();
+    vi.mocked(cloud.client.sendCommand).mockResolvedValue({
+      success: true,
+      result: {
+        type: "response",
+        command: "get_state",
+        success: true,
+        data: { isStreaming: false },
+      },
+    });
+    const session = new CloudPiSessionClient(cloud.client, context("queued"));
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    const state = session.client.getState();
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      sandboxAlive: true,
+      newEntries: [{ type: "pi_run_started" }],
+      totalEntryCount: 1,
     });
 
     await expect(state).resolves.toMatchObject({ isStreaming: false });
@@ -337,7 +367,11 @@ describe("CloudPiSessionClient", () => {
       context("in_progress"),
     );
     const events: AgentConversationEvent[] = [];
-    session.onConversationEvent((event) => events.push(event), vi.fn());
+    const eventContexts: Array<{ isLive: boolean } | undefined> = [];
+    session.onConversationEvent((event, context) => {
+      events.push(event);
+      eventContexts.push(context);
+    }, vi.fn());
 
     cloud.sendUpdate({
       taskId: "task-1",
@@ -371,6 +405,7 @@ describe("CloudPiSessionClient", () => {
         group: "setup:run-1",
       }),
     ]);
+    expect(eventContexts).toEqual([{ isLive: true }]);
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
   });
 
@@ -435,7 +470,11 @@ describe("CloudPiSessionClient", () => {
       context("completed"),
     );
     const events: AgentConversationEvent[] = [];
-    session.onConversationEvent((event) => events.push(event), vi.fn());
+    const eventContexts: Array<{ isLive: boolean } | undefined> = [];
+    session.onConversationEvent((event, context) => {
+      events.push(event);
+      eventContexts.push(context);
+    }, vi.fn());
 
     const conversation = session.getConversation();
     cloud.sendUpdate({
@@ -459,8 +498,12 @@ describe("CloudPiSessionClient", () => {
     await expect(session.client.getCommands()).resolves.toEqual([]);
     expect(events).toEqual([
       expect.objectContaining(snapshotEvent),
-      expect.objectContaining({ type: "turn_completed" }),
+      expect.objectContaining({
+        type: "turn_completed",
+        stopReason: "end_turn",
+      }),
     ]);
+    expect(eventContexts).toEqual([{ isLive: false }, { isLive: false }]);
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
   });
 

@@ -5,12 +5,11 @@ import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from 
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { GATEWAY_TOOL_SEPARATOR } from '@/lib/gateway-tools'
-
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
@@ -78,6 +77,27 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+/**
+ * What the agent asked `exec` to do, for the `$mcp_tool_call` event.
+ *
+ * `call` is already attributed to the inner tool it dispatched, so the value here is in
+ * the other verbs — above all `search`, whose query is the only record of what an agent
+ * looked for. A search that matches nothing is otherwise invisible, which leaves the
+ * question "which capability do people reach for that we don't have" unanswerable.
+ */
+export interface ExecCommandMeta {
+    /** The verb the agent used: `search`, `info`, `schema`, `tools`, `learn`, `call`. */
+    exec_verb: string
+    /** The raw search query. Already bounded to MAX_SEARCH_PATTERN_LENGTH by the handler. */
+    exec_search_query?: string
+    /** How many tools matched, before the response is truncated — 0 is the interesting case. */
+    exec_search_match_count?: number
+    /** How many of those matches came from a connected third-party server. */
+    exec_search_gateway_match_count?: number
+}
+
+export type ExecCommandTracker = (meta: ExecCommandMeta) => void
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     helpCatalog?: ExecHelpCatalog
@@ -95,6 +115,8 @@ export interface ExecToolOptions {
      * degrades to "no third-party tools", never to a broken `exec`.
      */
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
+    /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
+    trackCommand?: ExecCommandTracker
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -150,6 +172,38 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     }
     const innerName = parseCommand(callArgs).verb
     return innerName || undefined
+}
+
+// Extracts the inner tool's JSON arguments from an exec `call` command, e.g.
+// `call skill-get {"skill_name":"x"}` → `{ skill_name: 'x' }`. Sibling of
+// parseExecCallInnerToolName, and deliberately mirrors how the `call` handler
+// below reads the same command — a body-less call is `{}` there, so it is `{}`
+// here. Returns undefined when no inner arguments exist to read: another verb,
+// or a body that is not a JSON object. Analytics uses this because in
+// single-exec mode the arguments never arrive as tool arguments, so a property
+// derived only from those would miss nearly every skill read.
+export function parseExecCallInnerArgs(command: string): Record<string, unknown> | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const callArgs = parseCallFlags(rest).rest
+    if (!callArgs) {
+        return
+    }
+    const { rest: jsonBody } = parseCommand(callArgs)
+    if (!jsonBody) {
+        return {}
+    }
+    try {
+        const parsed: unknown = JSON.parse(jsonBody)
+        // Arrays and `null` are typeof 'object'; only a plain object holds arguments.
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : undefined
+    } catch {
+        return
+    }
 }
 
 /** Verbs the dispatcher grammar accepts. A verb outside this set is what the
@@ -259,10 +313,10 @@ export function createExecInnerToolCallResolver(
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
-        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for patterns.',
     'entity-search': (allTools) => {
         const base =
-            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
+            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
         const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
         return hasCatalog
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
@@ -275,7 +329,7 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'property-definitions': () =>
         'Tool "property-definitions" was removed. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))
@@ -576,6 +630,9 @@ export function createExecTool(
         },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
+            // Reported up front so a command that throws (unknown tool, bad regex) still
+            // records what was attempted — those are the failures worth counting.
+            options.trackCommand?.({ exec_verb: verb })
 
             let gatewayTools: Tool<ZodObjectAny>[] | undefined
             /** PostHog's tools plus any third-party tools the caller has connected.
@@ -656,12 +713,17 @@ export function createExecTool(
                     // predicate; plain words — including multi-word, natural-
                     // language queries — use forgiving token ranking.
                     const searchableTools = await resolveTools()
+                    // `matches` is the page the agent sees; `matchedNames` is every match,
+                    // which is what the counts report — a truncated page would make a broad
+                    // query look as narrow as a precise one.
+                    let matchedNames: string[]
                     let matches: string[]
                     let gatedMatches: ScopeGatedTool[]
                     let truncatedFrom = 0
                     if (isRegexPattern(rest)) {
                         try {
-                            matches = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
                         } catch {
                             throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
@@ -669,7 +731,8 @@ export function createExecTool(
                     } else {
                         const ranked = searchToolsRanked(searchableTools, rest)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
-                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        matchedNames = ranked.map((r) => r.name)
+                        matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
                         // Preserve ranked order for gated matches too, then map
                         // each name back to its ScopeGatedTool (for missingScopes).
                         const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
@@ -677,6 +740,13 @@ export function createExecTool(
                             .map((r) => gatedByName.get(r.name))
                             .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
+
+                    options.trackCommand?.({
+                        exec_verb: verb,
+                        exec_search_query: rest,
+                        exec_search_match_count: matchedNames.length,
+                        exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
+                    })
 
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()

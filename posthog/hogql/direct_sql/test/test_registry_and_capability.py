@@ -6,6 +6,7 @@ from posthog.hogql.direct_sql import (
     ClickHouseAdapter,
     MySQLAdapter,
     PostgresAdapter,
+    TrinoAdapter,
     registry as registry_module,
 )
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
@@ -20,19 +21,28 @@ class TestDirectSQLRegistry(SimpleTestCase):
         self.assertIsInstance(get_adapter("postgres"), PostgresAdapter)
         self.assertIsInstance(get_adapter("mysql"), MySQLAdapter)
         self.assertIsInstance(get_adapter("clickhouse"), ClickHouseAdapter)
+        self.assertIsInstance(get_adapter("trino"), TrinoAdapter)
 
     @parameterized.expand([("none", None), ("unregistered", "bigquery")])
     def test_get_adapter_returns_none_for_unknown_engine(self, _name, engine):
         self.assertIsNone(get_adapter(engine))
 
     def test_registered_engines_includes_all_engines(self):
-        self.assertEqual({"postgres", "mysql", "snowflake", "redshift", "clickhouse"}, set(registered_engines()))
+        self.assertEqual(
+            {"postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck", "trino"},
+            set(registered_engines()),
+        )
 
     def test_clickhouse_adapter_compiles_hogql(self):
         adapter = get_adapter("clickhouse")
         assert adapter is not None
         # dialect is non-None, so direct_supports_hogql is True (not raw-only).
         self.assertEqual(adapter.dialect, "clickhouse")
+
+    def test_trino_adapter_remains_raw_only(self):
+        adapter = get_adapter("trino")
+        assert adapter is not None
+        self.assertIsNone(adapter.dialect)
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:
@@ -58,6 +68,9 @@ class TestDirectSQLCapability(SimpleTestCase):
             ("clickhouse_synced_enabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", True, True),
             ("clickhouse_synced_disabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", False, False),
             ("clickhousecloud_direct", ExternalDataSourceType.CLICKHOUSECLOUD, "direct", False, True),
+            ("motherduck_direct_ignores_toggle", ExternalDataSourceType.MOTHERDUCK, "direct", False, True),
+            ("trino_direct_ignores_toggle", ExternalDataSourceType.TRINO, "direct", False, True),
+            ("motherduck_synced_enabled", ExternalDataSourceType.MOTHERDUCK, "warehouse", True, True),
             ("unmapped_engine_synced", ExternalDataSourceType.STRIPE, "warehouse", True, False),
             ("unmapped_engine_direct", ExternalDataSourceType.STRIPE, "direct", True, False),
         ]
@@ -79,6 +92,8 @@ class TestDirectSQLCapability(SimpleTestCase):
                 ExternalDataSourceType.REDSHIFT,
                 ExternalDataSourceType.CLICKHOUSE,
                 ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSourceType.MOTHERDUCK,
+                ExternalDataSourceType.TRINO,
             },
             set(direct_capable_source_types()),
         )

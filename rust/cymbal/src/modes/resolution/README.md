@@ -45,7 +45,7 @@ events ──HTTP─────▶│ cymbal                                   
 
 The contract is intentionally split across two streams:
 
-- **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`.
+- **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`. A `Done` carries the resolved exception JSON plus a `release_id`: the newest release bound to a symbol set the item's frames reference. It is empty when no referenced symbol set has a release, and on servers that predate the field, so callers treat empty as "no release".
 - **`Subscribe`** is endpoint freshness, draining, and soft load state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot plus an `in_flight` / `max_in_flight` routing bias. `LoadEvent` does not carry overload state or suggested batch sizing.
 
 `Error.kind` is the shared control-flow surface:

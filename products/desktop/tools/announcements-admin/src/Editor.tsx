@@ -86,8 +86,6 @@ function surfaceLabel(item: EditableItem): string {
 function describeChanges(
   before: EditableItem[],
   after: EditableItem[],
-  beforeSuppress: boolean,
-  afterSuppress: boolean,
 ): string[] {
   const beforeById = new Map(
     before.filter((item) => item.id).map((item) => [item.id, item]),
@@ -127,13 +125,6 @@ function describeChanges(
   if (beforeOrder.join("\n") !== afterOrder.join("\n")) {
     lines.push("Reordered — the top item shows first");
   }
-  if (beforeSuppress !== afterSuppress) {
-    lines.push(
-      afterSuppress
-        ? "What's New: now muted while an announcement shows"
-        : "What's New: now allowed once announcements clear",
-    );
-  }
   return lines;
 }
 
@@ -151,17 +142,11 @@ export function Editor({
   const initial = useMemo(() => {
     const parsed = announcementsPayloadSchema.safeParse(readPayload(flag));
     return parsed.success
-      ? {
-          items: toEditable(parsed.data.announcements),
-          suppressChangelog: parsed.data.suppressChangelog,
-        }
+      ? { items: toEditable(parsed.data.announcements) }
       : null;
   }, [flag]);
 
   const [items, setItems] = useState<EditableItem[]>(initial?.items ?? []);
-  const [suppressChangelog, setSuppressChangelog] = useState(
-    initial?.suppressChangelog ?? true,
-  );
   const [selected, setSelected] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -175,13 +160,8 @@ export function Editor({
   const selectedItem = items[selIndex] ?? null;
 
   const payloadJson = useMemo(
-    () =>
-      JSON.stringify(
-        { announcements: items.map(toPayloadItem), suppressChangelog },
-        null,
-        2,
-      ),
-    [items, suppressChangelog],
+    () => JSON.stringify({ announcements: items.map(toPayloadItem) }, null, 2),
+    [items],
   );
 
   // The live payload, normalized through the same editor model so the diff
@@ -191,10 +171,7 @@ export function Editor({
       initial === null
         ? null
         : JSON.stringify(
-            {
-              announcements: initial.items.map(toPayloadItem),
-              suppressChangelog: initial.suppressChangelog,
-            },
+            { announcements: initial.items.map(toPayloadItem) },
             null,
             2,
           ),
@@ -203,16 +180,8 @@ export function Editor({
   const dirty = liveJson !== payloadJson;
 
   const changes = useMemo(
-    () =>
-      initial === null
-        ? []
-        : describeChanges(
-            initial.items,
-            items,
-            initial.suppressChangelog,
-            suppressChangelog,
-          ),
-    [initial, items, suppressChangelog],
+    () => (initial === null ? [] : describeChanges(initial.items, items)),
+    [initial, items],
   );
 
   useEffect(() => {
@@ -263,7 +232,6 @@ export function Editor({
       flag_id: flag.id,
     });
     setItems(initial.items);
-    setSuppressChangelog(initial.suppressChangelog);
     setSelected((index) =>
       Math.min(index, Math.max(0, initial.items.length - 1)),
     );
@@ -278,7 +246,6 @@ export function Editor({
     try {
       const parsed = announcementsPayloadSchema.parse(JSON.parse(jsonDraft));
       setItems(toEditable(parsed.announcements));
-      setSuppressChangelog(parsed.suppressChangelog);
       setJsonDraft(null);
       setErrors([]);
     } catch (error) {
@@ -295,7 +262,6 @@ export function Editor({
   const requestPublish = () => {
     const parsed = announcementsPayloadSchema.safeParse({
       announcements: items.map(toPayloadItem),
-      suppressChangelog,
     });
     if (!parsed.success) {
       setErrors(
@@ -320,7 +286,6 @@ export function Editor({
   const confirmPublish = async () => {
     const parsed = announcementsPayloadSchema.safeParse({
       announcements: items.map(toPayloadItem),
-      suppressChangelog,
     });
     if (!parsed.success) return;
     setSaving(true);
@@ -465,20 +430,6 @@ export function Editor({
           <p className="rail-note">
             Top item shows first — one announcement per app session.
           </p>
-          <label
-            className="check rail-policy"
-            title="While an announcement is showing, the What's New changelog stays hidden. Uncheck to show both, back to back."
-          >
-            <input
-              type="checkbox"
-              checked={suppressChangelog}
-              onChange={(e) => {
-                setSuppressChangelog(e.target.checked);
-                setPublished(false);
-              }}
-            />
-            mute What's New
-          </label>
         </aside>
 
         <main className="work">

@@ -5,6 +5,9 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useState } from "react";
@@ -27,14 +30,20 @@ export function ArtifactDocumentCommentAction({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <Button size="sm" variant="outline">
-            <ChatCircleIcon />
-            Comment…
-          </Button>
-        }
-      />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <Button size="icon" variant="default" aria-label="Comment…">
+                  <ChatCircleIcon size={14} />
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipContent>Comment on this artifact</TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" sideOffset={6} className="w-96 p-2">
         <CommentComposer
           value={draft}

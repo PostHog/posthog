@@ -1,8 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "channel_id": {
+            "description": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
+            "type": "string"
+        },
+        "count_only": {
+            "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
+            "type": "boolean"
+        },
         "has_implementation_pr": {
-            "description": "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.",
+            "description": "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
             "type": "boolean"
         },
         "include_all_statuses": {

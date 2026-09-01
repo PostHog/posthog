@@ -93,8 +93,9 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
     let CaptureComponents {
         app,
         server_handle,
-        sink,
+        outputs,
         v1_sink_router,
+        event_restriction_service: _,
         http1_header_read_timeout_ms,
     } = components;
 
@@ -229,17 +230,17 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         graceful.shutdown().await;
         info!("Hyper accept loop (shutdown): graceful shutdown completed");
 
-        // Flush both sink layers concurrently. Legacy flush is synchronous
-        // (rdkafka), so it runs on the blocking thread pool. V1 sinks already
-        // use spawn_blocking internally (see KafkaSink::flush).
+        // Flush both produce layers concurrently. The v0 outputs flush is
+        // synchronous (rdkafka), so it runs on the blocking thread pool. V1
+        // sinks already use spawn_blocking internally (see KafkaSink::flush).
         info!("Flushing sinks...");
         let legacy_flush = {
-            let sink = Arc::clone(&sink);
+            let outputs = Arc::clone(&outputs);
             async move {
-                let result = tokio::task::spawn_blocking(move || sink.flush()).await;
+                let result = tokio::task::spawn_blocking(move || outputs.flush()).await;
                 match result {
-                    Ok(Err(e)) => error!("Sink flush failed: {e:#}"),
-                    Err(e) => error!("Sink flush task panicked: {e}"),
+                    Ok(Err(e)) => error!("Output flush failed: {e:#}"),
+                    Err(e) => error!("Output flush task panicked: {e}"),
                     Ok(Ok(())) => {}
                 }
             }

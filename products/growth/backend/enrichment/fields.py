@@ -32,6 +32,7 @@ class EnrichmentFields:
     company_type: Optional[str] = None
     headcount: Optional[int] = None
     headcount_engineering: Optional[int] = None
+    web_traffic: Optional[int] = None
     industry: Optional[str] = None
     country: Optional[str] = None
     founded_year: Optional[int] = None
@@ -43,6 +44,11 @@ class EnrichmentFields:
     is_yc_company: Optional[bool] = None
     is_ai_native: Optional[bool] = None
     work_email: Optional[bool] = None
+    ownership_status: Optional[str] = None
+    parent_company: Optional[str] = None
+    parent_company_domain: Optional[str] = None
+    customer_type: Optional[str] = None
+    funding_status: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return set (non-None) fields keyed by registry name."""

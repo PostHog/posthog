@@ -150,4 +150,22 @@ describe('welcomeDialogLogic', () => {
         logic.actions.trackCardClick('dashboards', '/project/1/dashboard/42')
         expect(logic.values.interactedCards.dashboards).toBe(true)
     })
+
+    it('refetches and shows the new org name after an org switch', async () => {
+        // Both orgs keep the dialog eligible, so `shouldShowDialog` never flips and the automatic
+        // refetch does not fire — the org-change refetch has to carry it, otherwise the previous
+        // org name stays on screen.
+        const orgA = { ...INVITED_USER.organization!, id: 'org-a-id', name: 'Acme Inc' }
+        const orgB = { ...INVITED_USER.organization!, id: 'org-b-id', name: 'Beta Corp' }
+        userLogic.actions.loadUserSuccess({ ...INVITED_USER, organization: orgA })
+        logic = welcomeDialogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        expect(logic.values.organizationName).toBe('Acme Inc')
+
+        userLogic.actions.loadUserSuccess({ ...INVITED_USER, organization: orgB })
+        // Title must follow the user's current org even before the refetch lands.
+        expect(logic.values.organizationName).toBe('Beta Corp')
+        await expectLogic(logic).toDispatchActions(['resetForOrgChange', 'loadWelcomeData'])
+    })
 })

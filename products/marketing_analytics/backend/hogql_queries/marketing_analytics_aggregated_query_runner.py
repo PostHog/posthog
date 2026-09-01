@@ -13,12 +13,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from .constants import (
     BASE_COLUMN_MAPPING,
     HIERARCHY_BASE_COLUMNS,
     HIERARCHY_DRILL_DOWN_LEVELS,
+    ROAS_COLUMN,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     to_marketing_analytics_data,
 )
@@ -117,9 +119,12 @@ class MarketingAnalyticsAggregatedQueryRunner(
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
-            # We exclude the `Cost per` conversion goal columns from the mapping because we'll recalculate them later
+            # A sum of per-row ratios isn't the ratio of the totals, so rate-shaped columns can't
+            # ride the generic SUM() wrapper.
             conversion_columns = {
-                k: v for k, v in conversion_columns.items() if not k.startswith(MarketingAnalyticsConstants.COST_PER)
+                k: v
+                for k, v in conversion_columns.items()
+                if not k.startswith(MarketingAnalyticsConstants.COST_PER) and k != ROAS_COLUMN
             }
             all_columns.update(conversion_columns)
 
@@ -160,6 +165,9 @@ class MarketingAnalyticsAggregatedQueryRunner(
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            # These group by high-cardinality campaign dimensions, so let the GROUP BY spill
+            # to disk rather than hit the memory limit.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         results = response.results or []

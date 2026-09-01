@@ -85,14 +85,18 @@ class TestExample(AcceptanceTest):
 
 All configuration is loaded from environment variables with the `INGESTION_ACCEPTANCE_TEST_` prefix:
 
-| Variable                | Required | Default | Description                                       |
-| ----------------------- | -------- | ------- | ------------------------------------------------- |
-| `API_HOST`              | Yes      | -       | PostHog API host (e.g., `https://us.posthog.com`) |
-| `PROJECT_API_KEY`       | Yes      | -       | Project token for capturing events                |
-| `TEAM_ID`               | Yes      | -       | Team ID for ClickHouse queries                    |
-| `EVENT_TIMEOUT_SECONDS` | No       | 90      | Max time to wait for events to appear             |
-| `POLL_INTERVAL_SECONDS` | No       | 10.0    | Interval between query attempts                   |
-| `SLACK_WEBHOOK_URL`     | No       | -       | Slack incoming webhook for failure notifications  |
+| Variable                | Required | Default                                                                                                         | Description                                                                                                     |
+| ----------------------- | -------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `API_HOST`              | Yes      | -                                                                                                               | PostHog API host (e.g., `https://us.posthog.com`)                                                               |
+| `PROJECT_API_KEY`       | Yes      | -                                                                                                               | Project token for capturing events                                                                              |
+| `TEAM_ID`               | Yes      | -                                                                                                               | Team ID for ClickHouse queries                                                                                  |
+| `EVENT_TIMEOUT_SECONDS` | No       | 90                                                                                                              | Max time to wait for events to appear                                                                           |
+| `POLL_INTERVAL_SECONDS` | No       | 10.0                                                                                                            | Interval between query attempts                                                                                 |
+| `SLACK_WEBHOOK_URL`     | No       | -                                                                                                               | Slack incoming webhook for failure notifications                                                                |
+| `ENVIRONMENT`           | No       | derived                                                                                                         | Deployment name in alerts (`prod-us`, `prod-eu`, `dev`); derived from `API_HOST`                                |
+| `GRAFANA_URL`           | No       | derived                                                                                                         | Grafana base URL for the Loki link; `https://grafana.<environment>.posthog.dev` for `prod-us`, `prod-eu`, `dev` |
+| `LOKI_DATASOURCE_UID`   | No       | `P44D702D3E93867EC`                                                                                             | Loki datasource UID used in the Grafana Explore link                                                            |
+| `RUNBOOK_URL`           | No       | [ingestion-acceptance-test](https://runbooks.posthog.com/services/ingestion/runbooks/ingestion-acceptance-test) | Runbook link included in alerts                                                                                 |
 
 ## Running Locally
 
@@ -145,8 +149,23 @@ Event queries include a timestamp filter (`timestamp >= test_start_date - 1 day`
 
 ## Notifications
 
-Slack notifications are sent only when tests fail or error. Successful runs are silent to avoid noise. The notification includes:
+Slack notifications are sent only when tests fail or error. Successful runs are silent to avoid noise. The notification is shaped so a person or SherlockHog can start investigating from the message alone:
 
 - Pass/fail/error counts
-- Failed test names with error messages
-- Environment info (API host, project ID, duration)
+- Per failed test: a failure class, the exception type and message, and the events the test sent (uuid, event name, distinct_id)
+- `Environment:` / `Severity:` / `Team:` / `Lane:` / `Project:` / `Failure class:` metadata lines
+- Links to the Temporal run, the worker logs in Loki, and the runbook when configured
+
+Failure classes:
+
+| Class              | Meaning                                                           | Start looking at                                                |
+| ------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------- |
+| `connection_error` | The test could not reach ClickHouse or the API                    | The harness and ClickHouse offline health                       |
+| `event_missing`    | An event was accepted by capture but never appeared in ClickHouse | Ingestion, then the ClickHouse write path for the event's shard |
+| `person_missing`   | A person never appeared in ClickHouse                             | Person processing                                               |
+| `assertion`        | Data was found but did not match                                  | The test and recent ingestion changes                           |
+| `error`            | Any other exception in the test                                   | The traceback in the Temporal run                               |
+
+The suite-level class is the most serious one present. `connection_error` and `error` are reported as `Severity: warning`; the others as `critical`.
+
+The timeout alert classifies the run by what the still-running tests were waiting for: an event poll gives `event_missing`, a person poll `person_missing`, and no pending poll `error`.

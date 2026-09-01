@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "feedback": {
+            "default": "",
+            "description": "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.",
+            "maxLength": 5000,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this replay observation.",
+            "type": "string"
+        },
+        "is_correct": {
+            "description": "True if the scanner scored this session correctly, false if not.",
+            "type": "boolean"
+        }
+    },
+    "required": ["id", "is_correct"],
+    "type": "object"
+}

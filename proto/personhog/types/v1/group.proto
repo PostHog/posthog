@@ -194,6 +194,8 @@ message UpdateGroupTypeMappingRequest {
   optional string name_plural = 5;
   optional int64 detail_dashboard_id = 6;
   optional bytes default_columns = 7;
+  // Epoch milliseconds. Valid update_mask path: "created_at"
+  optional int64 created_at = 8;
 }
 
 message UpdateGroupTypeMappingResponse {

@@ -173,3 +173,9 @@ Report what you did, in this shape:
 - Anything the user should do next: enable the spike detection config (if they picked `_spiking` and the
   detector hasn't been turned on), wire up source maps (so the alert's stack trace links resolve), or
   tune the alert filters after watching it for a day.
+
+## Related skills
+
+- **`triaging-error-issues`** — work out which issues actually matter before wiring alerts for them
+- **`investigating-error-issue`** — deep-dive an issue an alert fired for
+- **`authoring-log-alerts`** — the same alerting job, but for log lines instead of exceptions

@@ -15,6 +15,7 @@ from posthog.schema import (
     BaseMathType,
     DateRange,
     EventsNode,
+    FunnelsQuery,
     HogQLQueryModifiers,
     InsightActorsQuery,
     MathGroupTypeIndex,
@@ -23,13 +24,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.models.group.util import create_group
-from posthog.models.team import WeekStartDay
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
@@ -99,136 +98,6 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(**modifiers) if modifiers else None,
         )
 
-    @snapshot_clickhouse_queries
-    def test_insight_persons_lifecycle_query(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name as n']}>
-                    <InsightActorsQuery day='2020-01-12' status='returning'>
-                        <LifecycleQuery
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
-                            series={[<EventsNode event='$pageview' math='total' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """,
-            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
-        )
-
-        self.assertEqual([("p1",)], response.results)
-
-    def test_insight_persons_lifecycle_query_week_monday(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.week_start_day = WeekStartDay.MONDAY
-        self.team.save()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name as n']}>
-                    <InsightActorsQuery day='2020-01-13' status='returning'>
-                        <LifecycleQuery
-                            interval='week'
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
-                            series={[<EventsNode event='$pageview' math='total' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """,
-            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
-        )
-
-        self.assertEqual([("p1",)], response.results)
-
-    def test_insight_persons_lifecycle_query_week_sunday(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.week_start_day = WeekStartDay.SUNDAY
-        self.team.save()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name as n']}>
-                    <InsightActorsQuery day='2020-01-12' status='returning'>
-                        <LifecycleQuery
-                            interval='week'
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
-                            series={[<EventsNode event='$pageview' math='total' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """,
-            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
-        )
-
-        self.assertEqual([("p1",), ("p2",)], response.results)
-
-    @snapshot_clickhouse_queries
-    def test_insight_persons_stickiness_query(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name']}>
-                    <InsightActorsQuery day={2}>
-                        <StickinessQuery
-                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
-                            series={[<EventsNode event='$pageview' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """
-        )
-
-        self.assertEqual([("p2",)], response.results)
-
-    @snapshot_clickhouse_queries
-    def test_insight_persons_stickiness_groups_query(self):
-        self._create_test_groups()
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name']}>
-                    <InsightActorsQuery day={7}>
-                        <StickinessQuery
-                            dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
-                            series={[<EventsNode event='$pageview' math='unique_group' math_group_type_index={0} />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """
-        )
-
-        self.assertEqual([("org1",)], response.results)
-
     def test_insight_persons_trends_query_with_argmaxV1_calculate_adds_event_distinct_ids(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"
@@ -275,7 +144,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2",)], response.results)
-        assert "in(id," in queries[0]
+        assert "globalIn(id," in queries[0]
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
@@ -303,7 +172,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2", ["p2"])], response.results)
-        assert "in(id," in queries[0]
+        assert "globalIn(id," in queries[0]
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
@@ -331,7 +200,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2", ["p2"])], response.results)
-        assert "in(person.id" in queries[0]
+        assert "globalIn(person.id" in queries[0]
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
@@ -381,58 +250,6 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([("org1",)], response.results)
-
-    @snapshot_clickhouse_queries
-    def test_insight_persons_funnels_query(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        response = self.select(
-            """
-                select * from (
-                    <ActorsQuery select={['properties.name']}>
-                        <FunnelsActorsQuery funnelStep={2}>
-                            <FunnelsQuery
-                                dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
-                                series={[<EventsNode event='$pageview' />, <EventsNode event='$pageview' />]}
-                            />
-                        </FunnelsActorsQuery>
-                    </ActorsQuery>
-                )
-                """
-        )
-
-        self.assertEqual([("p1",), ("p2",)], response.results)
-
-    def test_insight_groups_funnels_query(self):
-        self._create_test_groups()
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        response = self.select(
-            """
-                select * from (
-                    <ActorsQuery select={['properties.name']}>
-                        <FunnelsActorsQuery funnelStep={2}>
-                            <FunnelsQuery
-                                aggregation_group_type_index={0}
-                                dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
-                                series={[<EventsNode event='$pageview' />, <EventsNode event='$pageview' />]}
-                            />
-                        </FunnelsActorsQuery>
-                    </ActorsQuery>
-                )
-                """
-        )
-
-        self.assertEqual(
-            [
-                ("org1",),
-            ],
-            response.results,
-        )
 
     def test_insight_actors_trends_weekly_active_groups(self):
         self._create_test_groups()
@@ -511,3 +328,16 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = InsightActorsQueryRunner(query=query, team=self.team)
         self.assertEqual(runner.group_type_index, 2)
+
+    def test_group_type_index_property_plain_insight_actors_wrapping_funnels(self):
+        # A plain InsightActorsQuery can wrap a FunnelsQuery. group_type_index must read the source
+        # aggregation instead of failing on the wrapper node type.
+        query = InsightActorsQuery(
+            source=FunnelsQuery(
+                aggregation_group_type_index=0,
+                series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            )
+        )
+
+        runner = InsightActorsQueryRunner(query=query, team=self.team)
+        self.assertEqual(runner.group_type_index, 0)

@@ -1,7 +1,11 @@
 import type { Contribution } from "@posthog/di/contribution";
+import { CODEX_OWN_SUBSCRIPTION_FLAG } from "@posthog/shared";
+import { registerCodexSubscriptionAtBoot } from "@posthog/ui/features/settings/useCodexSubscription";
 import {
   initializePostHog,
+  posthogFeatureFlags,
   registerAppVersion,
+  registerHostInfo,
 } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { trpcClient } from "@renderer/trpc/client";
 import { logger } from "@utils/logger";
@@ -22,12 +26,29 @@ export class AnalyticsBootContribution implements Contribution {
         }
         initializePostHog(sessionId);
       }
-      trpcClient.os.getAppVersion
-        .query()
-        .then(registerAppVersion)
-        .catch((error) => {
-          log.warn("Failed to register app version super property", { error });
+      try {
+        registerAppVersion(await trpcClient.os.getAppVersion.query());
+      } catch (error) {
+        log.warn("Failed to register app version super property", { error });
+      }
+      try {
+        registerHostInfo(await trpcClient.os.getHostInfo.query());
+      } catch (error) {
+        log.warn("Failed to register host info super properties", { error });
+      }
+      try {
+        const codexFlagEnabled =
+          posthogFeatureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
+          import.meta.env.DEV;
+        await registerCodexSubscriptionAtBoot(
+          () => trpcClient.agent.codexSubscriptionStatus.query(),
+          codexFlagEnabled,
+        );
+      } catch (error) {
+        log.warn("Failed to register codex subscription super properties", {
+          error,
         });
+      }
     })();
   }
 }

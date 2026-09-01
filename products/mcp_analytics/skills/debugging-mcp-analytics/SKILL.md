@@ -38,17 +38,17 @@ GitHub is the source of truth for where the code lives. Paths below are in-repo;
 repos outside this monorepo, resolve a local checkout via
 [references/local-repos.md](references/local-repos.md) rather than assuming a location.
 
-| Concern                           | Repo                          | Where to look                                                                                                                                              |
-| --------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Product / dashboard**           | `PostHog/posthog` (this repo) | `products/mcp_analytics/` — Django/DRF + HogQL query runners + Temporal, Kea frontend, the `query-mcp-*` tool registry, and the analysis skills            |
-| **Self-instrumented server**      | `PostHog/posthog` (this repo) | `services/mcp/` — PostHog's own MCP server (Hono); the dogfood event producer. Also hosts the _generated_ `query-mcp-*` handlers                           |
-| **Shared query reference**        | `PostHog/posthog` (this repo) | `products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`                                                                                |
-| **TypeScript SDK** `@posthog/mcp` | `PostHog/posthog-js`          | `packages/mcp/` — the library customers install. Vocabulary source of truth: `src/extensions/constants.ts`. Internals: `docs/ARCHITECTURE.md`              |
-| **Python SDK** `posthog.mcp`      | `PostHog/posthog-python`      | `posthog/mcp/` — mirrors `posthog.ai`. Ships inside `posthog` (`pip install posthog`); `mcp`/`fastmcp` are lazily-imported peer deps, **no `[mcp]` extra** |
-| **Docs**                          | `PostHog/posthog.com`         | `contents/docs/mcp-analytics/` (incl. `surfaces/`), plus `src/hooks/productData/mcp_analytics.tsx` and the `mcp_analytics` entry in `src/data/tools.ts`    |
-| **Install codemod**               | `PostHog/context-mill`        | `context/skills/mcp-analytics/{config.yaml,description.md}`                                                                                                |
-| **Wizard CLI**                    | `PostHog/wizard`              | `bin.ts`, `src/commands/mcp-analytics.ts`, `src/lib/programs/mcp-analytics/`                                                                               |
-| **Wizard test harness**           | `PostHog/wizard-workbench`    | `apps/mcp-analytics/` fixtures                                                                                                                             |
+| Concern                           | Repo                          | Where to look                                                                                                                                                                                                                                                                                 |
+| --------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Product / dashboard**           | `PostHog/posthog` (this repo) | `products/mcp_analytics/` — Django/DRF + HogQL query runners + Temporal, Kea frontend, the `query-mcp-*` tool registry, and the analysis skills                                                                                                                                               |
+| **Self-instrumented server**      | `PostHog/posthog` (this repo) | `services/mcp/` — PostHog's own MCP server (Hono); the dogfood event producer. Also hosts the _generated_ `query-mcp-*` handlers                                                                                                                                                              |
+| **Shared query reference**        | `PostHog/posthog` (this repo) | [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md) — `products/posthog_ai/skills/querying-posthog-data/references/`                                                                                                                                 |
+| **TypeScript SDK** `@posthog/mcp` | `PostHog/posthog-js`          | `packages/mcp/` — the library customers install. Vocabulary source of truth: `src/extensions/constants.ts`. `docs/ARCHITECTURE.md` now covers conversation anchoring (ADR-0004) but trails the newest era handling — where it and `CHANGELOG.md` disagree, trust the changelog and the source |
+| **Python SDK** `posthog.mcp`      | `PostHog/posthog-python`      | `posthog/mcp/` — mirrors `posthog.ai`. Ships inside `posthog` (`pip install posthog`); `mcp`/`fastmcp` are lazily-imported peer deps, **no `[mcp]` extra**. At TS parity since 7.40.0-7.42.1 — MCP Python SDK v2, conversation anchoring, typed errors, client UA/vendor                      |
+| **Docs**                          | `PostHog/posthog.com`         | `contents/docs/mcp-analytics/` (incl. `surfaces/`), plus `src/hooks/productData/mcp_analytics.tsx` and the `mcp_analytics` entry in `src/data/tools.ts`                                                                                                                                       |
+| **Install codemod**               | `PostHog/context-mill`        | `context/skills/mcp-analytics/{config.yaml,description.md}`                                                                                                                                                                                                                                   |
+| **Wizard CLI**                    | `PostHog/wizard`              | `bin.ts`, `src/commands/mcp-analytics.ts`, `src/lib/programs/mcp-analytics/`                                                                                                                                                                                                                  |
+| **Wizard test harness**           | `PostHog/wizard-workbench`    | `apps/mcp-analytics/` fixtures                                                                                                                                                                                                                                                                |
 
 **Don't conflate:**
 
@@ -91,7 +91,7 @@ These are the failure modes that produce a plausible-looking answer rather than 
 4. **`harness` is derived, and its logic exists in three places that must move in lockstep:**
    `products/mcp_analytics/backend/mcp_harness.py` (source of truth — see its module
    docstring), `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`, and
-   `products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`.
+   [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 5. **Check which SDK version the dogfood server is on before trusting dogfood data.**
    `services/mcp` consumes the SDK through an alias in its `package.json` and has historically
    lagged the published version, so version-dependent properties (typed error types, `$lib`
@@ -101,7 +101,14 @@ These are the failure modes that produce a plausible-looking answer rather than 
    **custom-dispatcher** (`PostHogMCP`) path rather than `instrument()`, so behaviour living
    only in the `instrument()` path — stable sessions, `$identify` deduplication, `_meta`-based
    client identity — has never applied to it at any version.
-6. **There are no SQL template files.** Every dashboard and tool-quality query is a typed
+6. **Know which session model produced the data.** Under the stateless spec there is no
+   transport session, so `$session_id` is only stable if the server opted into conversation
+   anchoring — `enableConversationId`, which is **off by default**. With it off, a stateless
+   client's sessions fragment (often one per request); with it on, `$session_id` is derived
+   from an agent-echoed handle and survives reconnects, restarts, and pods. Check the flag
+   before diagnosing "fragmented sessions" as an ingestion problem. See
+   [references/stateless-and-sessions.md](references/stateless-and-sessions.md).
+7. **There are no SQL template files.** Every dashboard and tool-quality query is a typed
    query runner behind the generic `/query/` endpoint. A `backend/templates/*.sql` referenced
    by older notes no longer exists.
 
@@ -120,9 +127,20 @@ and exec-mode properties the SDK does not define — live in `posthog/taxonomy/t
 `$mcp_resource_read` / `$mcp_resources_list`, `$mcp_prompt_get` / `$mcp_prompts_list`,
 `$identify`, `$exception`.
 
-> **`$mcp_initialize` is not a universal session anchor.** The MCP 2026-07-28 stateless
-> revision removes the `initialize` handshake, so clients on that revision never emit it.
-> Anchor on the first `$mcp_tool_call` instead.
+> **`$mcp_initialize` is not a reliable session anchor — but check whose server you're looking
+> at.** The 2026-07-28 revision removes the `initialize` handshake, so a customer server on the
+> SDK's `instrument()` path emits nothing for a stateless client. **PostHog's own server is the
+> exception**: `services/mcp` fires the same `$mcp_initialize` event from `server/discover` as
+> from `initialize` (`dispatcher.ts::recordDiscoveryRequest` covers both entry points), so the
+> event is present in dogfood data either way. Treat its absence as meaningful only for
+> customer servers. The real anchor is now the conversation handle when the server enables it —
+> [references/stateless-and-sessions.md](references/stateless-and-sessions.md) covers the
+> resolution order and the delivery protocol. Live consequence, for customer servers only:
+> `frontend/mcpAnalyticsOnboardingLogic.ts` derives `has_initialize` from this event, so a
+> stateless customer server reads as `not-instrumented` until its first tool call. Onboarding
+> still completes — `hasToolCall` is checked first, in both that selector and
+> `statusFromProbeDefinitions`. Projects on `services/mcp` are unaffected, since it emits the
+> event from `server/discover`.
 
 Full property tables — split by provenance (SDK-emitted vs stamped by PostHog's own server vs
 exec-mode only), the identifier distinctions, per-version SDK behaviour, and TypeScript/Python
@@ -162,8 +180,8 @@ is absent from the tool calls that follow, so on its own it leaves most traffic
 unattributed; `mcp_session_client_name` is the session-pinned fallback the token chain
 reaches for next.
 
-For hand-written SQL, `models-mcp.md` (linked in the Repos table) carries the property
-reference and worked query examples.
+For hand-written SQL, [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
+carries the property reference and worked query examples.
 
 ## The pipeline, and where each stage breaks
 
@@ -200,8 +218,9 @@ reference and worked query examples.
    _Breaks:_ no `$mcp_intent` captured at all (the agent never filled the injected `context`
    argument and no `intentFallback` was configured), so there is nothing to summarize; LLM
    key or quota problems.
-6. **Intent clustering** -> embed (cached in `MCPIntentEmbeddingCache`) -> agglomerative
-   clustering (cosine, average linkage, `DEFAULT_DISTANCE_THRESHOLD`) -> JSONB
+6. **Intent clustering** (behind `mcp-analytics-intent-routing`) -> embed (cached in
+   `MCPIntentEmbeddingCache`) -> agglomerative clustering (cosine, average linkage,
+   `DEFAULT_DISTANCE_THRESHOLD`) -> JSONB
    `MCPIntentClusterSnapshot`. **Temporal end-to-end, no Celery.** On-demand recompute
    (`trigger_intent_cluster_recompute`, serialized with `select_for_update()` and a
    deterministic per-team workflow id) and the `cluster_mcp_intents` management command both
@@ -224,12 +243,16 @@ reference and worked query examples.
    (router in `backend/presentation/urls.py`) plus custom actions
    (`sessions/{id}/tool_calls`, `sessions/{id}/generate_intent`, `sessions/intent_digest`,
    `sessions/activity_overview`, `intent_clusters/recompute`). Parallel surface: step 4's
-   runners, exposed to agents as the `query-mcp-*` tools.
+   runners, exposed to agents as the `query-mcp-*` tools. The intent-cluster read and
+   recompute endpoints require `mcp-analytics-intent-routing`; the other endpoints use
+   `mcp-analytics`.
 8. **Frontend** -> Kea scene `MCPAnalyticsScene.tsx`, with tabs enumerated by
    `MCPAnalyticsTab` in `mcpAnalyticsSceneLogic.ts`: activity, dashboard, sessions,
    tool quality, intent clustering, notifications. The landing tab is volume-gated by
    `dashboardStage` in `mcpAnalyticsOnboardingLogic.ts` and applies only to the bare
    `/mcp-analytics` redirect — deep links and explicit tab clicks are never overridden.
+   The intent clustering tab, dashboard KPI, and tool-detail cluster section are all gated by
+   `mcp-analytics-intent-routing`; a direct unflagged link renders the standard not-found page.
    - **Activity** (`earlyData/`): live tool-call feed plus the intent-**themes** card.
      "Theme" (the LLM digest, Activity tab) is **not** "cluster" (the embedding clustering,
      its own tab). Conflating the two is the most common mistake here.
@@ -273,16 +296,39 @@ The wizard install flow, the skill-distribution channels, and the in-app onboard
 
 ## Current state
 
-Verified against `master` and the SDK's `main` on 2026-07-31. Treat versions and open threads
-as perishable — re-check `packages/mcp/CHANGELOG.md`, the pinned alias in
-`services/mcp/package.json`, and mega-issue #64016 rather than trusting this section.
+Verified against `master`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and MCP spec `2026-07-28`
+on 2026-08-25. Treat versions and open threads as perishable: re-check
+`packages/mcp/CHANGELOG.md`, the pinned alias in `services/mcp/package.json`, and
+[mega-issue 64016](https://github.com/PostHog/posthog/issues/64016) rather than trusting this
+section.
 
-Recently shipped: structured intent themes, first-party notification destinations and
-recurring reports, `mcp_analytics` access control, the shared `ProductEmptyState` adoption,
+**Both SDKs now speak the stateless spec and the v2 MCP SDKs.** `services/mcp` speaks both
+dialects at the protocol layer (`src/lib/stateless-protocol.ts` — per-request dialect
+detection, `server/discover`, no session minting for modern clients). The TypeScript SDK's
+0.10.9-0.11.7 run instruments MCP TypeScript SDK v2 servers (structural detection in
+`detect.ts`, both `@modelcontextprotocol` peers optional), resolves client identity and
+protocol version through a per-request fallback chain, gates `Mcp-Session-Id` minting on the
+revision each request declares, and captures `$mcp_client_user_agent` / `$mcp_vendor_client`.
+The Python SDK caught up in `posthog` 7.40.0-7.42.1: MCP Python SDK v2, conversation-anchored
+sessions byte-compatible with TS (`derive_session_id_from_conversation`), typed
+`$mcp_error_type` / `$mcp_error_message`, and the same UA/vendor capture. The old parity
+threads ([posthog-python 803](https://github.com/PostHog/posthog-python/pull/803) and
+[830](https://github.com/PostHog/posthog-python/pull/830)) were **closed unmerged and
+superseded** — don't cite them as the source of what landed.
+[references/stateless-and-sessions.md](references/stateless-and-sessions.md) is the reference
+for all of it.
+
+Also shipped: structured intent themes, first-party notification destinations and recurring
+reports, `mcp_analytics` access control, the shared `ProductEmptyState` adoption,
 failure-occurrence drill-down with "create fix task", the migration of every chart to typed
 query runners, the demo seeder, and exec-mode inner-tool breakout (Hard rule 1).
 
-Two code-facing facts that shape debugging, both checkable in this repo: the `services/mcp` SDK
-pin can lag the published SDK (Hard rule 5 — read the alias in its `package.json`), and the
-product is still behind the `mcp-analytics` flag, so a project without it sees nothing. For
-status and planned work, read mega-issue #64016 rather than trusting a snapshot here.
+What still lags, all checkable in this repo: the `services/mcp` alias pin is `0.10.2` against a
+0.11.7 SDK (Hard rule 5 — no 0.11.x SDK-side fix or SDK-emitted property reaches dogfood data,
+though the server independently stamps `$mcp_client_user_agent` and the non-`$`
+`mcp_vendor_client` regardless of the pin);
+harness resolution does not read the SDK-emitted `$mcp_vendor_client` yet (`HARNESS_TOKEN_SQL`
+consumes `$mcp_client_user_agent`, but its top-priority vendor signal is still the
+server-stamped non-`$` `mcp_vendor_client`); the exec-property emitter is still absent from
+master (Hard rule 1); the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`;
+and the product remains behind the `mcp-analytics` flag, so a project without it sees nothing.

@@ -30,12 +30,17 @@ interface ClientMocks {
   extNotification: ReturnType<typeof vi.fn>;
 }
 
-function makeAgent(): { agent: Agent; client: ClientMocks } {
+function makeAgent(options?: {
+  onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+}): { agent: Agent; client: ClientMocks } {
   const client: ClientMocks = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
     extNotification: vi.fn().mockResolvedValue(undefined),
   };
-  const agent = new ClaudeAcpAgent(client as unknown as AgentSideConnection);
+  const agent = new ClaudeAcpAgent(
+    client as unknown as AgentSideConnection,
+    options,
+  );
   return { agent, client };
 }
 
@@ -171,6 +176,33 @@ function assistantMessage(
       content: [{ type: "text", text }],
       ...(usage ? { usage } : {}),
     },
+  };
+}
+
+function resultStructured(
+  sessionId: string,
+  structured: Record<string, unknown>,
+) {
+  return { ...resultSuccess(sessionId), structured_output: structured };
+}
+
+function subagentMessage(sessionId: string, apiId: string, text: string) {
+  return {
+    ...assistantMessage(sessionId, apiId, text),
+    parent_tool_use_id: "toolu_subagent",
+  };
+}
+
+function resultError(sessionId: string) {
+  return {
+    type: "result",
+    subtype: "error_during_execution",
+    session_id: sessionId,
+    uuid: "result-err",
+    is_error: true,
+    errors: ["boom"],
+    usage: {},
+    modelUsage: {},
   };
 }
 
@@ -342,12 +374,12 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     await tick();
     await echoUserMessage(query, input);
 
-    const steerResult = await agent.prompt({
+    const steerPromise = agent.prompt({
       sessionId,
       prompt: [{ type: "text", text: "use green instead" }],
       _meta: { steer: true },
     });
-    expect(steerResult._meta).toEqual({ steer: true });
+    await tick();
 
     await send(query, assistantMessage(sessionId, "msg_orange", "ORANGE"));
     await send(query, resultSuccess(sessionId));
@@ -355,6 +387,9 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
 
     await echoUserMessage(query, input);
     await send(query, assistantMessage(sessionId, "msg_green", "GREEN"));
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: true },
+    });
     await send(query, resultSuccess(sessionId));
 
     await expect(promptPromise).resolves.toMatchObject({
@@ -364,6 +399,257 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
       "ORANGE",
       "GREEN",
     ]);
+  });
+
+  it("keeps the turn open when the steered work outlasts the delivery grace", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { agent } = makeAgent();
+      const sessionId = "s-steer-slow-work";
+      const { query, input } = installFakeSession(agent, sessionId);
+
+      const promptPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "use orange" }],
+      });
+      let promptSettled = false;
+      void promptPromise.then(() => {
+        promptSettled = true;
+      });
+      await tick();
+      await echoUserMessage(query, input);
+
+      const steerPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "use green instead" }],
+        _meta: { steer: true },
+      });
+      await tick();
+
+      await send(query, resultSuccess(sessionId));
+      await echoUserMessage(query, input);
+      await send(query, assistantMessage(sessionId, "msg_green", "GREEN"));
+      await expect(steerPromise).resolves.toMatchObject({
+        _meta: { steer: true },
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(promptSettled).toBe(false);
+
+      await send(query, resultSuccess(sessionId));
+      await expect(promptPromise).resolves.toMatchObject({
+        stopReason: "end_turn",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("declines a steer the turn ends without acting on", async () => {
+    const { agent } = makeAgent();
+    const sessionId = "s-steer-unacted";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use orange" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use green instead" }],
+      _meta: { steer: true },
+    });
+    await tick();
+
+    await send(query, assistantMessage(sessionId, "msg_orange", "ORANGE"));
+    await send(query, resultSuccess(sessionId));
+
+    // The SDK folds the steer in only as the turn wraps up, so no model output
+    // ever follows it.
+    await echoUserMessage(query, input);
+    await send(query, resultSuccess(sessionId));
+
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "turn_ended_first" },
+    });
+    await expect(promptPromise).resolves.toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+
+  it("delivers structured output from a result that defers on a steer", async () => {
+    const onStructuredOutput = vi.fn().mockResolvedValue(undefined);
+    const { agent } = makeAgent({ onStructuredOutput });
+    const sessionId = "s-steer-structured";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use orange" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use green instead" }],
+      _meta: { steer: true },
+    });
+    await tick();
+
+    // Deferring settlement must not skip the result's own side effects.
+    await send(query, resultStructured(sessionId, { answer: 42 }));
+    expect(onStructuredOutput).toHaveBeenCalledWith({ answer: 42 });
+
+    await echoUserMessage(query, input);
+    await send(query, assistantMessage(sessionId, "msg_green", "GREEN"));
+    await send(query, resultSuccess(sessionId));
+
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: true },
+    });
+    await expect(promptPromise).resolves.toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+
+  it("declines a steer when only subagent output follows its echo", async () => {
+    const { agent } = makeAgent();
+    const sessionId = "s-steer-subagent";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use orange" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use green instead" }],
+      _meta: { steer: true },
+    });
+    await tick();
+
+    await send(query, resultSuccess(sessionId));
+    await echoUserMessage(query, input);
+    // A separate model context, so it is no evidence the steer landed.
+    await send(query, subagentMessage(sessionId, "msg_sub", "SUBAGENT"));
+    await send(query, resultSuccess(sessionId));
+
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: false },
+    });
+    await expect(promptPromise).resolves.toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+
+  it("declines a steer on a queued turn cancelled before it starts", async () => {
+    const { agent } = makeAgent();
+    const sessionId = "s-steer-cancelled-queue";
+    const { query } = installFakeSession(agent, sessionId);
+    query.interrupt.mockImplementation(async () => {});
+
+    // Never echoed, so the turn stays queued rather than becoming active.
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use orange" }],
+    });
+    await tick();
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use green instead" }],
+      _meta: { steer: true },
+    });
+    await tick();
+
+    await agent.cancel({ sessionId });
+
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
+    await expect(promptPromise).resolves.toMatchObject({
+      stopReason: "cancelled",
+    });
+  });
+
+  it("fails the turn on an error result rather than deferring on a steer", async () => {
+    const { agent } = makeAgent();
+    const sessionId = "s-steer-error";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use orange" }],
+    });
+    const outcome = promptPromise.then(
+      () => "resolved",
+      () => "rejected",
+    );
+    await tick();
+    await echoUserMessage(query, input);
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use green instead" }],
+      _meta: { steer: true },
+    });
+    await tick();
+
+    await send(query, resultError(sessionId));
+
+    await expect(outcome).resolves.toBe("rejected");
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "turn_failed" },
+    });
+  });
+
+  it("settles the turn and declines a steer the SDK never folds in", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { agent } = makeAgent();
+      const sessionId = "s-steer-stuck";
+      const { query, input } = installFakeSession(agent, sessionId);
+
+      const promptPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "use orange" }],
+      });
+      let promptSettled = false;
+      void promptPromise.then(() => {
+        promptSettled = true;
+      });
+      await tick();
+      await echoUserMessage(query, input);
+
+      const steerPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "use green instead" }],
+        _meta: { steer: true },
+      });
+      await tick();
+
+      await send(query, assistantMessage(sessionId, "msg_orange", "ORANGE"));
+      await send(query, resultSuccess(sessionId));
+      expect(promptSettled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await expect(steerPromise).resolves.toMatchObject({
+        _meta: { steer: false },
+      });
+      await expect(promptPromise).resolves.toMatchObject({
+        stopReason: "end_turn",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("declines an explicit steer after the active turn has ended", async () => {
@@ -377,7 +663,9 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
         prompt: [{ type: "text", text: "too late" }],
         _meta: { steer: true },
       }),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "no_in_flight_turn" },
+    });
 
     const session = (agent as unknown as { session: { turnQueue: unknown[] } })
       .session;

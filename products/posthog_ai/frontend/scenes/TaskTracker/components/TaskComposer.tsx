@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
@@ -11,22 +11,35 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
-import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
-import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import {
+    cycleMode,
+    getModesForRuntimeAdapter,
+    resolveModeForRuntimeAdapter,
+} from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, consentBlocked } =
+    const { newTaskData, isSubmittingTask, activeSuggestionGroup, displayHeadline, consentBlocked } =
         useValues(taskTrackerSceneLogic)
+    const { catalogue } = useValues(modelCatalogueLogic)
+    // Permission modes belong to the harness, so they follow the picked model.
+    const composerAdapter = getRuntimeAdapterForModel(catalogue, newTaskData.model)
+
+    // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
+    // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
+    const panelId = useMountedLogic(taskTrackerSceneLogic).props.panelId
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -45,7 +58,11 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={headline} />
+                <Welcome headline={displayHeadline}>
+                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                        once everyone is on the new PostHog AI. */}
+                    <OnboardingReplayButton panelId={panelId} />
+                </Welcome>
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
@@ -60,7 +77,11 @@ export function TaskComposer(): JSX.Element {
                             onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
                         <ComposerModeShortcut
-                            onCycle={() => setNewTaskData({ permissionMode: cycleMode(newTaskData.permissionMode) })}
+                            onCycle={() =>
+                                setNewTaskData({
+                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
+                                })
+                            }
                         />
                         <Composer.Root
                             value={draft.value}
@@ -79,18 +100,28 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
+                                        modes={getModesForRuntimeAdapter(composerAdapter)}
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
+                                        models={catalogue}
                                         selectedModel={newTaskData.model}
                                         selectedEffort={newTaskData.reasoningEffort}
                                         onModelChange={(model) =>
                                             setNewTaskData({
                                                 model,
                                                 reasoningEffort: resolveEffortForModel(
+                                                    catalogue,
                                                     newTaskData.reasoningEffort,
                                                     model
+                                                ),
+                                                // Clamp the mode too, not just the effort: leaving a
+                                                // Claude-only mode selected against a Codex model would
+                                                // show one permission ceiling and send a broader one.
+                                                permissionMode: resolveModeForRuntimeAdapter(
+                                                    getRuntimeAdapterForModel(catalogue, model),
+                                                    newTaskData.permissionMode
                                                 ),
                                             })
                                         }

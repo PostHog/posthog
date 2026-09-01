@@ -1,6 +1,7 @@
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
@@ -43,14 +44,10 @@ import {
 } from "@posthog/core/git/identifiers";
 import { gitPrModule } from "@posthog/core/git-pr/git-pr.module";
 import { GIT_DIFF_SOURCE } from "@posthog/core/git-pr/identifiers";
-import { handoffModule } from "@posthog/core/handoff/handoff.module";
-import { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import { integrationsModule } from "@posthog/core/integrations/integrations.module";
-import { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import { ChannelLinkService } from "@posthog/core/links/channel-link";
 import {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -111,6 +108,7 @@ import { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -121,6 +119,11 @@ import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+} from "@posthog/quick-ask/service/quick-ask";
+import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
 import {
@@ -171,12 +174,6 @@ import type { ExternalAppsPreferences } from "@posthog/workspace-server/services
 import { foldersModule } from "@posthog/workspace-server/services/folders/folders.module";
 import { GitService } from "@posthog/workspace-server/services/git/service";
 import { TaskPrStatusService } from "@posthog/workspace-server/services/git/task-pr-status";
-import {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type { HandoffGitGateway } from "@posthog/workspace-server/services/handoff/ports";
-import { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import { LOGS_SERVICE } from "@posthog/workspace-server/services/local-logs/identifiers";
 import { localMcpModule } from "@posthog/workspace-server/services/local-mcp/local-mcp.module";
 import { mcpCallbackModule } from "@posthog/workspace-server/services/mcp-callback/mcp-callback.module";
@@ -186,7 +183,6 @@ import { MCP_RELAY_SERVICE } from "@posthog/workspace-server/services/mcp-relay/
 import { mcpRelayModule } from "@posthog/workspace-server/services/mcp-relay/mcp-relay.module";
 import { OAUTH_CALLBACK_SERVER } from "@posthog/workspace-server/services/oauth-callback/identifiers";
 import { oauthCallbackModule } from "@posthog/workspace-server/services/oauth-callback/oauth-callback.module";
-import { onboardingImportModule } from "@posthog/workspace-server/services/onboarding-import/onboarding-import.module";
 import { osModule } from "@posthog/workspace-server/services/os/os.module";
 import {
   PI_RPC_CLIENT_FACTORY,
@@ -246,6 +242,8 @@ import { ElectronDialog } from "../platform-adapters/electron-dialog";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
+import { MissionControlService } from "../platform-adapters/electron-mission-control";
+import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -270,6 +268,7 @@ import { DevLogsService } from "../services/dev-logs/service";
 import { DevMetricsService } from "../services/dev-metrics/service";
 import { DevNetworkService } from "../services/dev-network/service";
 import { DiscordPresenceService } from "../services/discord-presence/service";
+import { DiskCache } from "../services/disk-cache/service";
 import { EncryptionService } from "../services/encryption/service";
 import { SecureStoreService } from "../services/secure-store/service";
 import { settingsStore } from "../services/settingsStore";
@@ -277,11 +276,10 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { rendererStore } from "../utils/store";
+import { quickAskStore, rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE as MAIN_APPROVAL_LINK_SERVICE,
   ARCHIVE_REPOSITORY as MAIN_ARCHIVE_REPOSITORY,
   AUTH_PREFERENCE_REPOSITORY as MAIN_AUTH_PREFERENCE_REPOSITORY,
   AUTH_SERVICE as MAIN_AUTH_SERVICE,
@@ -307,6 +305,7 @@ import {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -595,44 +594,6 @@ container
   .bind<IGitPrStatus>(GIT_PR_STATUS_PROVIDER)
   .to(TaskPrStatusService)
   .inSingletonScope();
-container.load(handoffModule);
-container.bind(HANDOFF_HOST).to(HandoffHostService).inSingletonScope();
-container.bind(HANDOFF_GIT_GATEWAY).toDynamicValue((ctx): HandoffGitGateway => {
-  const workspace = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    async getChangedFiles(repoPath) {
-      const files = await workspace.git.getChangedFilesHead.query({
-        directoryPath: repoPath,
-      });
-      return files.map((f) => ({
-        path: f.path,
-        status: f.status,
-        linesAdded: f.linesAdded,
-        linesRemoved: f.linesRemoved,
-      }));
-    },
-    getLocalGitState: (repoPath) =>
-      workspace.git.readHandoffLocalGitState.query({
-        directoryPath: repoPath,
-      }),
-    cleanupAfterCloudHandoff: (repoPath, branchName) =>
-      workspace.git.cleanupAfterCloudHandoff.mutate({
-        directoryPath: repoPath,
-        branchName,
-      }),
-  };
-});
-container.bind(HANDOFF_LOG_GATEWAY).toDynamicValue((ctx) => {
-  const ws = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    seedLocalLogs: (taskRunId: string, content: string) =>
-      ws.localLogs.seed.mutate({ taskRunId, content }),
-    countLocalLogEntries: (taskRunId: string) =>
-      ws.localLogs.count.query({ taskRunId }),
-    deleteLocalLogCache: (taskRunId: string) =>
-      ws.localLogs.delete.mutate({ taskRunId }),
-  };
-});
 container.load(mcpCallbackModule);
 container.bind(NOTIFICATION_SERVICE).to(NotificationService);
 container.load(oauthCallbackModule);
@@ -657,12 +618,11 @@ container.bind(MAIN_POSTHOG_PLUGIN_SERVICE).toService(POSTHOG_PLUGIN_SERVICE);
 container.load(skillsModule);
 container.load(skillsMarketplaceModule);
 container.load(releaseFeedModule);
-container.load(onboardingImportModule);
 container.load(localMcpModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
-// structurally (docs/cloud-mcp-relay.md).
+// structurally (docs/CLOUD-MCP-RELAY.md).
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
@@ -704,8 +664,6 @@ container.bind(MAIN_SCOUT_LINK_SERVICE).to(ScoutLinkService);
 container.bind(SCOUT_LINK_SERVICE).toService(MAIN_SCOUT_LINK_SERVICE);
 container.bind(MAIN_NEW_TASK_LINK_SERVICE).to(NewTaskLinkService);
 container.bind(NEW_TASK_LINK_SERVICE).toService(MAIN_NEW_TASK_LINK_SERVICE);
-container.bind(MAIN_APPROVAL_LINK_SERVICE).to(ApprovalLinkService);
-container.bind(APPROVAL_LINK_SERVICE).toService(MAIN_APPROVAL_LINK_SERVICE);
 container.bind(MAIN_OPEN_TARGET_LINK_SERVICE).to(OpenTargetLinkService);
 container
   .bind(OPEN_TARGET_LINK_SERVICE)
@@ -780,6 +738,21 @@ container
   .inSingletonScope();
 container.bind(SECURE_STORE_SERVICE).toService(MAIN_SECURE_STORE_SERVICE);
 container
+  .bind(DISK_CACHE_SERVICE)
+  .toDynamicValue(
+    (ctx) =>
+      new DiskCache({
+        // Not "cache": userData already holds Chromium's "Cache" directory, and
+        // case-insensitive file systems (default macOS, Windows) treat the two
+        // as one path, so clear() would delete the live browser cache.
+        rootDir: join(
+          ctx.get<ElectronStoragePaths>(STORAGE_PATHS_SERVICE).appDataPath,
+          "disk-cache",
+        ),
+      }),
+  )
+  .inSingletonScope();
+container
   .bind(SPEECH_SYNTHESIZER_SERVICE)
   .to(ElevenLabsSpeechService)
   .inSingletonScope();
@@ -808,11 +781,29 @@ container.bind(LOGS_SERVICE).toDynamicValue((ctx) => {
 });
 container.bind(MAIN_ENCRYPTION_SERVICE).to(EncryptionService);
 container.bind(MAIN_DISCORD_PRESENCE_SERVICE).to(DiscordPresenceService);
+container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 
 // Canvas / dashboards (project-bluebird). The host-agnostic dashboard services
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+container.load(quickAskCoreModule);
+// Chromium's network stack, not Node's undici: it honors system proxies and
+// VPN routing, which undici intermittently fails against ("fetch failed").
+container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
+container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
+  const repositories = quickAskStore.get("defaultRepositories");
+  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
+  return {
+    channelId: quickAskStore.get("defaultChannelId") || null,
+    repositories,
+    githubIntegrationId:
+      repositories.length > 0 && integrationId ? integrationId : null,
+    adapter: quickAskStore.get("defaultAdapter") || null,
+    model: quickAskStore.get("defaultModel") || null,
+    reasoningEffort: quickAskStore.get("defaultEffort") || null,
+  };
+});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

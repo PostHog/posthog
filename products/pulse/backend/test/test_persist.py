@@ -12,7 +12,7 @@ from posthog.schema_enums import AlertState
 
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import (

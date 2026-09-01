@@ -7,6 +7,11 @@ from posthog.schema_enums import AlertCalculationInterval
 
 from products.exports.backend.tasks.failure_handler import USER_QUERY_ERROR_NAMES
 
+# A user's query error won't clear on retry, so evaluate_alert fails fast on it. Temporal matches
+# non-retryable types by exact name, so transient cluster memory pressure — a distinct subclass
+# name — stays retryable without being listed here. Sorted for a stable order across processes.
+_EVALUATE_NON_RETRYABLE_ERROR_NAMES = sorted(USER_QUERY_ERROR_NAMES)
+
 ALERT_PREPARE_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
     maximum_interval=dt.timedelta(seconds=10),
@@ -19,7 +24,7 @@ ALERT_EVALUATE_RETRY_POLICY = RetryPolicy(
     maximum_interval=dt.timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_attempts=5,
-    non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
+    non_retryable_error_types=_EVALUATE_NON_RETRYABLE_ERROR_NAMES,
 )
 
 ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
@@ -54,7 +59,7 @@ _REAL_TIME_EVALUATE_RETRY_POLICY = RetryPolicy(
     maximum_interval=dt.timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_attempts=2,
-    non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
+    non_retryable_error_types=_EVALUATE_NON_RETRYABLE_ERROR_NAMES,
 )
 
 # workflow_execution covers prepare (2 min) + evaluate at its schedule_to_close cap

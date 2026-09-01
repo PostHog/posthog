@@ -19,7 +19,7 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import {
@@ -39,9 +39,8 @@ describe('EmailTrackingService', () => {
     const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, defaultConfig.CDP_EMAIL_TRACKING_URL)
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         mockFetch.mockClear()
         mockProducerObserver.resetKafkaProducer()
@@ -91,6 +90,29 @@ describe('EmailTrackingService', () => {
             expect(extractTarget(addTrackingToEmail(html, invocation, signer))).toBe(expected)
         })
 
+        // The pixel and redirect URLs are the only tracking carrier for a provider whose opens and
+        // clicks we record ourselves, so a version missing here means those engagement metrics never
+        // split by version however the send path is configured.
+        it('carries the sending version into the pixel and redirect codes', () => {
+            const flowInvocation = { ...invocation, hogFlow: { id: 'flow-1', version: 7 } } as any
+            const html = '<body><a href="https://example.com/">x</a></body>'
+
+            const out = addTrackingToEmail(html, flowInvocation, signer)
+            const codes = [...out.matchAll(/ph_id=([A-Za-z0-9_.-]+)/g)].map((match) => match[1])
+
+            expect(codes).toHaveLength(2) // one redirect, one pixel
+            for (const code of codes) {
+                expect(signer.parse(code)?.workflowVersion).toBe(7)
+            }
+        })
+
+        it('mints no version for a hog function send, which has no workflow', () => {
+            const out = addTrackingToEmail('<body><a href="https://example.com/">x</a></body>', invocation, signer)
+            const code = out.match(/ph_id=([A-Za-z0-9_.-]+)/)![1]
+
+            expect(signer.parse(code)?.workflowVersion).toBeUndefined()
+        })
+
         it('skips literal javascript: hrefs', () => {
             const html = '<body><a href="javascript:alert(1)">x</a></body>'
             const out = addTrackingToEmail(html, invocation, signer)
@@ -118,6 +140,44 @@ describe('EmailTrackingService', () => {
             const html = '<body><a href="https://example.com"><span data-ph-no-track>x</span></a></body>'
             const out = addTrackingToEmail(html, invocation, signer)
             expect(out).toContain('target=')
+        })
+
+        describe('ses mode', () => {
+            const sesTrack = (html: string): string => addTrackingToEmail(html, invocation, signer, false, 'ses')
+
+            it('leaves hrefs pointing at the destination and tags each anchor by position', () => {
+                const out = sesTrack(
+                    '<body><a href="https://example.com/a">a</a><a href="https://example.com/b">b</a></body>'
+                )
+                // A wrapper here would bury the destination inside a per-send URL that SES then
+                // reports verbatim as click.link, which is what makes per-link counts impossible.
+                expect(out).not.toContain('/public/m/redirect')
+                expect(out).toContain('<a href="https://example.com/a" ses:tags="phl:0">')
+                expect(out).toContain('<a href="https://example.com/b" ses:tags="phl:1">')
+            })
+
+            it.each([
+                ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
+                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
+            ])('translates the %s opt-out into ses:no-track', (_name, html) => {
+                // SES honors only its own attribute, so without this the anchor is still rewritten
+                // to awstrack.me and app deeplinks stop resolving.
+                const out = sesTrack(html)
+                expect(out).toContain('ses:no-track')
+                expect(out).not.toContain('ses:tags')
+            })
+
+            it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
+                const out = sesTrack('<body><a href="https://example.com" ses:tags="campaign:spring">x</a></body>')
+                expect(out).toContain('ses:tags="campaign:spring;phl:0"')
+            })
+
+            it('keeps anchor positions stable when an earlier link opts out', () => {
+                const out = sesTrack(
+                    '<body><a href="https://example.com/a" data-ph-no-track>a</a><a href="https://example.com/b">b</a></body>'
+                )
+                expect(out).toContain('ses:tags="phl:1"')
+            })
         })
 
         const invocationWithDistinctId = {
@@ -528,6 +588,39 @@ describe('EmailTrackingService', () => {
                 .send(JSON.stringify(envelope))
         }
 
+        const postComplaint = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {
+            const trackingCode = signer.generate({ functionId, id: 'invocation-id', teamId: team.id })
+            const sesRecord = {
+                eventType: 'Complaint',
+                mail: {
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                    source: 'sender@posthog.com',
+                    messageId: 'ses-message-id',
+                    destination: [emailAddress],
+                    headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                },
+                complaint: {
+                    complainedRecipients: [{ emailAddress }],
+                    complaintFeedbackType: 'abuse',
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                },
+            }
+            const envelope = {
+                Type: 'Notification',
+                MessageId: 'sns-message-id',
+                TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                Message: JSON.stringify(sesRecord),
+                Timestamp: '2024-01-01T00:00:00.000Z',
+                SignatureVersion: '1',
+                Signature: 'stubbed',
+                SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            }
+            return await supertest(app)
+                .post('/public/m/ses_webhook')
+                .set('Content-Type', 'text/plain')
+                .send(JSON.stringify(envelope))
+        }
+
         it('inserts a suppression row and marks it suppressed after a Transient bounce webhook', async () => {
             const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
             const email = 'transient-bouncer@example.com'
@@ -591,6 +684,38 @@ describe('EmailTrackingService', () => {
                     suppressed: true,
                     transient_bounce_count: 0,
                     last_bounce_diagnostic: 'smtp; 550 5.1.1 user unknown',
+                    deleted: false,
+                },
+            ])
+        })
+
+        it('inserts a suppressed row for a Complaint webhook', async () => {
+            const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+            const email = 'complainer@example.com'
+
+            const res = await postComplaint(hogFlow.id, email)
+            expect(res.status).toBe(200)
+
+            const result = await hub.postgres.query<{
+                identifier: string
+                source: string
+                suppressed: boolean
+                transient_bounce_count: number
+                deleted: boolean
+            }>(
+                PostgresUse.COMMON_READ,
+                `SELECT identifier, source, suppressed, transient_bounce_count, deleted
+                 FROM posthog_messagesuppression
+                 WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-complaint-suppression'
+            )
+            expect(result.rows).toEqual([
+                {
+                    identifier: email,
+                    source: 'COMPLAINT',
+                    suppressed: true,
+                    transient_bounce_count: 0,
                     deleted: false,
                 },
             ])

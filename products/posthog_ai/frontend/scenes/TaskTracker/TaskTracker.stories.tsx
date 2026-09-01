@@ -31,6 +31,9 @@ function mockRun(taskId: string, status: TaskRunStatus, createdAt: string, compl
         branch: status === TaskRunStatus.COMPLETED ? 'posthog/task-branch' : null,
         status,
         environment: TaskRunEnvironment.CLOUD,
+        runtime_adapter: null,
+        model: null,
+        reasoning_effort: null,
         log_url: null,
         error_message: null,
         output: null,
@@ -122,6 +125,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/': listResponse(TASKS),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: ['PostHog/posthog'] },
                 // Exact ids (not `:id`) so they never shadow the `repositories` action route.

@@ -129,6 +129,7 @@ export type ExternalDataSchemaApiSource = {
     readonly access_method?: string
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
+    readonly requires_exact_column_metadata?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
     /** @nullable */
@@ -231,6 +232,8 @@ export interface ExternalDataSchemaApi {
     row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
+    /** Whether exact source-side column metadata is available for safe source-query projection. */
+    readonly source_column_metadata_available: boolean
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -289,6 +292,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly access_method?: string
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
+    readonly requires_exact_column_metadata?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
     /** @nullable */
@@ -391,6 +395,8 @@ export interface PatchedExternalDataSchemaApi {
     row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
+    /** Whether exact source-side column metadata is available for safe source-query projection. */
+    readonly source_column_metadata_available?: boolean
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -605,6 +611,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -617,13 +624,15 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
  * * `AzureDevOps` - AzureDevOps
+ * * `RoktAds` - RoktAds
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -751,6 +760,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -1683,6 +1693,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -1708,10 +1719,47 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
  * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
  * * `WindsorAi` - WindsorAi
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
+ * * `Cloudinary` - Cloudinary
+ * * `Uploadcare` - Uploadcare
+ * * `WHMCS` - WHMCS
+ * * `MSG91` - MSG91
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
+ * * `Hootsuite` - Hootsuite
+ * * `WisprFlow` - WisprFlow
+ * * `SamCart` - SamCart
+ * * `IronSourceAds` - IronSourceAds
+ * * `MicrosoftExcel` - MicrosoftExcel
+ * * `Profound` - Profound
+ * * `Airwallex` - Airwallex
+ * * `Polymarket` - Polymarket
+ * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
+ * * `Anvil` - Anvil
+ * * `Coolify` - Coolify
+ * * `SocialPilot` - SocialPilot
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1892,6 +1940,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -1904,13 +1953,15 @@ export const ExternalDataSourceTypeEnumApi = {
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
     AzureDevOps: 'AzureDevOps',
+    RoktAds: 'RoktAds',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -2038,6 +2089,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -2970,6 +3022,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -2995,10 +3048,47 @@ export const ExternalDataSourceTypeEnumApi = {
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
     Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
     WindsorAi: 'WindsorAi',
     Wix: 'Wix',
     Sevalla: 'Sevalla',
     Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
+    Cloudinary: 'Cloudinary',
+    Uploadcare: 'Uploadcare',
+    Whmcs: 'WHMCS',
+    Msg91: 'MSG91',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
+    Hootsuite: 'Hootsuite',
+    WisprFlow: 'WisprFlow',
+    SamCart: 'SamCart',
+    IronSourceAds: 'IronSourceAds',
+    MicrosoftExcel: 'MicrosoftExcel',
+    Profound: 'Profound',
+    Airwallex: 'Airwallex',
+    Polymarket: 'Polymarket',
+    Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
+    Anvil: 'Anvil',
+    Coolify: 'Coolify',
+    SocialPilot: 'SocialPilot',
 } as const
 
 /**
@@ -3019,6 +3109,8 @@ export const AccessMethodEnumApi = {
  * * `snowflake` - snowflake
  * * `redshift` - redshift
  * * `clickhouse` - clickhouse
+ * * `motherduck` - motherduck
+ * * `trino` - trino
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -3029,6 +3121,8 @@ export const EngineEnumApi = {
     Snowflake: 'snowflake',
     Redshift: 'redshift',
     Clickhouse: 'clickhouse',
+    Motherduck: 'motherduck',
+    Trino: 'trino',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -3089,7 +3183,9 @@ export interface ExternalDataSourceSerializersApi {
      * * `mysql` - mysql
      * * `snowflake` - snowflake
      * * `redshift` - redshift
-     * * `clickhouse` - clickhouse */
+     * * `clickhouse` - clickhouse
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -3123,7 +3219,7 @@ export interface PaginatedExternalDataSourceSerializersListApi {
 }
 
 /**
- * Connection credentials and a 'schemas' array. Keys depend on source_type.
+ * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
 
@@ -3319,6 +3415,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -3331,13 +3428,15 @@ export interface ExternalDataSourceCreateApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -3465,6 +3564,7 @@ export interface ExternalDataSourceCreateApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -4397,6 +4497,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -4422,12 +4523,49 @@ export interface ExternalDataSourceCreateApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+    /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
     /**
      * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
@@ -4514,7 +4652,9 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `mysql` - mysql
      * * `snowflake` - snowflake
      * * `redshift` - redshift
-     * * `clickhouse` - clickhouse */
+     * * `clickhouse` - clickhouse
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -4580,6 +4720,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     sync_time_of_day?: string | null
+    /**
+     * Column names for primary key deduplication.
+     * @nullable
+     */
+    primary_key_columns?: string[] | null
     /** How CDC-backed tables should be exposed.
      *
      * * `consolidated` - consolidated
@@ -4641,7 +4786,9 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `mysql` - mysql
      * * `snowflake` - snowflake
      * * `redshift` - redshift
-     * * `clickhouse` - clickhouse */
+     * * `clickhouse` - clickhouse
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
@@ -4820,6 +4967,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -4832,13 +4980,15 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -4966,6 +5116,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -5898,6 +6049,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -5923,10 +6075,47 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -5935,6 +6124,8 @@ export interface ExternalDataSourceConnectionOptionApi {
     readonly access_method: AccessMethodEnumApi
     /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
     readonly supports_hogql: boolean
+    /** Whether this option is the built-in PostHog managed warehouse connection. */
+    readonly is_builtin_managed_warehouse: boolean
     /**
      * User-set description of the source, shown as its display name in the connection picker when set.
      * @nullable
@@ -6134,6 +6325,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -6146,13 +6338,15 @@ export interface DatabaseSchemaRequestApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -6280,6 +6474,7 @@ export interface DatabaseSchemaRequestApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -7212,6 +7407,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -7237,10 +7433,47 @@ export interface DatabaseSchemaRequestApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -7425,6 +7658,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -7437,13 +7671,15 @@ export interface DirectConnectionSourceOptionApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -7571,6 +7807,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -8503,6 +8740,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -8528,10 +8766,47 @@ export interface DirectConnectionSourceOptionApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -8801,6 +9076,7 @@ export interface SourcePreviewRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -8813,13 +9089,15 @@ export interface SourcePreviewRequestApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -8947,6 +9225,7 @@ export interface SourcePreviewRequestApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -9879,6 +10158,7 @@ export interface SourcePreviewRequestApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -9904,10 +10184,47 @@ export interface SourcePreviewRequestApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -10127,6 +10444,7 @@ export interface SourceSetupApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -10139,13 +10457,15 @@ export interface SourceSetupApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -10273,6 +10593,7 @@ export interface SourceSetupApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -11205,6 +11526,7 @@ export interface SourceSetupApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -11230,10 +11552,47 @@ export interface SourceSetupApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -11460,6 +11819,7 @@ export interface SourceCredentialCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -11472,13 +11832,15 @@ export interface SourceCredentialCreateApi {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11606,6 +11968,7 @@ export interface SourceCredentialCreateApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -12538,6 +12901,7 @@ export interface SourceCredentialCreateApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -12563,10 +12927,47 @@ export interface SourceCredentialCreateApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
-     * * `Motion` - Motion */
+     * * `Motion` - Motion
+     * * `ImpactPartner` - ImpactPartner
+     * * `Cloudinary` - Cloudinary
+     * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
+     * * `Anvil` - Anvil
+     * * `Coolify` - Coolify
+     * * `SocialPilot` - SocialPilot */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -12581,6 +12982,46 @@ export interface SourceCredentialApi {
     created_at: string
     /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
     expires_at: string
+}
+
+export interface WarehouseColumnStatisticsApi {
+    readonly id: string
+    /** ID of the data warehouse table this column belongs to. */
+    readonly table: string
+    /** Name of the column these statistics describe. */
+    readonly column_name: string
+    /** ClickHouse type the statistics were computed against (e.g. Int64, DateTime64). */
+    readonly column_type: string
+    /** Total number of rows in the table when these statistics were computed. */
+    readonly row_count: number
+    /** Number of NULL values in this column, or null if the Delta log carried no count. */
+    readonly null_count: number
+    /** Fraction of values that are NULL (null_count / row_count), between 0 and 1. */
+    readonly null_fraction: number
+    /** Minimum value in the column, as a string. Null when unavailable. For string columns this may be truncated by the underlying Delta statistics, so treat string bounds as approximate. */
+    readonly min_value: string
+    /** Maximum value in the column, as a string. Null when unavailable (see min_value). */
+    readonly max_value: string
+    /** Whether the Delta log carried min/max statistics for this column (false for some nested/binary types). */
+    readonly has_min_max: boolean
+    /** When these statistics were last computed. */
+    readonly computed_at: string
+    /** Delta table version the statistics were computed against. */
+    readonly computed_for_delta_version: number
+    /** How the statistics were produced. Currently always 'delta_log'. */
+    readonly stats_basis: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedWarehouseColumnStatisticsListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseColumnStatisticsApi[]
 }
 
 export type ExternalDataSchemasListParams = {
@@ -12598,13 +13039,17 @@ export type ExternalDataSchemasListParams = {
     search?: string
 }
 
+export type ExternalDataSchemasCancelCreate200 = {
+    detail?: string
+}
+
 export type ExternalDataSchemasCancelCreate400 = {
     detail?: string
 }
 
 export type ExternalDataSchemasLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
@@ -12632,6 +13077,14 @@ export type ExternalDataSchemasLogsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type ExternalDataSchemasReloadCreate400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasResyncCreate400 = {
+    detail?: string
 }
 
 export type ExternalDataSourcesListParams = {
@@ -12716,4 +13169,19 @@ export type ExternalDataSourcesWizardRetrieveParams = {
      * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string
+}
+
+export type WarehouseColumnStatisticsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return statistics for this data warehouse table.
+     */
+    table_id?: string
 }

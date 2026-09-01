@@ -32,7 +32,7 @@ const NO_FILTERS = {
   sourceProductFilter: [],
   priorityFilter: [],
   searchQuery: "",
-  isDefaultScope: true,
+  scope: "for-you" as const,
 };
 
 describe("buildBulkActionEvents", () => {
@@ -113,8 +113,8 @@ describe("buildInboxViewedProperties", () => {
     expect(props.report_count).toBe(2);
     expect(props.total_count).toBe(65);
     expect(props.ready_count).toBe(2);
-    expect(props.pulls_count).toBe(38);
-    expect(props.reports_count).toBe(62);
+    expect(props.pulls_tab_count).toBe(38);
+    expect(props.reports_tab_count).toBe(62);
     expect(props.is_empty).toBe(false);
     expect(props.status_filter_count).toBe(0);
   });
@@ -171,7 +171,7 @@ describe("buildInboxViewedProperties", () => {
     ["source product", { sourceProductFilter: ["error_tracking"] }],
     ["priority", { priorityFilter: ["P0"] }],
     ["search", { searchQuery: "  crash  " }],
-    ["non-default scope", { isDefaultScope: false }],
+    ["non-default scope", { scope: "entire-project" as const }],
   ])("flags has_active_filters for a %s filter", (_label, partial) => {
     const props = buildInboxViewedProperties({
       visibleReports: [fakeReport()],
@@ -192,6 +192,18 @@ describe("buildInboxViewedProperties", () => {
     });
 
     expect(props.has_active_filters).toBe(false);
+  });
+
+  it("omits legacy tab counts for the sectioned reports inbox", () => {
+    const props = buildInboxViewedProperties({
+      visibleReports: [fakeReport()],
+      totalCount: 1,
+      filters: NO_FILTERS,
+    });
+
+    expect(props.pulls_tab_count).toBeUndefined();
+    expect(props.reports_tab_count).toBeUndefined();
+    expect(props.scope).toBe("for-you");
   });
 });
 

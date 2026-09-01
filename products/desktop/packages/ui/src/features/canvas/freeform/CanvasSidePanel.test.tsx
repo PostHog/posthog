@@ -60,4 +60,26 @@ describe("CanvasSidePanel", () => {
       "task-1:canvas-1",
     );
   });
+
+  it("shows the run that built the canvas on the chat tab while viewing", () => {
+    useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
+    render(
+      <CanvasSidePanel
+        effectiveTaskId={null}
+        commentTaskId="task-1"
+        interactive={false}
+        onMinimize={vi.fn()}
+        dashboardId="canvas-1"
+        channelId="channel-1"
+        channelName="General"
+        name="Launch canvas"
+        displayedVersionId="version-2"
+        commentVersionLabel={(versionId) => versionId}
+        onCommentOpen={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Chat"));
+    expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+  });
 });

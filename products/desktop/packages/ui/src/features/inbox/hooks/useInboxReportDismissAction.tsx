@@ -1,5 +1,12 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
+import {
+  Button,
+  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import {
@@ -7,15 +14,19 @@ import {
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
-import { Spinner, Tooltip } from "@radix-ui/themes";
 import { type ReactElement, useCallback, useMemo, useState } from "react";
 
 const EMPTY_REPORTS: SignalReport[] = [];
 
 /** Archive flow used by every inbox detail screen – one report, one button + dialog. */
-export function useInboxReportDismissAction(report: SignalReport): {
+export function useInboxReportDismissAction(
+  report: SignalReport,
+  surface: InboxReportActionSurface = "detail_pane",
+): {
   actionButton: ReactElement;
   dialog: ReactElement | null;
+  /** Open the archive dialog directly — for menu items and keyboard paths. */
+  openDialog: () => void;
 } {
   const [open, setOpen] = useState(false);
   // Stable identity for the closed case so `useInboxBulkActions`'s memo doesn't
@@ -28,7 +39,7 @@ export function useInboxReportDismissAction(report: SignalReport): {
   const bulkActions = useInboxBulkActions(
     reportsForActions,
     open ? report.id : null,
-    "detail_pane",
+    surface,
   );
 
   const isPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
@@ -45,17 +56,23 @@ export function useInboxReportDismissAction(report: SignalReport): {
   );
 
   const actionButton = (
-    <Tooltip content="Archive this report">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-label="Archive this report"
-        disabled={isPending}
-        onClick={() => setOpen(true)}
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-xs"
+            className="h-7 w-7"
+            aria-label="Archive this report for everyone in the project"
+            disabled={isPending}
+            onClick={() => setOpen(true)}
+          />
+        }
       >
-        {isPending ? <Spinner size="1" /> : <ArchiveIcon size={12} />}
-      </Button>
+        {isPending ? <Spinner /> : <ArchiveIcon size={12} />}
+      </TooltipTrigger>
+      <TooltipContent>Archive for everyone in this project</TooltipContent>
     </Tooltip>
   );
 
@@ -72,5 +89,6 @@ export function useInboxReportDismissAction(report: SignalReport): {
     />
   ) : null;
 
-  return { actionButton, dialog };
+  const openDialog = useCallback(() => setOpen(true), []);
+  return { actionButton, dialog, openDialog };
 }

@@ -11,6 +11,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -32,6 +33,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -39,6 +41,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
+    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
@@ -59,8 +62,6 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -794,6 +795,30 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "ActionsNode"}},
                 "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
             ),
+            (
+                "activation_config_not_a_dict",
+                {"activation_config": "purchase"},
+                "exposure_criteria.activation_config must be an object, got str",
+            ),
+            (
+                "activation_config_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+                "exposure_criteria.activation_config requires the default exposure event",
+            ),
+            (
+                "unknown_top_level_properties",
+                {"properties": [{"key": "email", "value": "x"}]},
+                "exposure_criteria contains unknown key(s): properties. Property filters on the "
+                "exposure event belong at exposure_criteria.exposure_config.properties.",
+            ),
+            (
+                "unknown_top_level_key",
+                {"filterTestAccounts": True, "custom_thing": 1},
+                "exposure_criteria contains unknown key(s): custom_thing",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -831,6 +856,39 @@ class TestExperimentService(APIBaseTest):
             (
                 "event_payload_without_explicit_kind",
                 {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+            (
+                "activation_payload",
+                {"activation_config": {"event": "purchase", "properties": []}},
+            ),
+            (
+                "explicit_null_configs",
+                {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "multiple_variant_handling",
+                {"multiple_variant_handling": "exclude"},
+            ),
+            (
+                "null_activation_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": None,
+                },
+            ),
+            (
+                "activation_with_default_exposure_config",
+                {
+                    "exposure_config": {"event": "$feature_flag_called", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+            ),
+            (
+                "activation_with_pinned_exposure_event",
+                {
+                    "exposure_config": {"event": "$experiment_exposure", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
             ),
         ]
     )
@@ -2038,6 +2096,81 @@ class TestExperimentService(APIBaseTest):
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
 
+    @contextmanager
+    def _concurrent_write_in_lock_window(self, experiment_id: int, **twin_update: Any):
+        """Commit a concurrent write inside update_experiment's race window: after the
+        unlocked concurrency resolution but before the row-locked version re-check, by
+        hooking the flag sync that runs between them."""
+        real_sync = ExperimentService._sync_feature_flag_on_update
+
+        def twin_write_then_sync(service: ExperimentService, *args: Any, **kwargs: Any) -> None:
+            Experiment.objects.filter(pk=experiment_id).update(version=F("version") + 1, **twin_update)
+            return real_sync(service, *args, **kwargs)
+
+        with patch.object(
+            ExperimentService, "_sync_feature_flag_on_update", autospec=True, side_effect=twin_write_then_sync
+        ):
+            yield
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_duplicate_update_racing_the_lock_window_succeeds_as_noop(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(flag_key="lock-window-noop")
+        service = self._service()
+        version = experiment.version or 0
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="the same edit"):
+            result = service.update_experiment(
+                experiment,
+                {"description": "the same edit", "version": version},
+                serializer_context=service._build_serializer_context(),
+            )
+
+        assert result.version == version + 1
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "the same edit"
+        # Only the twin's bump: a second bump for the same logical change would re-stale
+        # every other open tab.
+        assert stored.version == version + 1
+        concurrency_events = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment update concurrency"
+        ]
+        assert [call.args[2]["resolution"] for call in concurrency_events] == ["noop"]
+        assert concurrency_events[0].args[2]["versions_behind"] == 1
+
+    def test_conflicting_update_racing_the_lock_window_still_conflicts(self):
+        experiment = self._create_draft_experiment(flag_key="lock-window-conflict")
+        service = self._service()
+        version = experiment.version or 0
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="their edit"):
+            with self.assertRaises(ExperimentVersionConflict) as ctx:
+                service.update_experiment(experiment, {"description": "my edit", "version": version})
+
+        assert ctx.exception.conflicting_fields == []
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "their edit"
+        assert stored.version == version + 1
+
+    def test_duplicate_metrics_update_racing_the_lock_window_ignores_fingerprint_churn(self):
+        experiment = self._create_draft_experiment(flag_key="lock-window-fingerprint")
+        service = self._service()
+        version = experiment.version or 0
+        stored_metric = (experiment.metrics or [])[0]
+        resubmitted = {key: value for key, value in stored_metric.items() if key != "fingerprint"}
+
+        with self._concurrent_write_in_lock_window(
+            experiment.pk, metrics=[{**stored_metric, "fingerprint": "recomputed-by-the-twin"}]
+        ):
+            result = service.update_experiment(
+                experiment, {"metrics": [resubmitted], "version": version}, allow_unknown_events=True
+            )
+
+        assert result.version == version + 1
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.version == version + 1
+        # The short-circuit skipped the save: the twin's row (fingerprint included) is intact.
+        assert (stored.metrics or [])[0]["fingerprint"] == "recomputed-by-the-twin"
+
     def _updated_events(self, mock_report_user_action):
         return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
 
@@ -2383,6 +2516,26 @@ class TestExperimentService(APIBaseTest):
         assert dup.id != source.id
         # Same flag key → reuses the existing flag
         assert dup.feature_flag.id == source.feature_flag.id
+
+    def test_duplicate_experiment_strips_legacy_unknown_exposure_criteria_keys(self):
+        # Stored criteria can carry unknown keys accepted before write-side rejection;
+        # duplicating such an experiment must succeed and drop them.
+        self._create_flag(key="dup-legacy-criteria")
+        service = self._service()
+        source = service.create_experiment(
+            name="Legacy criteria",
+            feature_flag_key="dup-legacy-criteria",
+            exposure_criteria={"filterTestAccounts": True},
+        )
+        source.exposure_criteria = {"filterTestAccounts": True, "properties": [{"key": "email"}]}
+        source.save(update_fields=["exposure_criteria"])
+
+        dup = service.duplicate_experiment(source)
+
+        criteria = dup.exposure_criteria
+        assert criteria is not None
+        assert criteria.get("filterTestAccounts") is True
+        assert "properties" not in criteria
 
     def test_duplicate_experiment_generates_unique_name(self):
         self._create_flag(key="dup-unique-1")
@@ -3402,6 +3555,7 @@ class TestExperimentService(APIBaseTest):
         assert paused.end_date is None
         assert paused.is_paused is True
         assert paused.is_running is True  # status remains running while paused
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="paused").exists()
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -3416,6 +3570,7 @@ class TestExperimentService(APIBaseTest):
         assert resumed.feature_flag.active is True
         assert resumed.start_date is not None
         assert resumed.end_date is None
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="resumed").exists()
 
     def test_pause_experiment_already_paused_raises(self):
         experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
@@ -5165,6 +5320,30 @@ class TestExperimentService(APIBaseTest):
             start_date=now - timedelta(days=4),
             end_date=now - timedelta(days=1),
         )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    @parameterized.expand(
+        [
+            ("ascending", "conclusion", ["Won", "Lost", "No conclusion"]),
+            ("descending", "-conclusion", ["No conclusion", "Lost", "Won"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        service.create_experiment(name="Won", feature_flag_key="order-conclusion-won")
+        service.create_experiment(name="Lost", feature_flag_key="order-conclusion-lost")
+        service.create_experiment(name="No conclusion", feature_flag_key="order-conclusion-none")
+        Experiment.objects.filter(team=self.team, name="Won").update(conclusion="won")
+        Experiment.objects.filter(team=self.team, name="Lost").update(conclusion="lost")
 
         queryset = service.filter_experiments_queryset(
             Experiment.objects.filter(team=self.team),
@@ -7191,6 +7370,40 @@ class TestScalarConcurrencyResolution(SimpleTestCase):
                 {"parameters": {"variant_notes": {"control": "theirs"}}},
                 {"parameters": {"variant_notes": {"control": "mine"}}},
                 ["parameters"],
+            ),
+            (
+                # The calculator auto-save rewrites the recommended_* estimates on every results
+                # load, so a stale tab's echo of older estimates is machine churn, not a user edit.
+                "running_time_estimate_churn_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                [],
+            ),
+            (
+                "running_time_config_edit_survives_estimate_churn",
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                [],
+            ),
+            (
+                "running_time_config_double_edit_still_conflicts",
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": {"minimum_detectable_effect": 20, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                ["running_time_calculation"],
+            ),
+            (
+                "running_time_null_base_vs_machine_only_current_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": None},
+                {"running_time_calculation": {"recommended_running_time": 30, "recommended_sample_size": 100}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                [],
             ),
         ]
     )

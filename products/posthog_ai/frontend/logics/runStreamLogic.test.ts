@@ -262,6 +262,19 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.some((item) => item.type === 'turn_separator')).toEqual(true)
         })
 
+        it('follows the latest run_started conversationClear advertisement', async () => {
+            // A run served by a capable agent followed by one whose agent does not advertise
+            // the capability (an agent rollback): the gate must drop, or the client records a
+            // clear boundary the current agent ignores on resume.
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', { conversationClear: true }))
+            }).toMatchValues({ conversationClearSupported: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toMatchValues({ conversationClearSupported: false })
+        })
+
         it('sets currentMode on a current_mode_update frame', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -1898,6 +1911,45 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('connection state across runs', () => {
+        // A follow-up on a finished run opens a successor with a stream of its own. The finished
+        // run's sentinel flag and resume cursor must not carry into it: the flag gates the drop
+        // handler, and the cursor addresses a different Redis stream.
+        it("opens a successor run on fresh connection state, not the finished run's", async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2', startLatest: false })
+
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            await MockStream.latest().emitOpen()
+
+            const opened = MockStream.connections.length
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            expect(logic.values.sseStatus).toEqual('reconnecting')
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.connections.length).toEqual(opened + 1)
+            jest.useRealTimers()
+        })
+
+        it('leaves a dead stream closed when a follow-up starts a turn', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+            expect(logic.values.sseStatus).toEqual('closed')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
+        })
+    })
+
     describe('connection teardown', () => {
         // The keyed log store makes duplicate ingestion idempotent, so correctness no longer depends
         // on closing the exact connection a hot reload orphaned (the old EventSource registry is
@@ -2513,6 +2565,39 @@ describe('runStreamLogic', () => {
             const items = logic.values.threadItems
             expect(items.some((i) => i.type === 'status')).toBe(false)
             expect(items.some((i) => i.type === 'compact_boundary')).toBe(true)
+        })
+    })
+
+    describe('/clear inline items', () => {
+        it('replaces the in-progress clearing spinner with the conversation_cleared divider', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'clearing' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/conversation_cleared', { sessionId: 'sess_new' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'clearing', isComplete: true }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([expect.objectContaining({ type: 'conversation_cleared' })])
+        })
+
+        it('reports a failed clear in place of the spinner, since no boundary follows it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'clearing' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/status', {
+                        status: 'clearing_failed',
+                        error: 'Conversation clear timed out after 30000ms',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({
+                    type: 'status',
+                    status: 'clearing_failed',
+                    isComplete: true,
+                    errorMessage: 'Conversation clear timed out after 30000ms',
+                }),
+            ])
         })
     })
 

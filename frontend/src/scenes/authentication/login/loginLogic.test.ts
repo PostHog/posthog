@@ -202,11 +202,12 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
 
             expect(logic.values.codeVerificationRequired).toBe(true)
-            expect(logic.values.generalError?.code).toBe('code_based_verification_sent')
+            expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+            expect(logic.values.generalError).toBe(null)
 
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
-            expect(logic.values.generalError).toBe(null)
+            expect(logic.values.codeVerificationEmail).toBe(null)
         })
     })
 
@@ -491,6 +492,57 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'user@example.com', autoAttempt: true })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(assignMock).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('cross-project redirect after login', () => {
+        const originalContext = window.POSTHOG_APP_CONTEXT
+        const originalLocation = window.location
+        let hrefSpy: jest.Mock
+
+        beforeEach(() => {
+            initKeaTests()
+            // getCurrentTeamIdOrNone() reads the current project from the app context.
+            window.POSTHOG_APP_CONTEXT = { current_team: { id: 5 } } as any
+            hrefSpy = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: {
+                    origin: 'http://localhost',
+                    pathname: '/login',
+                    search: '',
+                    hash: '',
+                    set href(url: string) {
+                        hrefSpy(url)
+                    },
+                },
+                configurable: true,
+            })
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = originalContext
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        })
+
+        it('does a full navigation to a project other than the current one', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/999/pipeline/destinations/hog-abc')}`)
+            handleLoginRedirect()
+            // A full load lets AutoProjectMiddleware switch the active project before the scene mounts.
+            expect(hrefSpy).toHaveBeenCalledWith('/project/999/pipeline/destinations/hog-abc')
+        })
+
+        it('stays client-side when the target is already the current project', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/pipeline/destinations/hog-abc')}`)
+            handleLoginRedirect()
+            expect(hrefSpy).not.toHaveBeenCalled()
+        })
+
+        it('does a full navigation for a project token the middleware resolves server-side', () => {
+            // A `phc_` key or a legacy allowlisted api_token can't be compared to the numeric team id,
+            // so it must reach AutoProjectMiddleware for resolution — client-side routing wouldn't switch.
+            router.actions.push(`/login?next=${encodeURIComponent('/project/phc_ABC123/pipeline/destinations')}`)
+            handleLoginRedirect()
+            expect(hrefSpy).toHaveBeenCalledWith('/project/phc_ABC123/pipeline/destinations')
         })
     })
 })

@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { isValidRegexp } from 'lib/utils/regexp'
 import { AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 
 import { PathCleaningFilter } from '~/types'
+
+import { isValidPathCleaningRegex } from './pathCleaningUtils'
 
 export interface PathRegexModalProps {
     isOpen: boolean
@@ -24,7 +25,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
         ? 'Alias is required'
         : !regex
           ? 'Regex is required'
-          : !isValidRegexp(regex)
+          : !isValidPathCleaningRegex(regex)
             ? 'Malformed regex'
             : null
 
@@ -81,6 +82,17 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                 <span>
                                     Example:{' '}
                                     <span className="font-mono text-accent text-xs">{'/merchant/<id>/dashboard'}</span>
+                                </span>
+                                <br />
+                                <span>
+                                    To keep part of the original path, reference a capture group from the regex with{' '}
+                                    <span className="font-mono text-accent text-xs">{'\\1'}</span>,{' '}
+                                    <span className="font-mono text-accent text-xs">{'\\2'}</span>, and so on. For
+                                    example, regex{' '}
+                                    <span className="font-mono text-accent text-xs">{'/user/(\\d+)/profile'}</span> with
+                                    alias <span className="font-mono text-accent text-xs">{'/user/\\1'}</span> keeps the
+                                    id. Capture groups slow queries down, so use them when one rule can replace several
+                                    near-identical ones.
                                 </span>
                             </p>
                         </div>

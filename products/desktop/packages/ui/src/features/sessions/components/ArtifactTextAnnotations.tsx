@@ -20,6 +20,10 @@ import {
   type HighlightResolution,
   readCommentContext,
 } from "./commentViewTypes";
+import {
+  commentActionAnchorRect,
+  installSelectionSettleGate,
+} from "./selectionCommentAction";
 
 type HighlightRect = {
   id: string;
@@ -322,26 +326,40 @@ export function ArtifactTextAnnotations({
         offsets.end,
       );
       if (!anchor) return;
-      const box = range.getBoundingClientRect();
+      // Anchor to the selection's end line, where the pointer was released.
+      const endRect = commentActionAnchorRect(
+        range.getClientRects?.() ?? [],
+        range.getBoundingClientRect(),
+      );
       setPendingAnchor(anchor);
       setSelection({
         text: anchor.quote,
         fromLine: offsets.start + 1,
         toLine: offsets.end + 1,
         anchor: {
-          top: box.bottom,
-          left: Math.min(box.right, window.innerWidth - 440),
+          top: endRect.top,
+          endX: endRect.right,
+          bottom: endRect.bottom,
         },
       });
     };
-    const handleSelectionChange = () => {
+    const scheduleUpdate = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(updateSelection);
     };
-    document.addEventListener("selectionchange", handleSelectionChange);
+    const removeGate = installSelectionSettleGate(document, {
+      onGestureStart: clearOverlay,
+      onSelectionSettled: scheduleUpdate,
+      onIdleSelectionChange: scheduleUpdate,
+      onGestureCancel: clearOverlay,
+    });
+    // Hide on scroll because the HTML and canvas surfaces cannot keep a
+    // fixed-position host action anchored during an iframe scroll.
+    container.addEventListener("scroll", clearOverlay, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
-      document.removeEventListener("selectionchange", handleSelectionChange);
+      container.removeEventListener("scroll", clearOverlay);
+      removeGate();
     };
   }, [clearOverlay, containerRef, rootRef]);
 

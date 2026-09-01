@@ -24,6 +24,21 @@ function seedWithEvents() {
 afterEach(() => sessionStoreSetters.removeSession(RUN));
 
 describe("evictEvents / restoreEvents", () => {
+  it("clears a starting marker when the session arrives", () => {
+    sessionStoreSetters.setTaskStarting(TASK);
+
+    sessionStoreSetters.setSession({
+      taskRunId: RUN,
+      taskId: TASK,
+      events: [],
+      messageQueue: [],
+      pendingPermissions: new Map(),
+      status: "connected",
+    } as unknown as AgentSession);
+
+    expect(sessionStore.getState().startingTaskIds[TASK]).toBeUndefined();
+  });
+
   it("evictEvents frees the transcript and resets the line cursor", () => {
     seedWithEvents();
     expect(sessionStore.getState().sessions[RUN].events).toHaveLength(1);
@@ -49,6 +64,26 @@ describe("evictEvents / restoreEvents", () => {
     expect(s.events).toHaveLength(1);
     expect(s.processedLineCount).toBe(7);
     expect(Object.isFrozen(s.events[0])).toBe(true);
+  });
+
+  it.each([
+    ["evictEvents", () => sessionStoreSetters.evictEvents(RUN)],
+    [
+      "restoreEvents",
+      () =>
+        sessionStoreSetters.restoreEvents(
+          RUN,
+          [{ ts: 2, message: {} } as unknown as AcpMessage],
+          7,
+        ),
+    ],
+  ])("%s retires the older-history paging index", (_name, transition) => {
+    seedWithEvents();
+    sessionStoreSetters.updateSession(RUN, { transcriptWindowStart: 10_000 });
+
+    transition();
+
+    expect(sessionStore.getState().sessions[RUN].transcriptWindowStart).toBe(0);
   });
 
   it("appendEvents and replaceOptimisticWithEvent freeze each stored event", () => {

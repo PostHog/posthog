@@ -13,7 +13,7 @@ Column | Type | Nullable | Description
 `insight_id` | integer | NOT NULL | FK to the insight being monitored
 `enabled` | boolean | NOT NULL | Whether the alert is actively evaluated
 `state` | varchar(10) | NOT NULL | `Firing`, `Not firing`, `Errored`, or `Snoozed`
-`calculation_interval` | varchar(10) | NULL | Check frequency: `hourly`, `daily`, `weekly`, or `monthly`
+`calculation_interval` | varchar(20) | NULL | Check frequency: `real_time`, `every_15_minutes`, `hourly`, `daily`, `weekly`, or `monthly`
 `condition` | jsonb | NOT NULL | Alert condition: `{"type": "absolute_value" | "relative_increase" | "relative_decrease"}`
 `config` | jsonb | NULL | Trends config: `{"type": "TrendsAlertConfig", "series_index": int, "check_ongoing_interval": bool}`
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
@@ -36,4 +36,7 @@ Column | Type | Nullable | Description
   - `relative_increase` — fires when the value increases beyond the threshold
   - `relative_decrease` — fires when the value decreases beyond the threshold
 - The `config.series_index` selects which series in a multi-series insight to monitor
+- `real_time` requires a Scale or Enterprise plan
+- `every_15_minutes` requires a Boost, Scale, or Enterprise add-on
+- Creating or updating alerts through MCP requires the `alert:write` scope. Reconnect the MCP connection if these tools are unavailable
 - Alerts have a per-team limit (2 on the free tier, higher on paid plans)

@@ -1,5 +1,6 @@
-import { Pause, Spinner, Warning } from "@phosphor-icons/react";
+import { Pause, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
+import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
   SESSION_SERVICE,
@@ -10,10 +11,20 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import {
+  type AcpMessage,
+  FAST_MODE_FLAG,
+  sessionSupportsSideQuestion,
+} from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { getCodeCommandInputError } from "@posthog/ui/features/message-editor/commands";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
 import {
   PromptInput,
@@ -27,6 +38,7 @@ import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
@@ -34,12 +46,15 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
+import { ModelSwitchCacheDialog } from "@posthog/ui/features/sessions/components/ModelSwitchCacheDialog";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
+import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -47,10 +62,9 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
-import {
-  CHAT_CONTENT_MAX_WIDTH,
-  CHAT_CONTENT_PADDING_INLINE,
-} from "@posthog/ui/features/sessions/constants";
+import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
+import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
+import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
@@ -68,18 +82,27 @@ import {
   useSessionViewActions,
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
+import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
-import { useSessionHandoffInProgress } from "@posthog/ui/features/sessions/useSession";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
+import { captureException, track } from "@posthog/ui/shell/analytics";
 import {
   pendingTaskPromptStoreApi,
   usePendingTaskPrompt,
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 export function getNewAttachments(
   previousIds: ReadonlySet<string>,
@@ -118,89 +141,14 @@ interface SessionViewProps {
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
   hideInput?: boolean;
+  /** Contextual actions shown between the thread and its composer. */
+  threadActions?: ReactNode;
 }
 
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
 
-/**
- * Centers composer-slot content at the chat width (or compact padding).
- *
- * The composer reserves the same horizontal room as the thread's scroll
- * content and caps at the same width, so the two columns are identical at
- * every panel width rather than only once the panel is wide enough for the
- * full column. Padding on the capped box instead of around it would eat into
- * `CHAT_CONTENT_MAX_WIDTH` and leave the composer narrower than the messages.
- *
- * The gutter is a percentage of this box, and the thread's equivalent box sits
- * inside a scroller whose `scrollbar-gutter: stable` has already taken the
- * scrollbar's width off it. Without the same reservation here, the composer
- * centers on a wider box and its column lands half a scrollbar right of the
- * messages. Reserving it rather than subtracting a constant keeps the browser's
- * own measurement authoritative, since scrollbar width varies by platform.
- */
-/** Widest ring the composer paints outside its border box (quill's 3px focus outline). */
-const OUTLINE_BLEED = 4;
-
-function ComposerWidth({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  if (compact) {
-    return <Box className="p-1">{children}</Box>;
-  }
-
-  return (
-    <Box
-      style={{
-        paddingInline: CHAT_CONTENT_PADDING_INLINE,
-        overflow: "hidden",
-        scrollbarGutter: "stable",
-        // `overflow: hidden` clips at this box's padding edge, which sits flush
-        // with the composer's top, so the focus ring painted outside its border
-        // box would lose its top. Buy the ring room and take it back out of the
-        // layout. The sides have the gutter and `pb-2` covers below.
-        paddingBlockStart: OUTLINE_BLEED,
-        marginBlockStart: -OUTLINE_BLEED,
-      }}
-    >
-      <Box
-        className="mx-auto pb-2"
-        style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-      >
-        {children}
-      </Box>
-    </Box>
-  );
-}
-
-/**
- * Input region replacing the composer: `shrink-0` keeps it from being
- * compressed by the scroller above, and `min-h-0 overflow-y-auto` lets tall
- * content scroll inside itself.
- */
-function ComposerSlot({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      className={
-        compact
-          ? "max-h-[50%] min-h-0 overflow-y-auto"
-          : "min-h-0 shrink-0 overflow-y-auto"
-      }
-    >
-      <ComposerWidth compact={compact}>{children}</ComposerWidth>
-    </Box>
-  );
-}
+const HANDOFF_SUMMARY_PROMPT = `Create a concise handoff summary for another coding agent. Include the user's goal, constraints, decisions, current progress, relevant files, commands and tests, remaining work, and blockers. Do not continue the task. Return only the handoff summary.`;
 
 export function SessionView({
   events,
@@ -231,6 +179,7 @@ export function SessionView({
   compact = false,
   isActiveSession = true,
   hideInput = false,
+  threadActions,
 }: SessionViewProps) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   useSessionEventsResidency(taskId);
@@ -254,10 +203,21 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
+  const spendStop = useSpendStop();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
-  const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
+  const olderHistoryCursor = useSessionSelector(taskId, (session) =>
+    isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const isLoadingOlderHistory = useSessionSelector(
+    taskId,
+    (session) => session?.isLoadingOlderTranscript ?? false,
+  );
+  const handleLoadOlderHistory = useCallback(() => {
+    if (!taskId) return;
+    void sessionService.loadOlderCloudTranscript(taskId);
+  }, [sessionService, taskId]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -297,12 +257,95 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
+  const contextUsage = useContextUsage(events);
+  const canCopyHandoffSummary = useSessionSelector(taskId, (session) =>
+    session ? sessionSupportsSideQuestion(session) : false,
+  );
+  const hasPendingSideQuestion = useSideQuestionStore((s) =>
+    taskId ? s.byTaskId[taskId]?.status === "pending" : false,
+  );
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
+
+  const applyConfigOption = useCallback(
+    async (configId: string, value: string): Promise<boolean> => {
+      if (!taskId) return false;
+      return await sessionService.setSessionConfigOption(
+        taskId,
+        configId,
+        value,
+      );
+    },
+    [taskId, sessionService],
+  );
+
+  const {
+    pendingModelSwitch,
+    interceptModelSwitch,
+    confirmModelSwitch,
+    cancelModelSwitch,
+  } = usePendingModelSwitch({
+    taskId,
+    sessionModelOption,
+    hasConversationStarted: hasSessionPromptEvent(events),
+    contextTokens: contextUsage?.used,
+    onApply: applyConfigOption,
+  });
+
+  const handleCopyHandoffSummary = useCallback(async (): Promise<void> => {
+    if (!taskId || !activeTaskRunId || !pendingModelSwitch) return;
+    const { ask, resolve, fail } = useSideQuestionStore.getState();
+    const questionId = ask(taskId, activeTaskRunId, HANDOFF_SUMMARY_PROMPT);
+    if (!questionId) return;
+    try {
+      const summary = await sessionService.askSideQuestion(
+        taskId,
+        HANDOFF_SUMMARY_PROMPT,
+      );
+      resolve(taskId, activeTaskRunId, questionId, summary);
+      await navigator.clipboard.writeText(summary);
+      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+        task_id: taskId,
+        from_model: pendingModelSwitch.fromValue,
+        to_model: pendingModelSwitch.value,
+        context_tokens: contextUsage?.used,
+        action: "copy_handoff_summary",
+        result: "succeeded",
+      });
+      toast.success("Handoff summary copied");
+    } catch (error) {
+      const caughtError =
+        error instanceof Error ? error : new Error("Handoff summary failed");
+      fail(taskId, activeTaskRunId, questionId, caughtError.message);
+      captureException(caughtError, {
+        feature: "model_switch_handoff_summary",
+      });
+      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
+        task_id: taskId,
+        from_model: pendingModelSwitch.fromValue,
+        to_model: pendingModelSwitch.value,
+        context_tokens: contextUsage?.used,
+        action: "copy_handoff_summary",
+        result: "failed",
+      });
+      toast.error("Could not copy a handoff summary", {
+        description: "Try again, or continue without a summary.",
+      });
+    }
+  }, [
+    taskId,
+    activeTaskRunId,
+    pendingModelSwitch,
+    sessionService,
+    contextUsage?.used,
+  ]);
+
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
-      sessionService.setSessionConfigOption(taskId, configId, value);
+      if (interceptModelSwitch(configId, value)) return;
+      void applyConfigOption(configId, value);
     },
-    [taskId, sessionService],
+    [taskId, interceptModelSwitch, applyConfigOption],
   );
 
   const sessionId = taskId ?? "default";
@@ -329,7 +372,17 @@ export function SessionView({
 
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
-  const contextUsage = useContextUsage(events);
+  const isCompacting = useSessionSelector(
+    taskId,
+    (session) => session?.isCompacting ?? false,
+  );
+  useAutoCompact({
+    sessionKey: sessionId,
+    usage: contextUsage,
+    isCompacting,
+    isRunning,
+    sendPrompt: onSendPrompt,
+  });
   const sendInFlightRef = useRef(false);
   const composerSubmissionRef = useRef(0);
   const attachmentIdsRef = useRef<Set<string>>(new Set());
@@ -465,6 +518,11 @@ export function SessionView({
     (text: string, clearEditor: () => void): boolean => {
       if (!isOnline) {
         showOfflineToast();
+        return false;
+      }
+      const commandInputError = getCodeCommandInputError(text);
+      if (commandInputError) {
+        toast.error(commandInputError);
         return false;
       }
       return onBeforeSubmit ? onBeforeSubmit(text, clearEditor) : true;
@@ -671,7 +729,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} className="animate-spin" />
+                              <Spinner size={14} />
                               Restoring...
                             </>
                           ) : (
@@ -700,7 +758,7 @@ export function SessionView({
                   justify="center"
                   className="absolute inset-0 bg-background"
                 >
-                  <Spinner size={32} className="animate-spin text-gray-9" />
+                  <Spinner size={32} className="text-gray-9" />
                 </Flex>
               )
             ) : (
@@ -724,9 +782,14 @@ export function SessionView({
                   compact={compact}
                   scrollX={false}
                   promptRecallRef={promptRecallRef}
+                  olderHistoryCursor={olderHistoryCursor}
+                  isLoadingOlderHistory={isLoadingOlderHistory}
+                  onLoadOlderHistory={handleLoadOlderHistory}
                 />
 
                 <PlanStatusBar plan={latestPlan} />
+
+                {threadActions}
 
                 {hasError && !showInlineBanner ? (
                   <Flex
@@ -772,14 +835,21 @@ export function SessionView({
                     </Flex>
                   </Flex>
                 ) : hideInput ? null : firstPendingPermission ? (
-                  <ComposerSlot compact={compact}>
+                  // Keyed on when the prompt arrived, not just which tool call
+                  // it belongs to, so a re-asked permission for the same call
+                  // arrives shown rather than inheriting the last one's hidden
+                  // state.
+                  <PermissionDock
+                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
+                    compact={compact}
+                  >
                     <PermissionSelector
                       toolCall={firstPendingPermission.toolCall}
                       options={firstPendingPermission.options}
                       onSelect={handlePermissionSelect}
                       onCancel={handlePermissionCancel}
                     />
-                  </ComposerSlot>
+                  </PermissionDock>
                 ) : (
                   <Box className="relative shrink-0">
                     <Box
@@ -789,7 +859,7 @@ export function SessionView({
                           : "opacity-100"
                       }`}
                     >
-                      <ConnectingToAgent />
+                      <ConnectingToAgent spinning={!isRunning} />
                     </Box>
                     <Box
                       className={`transition-all duration-300 ease-out ${
@@ -799,17 +869,23 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
+                        {taskId && (
+                          <SideQuestionCard
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
                         {taskId && <QueuedMessagesDock taskId={taskId} />}
                         <PromptInput
                           ref={editorRef}
                           sessionId={sessionId}
-                          placeholder="Type a message... @ to mention files, ! for bash mode, / for skills"
-                          disabled={!isRunning && !handoffInProgress}
+                          placeholder="Type a message... ! for bash mode, / for skills"
+                          disabled={!isRunning}
                           submitDisabledExternal={
-                            handoffInProgress ||
                             !isOnline ||
                             attachmentsUploading ||
-                            attachmentUploadFailed
+                            attachmentUploadFailed ||
+                            spendStop !== null
                           }
                           clearOnSubmit={false}
                           submitTooltipOverride={
@@ -819,7 +895,9 @@ export function SessionView({
                                 ? "Uploading attachments…"
                                 : attachmentUploadFailed
                                   ? "Attachment upload failed"
-                                  : undefined
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
                           }
                           isLoading={!!isPromptPending}
                           isActiveSession={isActiveSession}
@@ -852,7 +930,11 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <ContextUsageIndicator usage={contextUsage} />
+                            <ContextUsageIndicator
+                              usage={contextUsage}
+                              taskId={taskId}
+                              focused={isActiveSession !== false}
+                            />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}
@@ -874,6 +956,25 @@ export function SessionView({
           </Flex>
         )}
       </ContextMenu.Trigger>
+      <ModelSwitchCacheDialog
+        open={pendingModelSwitch !== null}
+        fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
+        toModelId={pendingModelSwitch?.value ?? ""}
+        toModelLabel={pendingModelSwitch?.label ?? ""}
+        contextTokens={contextUsage?.used}
+        sessionCostUsd={
+          olderHistoryCursor === 0 && contextUsage?.cost?.currency === "USD"
+            ? contextUsage.cost.amount
+            : undefined
+        }
+        onConfirm={confirmModelSwitch}
+        onCopyHandoffSummary={
+          canCopyHandoffSummary && !hasPendingSideQuestion
+            ? handleCopyHandoffSummary
+            : undefined
+        }
+        onCancel={cancelModelSwitch}
+      />
       <ContextMenu.Content size="1">
         <ContextMenu.Item
           onSelect={() => {

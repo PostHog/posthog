@@ -26,6 +26,7 @@ import type {
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
+    IntegrationsUsersRetrieveParams,
     JiraProjectsResponseApi,
     LinearTeamsResponseApi,
     OrganizationIntegrationApi,
@@ -35,11 +36,13 @@ import type {
     PatchedOrganizationIntegrationApi,
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
+    PostHogConnectionTargetApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
     SlackChannelsResponseApi,
+    SlackUsersResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -623,6 +626,38 @@ export const integrationsTwilioPhoneNumbersRetrieve = async (
     })
 }
 
+export const getIntegrationsUsersRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsUsersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/users/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/users/`
+}
+
+export const integrationsUsersRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsUsersRetrieveParams,
+    options?: RequestInit
+): Promise<SlackUsersResponseApi> => {
+    return apiMutator<SlackUsersResponseApi>(getIntegrationsUsersRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsAuthorizeRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/authorize/`
 }
@@ -677,11 +712,14 @@ export const getIntegrationsGithubAvailableInstallationsRetrieveUrl = (projectId
 }
 
 /**
- * List the org's existing GitHub installations this project can reuse.
+ * List GitHub installations this project can link.
  *
  * A GitHub App installs once per organization, so a second project links an existing
- * installation rather than reinstalling. This backs the picker: when the org has more than
- * one installation, the client passes the chosen installation_id to github/link_existing.
+ * installation rather than reinstalling. This backs the picker: when more than one option
+ * exists, the client passes the chosen installation_id to github/link_existing. The list also
+ * includes installations the user's personal GitHub link can see but that aren't linked to any
+ * project yet (``source_team_id: null``) — orphan installations approved on GitHub outside
+ * PostHog's callback, which ``github/link_existing`` can adopt.
  */
 export const integrationsGithubAvailableInstallationsRetrieve = async (
     projectId: string,
@@ -798,5 +836,24 @@ export const posthogConnectionsForwardCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(postHogConnectionForwardApi),
+    })
+}
+
+export const getPosthogConnectionsTargetRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/posthog_connections/${id}/target/`
+}
+
+/**
+ * Resolve which project, organization and region a PostHog connection points at, so callers can build target API paths without reading `api/users/@me/` through the connection first.
+ * @summary Read the connected project's identity
+ */
+export const posthogConnectionsTargetRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PostHogConnectionTargetApi> => {
+    return apiMutator<PostHogConnectionTargetApi>(getPosthogConnectionsTargetRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }

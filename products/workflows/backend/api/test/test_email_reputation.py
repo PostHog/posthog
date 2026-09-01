@@ -13,13 +13,9 @@ from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -60,7 +56,15 @@ class TestEmailReputationAPI(APIBaseTest):
         return response.json()
 
     def test_reputation_endpoint_returns_empty_shape_when_nothing_was_sent(self):
-        assert self._get_reputation({}) == {
+        data = self._get_reputation({})
+        # The allowance values come from the tier tables, which are deployment configuration, so
+        # assert the fresh-team invariants rather than the numbers.
+        allowance = data.pop("sending_allowance")
+        assert allowance["tier"] == 0
+        assert allowance["enforced"] is False
+        assert allowance["emails_sent_last_hour"] == 0
+        assert allowance["emails_sent_last_day"] == 0
+        assert data == {
             "aws": None,
             "reputation": None,
             "workflows": [],

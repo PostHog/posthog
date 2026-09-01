@@ -20,6 +20,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    leaked_key,
     playwright_setup,
     report,
     router,
@@ -33,6 +34,7 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
@@ -45,10 +47,16 @@ from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
+from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
+from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
+from products.customer_analytics.backend.presentation.views.internal import (
+    InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
+    InternalAccountView as CustomerAnalyticsInternalAccountView,
+)
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -82,6 +90,7 @@ from products.user_interviews.backend.presentation.webhooks import (
 )
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -131,6 +140,14 @@ def _dispatch_pull_request_event(
     return handle_pull_request_event(payload)
 
 
+def _dispatch_pull_request_review_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from products.tasks.backend.facade.webhooks import handle_pull_request_review_event
+
+    return handle_pull_request_review_event(payload)
+
+
 def _dispatch_installation_event(
     request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
 ) -> HttpResponse:
@@ -139,10 +156,27 @@ def _dispatch_installation_event(
     return handle_installation_event(payload)
 
 
+def _dispatch_installation_repositories_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from posthog.api.github_callback.installation_events import handle_installation_repositories_event
+
+    return handle_installation_repositories_event(payload)
+
+
 def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
     from products.tasks.backend.facade.webhooks import handle_github_event_for_loops
 
     handle_github_event_for_loops(event_type, payload, delivery_id)
+    return None
+
+
+def _dispatch_workflow_triggers(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> None:
+    from products.workflows.backend.github_workflow_events import emit_github_event
+
+    emit_github_event(event_type, payload, delivery_id)
     return None
 
 
@@ -154,20 +188,31 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "issues": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "issue_comment": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
+    ],
+    "pull_request_review": [
+        ("tasks_pr_review", _dispatch_pull_request_review_event),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
     ],
+    "installation_repositories": [
+        ("installation_repositories", _dispatch_installation_repositories_event),
+    ],
     "push": [
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
 }
 
@@ -476,6 +521,7 @@ urlpatterns = [
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
     path(
         "api/legal_documents/pandadoc",
         csrf_exempt(legal_document_pandadoc_webhook),
@@ -599,6 +645,20 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
+    # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
+        csrf_exempt(ConversationsInternalTicketView.as_view()),
+    ),
+    # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account",
+        csrf_exempt(CustomerAnalyticsInternalAccountView.as_view()),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account/custom_property_values",
+        csrf_exempt(CustomerAnalyticsInternalAccountCustomPropertiesView.as_view()),
+    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     opt_slash_path(
@@ -618,6 +678,11 @@ urlpatterns = [
         RAYCAST_METADATA_PATH,
         RaycastClientMetadataView.as_view(),
         name="raycast-client-metadata",
+    ),
+    path(
+        HOGLI_METADATA_PATH,
+        HogliClientMetadataView.as_view(),
+        name="hogli-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
@@ -652,6 +717,7 @@ urlpatterns = [
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
+    opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
     path(
@@ -678,6 +744,8 @@ urlpatterns = [
     opt_slash_path("webhooks/github", github_webhook),
     # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
     opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
+    # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)
+    opt_slash_path("webhooks/workflows/ses-events", ses_tenant_events_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
@@ -762,8 +830,9 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
-    # Public bridge for desktop-app canvas share links — deep-links into PostHog Desktop.
+    # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
     r"code/canvas/[^/]+/[^/]+",
+    r"code/task/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

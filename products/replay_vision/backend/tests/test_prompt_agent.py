@@ -1,5 +1,4 @@
 import json
-import time
 from typing import Any
 
 from unittest.mock import patch
@@ -9,27 +8,15 @@ from django.utils import timezone
 from google.genai import types
 from parameterized import parameterized
 
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
-from posthog.session_recordings.models.session_recording import SessionRecording
-
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
-from products.replay_vision.backend.prompt_suggestions import (
-    _MAX_SUMMARIES_PER_RUN,
-    _MAX_TOOL_ROUNDS,
-    _AgentToolState,
-    _dispatch_agent_tool,
-    _generate_agentic,
-)
+from products.replay_vision.backend.prompt_suggestions import _MAX_TOOL_ROUNDS, _dispatch_agent_tool, _generate_agentic
 from products.replay_vision.backend.proposers import get_proposer
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _call(name: str, args: dict[str, Any]) -> types.FunctionCall:
@@ -74,9 +61,6 @@ class TestPromptAgent(_VisionAPITestCase):
         # The scanner defaults to monitor; its proposer supplies the system prompt and schema the agent needs.
         self.proposer = get_proposer("monitor")
 
-    def _state(self, *, allow_cold_summaries: bool = False, budget_s: float = 60.0) -> _AgentToolState:
-        return _AgentToolState(self.scanner, self.user, allow_cold_summaries, time.monotonic() + budget_s)
-
     def test_tool_rounds_run_then_final_structured_answer_parses(self) -> None:
         answer = json.dumps({"suggested_prompt": "better prompt", "rationale": "grounded in sess-1"})
         responses = iter(
@@ -96,8 +80,7 @@ class TestPromptAgent(_VisionAPITestCase):
             parsed = _generate_agentic(
                 scanner=self.scanner,
                 user_content="briefing",
-                user=self.user,
-                allow_cold_summaries=False,
+                budget_s=60.0,
                 distinct_id="test",
                 system_prompt=self.proposer.system_prompt(),
                 output_schema=self.proposer.output_schema(),
@@ -123,15 +106,13 @@ class TestPromptAgent(_VisionAPITestCase):
             return _Response(calls=[_call("get_rated_observation", {"session_id": "sess-1"})])
 
         with (
-            patch("products.replay_vision.backend.prompt_suggestions._AGENT_BUDGET_INLINE_S", budget_s),
             patch("products.replay_vision.backend.prompt_suggestions.genai"),
             patch("products.replay_vision.backend.prompt_suggestions._model_call", side_effect=fake_model_call),
         ):
             parsed = _generate_agentic(
                 scanner=self.scanner,
                 user_content="briefing",
-                user=self.user,
-                allow_cold_summaries=False,
+                budget_s=budget_s,
                 distinct_id="test",
                 system_prompt=self.proposer.system_prompt(),
                 output_schema=self.proposer.output_schema(),
@@ -146,60 +127,39 @@ class TestPromptAgent(_VisionAPITestCase):
         )
         self.assertEqual(final_turn.parts[-1].text, "Respond now with the JSON answer.")
 
-    def test_observation_tool_returns_full_detail_and_summary_tool_budgets_cold_runs(self) -> None:
-        state = self._state()
+    def test_observation_tools_return_full_detail_and_the_rated_session_listing(self) -> None:
 
-        detail = _dispatch_agent_tool(state, _call("get_rated_observation", {"session_id": "sess-1"}))
+        detail = _dispatch_agent_tool(self.scanner, _call("get_rated_observation", {"session_id": "sess-1"}))
         self.assertEqual(detail["rating"], "thumbs_down")
         self.assertEqual(detail["feedback"], "should be yes")
         self.assertEqual(detail["reasoning"], "the user closed the tab at payment")
 
-        listing = _dispatch_agent_tool(state, _call("list_rated_sessions", {}))
+        listing = _dispatch_agent_tool(self.scanner, _call("list_rated_sessions", {}))
         self.assertEqual(listing["total"], 1)
         self.assertEqual(listing["sessions"][0]["session_id"], "sess-1")
 
-        summary = _dispatch_agent_tool(state, _call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("error", summary)  # no cached summary, cold generation disallowed here
-
-        cold_state = self._state(allow_cold_summaries=True, budget_s=600.0)
-        cold_state.cold_summaries_used = _MAX_SUMMARIES_PER_RUN
-        capped = _dispatch_agent_tool(cold_state, _call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("budget", capped["error"])
-
-        drained = self._state(allow_cold_summaries=True, budget_s=0.0)
-        timed_out = _dispatch_agent_tool(drained, _call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("time", timed_out["error"])
-
-    def test_summary_tool_refuses_deleted_and_inaccessible_recordings(self) -> None:
-        recording = SessionRecording.objects.create(team=self.team, session_id="sess-1", deleted=True)
-        deleted = _dispatch_agent_tool(self._state(), _call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("deleted", deleted["error"])
-
-        recording.deleted = False
-        recording.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        denied_user = User.objects.create_and_join(self.organization, "denied@posthog.com", "testtest")
-        membership = OrganizationMembership.objects.get(user=denied_user, organization=self.organization)
-        AccessControl.objects.create(
+    def test_tools_only_see_the_ratings_of_the_scanner_under_review(self) -> None:
+        # The scanner_id filter is the only thing keeping one scanner's rated sessions out of another's
+        # calibration briefing, and the rated set is what the rewrite is derived from.
+        other_scanner = self._create_scanner(name="other-scanner")
+        other = ReplayObservation.objects.create(
+            scanner=other_scanner,
             team=self.team,
-            resource="session_recording",
-            resource_id=None,
-            access_level="none",
-            organization_member=membership,
+            session_id="sess-1",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            scanner_snapshot={"scanner_version": 1},
+            scanner_result={"model_output": {"verdict": "yes", "scanner_type": "monitor"}, "signals_count": 0},
         )
-        denied_state = _AgentToolState(self.scanner, denied_user, False, time.monotonic() + 60.0)
-        denied = _dispatch_agent_tool(denied_state, _call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("not accessible", denied["error"])
+        ReplayObservationLabel.objects.create(observation=other, is_correct=True, feedback="looks right")
 
-        # Background refresh with no scanner creator: fail closed rather than serve cached summaries.
-        userless_state = _AgentToolState(self.scanner, None, True, time.monotonic() + 600.0)
-        userless = _dispatch_agent_tool(userless_state, _call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("not accessible", userless["error"])
+        self.assertEqual(_dispatch_agent_tool(self.scanner, _call("list_rated_sessions", {}))["total"], 1)
+        detail = _dispatch_agent_tool(self.scanner, _call("get_rated_observation", {"session_id": "sess-1"}))
+        self.assertEqual(detail["rating"], "thumbs_down")  # this scanner's rating, not the other's thumbs up
 
     def test_unknown_session_and_unknown_tool_return_errors(self) -> None:
-        state = self._state()
-        self.assertIn("error", _dispatch_agent_tool(state, _call("get_rated_observation", {"session_id": "nope"})))
-        self.assertIn("error", _dispatch_agent_tool(state, _call("hack_the_planet", {})))
+        self.assertIn(
+            "error", _dispatch_agent_tool(self.scanner, _call("get_rated_observation", {"session_id": "nope"}))
+        )
+        self.assertIn("error", _dispatch_agent_tool(self.scanner, _call("hack_the_planet", {})))

@@ -25,8 +25,8 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.string().optional().describe('Warehouse table id to certify (XOR the other targets).'),
         saved_query_id: zod.string().optional().describe('Warehouse view (saved query) id to certify.'),
-        table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
-        view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
+        table_name: zod.string().optional().describe('Queryable HogQL table name; 409 with candidates if ambiguous.'),
+        view_name: zod.string().optional().describe('Queryable HogQL view name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
         proposed_status: zod
             .enum(['certified', 'deprecated'])
@@ -94,7 +94,9 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dataCatalogMetricsCreateBodyNameMax)
         .regex(dataCatalogMetricsCreateBodyNameRegExp)
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
@@ -137,7 +139,7 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const DataCatalogMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
@@ -170,7 +172,9 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyNameMax)
         .regex(dataCatalogMetricsPartialUpdateBodyNameRegExp)
         .optional()
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)

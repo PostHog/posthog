@@ -73,10 +73,6 @@ impl<T> MeasuringSender<T> {
     pub fn max_capacity(&self) -> usize {
         self.sender.max_capacity()
     }
-
-    pub fn inner(&self) -> &Sender<T> {
-        &self.sender
-    }
 }
 
 impl<T> MeasuringReceiver<T> {
@@ -94,10 +90,6 @@ impl<T> MeasuringReceiver<T> {
             self.in_flight.fetch_sub(res, Ordering::Relaxed);
         }
         res
-    }
-
-    pub fn inner(&self) -> &Receiver<T> {
-        &self.receiver
     }
 
     pub fn get_inflight_messages_count(&self) -> usize {

@@ -31,14 +31,23 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.sha }}
     cancel-in-progress: false
 
+# ECR_REPOSITORY is workflow-level so ordered_image_alias reads it directly instead of
+# through a job output: the runner refuses to export job outputs whose value contains a
+# masked secret, and this value matches one, so a cross-job output of it arrives empty.
+env:
+    ECR_REPOSITORY: posthog-cloud
+
 jobs:
     posthog_build:
         name: Build and push PostHog
+        outputs:
+            image-digest: ${{ steps.image.outputs.digest }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
-        # Covers the build plus the post-build image-boot verification before dispatch.
-        timeout-minutes: 40
+        # Covers two bounded build attempts plus the post-build image-boot verification before
+        # dispatch.
+        timeout-minutes: 60
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -61,7 +70,7 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog
-                  ecr-image-name: posthog-cloud
+                  ecr-image-name: ${{ env.ECR_REPOSITORY }}
                   # Public registries (DockerHub + ghcr) hold the OSS image; prod deploys
                   # from the private ECR `posthog-cloud`. Pause the public push when
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
@@ -84,7 +93,7 @@ jobs:
             - name: Check for existing image in ECR
               id: preflight
               env:
-                  ECR_REPO: posthog-cloud
+                  ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   SHA: ${{ github.sha }}
               run: |
                   set -euo pipefail
@@ -108,6 +117,9 @@ jobs:
               id: build
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
+              # A hung build has to end as a step failure, not a job timeout: the retry ladder below
+              # is gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
+              timeout-minutes: 25
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -117,8 +129,16 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -156,7 +176,7 @@ jobs:
               id: preflight_retry
               if: steps.build.outcome == 'failure'
               env:
-                  ECR_REPO: posthog-cloud
+                  ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   SHA: ${{ github.sha }}
               run: |
                   set -euo pipefail
@@ -177,6 +197,7 @@ jobs:
               id: build_retry
               if: steps.build.outcome == 'failure' && steps.preflight_retry.outputs.digest == ''
               continue-on-error: true
+              timeout-minutes: 25
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -186,8 +207,16 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -200,7 +229,7 @@ jobs:
               id: reconcile
               if: steps.preflight.outputs.digest != '' || steps.preflight_retry.outputs.digest != ''
               env:
-                  SRC: ${{ steps.docker-meta.outputs.ecr-registry }}/posthog-cloud@${{ steps.preflight.outputs.digest || steps.preflight_retry.outputs.digest }}
+                  SRC: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.preflight.outputs.digest || steps.preflight_retry.outputs.digest }}
                   TAGS: ${{ steps.docker-meta.outputs.tags }}
               run: |
                   set -euo pipefail
@@ -415,7 +444,7 @@ jobs:
             - name: Check for changes that affect Tasks Agent Temporal worker
               id: check_changes_tasks_agent_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai/posthog_code_slack_|^posthog/temporal/ai/slack_app/|^products/slack_app/backend|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai/posthog_code_slack_|^posthog/temporal/ai/slack_app/|^products/slack_app/backend|^products/tasks/backend|^posthog/tasks/|^posthog/settings/temporal.py$|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -445,7 +474,7 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^products/canvas/backend/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -463,7 +492,7 @@ jobs:
             - name: Check for changes that affect signup enrichment temporal worker
               id: check_changes_signup_enrichment_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/signup_enrichment/|^products/growth/backend/|^ee/billing/salesforce_enrichment/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/growth/backend/|^ee/billing/salesforce_enrichment/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -472,7 +501,7 @@ jobs:
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^products/billing_alerts/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -481,7 +510,7 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/signals/skills/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/signals/skills/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -490,7 +519,7 @@ jobs:
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -499,7 +528,7 @@ jobs:
             - name: Check for changes that affect replay vision temporal worker
               id: check_changes_replay_vision_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/temporal/|^products/replay_vision/backend/models/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/|^.github/workflows/container-images-cd.yml$'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -515,6 +544,7 @@ jobs:
                         - 'products/error_tracking/backend/logic/**'
                         - 'products/error_tracking/backend/models.py'
                         - 'products/error_tracking/backend/weekly_digest.py'
+                        - 'products/error_tracking/backend/weekly_digest_delivery.py'
                         - 'products/error_tracking/backend/indexed_embedding.py'
                         - 'posthog/tasks/email.py'
                         - 'posthog/tasks/email_utils.py'
@@ -804,6 +834,15 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
+                      logsVolumeTick:
+                        - 'products/logs/backend/**'
+                        - 'products/apm/backend/logic/grid.py'
+                        - 'products/apm/backend/facade/constants.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'posthog/clickhouse/migrations/**'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
                       dataModeling:
                         - 'posthog/hogql/**'
                         - 'products/managed_warehouse/backend/**'
@@ -813,6 +852,8 @@ jobs:
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
+                        - 'products/data_catalog/**'
+                        - 'products/data_quality/**'
                         - 'products/data_modeling/**'
                         - 'products/data_warehouse/**'
                         - 'posthog/management/commands/**'
@@ -958,6 +999,27 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Trigger Logs Volume Tick Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.logsVolumeTick == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-logs-volume-tick",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Trigger Stamphog Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.stamphog == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -1012,7 +1074,7 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/customer_analytics/backend/|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -1151,3 +1213,169 @@ jobs:
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
+
+    ordered_image_alias:
+        name: Publish ordered image alias
+        needs: posthog_build
+        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        continue-on-error: true
+        permissions:
+            id-token: write
+            contents: read
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Compute ordered release tag
+              id: ordered-release
+              timeout-minutes: 2
+              shell: bash
+              env:
+                  ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
+              run: |
+                  set -uo pipefail
+
+                  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+                      fetch_status=0
+                      timeout --kill-after=10s 90s git fetch \
+                          --no-tags \
+                          --prune \
+                          --no-recurse-submodules \
+                          --unshallow \
+                          --filter=tree:0 \
+                          origin \
+                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                      if [ "$fetch_status" -ne 0 ]; then
+                          echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
+                          exit 0
+                      fi
+                  fi
+
+                  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
+                      echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
+                      exit 0
+                  fi
+
+                  if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
+                      echo "::warning title=Ordered release tag skipped::The checked-out revision does not match GITHUB_SHA."
+                      exit 0
+                  fi
+
+                  if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be computed."
+                      exit 0
+                  fi
+
+                  if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
+                      echo "::warning title=Ordered release tag skipped::The source position is out of range."
+                      exit 0
+                  fi
+
+                  if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be formatted."
+                      exit 0
+                  fi
+
+                  if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
+                      echo "::warning title=Ordered release tag skipped::${tag} does not match the required format."
+                      exit 0
+                  fi
+
+                  echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+            - name: Warn when ordered image alias tag is unavailable
+              if: ${{ steps.ordered-release.outputs.tag == '' }}
+              shell: bash
+              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
+
+            - name: Set up Docker Buildx for ordered image alias
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Configure AWS credentials for ordered image alias
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Log in to Amazon ECR for ordered image alias
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              id: ecr-login
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Publish and read back ordered image alias
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              timeout-minutes: 2
+              shell: bash
+              env:
+                  ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+                  ECR_REPO: ${{ env.ECR_REPOSITORY }}
+                  EXPECTED_DIGEST: ${{ needs.posthog_build.outputs.image-digest }}
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+              run: |
+                  set -uo pipefail
+
+                  if [ -z "$EXPECTED_DIGEST" ]; then
+                      echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
+                      exit 0
+                  fi
+
+                  if [ -z "$ECR_REGISTRY" ] || [ -z "$ECR_REPO" ]; then
+                      echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry or repository name resolved empty."
+                      exit 0
+                  fi
+
+                  SOURCE_IMAGE="${ECR_REGISTRY}/${ECR_REPO}@${EXPECTED_DIGEST}"
+                  TARGET_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
+
+                  publication_status=0
+                  timeout --kill-after=5s 40s docker buildx imagetools create \
+                      --prefer-index=false \
+                      --tag "$TARGET_IMAGE" \
+                      "$SOURCE_IMAGE" || publication_status=$?
+                  if [ "$publication_status" -ne 0 ]; then
+                      echo "::warning::Ordered alias publication exited with status $publication_status"
+                  fi
+
+                  readback_status=0
+                  resolved_digest="$(timeout --kill-after=5s 40s aws ecr batch-get-image \
+                      --repository-name "$ECR_REPO" \
+                      --image-ids imageTag="$ORDERED_ALIAS" \
+                      --accepted-media-types \
+                          "application/vnd.oci.image.index.v1+json" \
+                          "application/vnd.docker.distribution.manifest.list.v2+json" \
+                          "application/vnd.oci.image.manifest.v1+json" \
+                          "application/vnd.docker.distribution.manifest.v2+json" \
+                      --query 'images[0].imageId.imageDigest' \
+                      --output text)" || readback_status=$?
+
+                  if [ "$readback_status" -ne 0 ]; then
+                      result=unknown
+                  elif [ "$resolved_digest" = "None" ]; then
+                      result=absent
+                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$resolved_digest" = "$EXPECTED_DIGEST" ]; then
+                      result=present-at-expected-digest
+                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                      result=integrity-mismatch
+                  else
+                      result=unknown
+                  fi
+
+                  case "$result" in
+                      present-at-expected-digest)
+                          echo "::notice title=Ordered image alias present::The ordered image alias resolves to the expected image digest."
+                          ;;
+                      absent)
+                          echo "::warning title=Ordered image alias absent::The ordered image alias is absent after publication."
+                          ;;
+                      integrity-mismatch)
+                          echo "::error title=Ordered image alias integrity mismatch::The ordered image alias resolves to a different image digest."
+                          ;;
+                      unknown)
+                          echo "::error title=Ordered image alias read-back unavailable::The ordered image alias could not be read back from ECR."
+                          ;;
+                  esac

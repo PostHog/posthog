@@ -9,7 +9,13 @@ import {
     imageRef,
     isImageRef,
     parseImageRef,
+    urlRef,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+import {
+    PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
+    PSEUDONYM_IMAGE_URL_KEY,
+    pseudonymize,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonymize'
 
 // Shared fixtures pin the addon's behavior through the FFI; the pure-Rust side of the same
 // fixtures is covered by rust/replay-anonymizer/tests/parity.rs.
@@ -218,7 +224,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
     })
 })
 
-describe('image content hash matches the shared fixtures', () => {
+describe('image refs match the shared fixtures', () => {
     // Pins the keyed hashImageBytes to the Rust collector's HMAC (tests/parity.rs runs the same
     // fixture): the consumer trusts the producer, so this is the only cross-implementation check.
     interface HashCase {
@@ -230,6 +236,24 @@ describe('image content hash matches the shared fixtures', () => {
     test.each(load<HashCase>('image-hash.json').map((c) => [c.name, c] as const))('hash: %s', (_name, c) => {
         expect(hashImageBytes(c.keyAscii, Buffer.from(c.bytesBase64, 'base64'))).toBe(c.hash)
     })
+
+    interface UrlRefCase {
+        name: string
+        pseudonymSecret: string
+        globalUrlKey: string
+        hash: string
+        ref: string
+    }
+    test.each(load<UrlRefCase>('image-url-ref.json').map((c) => [c.name, c] as const))(
+        'global URL ref: %s',
+        (_name, c) => {
+            expect(pseudonymize(c.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)).toBe(
+                c.globalUrlKey
+            )
+            expect(urlRef(c.hash)).toBe(c.ref)
+            expect(parseImageRef(c.ref)).toEqual({ hash: c.hash, source: 'url' })
+        }
+    )
 })
 
 describeAddon('native image collection', () => {
@@ -288,7 +312,13 @@ describeAddon('native image collection', () => {
         expect(Buffer.from(bytes)).toEqual(png)
         // The Rust-emitted hash must be the keyed HMAC of the returned bytes.
         expect(hashImageBytes(CONTENT_KEY, Buffer.from(bytes))).toBe(entry.hash)
-        expect(parseImageRef(expectedRef)).toEqual({ pseudoTeam: PSEUDO_TEAM, hash: entry.hash })
+        // `source` is what tells a reader whether the hash names the bytes or only the URL they
+        // came from. An inlined image is content-addressed, so it must read as `bytes`.
+        expect(parseImageRef(expectedRef)).toEqual({
+            pseudoTeam: PSEUDO_TEAM,
+            hash: entry.hash,
+            source: 'bytes',
+        })
     })
 
     it('collects nothing without the collection keys and blurs inline instead', async () => {
@@ -300,13 +330,24 @@ describeAddon('native image collection', () => {
         expect(result.lines!.toString()).not.toContain('image:')
     })
 
-    it('rejects when pseudoTeam and contentKey are not passed together', async () => {
+    it('requires a pseudonym only for the inline image key', async () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
         await expect(
-            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
-        ).rejects.toThrow('must be passed together')
-        await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
-        ).rejects.toThrow('must be passed together')
+        ).rejects.toThrow('contentKey requires pseudoTeam')
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
+        ).resolves.toMatchObject({ failed: false })
+    })
+
+    it('runs either collection lane without the other', async () => {
+        // The URL lane measures before any fetch topic exists, so it must not need the image lane.
+        rustAddon!.initAnonymizer({ text: [], url: [] })
+        const imagesOnly = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, CONTENT_KEY)
+        expect(imagesOnly.failed).toBe(false)
+        // A pseudonym with neither key collects nothing and is not an error.
+        const neither = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
+        expect(neither.failed).toBe(false)
+        expect(neither.lines!.toString()).not.toContain('image:')
     })
 })

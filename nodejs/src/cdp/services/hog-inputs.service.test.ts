@@ -3,7 +3,7 @@ import '~/tests/helpers/mocks/date.mock'
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
@@ -49,18 +49,22 @@ describe('Hog Inputs', () => {
     let hub: Hub
     let team: Team
     let hogInputsService: HogInputsService
+    let recipientTokensService: RecipientTokensService
+    let integrationId1: number
+    let integrationId2: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
         hub.SITE_URL = 'http://localhost:8000'
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationId1 = team.id
+        integrationId2 = team.id + 1
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         await insertIntegration(hub.postgres, team.id, {
-            id: 1,
+            id: integrationId1,
             kind: 'slack',
             config: { team: 'foobar' },
             sensitive_config: {
@@ -70,7 +74,7 @@ describe('Hog Inputs', () => {
         })
 
         await insertIntegration(hub.postgres, team.id, {
-            id: 2,
+            id: integrationId2,
             kind: 'oauth',
             config: { team: 'foobar', access_token: 'token' },
             sensitive_config: {
@@ -78,7 +82,7 @@ describe('Hog Inputs', () => {
             },
         })
 
-        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         hogInputsService = new HogInputsService(hub.integrationManager, recipientTokensService, hub.encryptedFields)
     })
 
@@ -173,7 +177,7 @@ describe('Hog Inputs', () => {
                         value: 'event: "{{ event.event }}"',
                         templating: 'liquid',
                     },
-                    oauth: { value: 1 },
+                    oauth: { value: integrationId1 },
                 },
                 inputs_schema: [
                     { key: 'hog_templated', type: 'string', required: true },
@@ -200,8 +204,8 @@ describe('Hog Inputs', () => {
                 inputs: {
                     hog_templated: hogFunction.inputs!.hog_templated,
                     liquid_templated: hogFunction.inputs!.liquid_templated,
-                    oauth: { value: 1 },
-                    auth: { value: 2 },
+                    oauth: { value: integrationId1 },
+                    auth: { value: integrationId2 },
                 },
                 inputs_schema: [
                     { key: 'hog_templated', type: 'string', required: true },
@@ -211,24 +215,20 @@ describe('Hog Inputs', () => {
             })
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.oauth).toMatchInlineSnapshot(`
-                {
-                  "$integration_id": 1,
-                  "access_token": "$$_access_token_placeholder_1",
-                  "access_token_raw": "token",
-                  "not_encrypted": "not-encrypted",
-                  "team": "foobar",
-                }
-            `)
-            expect(inputs.auth).toMatchInlineSnapshot(`
-                {
-                  "$integration_id": 2,
-                  "access_token": "$$_access_token_placeholder_2",
-                  "access_token_raw": "token",
-                  "not_encrypted": "not-encrypted",
-                  "team": "foobar",
-                }
-            `)
+            expect(inputs.oauth).toEqual({
+                $integration_id: integrationId1,
+                access_token: `$$_access_token_placeholder_${integrationId1}`,
+                access_token_raw: 'token',
+                not_encrypted: 'not-encrypted',
+                team: 'foobar',
+            })
+            expect(inputs.auth).toEqual({
+                $integration_id: integrationId2,
+                access_token: `$$_access_token_placeholder_${integrationId2}`,
+                access_token_raw: 'token',
+                not_encrypted: 'not-encrypted',
+                team: 'foobar',
+            })
         })
 
         it('should coerce string results to booleans for boolean schema fields', async () => {
@@ -280,8 +280,9 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.email.to.email).toEqual('test@posthog.com')
+            const recipient = { team_id: team.id, identifier: 'test@posthog.com' }
             expect(inputs.email.html).toEqual(
-                `<div>Manage subscription preferences here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a>Or, click <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/?one_click_unsubscribe=1">here</a> to immediately unsubscribe from all marketing emails</div>`
+                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
         })
 

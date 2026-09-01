@@ -1,9 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "ignoreWorkspaces": ["apps/mobile", "apps/twig", "apps/web"],
   "workspaces": {
     ".": {
-      "entry": ["mprocs.yaml", "scripts/*.{mjs,js,ts}"]
+      "entry": [
+        "mprocs.yaml",
+        "postcss.config.mjs",
+        "scripts/*.{mjs,js,ts,mts}"
+      ],
+      "ignoreBinaries": ["bin/phrocs"]
     },
     "apps/code": {
       "entry": [
@@ -16,29 +20,35 @@
         "electron.vite.config.ts",
         "vite-main-plugins.mts",
         "vite.shared.mts",
-        "scripts/*.{ts,mjs}"
+        "src/renderer/quick-ask/main.tsx",
+        "src/renderer/quick-ask-annotate/main.tsx",
+        ".storybook/mocks/*.ts",
+        "scripts/**/*.{ts,mts,mjs}"
       ],
-      "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}"],
+      "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mts,mjs}"],
       "ignoreDependencies": [
         "typed-openapi",
         "chokidar",
         "detect-libc",
         "is-glob",
-        "micromatch",
         "node-addon-api",
-        "@vitest/coverage-v8"
+        "@vitest/coverage-v8",
+        "node-pty",
+        "@parcel/watcher",
+        "better-sqlite3",
+        "@posthog/enricher"
       ]
-    },
-    "apps/cli": {
-      "entry": ["src/cli.ts"],
-      "project": ["src/**/*.ts", "bin/**/*.ts"],
-      "includeEntryExports": true
     },
     "packages/agent": {
       "project": ["src/**/*.ts"],
       "ignore": ["src/templates/**"],
-      "ignoreDependencies": ["yoga-wasm-web", "@vitest/coverage-v8"],
-      "includeEntryExports": true
+      "ignoreDependencies": [
+        "yoga-wasm-web",
+        "@vitest/coverage-v8",
+        "@openai/codex"
+      ],
+      "includeEntryExports": false,
+      "entry": ["src/**/*.bench.ts"]
     },
     "packages/api-client": {
       "entry": ["src/**/*.test.ts"],
@@ -62,8 +72,7 @@
         "main.d.ts",
         "renderer.d.ts"
       ],
-      "project": ["src/**/*.ts"],
-      "includeEntryExports": true
+      "project": ["src/**/*.ts"]
     },
     "packages/enricher": {
       "entry": ["src/**/*.test.ts", "scripts/*.cjs"],
@@ -92,22 +101,51 @@
     "packages/shared": {
       "entry": ["src/**/*.test.ts"],
       "project": ["src/**/*.ts"],
-      "includeEntryExports": true
+      "includeEntryExports": false
     },
     "packages/ui": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["src/test/**", "src/**/*.stories.tsx"],
-      "ignoreDependencies": ["vite"],
-      "includeEntryExports": true
+      "ignoreDependencies": ["vite", "tailwindcss-scroll-mask"],
+      "includeEntryExports": true,
+      "entry": ["src/**/*.stories.tsx", "src/test/**/*.{ts,tsx}"]
     },
     "packages/workspace-client": {
       "project": ["src/**/*.{ts,tsx}"],
       "includeEntryExports": true
     },
     "packages/workspace-server": {
-      "entry": ["tsup.config.ts"],
       "project": ["src/**/*.{ts,tsx}"],
       "includeEntryExports": true
+    },
+    "apps/web": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["tailwindcss"]
+    },
+    "apps/mobile": {
+      "entry": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "@expo/ui",
+        "expo-crypto",
+        "expo-dev-client",
+        "expo-font",
+        "expo-glass-effect",
+        "expo-splash-screen",
+        "expo-system-ui",
+        "react-native-svg-transformer"
+      ],
+      "ignoreBinaries": ["eas"],
+      "metro": false,
+      "expo": false,
+      "babel": false,
+      "tailwind": false
     }
+  },
+  "rules": {
+    "duplicates": "off"
+  },
+  "ignoreExportsUsedInFile": {
+    "interface": true,
+    "type": true
   }
 }

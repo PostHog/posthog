@@ -94,6 +94,11 @@ export interface OrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -197,6 +202,11 @@ export interface PatchedOrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -244,6 +254,13 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+}
+
+export interface OrganizationRemoveBlockedMembersResponseApi {
+    /** Whether verified-domain enforcement was turned on. */
+    success: boolean
+    /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+    removed_members: number
 }
 
 export interface OrganizationAIAccessRequestResponseApi {
@@ -461,6 +478,194 @@ export interface PaginatedOrganizationPersonalAPIKeyListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationPersonalAPIKeyApi[]
+}
+
+/**
+ * * `waiting` - Waiting
+ * * `issuing` - Issuing
+ * * `valid` - Valid
+ * * `warning` - Warning
+ * * `erroring` - Erroring
+ * * `deleting` - Deleting
+ * * `timed_out` - Timed Out
+ */
+export type ProxyRecordStatusEnumApi = (typeof ProxyRecordStatusEnumApi)[keyof typeof ProxyRecordStatusEnumApi]
+
+export const ProxyRecordStatusEnumApi = {
+    Waiting: 'waiting',
+    Issuing: 'issuing',
+    Valid: 'valid',
+    Warning: 'warning',
+    Erroring: 'erroring',
+    Deleting: 'deleting',
+    TimedOut: 'timed_out',
+} as const
+
+export interface ProxyRecordApi {
+    /** Unique identifier for the proxy record. */
+    readonly id: string
+    /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
+    domain: string
+    /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
+    readonly target_cname: string
+    /**
+     * HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.
+     * @nullable
+     */
+    readonly root_redirect_url: string | null
+    /** Whether this managed proxy supports a redirect from its root URL. */
+    readonly root_redirect_supported: boolean
+    /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
+     *
+     * * `waiting` - Waiting
+     * * `issuing` - Issuing
+     * * `valid` - Valid
+     * * `warning` - Warning
+     * * `erroring` - Erroring
+     * * `deleting` - Deleting
+     * * `timed_out` - Timed Out */
+    readonly status: ProxyRecordStatusEnumApi
+    /**
+     * Human-readable status message with details about errors or warnings, if any.
+     * @nullable
+     */
+    readonly message: string | null
+    /** When this proxy record was created. */
+    readonly created_at: string
+    /** When this proxy record was last updated. */
+    readonly updated_at: string
+    /** ID of the user who created this proxy record. */
+    readonly created_by: number
+}
+
+export interface ProxyRecordListResponseApi {
+    results: ProxyRecordApi[]
+    /** Maximum number of proxy records allowed for this organization's current plan. */
+    max_proxy_records: number
+}
+
+export interface PatchedProxyRecordUpdateApi {
+    /**
+     * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
+     * @maxLength 1024
+     * @nullable
+     */
+    root_redirect_url?: string | null
+}
+
+/**
+ * * `healthy` - healthy
+ * * `warn` - warn
+ * * `fail` - fail
+ */
+export type DiagnosticReportSummaryStatusEnumApi =
+    (typeof DiagnosticReportSummaryStatusEnumApi)[keyof typeof DiagnosticReportSummaryStatusEnumApi]
+
+export const DiagnosticReportSummaryStatusEnumApi = {
+    Healthy: 'healthy',
+    Warn: 'warn',
+    Fail: 'fail',
+} as const
+
+export interface DiagnosticReportSummaryApi {
+    /** Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.
+     *
+     * * `healthy` - healthy
+     * * `warn` - warn
+     * * `fail` - fail */
+    status: DiagnosticReportSummaryStatusEnumApi
+    /**
+     * Check id of the most actionable failure, if any. Null when status is healthy.
+     * @nullable
+     */
+    primary_issue: string | null
+    /**
+     * One-sentence next action the customer should take. Null when nothing's wrong.
+     * @nullable
+     */
+    next_action: string | null
+}
+
+/**
+ * * `passed` - passed
+ * * `warned` - warned
+ * * `failed` - failed
+ * * `skipped` - skipped
+ */
+export type DiagnosticCheckResultStatusEnumApi =
+    (typeof DiagnosticCheckResultStatusEnumApi)[keyof typeof DiagnosticCheckResultStatusEnumApi]
+
+export const DiagnosticCheckResultStatusEnumApi = {
+    Passed: 'passed',
+    Warned: 'warned',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `dns` - dns
+ * * `config` - config
+ * * `wait` - wait
+ * * `retry` - retry
+ */
+export type DiagnosticRemediationTypeEnumApi =
+    (typeof DiagnosticRemediationTypeEnumApi)[keyof typeof DiagnosticRemediationTypeEnumApi]
+
+export const DiagnosticRemediationTypeEnumApi = {
+    Dns: 'dns',
+    Config: 'config',
+    Wait: 'wait',
+    Retry: 'retry',
+} as const
+
+export interface DiagnosticDnsRecordApi {
+    /** DNS record name (the hostname the record is set on). */
+    name: string
+    /** DNS record type, e.g. CNAME, CAA, A. */
+    type: string
+    /** DNS record value to set. */
+    value: string
+}
+
+export interface DiagnosticRemediationApi {
+    /** Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.
+     *
+     * * `dns` - dns
+     * * `config` - config
+     * * `wait` - wait
+     * * `retry` - retry */
+    type: DiagnosticRemediationTypeEnumApi
+    /** One-line, action-oriented summary of what to do. */
+    summary: string
+    /** DNS records the customer should add (empty when remediation is not DNS-based). */
+    records: DiagnosticDnsRecordApi[]
+}
+
+export interface DiagnosticCheckResultApi {
+    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+    id: string
+    /** Human-readable check name. */
+    name: string
+    /** passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.
+     *
+     * * `passed` - passed
+     * * `warned` - warned
+     * * `failed` - failed
+     * * `skipped` - skipped */
+    status: DiagnosticCheckResultStatusEnumApi
+    /** Customer-facing explanation of the check's outcome. */
+    detail: string
+    /** Concrete remediation steps when the check failed; null when there's nothing actionable. */
+    remediation?: DiagnosticRemediationApi | null
+}
+
+export interface DiagnosticReportApi {
+    /** When this diagnostic report was generated (UTC). */
+    ran_at: string
+    /** Top-level outcome and recommended next action. */
+    summary: DiagnosticReportSummaryApi
+    /** Per-check results in execution order. */
+    checks: DiagnosticCheckResultApi[]
 }
 
 export type RoleApiMembersItem = { [key: string]: unknown }
@@ -810,6 +1015,8 @@ export interface ChangeRequestRejectApi {
 export interface CommentSlackThreadRefApi {
     /** Slack channel ID this discussion is mirrored to. */
     channel_id: string
+    /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+    channel_name: string
     /** Deep link that opens the mirrored Slack thread. */
     url: string
 }
@@ -858,6 +1065,13 @@ export interface PaginatedCommentListApi {
     results: CommentApi[]
 }
 
+export interface CommentErrorApi {
+    /** Human-readable explanation of what went wrong. */
+    detail: string
+    /** Stable machine-readable identifier for the failure. */
+    error_type?: string
+}
+
 export interface PatchedCommentApi {
     readonly id?: string
     readonly created_by?: UserBasicApi | null
@@ -898,7 +1112,7 @@ export interface SendCommentToSlackApi {
     /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
     integration_id: number
     /**
-     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
      * @maxLength 255
      */
     channel_id: string
@@ -919,6 +1133,8 @@ export interface CommentSlackThreadApi {
     readonly integration: number
     /** Slack channel the mirrored thread lives in. */
     readonly slack_channel_id: string
+    /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+    readonly slack_channel_name: string
     /** Slack thread timestamp anchoring the mirrored thread. */
     readonly slack_thread_ts: string
     /**
@@ -929,6 +1145,38 @@ export interface CommentSlackThreadApi {
     readonly created_at: string
     /** User who mirrored the discussion. Null if since deleted. */
     readonly created_by: UserBasicApi | null
+}
+
+/**
+ * * `attribute` - attribute
+ * * `resourceAttribute` - resourceAttribute
+ */
+export type UserFacetSettingsEntrySourceTypeEnumApi =
+    (typeof UserFacetSettingsEntrySourceTypeEnumApi)[keyof typeof UserFacetSettingsEntrySourceTypeEnumApi]
+
+export const UserFacetSettingsEntrySourceTypeEnumApi = {
+    Attribute: 'attribute',
+    ResourceAttribute: 'resourceAttribute',
+} as const
+
+export interface UserFacetSettingsEntryApi {
+    /** The log or span attribute key this facet is based on — for example `http.status_code` or `k8s.pod.name`. */
+    key: string
+    /** Where the key lives: `attribute` for a plain log/span attribute, `resourceAttribute` for an OpenTelemetry resource attribute.
+     *
+     * * `attribute` - attribute
+     * * `resourceAttribute` - resourceAttribute */
+    source_type: UserFacetSettingsEntrySourceTypeEnumApi
+}
+
+export interface UserFacetSettingsApi {
+    /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+    custom_facets: UserFacetSettingsEntryApi[]
+}
+
+export interface PatchedUserFacetSettingsApi {
+    /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+    custom_facets?: UserFacetSettingsEntryApi[]
 }
 
 export interface PinnedSceneTabApi {
@@ -992,6 +1240,14 @@ export type ListParams = {
 
 export type MembersListParams = {
     /**
+     * Only return members whose email address is on this domain (case-insensitive).
+     */
+    email_domain?: string
+    /**
+     * Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.
+     */
+    levels?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1003,6 +1259,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.
+     */
+    outside_verified_domains?: boolean
     /**
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
@@ -1083,6 +1343,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -1097,6 +1358,7 @@ export type ActivityLogListParams = {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -1141,9 +1403,11 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      * @minLength 1
@@ -1175,6 +1439,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1189,6 +1454,7 @@ export const ActivityLogListScope = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
@@ -1233,9 +1499,11 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
 } as const
@@ -1254,6 +1522,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
  * * `Dashboard` - Dashboard
@@ -1268,6 +1537,7 @@ export const ActivityLogListScope = {
  * * `Team` - Team
  * * `Project` - Project
  * * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * * `DataWarehouseExpression` - DataWarehouseExpression
  * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
@@ -1312,9 +1582,11 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
+ * * `DataQualityCheck` - DataQualityCheck
  * * `Billing` - Billing
  * * `Loop` - Loop
  */
@@ -1334,6 +1606,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1348,6 +1621,7 @@ export const ActivityLogListScopesItem = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
@@ -1392,9 +1666,11 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
 } as const
@@ -1594,4 +1870,34 @@ export const CommentsListKind = {
     Any: 'any',
     Comment: 'comment',
     Task: 'task',
+} as const
+
+export type UserFacetSettingsRetrieveParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsRetrieveProduct
+}
+
+export type UserFacetSettingsRetrieveProduct =
+    (typeof UserFacetSettingsRetrieveProduct)[keyof typeof UserFacetSettingsRetrieveProduct]
+
+export const UserFacetSettingsRetrieveProduct = {
+    Logs: 'logs',
+    Tracing: 'tracing',
+} as const
+
+export type UserFacetSettingsPartialUpdateParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsPartialUpdateProduct
+}
+
+export type UserFacetSettingsPartialUpdateProduct =
+    (typeof UserFacetSettingsPartialUpdateProduct)[keyof typeof UserFacetSettingsPartialUpdateProduct]
+
+export const UserFacetSettingsPartialUpdateProduct = {
+    Logs: 'logs',
+    Tracing: 'tracing',
 } as const
