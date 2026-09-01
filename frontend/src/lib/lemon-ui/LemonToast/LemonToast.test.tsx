@@ -36,7 +36,7 @@ describe('LemonToast', () => {
 
     // The toolbar and the exporter render toasts but have no support form to open, so they keep
     // the posthog.com fallback.
-    it('falls back to the support page when nothing is registered', () => {
+    it('falls back to the support options docs when nothing is registered', () => {
         const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
 
         const { container } = render(
@@ -44,7 +44,7 @@ describe('LemonToast', () => {
         )
         fireEvent.click(within(container).getByText('Get help'))
 
-        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/support'), '_blank')
+        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/docs/support-options'), '_blank')
     })
 
     // The copy button reads the rendered message out of the DOM, so it copies whatever sits inside the
