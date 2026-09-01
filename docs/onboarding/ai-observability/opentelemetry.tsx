@@ -236,6 +236,12 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'go',
                                 file: 'Go',
                                 code: dedent`
+                                    import (
+                                        "go.opentelemetry.io/otel"
+                                        "go.opentelemetry.io/otel/attribute"
+                                        "go.opentelemetry.io/otel/codes"
+                                    )
+
                                     tracer := otel.Tracer("my-app")
                                     _, span := tracer.Start(ctx, "chat gpt-5-mini")
                                     // Set the request attributes before the call so a failed call still

@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { StepDefinition } from '../steps'
-import { PROSE_LANGUAGE } from '../steps'
+import { PROSE_LANGUAGE, StepDefinition } from '../steps'
 import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
