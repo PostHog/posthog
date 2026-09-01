@@ -2260,6 +2260,127 @@ def _check_zombies(repo_root: Path) -> CheckResult:
     )
 
 
+# A blob:none clone writes a new promisor pack on every on-demand blob fetch, and
+# nothing consolidates them: `gc.autoPackLimit` does not count promisor packs, and
+# the `incremental-repack` maintenance task does not merge them either. Pack lookup
+# cost scales with pack count, so `git fetch` and `git status` degrade as they pile up.
+#
+# Threshold set where the cost becomes visible rather than where it becomes measurable.
+# Around 900 packs `git fetch` still returns in about a second. At 13,000 it took 34s.
+# Warning earlier than this trains people to ignore the line.
+_GIT_PACK_WARNING_THRESHOLD = 1000
+
+# `git maintenance run` treats an existing lock as "another run is in progress" and
+# exits 0 silently. A run killed by sleep or reboot leaves one behind, which disables
+# every scheduled maintenance task until someone deletes it. Nothing reports this.
+_GIT_MAINTENANCE_LOCK_STALE_SECONDS = 6 * 60 * 60
+
+
+def _git_common_dir(repo_root: Path) -> Path | None:
+    """Resolve the shared .git directory without spawning git.
+
+    In a worktree ``.git`` is a file pointing at ``<common>/worktrees/<name>``.
+    Packs, the commit-graph and the maintenance lock all live in the common dir.
+    """
+    dot_git = repo_root / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if not dot_git.is_file():
+        return None
+    try:
+        line = dot_git.read_text().strip()
+    except OSError:
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    worktree_dir = Path(line.split(":", 1)[1].strip())
+    # <common>/worktrees/<name> -> <common>
+    if worktree_dir.parent.name == "worktrees":
+        return worktree_dir.parent.parent
+    return worktree_dir
+
+
+@dataclass
+class GitHealth:
+    pack_count: int
+    packs_capped: bool
+    has_promisor: bool
+    stale_lock: Path | None
+    missing_commit_graph: bool
+
+
+def _git_health(common_dir: Path, pack_cap: int) -> GitHealth:
+    """Read git housekeeping state with a bounded amount of work.
+
+    Stops counting packs once past ``pack_cap`` so a neglected clone with tens of
+    thousands of them costs the same as a healthy one.
+    """
+    pack_dir = common_dir / "objects" / "pack"
+    pack_count = 0
+    has_promisor = False
+    capped = False
+    try:
+        with os.scandir(pack_dir) as entries:
+            for entry in entries:
+                if entry.name.endswith(".pack"):
+                    pack_count += 1
+                    if pack_count > pack_cap:
+                        capped = True
+                        break
+                elif not has_promisor and entry.name.endswith(".promisor"):
+                    has_promisor = True
+    except OSError:
+        pass
+
+    stale_lock = None
+    lock_path = common_dir / "objects" / "maintenance.lock"
+    try:
+        age = time.time() - lock_path.stat().st_mtime
+        if age > _GIT_MAINTENANCE_LOCK_STALE_SECONDS:
+            stale_lock = lock_path
+    except OSError:
+        pass
+
+    info_dir = common_dir / "objects" / "info"
+    missing_commit_graph = (
+        not (info_dir / "commit-graph").exists() and not (info_dir / "commit-graphs" / "commit-graph-chain").exists()
+    )
+
+    return GitHealth(
+        pack_count=pack_count,
+        packs_capped=capped,
+        has_promisor=has_promisor,
+        stale_lock=stale_lock,
+        missing_commit_graph=missing_commit_graph,
+    )
+
+
+def _check_git_health(repo_root: Path) -> CheckResult:
+    """Fast git housekeeping probe. Reads directory entries only, never runs git."""
+    common_dir = _git_common_dir(repo_root)
+    if common_dir is None:
+        return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="not a git checkout")
+
+    health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
+    problems = []
+    if health.stale_lock:
+        problems.append("scheduled maintenance disabled by a stale lock")
+    if health.pack_count > _GIT_PACK_WARNING_THRESHOLD:
+        count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
+        problems.append(f"{count} pack files")
+    if health.missing_commit_graph:
+        problems.append("no commit-graph")
+
+    if problems:
+        return CheckResult(
+            name="Git housekeeping",
+            status=CheckStatus.WARNING,
+            summary=", ".join(problems),
+            remediation="run `hogli doctor:git --fix`",
+        )
+    return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="clean")
+
+
 def _check_docker() -> CheckResult:
     """Check whether the Docker daemon is reachable.
 
@@ -2378,6 +2499,7 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
     checks: list[Callable[[], CheckResult]] = [
         lambda: _check_disk(repo_root),
         lambda: _check_zombies(repo_root),
+        lambda: _check_git_health(repo_root),
         _check_docker,
         _check_migrations,
         _check_ports,
@@ -2399,6 +2521,153 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
                 )
 
     return [r for r in results if r is not None]
+
+
+def _git_housekeeping_running() -> bool:
+    """True while git is already packing, so we never touch a live lock or pack dir."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "git (gc|repack|maintenance|pack-objects)"],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # Cannot tell, so assume yes and do nothing.
+    return result.returncode == 0
+
+
+def _git_main_worktree(common_dir: Path) -> Path:
+    """The checkout that owns the object store, which is what maintenance registers."""
+    return common_dir.parent if common_dir.name == ".git" else common_dir
+
+
+def _git_maintenance_registered(main_worktree: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--get-all", "maintenance.repo"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # Cannot tell, so do not touch the user's global config.
+    registered = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return str(main_worktree) in registered or str(main_worktree.resolve()) in registered
+
+
+def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
+    """Start `git repack -ad` detached, at background priority.
+
+    Runs unattended because git cannot do this itself: `gc.autoPackLimit` ignores
+    promisor packs and the `incremental-repack` maintenance task never merges them,
+    so on a partial clone nothing ever consolidates. Detached because it takes
+    minutes, and `hogli start` must not wait for it.
+    """
+    cmd = ["git", "-C", str(main_worktree), "repack", "-ad", "--threads=0"]
+    # taskpolicy -b puts it in the background QoS band, which throttles its IO as
+    # well as its CPU. Without that a repack competes with the dev stack booting.
+    if shutil.which("taskpolicy"):
+        cmd = ["taskpolicy", "-b", *cmd]
+    else:
+        cmd = ["nice", "-n", "19", *cmd]
+    log = (common_dir / "hogli-repack.log").open("a")
+    subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
+
+
+def _write_commit_graph(main_worktree: Path) -> None:
+    """Backfill unreadable commits, then write the graph.
+
+    `commit-graph write --reachable` stops at the first commit it cannot read, and a
+    partial clone does not lazy-fetch during that walk, so one absent commit leaves
+    the repo with no commit-graph at all.
+    """
+    missing = subprocess.run(
+        ["git", "-C", str(main_worktree), "rev-list", "--all", "--missing=print"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
+        check=False,
+    )
+    oids = [line[1:] for line in missing.stdout.splitlines() if line.startswith("?")]
+    if oids:
+        click.echo(f"  fetching {len(oids)} missing commits...")
+        for oid in oids:
+            subprocess.run(["git", "-C", str(main_worktree), "cat-file", "-e", oid], check=False, capture_output=True)
+    click.echo("  writing commit-graph...")
+    subprocess.run(
+        ["git", "-C", str(main_worktree), "commit-graph", "write", "--reachable", "--split", "--no-progress"],
+        check=False,
+    )
+
+
+@click.command(
+    name="doctor:git",
+    help="Keep git housekeeping healthy so fetch and status stay fast",
+)
+@click.option("--fix", is_flag=True, help="Repack in the foreground and wait for it, instead of in the background")
+def doctor_git(fix: bool) -> None:
+    """Repair git housekeeping, doing the slow part in the background.
+
+    Everything here is either instant or detached, because this runs on every
+    ``hogli start``. Reading the state touches directory entries only. Clearing a
+    stale lock is one unlink. Registering scheduled maintenance is a one-time
+    command. The repack is minutes, so it is spawned detached unless ``--fix``.
+    """
+    common_dir = _git_common_dir(REPO_ROOT)
+    if common_dir is None:
+        click.echo("Not a git checkout, nothing to check.")
+        return
+
+    main_worktree = _git_main_worktree(common_dir)
+    health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
+    packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
+    # Only pay for the process scan when there is something it would gate.
+    busy = _git_housekeeping_running() if (health.stale_lock or packs_high) else False
+    acted = False
+
+    if health.stale_lock and not busy:
+        try:
+            health.stale_lock.unlink()
+            click.secho("Removed a stale git maintenance lock.", fg="yellow")
+            click.echo("Scheduled git maintenance was disabled for as long as it was there.")
+            health.stale_lock = None
+            acted = True
+        except OSError:
+            pass  # Another process got there first, or the dir is read-only.
+
+    # Without this, none of git's own scheduled tasks ever run, and a fresh clone
+    # never gets a commit-graph. Registering is instant and the check is free.
+    if not _git_maintenance_registered(main_worktree):
+        if _run_ok(["git", "-C", str(main_worktree), "maintenance", "start"], timeout=30):
+            click.secho("Registered this repo for scheduled git maintenance.", fg="yellow")
+            acted = True
+        else:
+            click.echo("Could not register scheduled git maintenance. Run `git maintenance start` yourself.")
+
+    count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
+
+    if packs_high and fix:
+        click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
+        subprocess.run(["git", "-C", str(main_worktree), "repack", "-ad", "--threads=0"], check=False)
+        _write_commit_graph(main_worktree)
+        subprocess.run(["git", "-C", str(main_worktree), "multi-pack-index", "write", "--no-progress"], check=False)
+        click.secho("Done.", fg="green")
+        hints.record_check_run("doctor:git")
+        return
+
+    if packs_high and busy:
+        click.echo(f"{count} pack files. Git is already packing in the background.")
+    elif packs_high:
+        _spawn_background_repack(main_worktree, common_dir)
+        click.secho(f"{count} pack files. Repacking in the background.", fg="yellow")
+        if health.has_promisor:
+            click.echo("This is a partial clone, so every on-demand blob fetch adds another pack.")
+        click.echo("It runs at background priority and takes minutes. Carry on working.")
+        acted = True
+    elif not acted:
+        click.echo(f"Git housekeeping is clean ({count} pack files).")
+
+    hints.record_check_run("doctor:git")
 
 
 @click.command(name="doctor", help="Quick health check for your dev environment")

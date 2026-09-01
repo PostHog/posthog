@@ -26,6 +26,10 @@ from hogli_commands.doctor import (
     _format_kv_block,
     _generated_config_path,
     _get_process_cwds,
+    _git_common_dir,
+    _git_health,
+    _git_main_worktree,
+    _git_maintenance_registered,
     _is_excluded,
     _normalize_arch,
     _phrocs_info,
@@ -39,6 +43,7 @@ from hogli_commands.doctor import (
     _scan_unheld_via_lsof,
     _select_flox_logs_to_remove,
     _tail,
+    doctor_git,
     doctor_migrate_volumes,
     doctor_ports,
 )
@@ -1172,3 +1177,129 @@ def test_doctor_migrate_volumes_refuses_symlinked_lock_path(monkeypatch: pytest.
     assert result.exit_code == 0
     assert victim.read_text() == "precious"
     assert calls == []  # bailed before touching docker
+
+
+def _make_pack_dir(common: Path, pack_count: int) -> None:
+    pack_dir = common / "objects" / "pack"
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(pack_count):
+        for ext in (".pack", ".idx", ".rev", ".promisor"):
+            (pack_dir / f"pack-{i:040x}{ext}").touch()
+
+
+def test_git_health_stops_counting_packs_past_the_cap(tmp_path: Path) -> None:
+    # This check runs on every `hogli start`. A neglected blob:none clone has
+    # reached 43,743 packs here, which is ~175k directory entries. Counting all of
+    # them would put seconds into a command that must not notice the difference
+    # between a clone that is a day old and one that is years old. Reporting
+    # exactly cap+1 is the observable proof that the scan stopped early.
+    _make_pack_dir(tmp_path, 5000)
+
+    health = _git_health(tmp_path, pack_cap=100)
+
+    assert health.pack_count == 101
+    assert health.packs_capped is True
+    assert health.has_promisor is True
+
+
+def test_git_health_reports_exact_count_below_the_cap(tmp_path: Path) -> None:
+    _make_pack_dir(tmp_path, 7)
+
+    health = _git_health(tmp_path, pack_cap=100)
+
+    assert health.pack_count == 7
+    assert health.packs_capped is False
+
+
+def test_git_common_dir_resolves_a_worktree_to_the_shared_object_store(tmp_path: Path) -> None:
+    # Packs, the commit-graph and the maintenance lock live in the shared .git,
+    # never in the worktree's private dir. Resolving to the wrong one makes every
+    # check silently pass on a broken repo, which is the failure mode this whole
+    # check exists to catch.
+    common = tmp_path / "main" / ".git"
+    (common / "worktrees" / "feature").mkdir(parents=True)
+    worktree = tmp_path / "feature"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {common / 'worktrees' / 'feature'}\n")
+
+    assert _git_common_dir(worktree) == common
+
+
+def test_git_common_dir_handles_a_plain_checkout_and_a_non_repo(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    (plain / ".git").mkdir(parents=True)
+    assert _git_common_dir(plain) == plain / ".git"
+
+    not_a_repo = tmp_path / "nope"
+    not_a_repo.mkdir()
+    assert _git_common_dir(not_a_repo) is None
+
+
+def test_git_maintenance_registered_matches_the_main_worktree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A fresh clone has nothing registered, so none of git's scheduled tasks ever
+    # run and it never gets a commit-graph. Missing this means the check warns
+    # forever without fixing the cause.
+    repo = tmp_path / "posthog"
+
+    def fake_run(cmd, **kwargs):
+        return SimpleNamespace(stdout=f"{tmp_path / 'other'}\n", returncode=0)
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    assert _git_maintenance_registered(repo) is False
+
+    def fake_run_registered(cmd, **kwargs):
+        return SimpleNamespace(stdout=f"{tmp_path / 'other'}\n{repo}\n", returncode=0)
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run_registered)
+    assert _git_maintenance_registered(repo) is True
+
+
+def test_git_maintenance_registered_fails_safe_when_git_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reporting "not registered" here would rewrite the user's global git config
+    # off the back of a failed subprocess call.
+    def boom(cmd, **kwargs):
+        raise OSError("no git")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", boom)
+    assert _git_maintenance_registered(Path("/repo")) is True
+
+
+def test_git_main_worktree_strips_the_dot_git_suffix(tmp_path: Path) -> None:
+    assert _git_main_worktree(tmp_path / "posthog" / ".git") == tmp_path / "posthog"
+
+
+def test_doctor_git_spawns_the_repack_detached_instead_of_blocking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # This runs on every `hogli start`. A repack takes minutes, so it must be
+    # spawned and left alone. If it ever moves back into subprocess.run, start
+    # blocks on it and the whole check becomes unshippable.
+    repo = tmp_path / "posthog"
+    (repo / ".git" / "objects" / "pack").mkdir(parents=True)
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda: False)
+    monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
+    monkeypatch.setattr(
+        "hogli_commands.doctor._git_health",
+        lambda common, pack_cap: SimpleNamespace(
+            pack_count=pack_cap + 1,
+            packs_capped=True,
+            has_promisor=True,
+            stale_lock=None,
+            missing_commit_graph=False,
+        ),
+    )
+    ran: list[list[str]] = []
+    spawned: list[list[str]] = []
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", lambda cmd, **kw: ran.append(cmd))
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.Popen",
+        lambda cmd, **kw: spawned.append(cmd) or SimpleNamespace(pid=1),
+    )
+
+    result = CliRunner().invoke(doctor_git, [])
+
+    assert result.exit_code == 0
+    assert len(spawned) == 1
+    assert "repack" in spawned[0]
+    assert not any("repack" in cmd for cmd in ran)

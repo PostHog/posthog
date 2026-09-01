@@ -105,7 +105,46 @@ Clone the [PostHog repo](https://github.com/posthog/posthog). All future command
 git clone --filter=blob:none https://github.com/PostHog/posthog && cd posthog/
 ```
 
-**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed. This reduces the clone from ~3 GB to a few hundred MB and makes the initial clone **15-17x faster**. You still get full git history for commands like `git log` and `git diff` – blobs are fetched on demand as you use them.
+**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed.
+A full clone of this repository is about 6.4 GB.
+A blobless clone downloads about 280 MB and finishes about **12x faster**.
+You still get full git history for commands like `git log` and `git diff`.
+Blobs are fetched on demand as you use them.
+
+File contents are 94% of the repository, and most of them are versions of files that no longer exist.
+Deleting a file does not remove it from the history, so a full clone still pays for it.
+
+**Keeping a blobless clone fast.** Each on-demand blob fetch writes a new pack file, and git does not consolidate those on its own.
+A clone in daily use can reach thousands of pack files, which makes `git fetch` and `git status` slow.
+
+Checkouts and fetches are cheap, because git batches them into one request.
+Commands that walk history file by file are not: they fetch once per commit.
+`git blame` on a single long-lived file added 275 pack files in one run.
+`git log --stat` and `git log -p` add roughly one per commit.
+Editor features that blame in the background, such as GitLens or the VS Code timeline, do this continuously.
+This is worth knowing, but it is not a reason to avoid those commands. Consolidate instead.
+
+`hogli start` does this for you. It registers scheduled git maintenance on first run, clears a stale maintenance lock, and starts a repack in the background when the pack count gets high. Set `HOGLI_SKIP_GIT_CHECK=1` to turn that off. To run it on its own:
+
+```bash
+hogli doctor:git         # check and repair, repack runs in the background
+hogli doctor:git --fix   # repack in the foreground and wait
+```
+
+Without hogli, the same thing by hand:
+
+```bash
+git maintenance start                 # once, per clone
+ls .git/objects/pack/*.pack | wc -l   # check the count
+git repack -ad                        # consolidate
+```
+
+If scheduled maintenance looks like it does nothing, check for a leftover lock file.
+Git skips the run without a message when one is present, and a maintenance run killed by a reboot or by sleep can leave one behind for months:
+
+```bash
+pgrep -f 'git (gc|repack|maintenance)' || rm -f .git/objects/maintenance.lock
+```
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
 > database in the `/share` directory. If you haven't run `hogli start` this database may not exist.
