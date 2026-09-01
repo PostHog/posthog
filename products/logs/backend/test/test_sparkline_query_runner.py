@@ -11,7 +11,7 @@ from django.urls import get_resolver
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
 from products.logs.backend.sparkline_query_runner import SPARKLINE_TOP_BREAKDOWN_VALUES
 
