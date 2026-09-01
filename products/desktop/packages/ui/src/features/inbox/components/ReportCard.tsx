@@ -173,14 +173,15 @@ export function ReportCardView(props: ReportCardViewProps) {
                 ) : (
                   reasonLabel && (
                     <span
-                      className="max-w-full truncate rounded-(--radius-1) bg-(--gray-3) px-1.5 py-0.5 text-[11px] text-gray-11"
+                      className="flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-gray-11"
                       title={
                         dismissalNote
                           ? `${reasonLabel}: ${dismissalNote}`
                           : reasonLabel
                       }
                     >
-                      {reasonLabel}
+                      <span className="size-1.5 shrink-0 rounded-full bg-(--red-9)" />
+                      <span className="truncate">{reasonLabel}</span>
                     </span>
                   )
                 )}

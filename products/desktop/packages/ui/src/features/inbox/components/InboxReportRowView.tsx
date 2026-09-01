@@ -1,16 +1,15 @@
 import {
-  ArchiveIcon,
   CheckCircleIcon,
   GitMergeIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
-import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import {
   deriveHeadline,
   humanizeReportTitle,
   parseConventionalCommitTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
+import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
@@ -82,6 +81,17 @@ export function InboxReportRowView({
         <span className="flex items-center gap-1.5 text-[12.5px] text-gray-10">
           {pr && <span className="shrink-0 font-medium">{pr.repoSlug}</span>}
           <InboxMetaSourceStack sourceProducts={report.source_products} />
+          {report.status === "suppressed" && report.dismissal_reason && (
+            <span
+              title={report.dismissal_note ?? undefined}
+              className="flex min-w-0 items-center gap-1.5"
+            >
+              <span className="size-1.5 shrink-0 rounded-full bg-(--red-9)" />
+              <span className="truncate">
+                {dismissalReasonLabel(report.dismissal_reason)}
+              </span>
+            </span>
+          )}
           <RelativeTimestamp
             timestamp={report.created_at}
             className="shrink-0 text-[12.5px]"
@@ -96,18 +106,6 @@ export function InboxReportRowView({
           >
             <CheckCircleIcon size={11} />
             Shipped
-          </span>
-        )}
-        {report.status === "suppressed" && (
-          <span
-            title={report.dismissal_note ?? undefined}
-            className="flex items-center gap-1 rounded border border-(--gray-6) bg-(--gray-2) px-1.5 py-0.5 text-[12px] text-gray-11"
-          >
-            <ArchiveIcon size={11} />
-            Archived
-            {report.dismissal_reason
-              ? ` · ${humanizeIdentifier(report.dismissal_reason)}`
-              : ""}
           </span>
         )}
         {reviewers}

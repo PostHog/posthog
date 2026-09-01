@@ -45,7 +45,7 @@ const resolved = [
     id: "resolved-2",
     status: "suppressed",
     title: "chore(settings): clarify an unused configuration path",
-    dismissal_reason: "not_enough_evidence",
+    dismissal_reason: "wontfix_irrelevant",
   }),
 ];
 

@@ -46,12 +46,12 @@ The internal route segment, query key, and component/hook names keep the
 `dismissed`/`suppressed` vocabulary (the backend status is `suppressed`); only
 the user-facing copy uses "Archive"/"archived".
 
-Each `DismissedReportCard` shows why the report was suppressed (`dismissal_reason`,
-labelled via `dismissalReasonLabel`, with `dismissal_note` as a tooltip). These
+Each dismissed report shows why it was suppressed (`dismissal_reason`), labelled
+via `dismissalReasonLabel` beside a red dot, with `dismissal_note` as a tooltip. These
 are denormalised onto the list `SignalReport` by the backend serializer — the
 same artefact-lift pattern as `priority`/`actionability`/`already_addressed` —
 so cards avoid an N+1 per-card artefact fetch. Unknown reason codes fall back to
-the raw value; cards with no dismissal artefact simply omit the chip.
+the raw value; cards with no dismissal artefact simply omit the label.
 
 Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/agents`. The legacy `/inbox/agents` route redirects there.
 
