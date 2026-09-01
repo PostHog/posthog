@@ -273,6 +273,20 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
 
+    def test_kind_is_writable_and_filterable(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["kind"] = "broadcast"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        assert create_response.json()["kind"] == "broadcast"
+        HogFlow.objects.create(team=self.team, name="Ordinary", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?kind=broadcast")
+        assert response.status_code == 200, response.json()
+        assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
+
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
         # that must not leak from a workflow *listing*.

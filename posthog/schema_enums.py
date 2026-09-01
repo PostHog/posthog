@@ -2684,6 +2684,7 @@ class FileSystemIconType(StrEnum):
     TRACING = "tracing"
     METRICS = "metrics"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"

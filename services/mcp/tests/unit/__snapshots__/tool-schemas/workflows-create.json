@@ -515,6 +515,19 @@
             ],
             "type": "string"
         },
+        "kind": {
+            "anyOf": [
+                {
+                    "description": "* `broadcast` - Broadcast",
+                    "enum": ["broadcast"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.\n\n* `broadcast` - Broadcast"
+        },
         "name": {
             "anyOf": [
                 {

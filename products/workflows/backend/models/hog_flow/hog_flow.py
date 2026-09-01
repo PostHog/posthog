@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Final
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -101,6 +102,11 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 }
 
 
+def hog_flow_kind_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so adding a purpose-built surface doesn't generate a no-op migration.
+    return list(HogFlow.Kind.choices)
+
+
 class HogFlow(UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
@@ -128,6 +134,9 @@ class HogFlow(UUIDTModel):
         TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
         ONLY_AT_END = "exit_only_at_end"
 
+    class Kind(models.TextChoices):
+        BROADCAST = "broadcast"
+
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
@@ -137,6 +146,11 @@ class HogFlow(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Purpose-built UX discriminator (e.g. "broadcast" for one-time/scheduled email sends built by the
+    # broadcasts wizard). Null for ordinary workflows. Doesn't affect execution — a broadcast is a plain
+    # HogFlow and still opens in the full editor.
+    kind = models.CharField(max_length=40, choices=hog_flow_kind_choices, null=True, blank=True)
 
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)

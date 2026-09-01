@@ -163,10 +163,20 @@ export interface workflowsLogicActions {
         errorObject?: any
     }
     loadWorkflowsSuccess: (
-        workflows: CountedPaginatedResponse<HogFlow>,
+        workflows: {
+            count: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: HogFlow[]
+        },
         payload?: {}
     ) => {
-        workflows: CountedPaginatedResponse<HogFlow>
+        workflows: {
+            count: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: HogFlow[]
+        }
         payload?: {}
     }
     restoreWorkflow: (workflow: HogFlow) => {
@@ -308,7 +318,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     // Drop a response a newer filter change has already superseded, so a slow request
                     // returning after a faster later one can't leave the table showing the wrong filters.
                     breakpoint()
-                    return response
+                    // Broadcasts are managed on their own tab; hide them here. The count may still
+                    // include them since the API has no exclusion filter (fine for pagination).
+                    return { ...response, results: response.results.filter((w) => w.kind !== 'broadcast') }
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
                     await api.hogFlows.updateHogFlow(workflow.id, {

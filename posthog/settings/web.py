@@ -607,6 +607,7 @@ SPECTACULAR_SETTINGS = {
         # no longer identifies one choice set. Keyed to the name the generator already produced
         # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
         "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
+        "HogFlowKindEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.Kind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
