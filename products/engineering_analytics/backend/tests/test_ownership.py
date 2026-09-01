@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from dataclasses import field
+from time import monotonic, sleep
 
 from unittest.mock import patch
 
@@ -138,6 +139,19 @@ class TestGitHubRepoFiles(SimpleTestCase):
             assert files.read("nodejs/owners.yaml") is None
             assert GitHubRepoFiles("PostHog/posthog").read("nodejs/owners.yaml") is None
         assert request.call_count == 1
+
+    def test_a_slow_repository_gives_up_instead_of_holding_the_worker(self) -> None:
+        # A cold board asks for hundreds of files. Without a budget for the whole resolution, a
+        # stalled raw host holds a web worker far past the per-request timeout.
+        def never_returns(_method: str, _url: str, **_kwargs: object) -> object:
+            sleep(2)
+            raise AssertionError("unreachable")
+
+        with patch("products.engineering_analytics.backend.logic.ownership.github_request", side_effect=never_returns):
+            files = GitHubRepoFiles("PostHog/posthog")
+            files._deadline = monotonic()
+            with self.assertRaises(OwnershipUnavailable):
+                files.read("owners.yaml")
 
     @parameterized.expand([("declared", True), ("streamed", False)])
     def test_an_oversized_file_is_refused(self, _name: str, declare_length: bool) -> None:

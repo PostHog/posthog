@@ -9,6 +9,7 @@ import random
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
+from time import monotonic
 from typing import Any, Protocol, TypeVar
 
 from django.core.cache import cache
@@ -42,6 +43,11 @@ _FETCH_WORKERS = 16
 # A connected repository controls these files, so an unbounded read would put its bytes in a
 # worker's memory and in Redis. An ownership file is a few KB; this repo's whole set is under 25 KB.
 _MAX_FILE_BYTES = 1024 * 1024
+# The whole resolution, not one request. A quarantine snapshot is capped at HogQL's implicit 100
+# rows, so a cold board can ask for hundreds of files; if the raw host stalls, the per-request
+# timeout alone would still let one board load hold a web worker for minutes. Past this the board
+# says ownership is unavailable, which beats hanging.
+_RESOLVE_BUDGET_SECONDS = 20.0
 
 # Ownership files change at review speed, so a stale answer stays right, and only the request that
 # finds the cache cold pays for the fetches. A batch writes every key at once, so the jitter spreads
@@ -85,6 +91,7 @@ class GitHubRepoFiles:
         # requests pools 10 connections by default and discards the overflow, so a smaller pool than
         # the worker count makes most of the batch pay a fresh TLS handshake.
         self._session.mount(_RAW_HOST, HTTPAdapter(pool_connections=_FETCH_WORKERS, pool_maxsize=_FETCH_WORKERS))
+        self._deadline = monotonic() + _RESOLVE_BUDGET_SECONDS
 
     def read(self, path: str) -> str | None:
         if path not in self._bodies:
@@ -105,7 +112,7 @@ class GitHubRepoFiles:
             return {}
         by_key = {self._key(kind, path): path for path in todo}
         known = {by_key[key]: value for key, value in cache.get_many(list(by_key)).items()}
-        fetched = _fetch_all(fetch, [path for path in todo if path not in known])
+        fetched = _fetch_all(fetch, [path for path in todo if path not in known], self._deadline)
         if fetched:
             cache.set_many({self._key(kind, path): value for path, value in fetched.items()}, _ttl())
             known.update(fetched)
@@ -234,15 +241,19 @@ def _team(owners: list[str] | None) -> str:
     return next((owner for owner in owners or [] if not owner.startswith("@")), UNOWNED_TEAM)
 
 
-def _fetch_all(fetch: Callable[[str], _T], paths: Iterable[str]) -> dict[str, _T]:
-    """Fetch every distinct path concurrently. The one place this module waits on the network."""
+def _fetch_all(fetch: Callable[[str], _T], paths: Iterable[str], deadline: float) -> dict[str, _T]:
+    """Fetch every distinct path concurrently, within what is left of the batch's budget. The one
+    place this module waits on the network."""
     todo = list(dict.fromkeys(paths))
     if not todo:
         return {}
     with ThreadPoolExecutor(max_workers=min(_FETCH_WORKERS, len(todo))) as pool:
         futures = {path: pool.submit(fetch, path) for path in todo}
         try:
-            return {path: future.result() for path, future in futures.items()}
+            return {path: future.result(max(deadline - monotonic(), 0)) for path, future in futures.items()}
+        except TimeoutError as e:
+            pool.shutdown(cancel_futures=True)
+            raise OwnershipUnavailable(f"ownership took longer than {_RESOLVE_BUDGET_SECONDS}s") from e
         except Exception:
             # The batch is already lost, so drop the rest instead of holding the request thread.
             pool.shutdown(cancel_futures=True)
