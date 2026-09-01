@@ -47,6 +47,7 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.slack.retry import SLACK_TRANSIENT_ERROR_CODES
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
@@ -150,6 +151,14 @@ class SlackIntegrationMissingScopeError(SlackIntegrationInactiveError):
     )
 
 
+class SlackIntegrationTransientError(APIException):
+    # Slack failed on its side, not the install. A 503 with picker copy that says try again keeps
+    # the channel picker from dead-ending on a bare "server error" toast when Slack blips.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "slack_integration_transient"
+    default_detail = "Slack couldn't load your channels just now. Wait a moment and try again."
+
+
 def _reraise_slack_users_api_error(error: SlackApiError) -> NoReturn:
     """Same as `_reraise_slack_api_error`, plus the member endpoints' own scope failure.
 
@@ -164,15 +173,20 @@ def _reraise_slack_users_api_error(error: SlackApiError) -> NoReturn:
 
 
 def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
-    """Translate an inactive-auth Slack error into an actionable 4xx; re-raise everything else.
+    """Translate a Slack error into an actionable 4xx/503; re-raise everything else.
 
     The auth-failure codes come from the Slack auth-state cache, which already decides what
     counts as an install that can no longer authenticate. A second list here would drift from
     it — whatever bricks the workspace there is the same thing the user reconnects to fix.
+    The transient codes are the same ones the client retries; one that still escapes maps to a
+    503 the picker reads as "try again", not a 500.
     """
     error_code = error.response.get("error") if error.response is not None else None
     if error_code in SLACK_AUTH_FAILURE_CODES:
         raise SlackIntegrationInactiveError() from error
+    # A transient Slack server error that outlived the client's retries.
+    if error_code in SLACK_TRANSIENT_ERROR_CODES:
+        raise SlackIntegrationTransientError() from error
     raise error
 
 

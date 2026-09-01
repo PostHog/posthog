@@ -7,6 +7,7 @@ from slack_sdk.http_retry.state import RetryState
 from slack_sdk.web.async_client import AsyncWebClient
 
 from posthog.egress.slack.observability import record_slack_api_exception, record_slack_api_response
+from posthog.egress.slack.retry import SlackTransientErrorAsyncRetryHandler
 
 
 class SlackAsyncObservabilityHandler(AsyncRetryHandler):
@@ -55,6 +56,9 @@ class SlackAsyncWebClient(AsyncWebClient):
         **kwargs: Any,
     ) -> None:
         super().__init__(token=token, **kwargs)
+        # Observability stays first so it records every attempt: slack_sdk stops at the first
+        # handler that asks to retry, so a retry handler ahead of it would hide retried attempts.
+        self.retry_handlers.insert(0, SlackTransientErrorAsyncRetryHandler())
         self.retry_handlers.insert(
             0,
             SlackAsyncObservabilityHandler(source=source, workspace_id=workspace_id, app_id=app_id),

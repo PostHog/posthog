@@ -2392,17 +2392,21 @@ class TestIntegrationAPIKeyAccess:
         assert "authed_user" in response.json()["detail"]
 
     @pytest.mark.parametrize(
-        "slack_error_code,expect_inactive",
+        "slack_error_code,expected_status,expected_code",
         [
-            ("account_inactive", True),
-            ("invalid_auth", True),
-            ("token_revoked", True),
-            ("token_expired", True),
+            ("account_inactive", status.HTTP_400_BAD_REQUEST, "slack_integration_inactive"),
+            ("invalid_auth", status.HTTP_400_BAD_REQUEST, "slack_integration_inactive"),
+            ("token_revoked", status.HTTP_400_BAD_REQUEST, "slack_integration_inactive"),
+            ("token_expired", status.HTTP_400_BAD_REQUEST, "slack_integration_inactive"),
             # Slack's answer when the stored bot token is missing or not sent at all — a broken
             # install the user reconnects to fix, not a transient failure.
-            ("not_authed", True),
-            # A transient/unexpected Slack error must not be masked as an inactive-connection prompt.
-            ("ratelimited", False),
+            ("not_authed", status.HTTP_400_BAD_REQUEST, "slack_integration_inactive"),
+            # A transient Slack server error that outlived the client's retries becomes a 503 the
+            # picker reads as "try again", not a dead-end 500.
+            ("internal_error", status.HTTP_503_SERVICE_UNAVAILABLE, "slack_integration_transient"),
+            ("service_unavailable", status.HTTP_503_SERVICE_UNAVAILABLE, "slack_integration_transient"),
+            # An unexpected Slack error we don't recognize still surfaces as a raw 500.
+            ("ratelimited", status.HTTP_500_INTERNAL_SERVER_ERROR, None),
         ],
     )
     @patch("posthog.api.integration.SlackIntegration")
@@ -2410,7 +2414,8 @@ class TestIntegrationAPIKeyAccess:
         self,
         mock_slack_class,
         slack_error_code: str,
-        expect_inactive: bool,
+        expected_status: int,
+        expected_code: str | None,
         client: HttpClient,
     ):
         slack_integration = Integration.objects.create(
@@ -2435,20 +2440,16 @@ class TestIntegrationAPIKeyAccess:
             scopes=["integration:read"],
         )
 
-        # Don't re-raise the transient case's unhandled error; assert on the 500 response instead.
+        # Don't re-raise the raw 500 case's unhandled error; assert on the response instead.
         client.raise_request_exception = False
         response = client.get(
             f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
-        if expect_inactive:
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            body = response.json()
-            assert body["code"] == "slack_integration_inactive"
-            assert "reconnect slack" in body["detail"].lower()
-        else:
-            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == expected_status
+        if expected_code is not None:
+            assert response.json()["code"] == expected_code
 
     def test_create_integration_with_api_key_fails(self, client: HttpClient):
         key_value = "test_key_123"
