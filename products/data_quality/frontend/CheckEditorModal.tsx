@@ -292,6 +292,9 @@ function RelationshipFields(): JSX.Element {
                     options={relationshipSubjects.map((subject) => ({ key: subject.id, label: subject.name }))}
                     onChange={(selectedIds) => {
                         const toSubjectUuid = selectedIds[0]
+                        if (!toSubjectUuid) {
+                            return
+                        }
                         setCheckFormValues({
                             toSubjectUuid,
                             toSubjectType: relationshipSubjects.find((subject) => subject.id === toSubjectUuid)?.type,
