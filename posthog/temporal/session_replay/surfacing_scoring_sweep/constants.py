@@ -29,6 +29,13 @@ TARGET_SESSIONS_PER_TICK = 200_000
 DEFAULT_OF_CHUNKS = 20
 TARGET_CHUNK_SIZE = TARGET_SESSIONS_PER_TICK // DEFAULT_OF_CHUNKS
 
+# Chunks run concurrently, and each one holds a ClickHouse query slot for its whole feature
+# SELECT. Dispatching all DEFAULT_OF_CHUNKS at once exceeds the per-user concurrent query
+# limit, and ClickHouse rejects the excess outright, so those chunks score nothing and wait
+# for the next tick. A chunk takes well under a minute, so a few bounded waves still fit the
+# tick budget and every chunk gets to run.
+MAX_CONCURRENT_SCORE_CHUNKS = 8
+
 # Window for "score eligible" rows. Older sessions are intentionally left
 # unscored — if a session hasn't been scored within this window its features
 # are no longer useful for downstream summarization.
