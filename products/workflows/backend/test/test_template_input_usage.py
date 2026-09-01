@@ -92,6 +92,7 @@ class TestTemplateInputUsage(BaseTest):
 
         with self.assertNumQueries(1) as queries:
             references = filter_hog_flow_references_by_access_level(
+                self.team.id,
                 {
                     "def-a": [
                         HogFlowReference(

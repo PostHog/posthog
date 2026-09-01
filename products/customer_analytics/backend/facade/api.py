@@ -1228,7 +1228,7 @@ def list_custom_property_definitions(
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     workflow_references = _custom_property_references_by_definition_id(team_id)
-    references = filter_hog_flow_references_by_access_level(workflow_references, user_access_control)
+    references = filter_hog_flow_references_by_access_level(team_id, workflow_references, user_access_control)
     sources: list[CustomPropertySource] = []
     for d in page:
         try:
@@ -1264,7 +1264,7 @@ def get_custom_property_definition(
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
     references = filter_hog_flow_references_by_access_level(
-        workflow_references_by_definition_id, user_access_control
+        team_id, workflow_references_by_definition_id, user_access_control
     ).get(str(definition.id), [])
     return _to_custom_property_definition_view(
         definition,
@@ -1394,9 +1394,9 @@ def update_custom_property_definition(
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
     references = (
-        filter_hog_flow_references_by_access_level(workflow_references_by_definition_id, user_access_control).get(
-            str(definition.id), []
-        )
+        filter_hog_flow_references_by_access_level(
+            team_id, workflow_references_by_definition_id, user_access_control
+        ).get(str(definition.id), [])
         if user_access_control is not None
         else []
     )

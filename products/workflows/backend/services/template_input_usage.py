@@ -52,7 +52,9 @@ def get_hog_flows_referencing_template_input_keys(
 
 
 def filter_hog_flow_references_by_access_level(
-    references_by_key: dict[str, list[HogFlowReference]], user_access_control: "UserAccessControl"
+    team_id: int,
+    references_by_key: dict[str, list[HogFlowReference]],
+    user_access_control: "UserAccessControl",
 ) -> dict[str, list[HogFlowReference]]:
     """Remove references the caller cannot view without reading workflow actions again."""
     reference_ids = {reference.id for references in references_by_key.values() for reference in references}
@@ -62,7 +64,7 @@ def filter_hog_flow_references_by_access_level(
     accessible_ids = {
         str(flow_id)
         for flow_id in user_access_control.filter_queryset_by_access_level(
-            HogFlow.objects.filter(id__in=reference_ids)
+            HogFlow.objects.filter(team_id=team_id, id__in=reference_ids)
         ).values_list("id", flat=True)
     }
     return {
