@@ -6,6 +6,7 @@ from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
 from products.web_analytics.backend.content_autopilot.lifecycle import (
+    MAX_PROPOSAL_MARKDOWN_CHARS,
     ContentAutopilotLifecycleError,
     cancel_run,
     edit_proposal,
@@ -55,6 +56,8 @@ class TestContentAutopilotLifecycle(BaseTest):
             reject_proposal(team=other_team, proposal_id=str(proposal.id))
         with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
             cancel_run(team=other_team, run_id=str(run.id))
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "Select a site"):
+            start_run(team=other_team, profile_id=str(profile.id), triggered_by_id=self.user.id)
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)
 
@@ -129,6 +132,45 @@ class TestContentAutopilotLifecycle(BaseTest):
     def test_regeneration_refuses_other_drafts(self, _name: str, lifecycle_status: str) -> None:
         with self.assertRaises(ContentAutopilotLifecycleError):
             regenerate_proposal(team=self.team, proposal_id=str(self._proposal_with_status(lifecycle_status).id))
+
+    @parameterized.expand(
+        [
+            (
+                "rejected draft",
+                ContentAutopilotProposal.LifecycleStatus.REJECTED,
+                "# Reviewed draft",
+                "ready for review can be edited",
+            ),
+            (
+                "generating draft",
+                ContentAutopilotProposal.LifecycleStatus.GENERATING,
+                "# Reviewed draft",
+                "ready for review can be edited",
+            ),
+            (
+                "oversized Markdown",
+                ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
+                "x" * (MAX_PROPOSAL_MARKDOWN_CHARS + 1),
+                "characters or fewer",
+            ),
+        ]
+    )
+    def test_edit_refuses_invalid_requests(
+        self, _name: str, lifecycle_status: str, proposed_markdown: str, expected_error: str
+    ) -> None:
+        proposal = self._proposal_with_status(lifecycle_status)
+
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, expected_error):
+            edit_proposal(
+                team=self.team,
+                proposal_id=str(proposal.id),
+                proposed_markdown=proposed_markdown,
+                content_package=proposal.content_package,
+            )
+
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.lifecycle_status, lifecycle_status)
+        self.assertEqual(proposal.proposed_markdown, "# Improved guide\n\nUseful content.")
 
     def _proposal_with_status(self, lifecycle_status: str) -> ContentAutopilotProposal:
         profile = create_content_autopilot_profile(self.team)
