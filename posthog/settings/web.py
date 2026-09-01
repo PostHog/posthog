@@ -546,44 +546,6 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {
-            # If CI is failing with "enum naming encountered a non-optimally resolvable
-            # collision" / "Format5eaEnum"-style warnings from `hogli build:openapi-schema`,
-            # this is the dict you need to add an entry to. The warning fails CI because
-            # `--fail-on-warn` is set on the `spectacular` invocation in hogli.yaml.
-            #
-            # Workflow to resolve a collision:
-            #   1. Run `python manage.py find_enum_collisions` — it prints the field name,
-            #      the auto-generated name (e.g. `Format5eaEnum`), the enum values, which
-            #      components share the hash, and a suggested override entry. The suggestion
-            #      is pastable as-is for inline-list collisions (type-hint enums and
-            #      ChoiceFields with plain `choices=["A", "B"]`); only ChoiceFields with
-            #      custom labels (TextChoices where labels differ from values) need the
-            #      Choices/Enum class path filled in.
-            #   2. Add the suggested entry below (pick the right category — see "hash trap"
-            #      note below). Optionally rename the key from the auto-generated name to a
-            #      more semantic one to improve the generated schema type's name.
-            #   3. Re-run `hogli build:openapi-schema` locally to confirm the warning is gone.
-            #
-            # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
-            #   /improving-drf-endpoints  (skill — invoke it for the walkthrough)
-            #
-            # Hash trap — overrides fall into two categories depending on how drf-spectacular
-            # hashes them, and using the wrong format silently fails (the override is ignored
-            # and the warning persists):
-            #
-            # 1. Model class paths — used for ChoiceField-backed enums whose labels differ
-            #    from their values (typical `TextChoices` with explicit labels). The override
-            #    must point to the same Choices/Enum class so _load_enum_name_overrides hashes
-            #    identically to the x-spec-enum-id.
-            #
-            # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
-            #    return types) AND ChoiceFields whose choices are plain lists (labels equal
-            #    values). The override must be a plain value list, which
-            #    _load_enum_name_overrides normalizes to (value, value) tuples — matching
-            #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
-            #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
-            # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
-            "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
             "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
             "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
             "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
@@ -592,60 +554,33 @@ SPECTACULAR_SETTINGS = {
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
-            "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
-            "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
-            "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
-            "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
-            "ConversationStatus": "products.posthog_ai.backend.models.assistant.Conversation.Status",
-            "ConversationType": "products.posthog_ai.backend.models.assistant.Conversation.Type",
-            "DetailModeEnum": "products.ai_observability.backend.summarization.models.SummarizationMode",
             "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
             "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
-            "PropertyTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
-            "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.facade.types.ExternalDataSourceType",
             "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
-            "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
-            "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
             # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
             # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
             # no longer identifies one choice set. Keyed to the name the generator already produced
             # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
             "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
             "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
-            "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
-            "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
-            "EmailThreadParticipantKindEnum": "products.conversations.backend.models.email_thread.EmailThreadParticipantKind",
             # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
             "TicketTagsMatchEnum": "products.conversations.backend.api.ticket_filters.TICKET_TAGS_MATCH_CHOICES",
             "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
-            "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
             # Shared by HogFlowBatchJob.status and HogFlowBatchJobCancelResponse.status (same choice set).
             "HogFlowBatchJobStatusEnum": "products.workflows.backend.models.hog_flow_batch_job.HogFlowBatchJob.State",
             # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
             "MetricsRecalculationStatusEnum": (
                 "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
             ),
-            "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
-            "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
-            "FeatureRequestStatusEnum": "products.customer_analytics.backend.models.feature_request.FeatureRequestStatus",
-            "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
-            "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
-            "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
             "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
             "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
-            # Shared by ChangeRequest.state and ChangeRequestSummary.state (same choice set).
-            "ChangeRequestStateEnum": "products.approvals.backend.models.ChangeRequestState",
             # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
             "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
             # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
             "LogsGroupBySourceEnum": "products.logs.backend.group_by_query_runner.GROUP_SOURCES",
-            "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
-            "EvaluationReportFrequencyEnum": (
-                "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
-            ),
             "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
             "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
             "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
@@ -659,17 +594,12 @@ SPECTACULAR_SETTINGS = {
             "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
             "MCPPolicyPresetEnum": "products.mcp_store.backend.models.POLICY_PRESET_CHOICES",
             "MCPAuditDecisionEnum": "products.mcp_store.backend.models.AUDIT_DECISION_CHOICES",
-            # Keeps agent_platform's approval-request enum on its pre-collision name now
-            # that mcp_store also has a "decision" field.
-            "DecisionEnum": ["approve", "reject"],
             # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
             "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
             "NotebookSQLV2RefKindEnum": ["hogql", "local"],
-            "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
             # Inline-choices variant of TaskRun.Status (labels == values), shared by
             # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
             "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
-            "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
             "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
             "TaskRunReasoningEffortEnum": [
                 "off",
@@ -684,22 +614,11 @@ SPECTACULAR_SETTINGS = {
             ],
             "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
-            "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
-            "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
-            "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
-            "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
-            "BackfillStatusEnum": "products.replay_vision.backend.models.replay_scanner_backfill.BackfillStatus",
-            "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
-            "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
             "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
             "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
-            "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
             "TriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
-            "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
-            "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
             "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-            "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
             "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
             # Pin the subscriptions target enum to its existing name so adding customer_analytics'
             # `target_type` (below, inline-list category) doesn't auto-rename this shared-basename enum
@@ -728,10 +647,6 @@ SPECTACULAR_SETTINGS = {
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
             # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
             "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
-            # `strength` and `kind` are generic enough that the next one added anywhere would collide,
-            # and `multiple_variant_handling` would otherwise generate a bare `MultipleVariantHandling`
-            # sitting next to the schema type of the same name. One prefix for all three.
-            "ExperimentWatchCardKindEnum": ["behavior", "friction", "metric"],
             "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
             "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
             # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
@@ -743,9 +658,6 @@ SPECTACULAR_SETTINGS = {
             # ReviewHog findings expose the same priority set on two fields (effective_priority +
             # reviewer_priority); pin one shared name for the choice set.
             "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
-            # Pin the customer_analytics custom-property target so it doesn't auto-collide with the
-            # subscriptions `target_type` enum (which would rename subscriptions' generated type).
-            "CustomPropertyDefinitionTargetType": ["account", "person"],
             # The metrics query's OTel metric-type filter; without a pinned name it
             # collides with the experiments MetricTypeEnum (funnel/ratio/...).
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
@@ -764,25 +676,10 @@ SPECTACULAR_SETTINGS = {
                 "needs_attention",
                 "sync_paused",
             ],
-            "ManagedWarehouseMonitoringMetricEnum": [
-                "query_rate",
-                "error_ratio",
-                "duration_p50",
-                "duration_p95",
-                "sessions_active",
-                "s3_bytes_rate",
-                "acquire_p95",
-                "acquire_by_source",
-                "storage_bytes",
-                "worker_crash_rate",
-            ],
-            "ManagedWarehouseMonitoringWindowEnum": ["1h", "6h", "24h", "7d", "30d"],
             # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
             # subset enums keep their own auto-resolved names.
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
-            # Shared by alert checks and analytics anomaly-investigation signals.
-            "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
             # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
             "VerdictEnum": ["yes", "no", "inconclusive"],
             # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
@@ -811,28 +708,7 @@ SPECTACULAR_SETTINGS = {
             # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
             # palette color later would change the hash and silently rename the generated type.
             "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
-            # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
-            # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
-            # generated names so the shared enums don't get component-prefixed auto-names on collision.
-            "ExperimentTypeEnum": ["web", "product", None],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
-            # Two `sync_frequency` ChoiceFields with different member sets: warehouse-source schemas
-            # accept sub-15min cadences, while saved-query (view) materialization floors at 15min.
-            # Pin both to stable names so neither gets a component-prefixed auto-name on collision.
-            # "SyncFrequencyEnum" keeps the source-schema enum at its pre-existing generated name.
-            "SyncFrequencyEnum": [
-                "never",
-                "1min",
-                "5min",
-                "15min",
-                "30min",
-                "1hour",
-                "6hour",
-                "12hour",
-                "24hour",
-                "7day",
-                "30day",
-            ],
             "SavedQuerySyncFrequencyEnum": [
                 "never",
                 "15min",
@@ -1010,7 +886,6 @@ SPECTACULAR_SETTINGS = {
             # otherwise collide with EarlyAccessFeature's stage, so both sides get pinned.
             "LogsAnomalyVerdictEnum": ["spike", "drop", "silence"],
             "LogsAnomalyBaselineStageEnum": ["insufficient", "cold_start", "developing", "mature", None],
-            "EarlyAccessFeatureStageEnum": "products.early_access_features.backend.models.EarlyAccessFeature.Stage",
         }
     ),
 }
