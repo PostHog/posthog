@@ -184,12 +184,22 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
                 loadUsageData: async (): Promise<RealTimeUsageData> => {
                     const rowsQuery = usageQuery(values.usageRange, values.usageGranularity, false)
                     const timeSeriesQuery = usageQuery(values.usageRange, values.usageGranularity, true)
-                    const responses = await Promise.all(
-                        (values.currentOrganization?.teams ?? []).map(async (team) => ({
+                    const teams = values.currentOrganization?.teams ?? []
+                    // Only allowlisted projects resolve billing_usage_records, and the allowlist is
+                    // server-side, so a project that cannot read it is skipped rather than failing
+                    // the whole organization's chart.
+                    const settled = await Promise.allSettled(
+                        teams.map(async (team) => ({
                             rows: await queryUsage(team.id, rowsQuery),
                             timeSeries: await queryUsage(team.id, timeSeriesQuery),
                         }))
                     )
+                    const responses = settled
+                        .filter((result) => result.status === 'fulfilled')
+                        .map((result) => result.value)
+                    if (!responses.length && teams.length) {
+                        throw settled[0].status === 'rejected' ? settled[0].reason : new Error('No usage data')
+                    }
                     return parseUsageData(responses, values.usageRange, values.usageGranularity)
                 },
             },
