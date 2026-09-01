@@ -276,18 +276,7 @@ impl Inner {
 #[async_trait]
 impl PublishEvents for S3Sink {
     #[instrument(skip_all)]
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let mut buffer = self.inner.buffer.lock().await;
-        buffer.add_event(event)?;
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        rx.recv()
-            .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
-    }
-
-    #[instrument(skip_all)]
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut buffer = self.inner.buffer.lock().await;
         for event in events {
             buffer.add_event(event)?;
@@ -376,13 +365,13 @@ mod tests {
 
         // Test single event
         let event = create_test_event();
-        sink.publish_one(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("Failed to publish event");
 
         // Test batch
         let batch = vec![event.clone(), event.clone()];
-        sink.publish_batch(batch)
+        sink.publish_events(batch)
             .await
             .expect("Failed to publish batch");
     }
@@ -401,7 +390,7 @@ mod tests {
             metadata: create_test_event().metadata,
         };
 
-        sink.publish_one(event)
+        sink.publish_events(vec![event])
             .await
             .expect("Failed to publish large event");
     }
