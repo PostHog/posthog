@@ -39,7 +39,8 @@ export function sanitizeRetentionInterval(rawValue: string): { value: number; ex
     if (parsed > MAX_INTERVALS) {
         // See if just the first two numbers are under the max (when someone mashed keys)
         const truncated = Math.round(Number(rawValue.substring(0, 2)))
-        return { value: isNaN(truncated) || truncated > MAX_INTERVALS ? 10 : truncated, exceededMax: true }
+        const outOfRange = isNaN(truncated) || truncated < 1 || truncated > MAX_INTERVALS
+        return { value: outOfRange ? 10 : truncated, exceededMax: true }
     }
     return { value: parsed, exceededMax: false }
 }

@@ -15,6 +15,7 @@ describe('sanitizeRetentionInterval', () => {
         ['40', { value: 10, exceededMax: true }],
         ['25000', { value: 25, exceededMax: true }],
         ['99999', { value: 10, exceededMax: true }],
+        ['00032', { value: 10, exceededMax: true }],
     ])('coerces %p to a whole number in range', (input, expected) => {
         expect(sanitizeRetentionInterval(input)).toEqual(expected)
     })
