@@ -3076,7 +3076,7 @@ export class PostHogAPIClient {
 
   async updateTaskChannelAutoArchive(
     id: string,
-    inactivityDays: 1 | 3 | 7 | 14 | 30 | null,
+    inactivityDays: number | null,
   ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;

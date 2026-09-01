@@ -36,3 +36,12 @@ export const PersonalSpace: Story = {
     },
   },
 };
+
+export const CustomThreshold: Story = {
+  args: {
+    channel: {
+      ...meta.args.channel,
+      autoArchiveAfterDays: 45,
+    },
+  },
+};

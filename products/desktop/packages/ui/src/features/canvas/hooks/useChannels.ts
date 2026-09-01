@@ -20,7 +20,7 @@ export interface Channel {
   /** The repos the space is wired to. Empty where none are. */
   repositories: string[];
   /** Days of inactivity before tasks are archived. Null disables the rule. */
-  autoArchiveAfterDays?: 1 | 3 | 7 | 14 | 30 | null;
+  autoArchiveAfterDays?: number | null;
   /** Who made the space, where the backend knows. */
   createdBy: UserBasic | null;
 }
@@ -137,7 +137,7 @@ export function useChannelMutations() {
       inactivityDays,
     }: {
       id: string;
-      inactivityDays: 1 | 3 | 7 | 14 | 30 | null;
+      inactivityDays: number | null;
     }) => {
       if (!client) throw new Error("Not authenticated");
       return client.updateTaskChannelAutoArchive(id, inactivityDays);
@@ -159,10 +159,7 @@ export function useChannelMutations() {
     deleteChannel: (id: string) => deleteMutation.mutateAsync(id),
     renameChannel: (id: string, name: string) =>
       renameMutation.mutateAsync({ id, name }).then(toChannel),
-    updateAutoArchive: (
-      id: string,
-      inactivityDays: 1 | 3 | 7 | 14 | 30 | null,
-    ) =>
+    updateAutoArchive: (id: string, inactivityDays: number | null) =>
       autoArchiveMutation.mutateAsync({ id, inactivityDays }).then(toChannel),
     isCreating: createMutation.isPending,
     isDeleting: deleteMutation.isPending,

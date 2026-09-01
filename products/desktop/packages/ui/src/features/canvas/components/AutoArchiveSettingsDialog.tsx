@@ -11,6 +11,11 @@ import {
   Field,
   FieldDescription,
   FieldLabel,
+  NumberFieldDecrement,
+  NumberFieldGroup,
+  NumberFieldIncrement,
+  NumberFieldInput,
+  NumberFieldRoot,
   Select,
   SelectContent,
   SelectItem,
@@ -20,9 +25,13 @@ import {
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useEffect, useState } from "react";
 
-export type AutoArchiveAfterDays = 1 | 3 | 7 | 14 | 30;
+export type AutoArchiveAfterDays = number;
 
 const NEVER = "never";
+const CUSTOM = "custom";
+const MIN_THRESHOLD_DAYS = 1;
+const MAX_THRESHOLD_DAYS = 365;
+const PRESET_DAYS = new Set([1, 3, 7, 14, 30]);
 const OPTIONS: { value: string; label: string }[] = [
   { value: NEVER, label: "Never" },
   { value: "1", label: "After 1 day" },
@@ -30,10 +39,27 @@ const OPTIONS: { value: string; label: string }[] = [
   { value: "7", label: "After 7 days" },
   { value: "14", label: "After 14 days" },
   { value: "30", label: "After 30 days" },
+  { value: CUSTOM, label: "Custom…" },
 ];
 
-function toValue(days: AutoArchiveAfterDays | null | undefined): string {
-  return days == null ? NEVER : String(days);
+function toSelection(days: AutoArchiveAfterDays | null | undefined): string {
+  if (days == null) return NEVER;
+  return PRESET_DAYS.has(days) ? String(days) : CUSTOM;
+}
+
+function toCustomDays(
+  days: AutoArchiveAfterDays | null | undefined,
+): number | null {
+  return days != null && !PRESET_DAYS.has(days) ? days : null;
+}
+
+function isValidThreshold(days: number | null): days is number {
+  return (
+    days !== null &&
+    Number.isInteger(days) &&
+    days >= MIN_THRESHOLD_DAYS &&
+    days <= MAX_THRESHOLD_DAYS
+  );
 }
 
 export function AutoArchiveSettingsDialog({
@@ -49,18 +75,33 @@ export function AutoArchiveSettingsDialog({
   onSave: (days: AutoArchiveAfterDays | null) => Promise<boolean>;
   isSaving: boolean;
 }) {
-  const currentValue = toValue(channel.autoArchiveAfterDays);
-  const [value, setValue] = useState(currentValue);
+  const currentDays = channel.autoArchiveAfterDays ?? null;
+  const currentSelection = toSelection(currentDays);
+  const [selection, setSelection] = useState(currentSelection);
+  const [customDays, setCustomDays] = useState<number | null>(() =>
+    toCustomDays(currentDays),
+  );
 
   useEffect(() => {
-    if (open) setValue(currentValue);
-  }, [currentValue, open]);
+    if (open) {
+      setSelection(currentSelection);
+      setCustomDays(toCustomDays(currentDays));
+    }
+  }, [currentDays, currentSelection, open]);
+
+  const selectedDays =
+    selection === NEVER
+      ? null
+      : selection === CUSTOM
+        ? isValidThreshold(customDays)
+          ? customDays
+          : undefined
+        : Number(selection);
+  const isUnchanged = selectedDays === currentDays;
 
   const submit = async (): Promise<void> => {
-    if (isSaving || value === currentValue) return;
-    const days =
-      value === NEVER ? null : (Number(value) as AutoArchiveAfterDays);
-    if (await onSave(days)) onOpenChange(false);
+    if (isSaving || selectedDays === undefined || isUnchanged) return;
+    if (await onSave(selectedDays)) onOpenChange(false);
   };
 
   return (
@@ -88,8 +129,8 @@ export function AutoArchiveSettingsDialog({
               Inactivity period
             </FieldLabel>
             <Select
-              value={value}
-              onValueChange={(next) => setValue(next ?? NEVER)}
+              value={selection}
+              onValueChange={(next) => setSelection(next ?? NEVER)}
               items={OPTIONS}
               disabled={isSaving}
             >
@@ -113,6 +154,29 @@ export function AutoArchiveSettingsDialog({
               pinned, or actively running are not archived.
             </FieldDescription>
           </Field>
+          {selection === CUSTOM && (
+            <Field>
+              <FieldLabel htmlFor="custom-auto-archive-days">
+                Custom threshold
+              </FieldLabel>
+              <NumberFieldRoot
+                id="custom-auto-archive-days"
+                value={customDays}
+                onValueChange={setCustomDays}
+                min={MIN_THRESHOLD_DAYS}
+                max={MAX_THRESHOLD_DAYS}
+                step={1}
+                disabled={isSaving}
+              >
+                <NumberFieldGroup>
+                  <NumberFieldDecrement />
+                  <NumberFieldInput placeholder="Number of days" />
+                  <NumberFieldIncrement />
+                </NumberFieldGroup>
+              </NumberFieldRoot>
+              <FieldDescription>Enter 1 to 365 days.</FieldDescription>
+            </Field>
+          )}
         </DialogBody>
         <DialogFooter>
           <DialogClose
@@ -125,7 +189,7 @@ export function AutoArchiveSettingsDialog({
           <Button
             variant="primary"
             loading={isSaving}
-            disabled={value === currentValue}
+            disabled={selectedDays === undefined || isUnchanged}
             data-attr="save-space-auto-archive"
             onClick={() => void submit()}
           >
