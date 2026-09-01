@@ -114,6 +114,21 @@ class TestSizeLint:
 
         assert [finding.file for finding in findings] == ["posthog/bigger.py"]
 
+    def test_uncommitted_growth_is_reported_unless_the_run_is_scoped_to_commits(self, repo: Path) -> None:
+        # Advisory preflight keeps the working tree in scope, so reading HEAD there would
+        # hide a crossing the author just created. The pre-push run wants the opposite,
+        # because only commits get pushed. The base is the same in both.
+        _git(repo, "checkout", "-qb", "feature")
+        _write(repo, "posthog/big.py", CROSSED_AT - 100)
+        _commit_on_branch(repo)
+        _write(repo, "posthog/big.py", CROSSED_AT + 100)
+
+        worktree = runner.invoke(cli, ["lint:size", "--against", "master", "posthog/big.py"])
+        commits = runner.invoke(cli, ["lint:size", "--against", "master", "--committed", "posthog/big.py"])
+
+        assert "warning" in worktree.output
+        assert "warning" not in commits.output
+
     def test_cli_reports_findings_without_failing(self, repo: Path, tmp_path: Path) -> None:
         # The check is advisory, and preflight reads a soft check as a warning only when
         # it exits 0 with output on stdout.

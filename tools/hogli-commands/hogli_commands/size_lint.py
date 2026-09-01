@@ -126,11 +126,11 @@ def _lines_at(rev: str, path: str) -> int:
 def _line_count(path: str, rev: str | None) -> int:
     """Size of *path*, read from *rev* when one is named and the file exists there.
 
-    Naming a base is a question about committed history, so the answer must not be
-    read from the working tree: under a pre-push run the diff carries only commits,
-    and an uncommitted edit would otherwise move the number away from what gets
-    pushed. A file that is new and not yet committed still falls back to disk, which
-    is the only place it exists.
+    Which copy to read follows the caller's scope, not the presence of a base. A
+    pre-push run carries only commits, so it reads HEAD and an uncommitted edit cannot
+    move the number away from what gets pushed. A run that includes the working tree
+    measures the working tree, so growth that is still uncommitted is reported. A file
+    that is new and not yet committed falls back to disk, the only place it exists.
     """
     if rev is not None:
         result = _git("show", f"{rev}:{path}")
@@ -188,13 +188,18 @@ def _report(finding: Finding) -> None:
 @click.argument("files", nargs=-1)
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option(
+    "--committed",
+    is_flag=True,
+    help="Measure the committed file at HEAD instead of the working tree, for pre-push checks.",
+)
+@click.option(
     "--report",
     "report_path",
     type=click.Path(dir_okay=False, writable=True),
     default=None,
     help="Also write the findings as JSON to this path (used by the CI report poster).",
 )
-def cmd_lint_size(files: tuple[str, ...], against: str | None, report_path: str | None) -> None:
+def cmd_lint_size(files: tuple[str, ...], against: str | None, committed: bool, report_path: str | None) -> None:
     paths = list(files) if files else changed_files(against)
     in_scope = [
         path
@@ -208,7 +213,7 @@ def cmd_lint_size(files: tuple[str, ...], against: str | None, report_path: str 
         # warning rather than a silent pass.
         click.echo(f"size: no base ref, so only files over {NOTE_AT} lines are reported")
 
-    findings = _findings(in_scope, base, rev="HEAD" if against is not None else None)
+    findings = _findings(in_scope, base, rev="HEAD" if committed else None)
     for finding in findings:
         _report(finding)
     click.echo(f"size: {len(in_scope)} file(s) checked, {len(findings)} finding(s)", err=True)

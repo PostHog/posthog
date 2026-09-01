@@ -66,7 +66,10 @@ class DiffCheck:
     advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
-    takes_base: bool = False  # append `--against <base>` so the check scopes to the same diff
+    # Append `--against <base>`, plus `--committed` when the run is scoped to commits.
+    # A check that measures file content has to agree with preflight on both which base
+    # to compare against and which copy of the file to read.
+    takes_diff_scope: bool = False
     # Run once per pnpm workspace containing matched files (cwd = that workspace),
     # so nested workspaces like products/desktop validate their own lockfile instead
     # of the root one. Capability (node_modules present) is checked per workspace.
@@ -145,7 +148,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         triggers=[*SIZE_SCOPE],
         verify=["hogli", "lint:size"],
         takes_files=True,
-        takes_base=True,
+        takes_diff_scope=True,
         soft=True,
     ),
     DiffCheck(
@@ -388,7 +391,7 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool, base: str) -> tuple[Status, str]:
+def _run_diff_check(chk: DiffCheck, do_fix: bool, base: str, strict: bool) -> tuple[Status, str]:
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -409,10 +412,14 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool, base: str) -> tuple[Status, st
         return "skipped", f"needs {', '.join(unmet)}"
     else:
         cmd = list(chk.verify)
-    if chk.takes_base:
-        # Without this the child resolves its own base, so `--against` on a stacked branch
-        # would leave the two disagreeing about which layer a change belongs to.
+    if chk.takes_diff_scope:
+        # Without the base the child resolves its own, so `--against` on a stacked branch
+        # would leave the two disagreeing about which layer a change belongs to. Strict runs
+        # also pass `--committed`, because only commits are about to be pushed; advisory runs
+        # keep the working tree in scope and so must be measured from it.
         cmd += ["--against", base]
+        if strict:
+            cmd.append("--committed")
     if chk.takes_files:
         # Drop deleted paths: ruff (and friends) error E902 on a path that no longer exists.
         present = [f for f in chk.matched if (REPO_ROOT / f).exists()]
@@ -719,7 +726,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix, base)
+        status, detail = _run_diff_check(chk, do_fix, base, strict)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
