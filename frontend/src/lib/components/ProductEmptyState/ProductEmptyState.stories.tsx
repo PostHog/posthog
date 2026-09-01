@@ -7,7 +7,9 @@ import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/em
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
@@ -20,6 +22,7 @@ import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsE
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
@@ -193,6 +196,26 @@ export const AnnotationsNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
     { mocks: annotationsMocks }
 )
 
+// Cohorts detection lists cohorts on mount - answer "none yet".
+const cohortsMocks = {
+    get: { '/api/projects/:team_id/cohorts/': [200, { count: 0, results: [] }] },
+} as const
+
+export const CohortsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(cohortsEmptyState, 'needs-setup', {
+    mocks: cohortsMocks,
+})
+
+// Dashboards detection lists dashboards on mount - answer "none yet".
+const dashboardsMocks = {
+    get: { '/api/projects/:team_id/dashboards/': [200, { count: 0, results: [] }] },
+} as const
+
+export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dashboardsEmptyState,
+    'needs-setup',
+    { mocks: dashboardsMocks }
+)
+
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {
     get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
@@ -225,4 +248,9 @@ export const TracingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
 // Metrics detection asks the has-metrics API on mount - answer "none yet".
 export const MetricsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(metricsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/metrics/has_metrics/': [200, { hasMetrics: false }] } },
+})
+
+// Surveys detection counts surveys (live + archived) on mount - answer "none yet".
+export const SurveysNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(surveysEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/surveys/': [200, { count: 0, results: [] }] } },
 })
