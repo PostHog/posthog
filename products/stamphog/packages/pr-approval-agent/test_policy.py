@@ -283,8 +283,13 @@ _PRODUCTS_FILE = "products/AGENT_APPROVALS.md"
 _PROSE_ONLY_FM = "{}"
 
 
-def _grant(max_files: int) -> str:
-    return f"stamphog:\n  size_gate:\n    max_files: {max_files}"
+def _grant(max_files: int | None = None, max_lines: int | None = None) -> str:
+    lines = ["stamphog:", "  size_gate:"]
+    if max_files is not None:
+        lines.append(f"    max_files: {max_files}")
+    if max_lines is not None:
+        lines.append(f"    max_lines: {max_lines}")
+    return "\n".join(lines)
 
 
 def _multi_prose(*parts: tuple[str, str]) -> str:
@@ -308,18 +313,27 @@ def fake_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _scope(eff, path):
-    return next(s for s in eff.scopes if s.path == path)
+def _file_scope(eff, path):
+    return next(s for s in eff.file_scopes if s.path == path)
+
+
+def _line_scope(eff, path):
+    return next(s for s in eff.line_scopes if s.path == path)
 
 
 def test_resolve_folder_override_budgets_its_own_files(fake_repo: Path) -> None:
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
-    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/visual_review/sub/b.py"])
-    vr = _scope(eff, _VISUAL_REVIEW_FILE)
-    assert vr.max_files == 50
-    assert set(vr.files) == {"products/visual_review/a.py", "products/visual_review/sub/b.py"}
-    assert _scope(eff, None).files == ()
-    assert eff.max_lines == gates.MAX_LINES
+    changed = ["products/visual_review/a.py", "products/visual_review/sub/b.py"]
+    eff = resolve(gates.POLICY, changed)
+    vr = _file_scope(eff, _VISUAL_REVIEW_FILE)
+    assert vr.ceiling == 50
+    assert set(vr.files) == set(changed)
+    assert _file_scope(eff, None).files == ()
+    # Granting max_files alone leaves the lines in the global pool, at the global ceiling.
+    global_lines = _line_scope(eff, None)
+    assert global_lines.ceiling == gates.MAX_LINES
+    assert set(global_lines.files) == set(changed)
+    assert [s.path for s in eff.line_scopes] == [None]
     assert eff.invalid_folder_files == ()
     assert eff.folder_prose == "advisory prose"
 
@@ -330,24 +344,60 @@ def test_resolve_mixed_pr_budgets_each_scope_separately(fake_repo: Path) -> None
     # override, it just has to fit the global budget itself.
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "README.md"])
-    assert _scope(eff, _VISUAL_REVIEW_FILE).max_files == 50
-    assert _scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
-    assert _scope(eff, None).max_files == gates.MAX_FILES
-    assert _scope(eff, None).files == ("README.md",)
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).ceiling == 50
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
+    assert _file_scope(eff, None).ceiling == gates.MAX_FILES
+    assert _file_scope(eff, None).files == ("README.md",)
+
+
+@pytest.mark.parametrize(
+    "frontmatter, expected_file_budget, expected_line_budget",
+    [
+        pytest.param(_grant(max_files=50), (_VISUAL_REVIEW_FILE, 50), (None, gates.MAX_LINES), id="files-only"),
+        pytest.param(_grant(max_lines=1000), (None, gates.MAX_FILES), (_VISUAL_REVIEW_FILE, 1000), id="lines-only"),
+        pytest.param(
+            _grant(max_files=50, max_lines=1000),
+            (_VISUAL_REVIEW_FILE, 50),
+            (_VISUAL_REVIEW_FILE, 1000),
+            id="both-keys",
+        ),
+    ],
+)
+def test_resolve_budgets_each_ceiling_independently(
+    fake_repo: Path,
+    frontmatter: str,
+    expected_file_budget: tuple[str | None, int],
+    expected_line_budget: tuple[str | None, int],
+) -> None:
+    # Granting one ceiling must not open a second budget for the other: a
+    # lines-only folder still counts its files against the one global file
+    # budget, so it can never double how many files a PR may touch.
+    _write_folder_policy(fake_repo, frontmatter)
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "README.md"])
+    for (path, ceiling), scopes in ((expected_file_budget, eff.file_scopes), (expected_line_budget, eff.line_scopes)):
+        governing = next(s for s in scopes if "products/visual_review/a.py" in s.files)
+        assert (governing.path, governing.ceiling) == (path, ceiling)
+        # A file outside the folder never rides its grant.
+        assert next(s for s in scopes if s.path is None).files[-1] == "README.md"
 
 
 @pytest.mark.parametrize(
     "frontmatter",
     [
-        pytest.param("stamphog:\n  size_gate:\n    max_lines: 999", id="undelegated-key"),
-        pytest.param("stamphog:\n  size_gate:\n    max_files: 99", id="over-ceiling"),
+        pytest.param("stamphog:\n  tiers:\n    max_files: 10", id="undelegated-key"),
+        pytest.param("stamphog:\n  size_gate:\n    breadth: single-area", id="undelegated-size-gate-key"),
+        pytest.param("stamphog:\n  size_gate: {}", id="empty-grant"),
+        pytest.param(_grant(max_files=99), id="files-over-ceiling"),
+        pytest.param(_grant(max_lines=1001), id="lines-over-ceiling"),
+        pytest.param(_grant(max_files=50, max_lines=1001), id="one-key-over-ceiling"),
     ],
 )
 def test_resolve_invalid_folder_file_pools_files_into_global(fake_repo: Path, frontmatter: str) -> None:
     _write_folder_policy(fake_repo, frontmatter)
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    assert [s.path for s in eff.scopes] == [None]
-    assert _scope(eff, None).files == ("products/visual_review/a.py",)
+    assert [s.path for s in eff.file_scopes] == [None]
+    assert [s.path for s in eff.line_scopes] == [None]
+    assert _file_scope(eff, None).files == ("products/visual_review/a.py",)
     assert eff.invalid_folder_files == (_VISUAL_REVIEW_FILE,)
     assert eff.folder_prose is None
 
@@ -355,8 +405,8 @@ def test_resolve_invalid_folder_file_pools_files_into_global(fake_repo: Path, fr
 @pytest.mark.usefixtures("fake_repo")
 def test_resolve_no_folder_file_uses_global() -> None:
     eff = resolve(gates.POLICY, ["posthog/api/insight.py"])
-    assert [s.path for s in eff.scopes] == [None]
-    assert _scope(eff, None).max_files == gates.MAX_FILES
+    assert [s.path for s in eff.file_scopes] == [None]
+    assert _file_scope(eff, None).ceiling == gates.MAX_FILES
     assert eff.invalid_folder_files == ()
 
 
@@ -366,8 +416,8 @@ def test_resolve_prose_only_folder_file_keeps_global_budget(fake_repo: Path) -> 
     (fake_repo / "products" / "visual_review").mkdir(parents=True)
     (fake_repo / _VISUAL_REVIEW_FILE).write_text("---\n{}\n---\n\nadvice only\n")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    assert [s.path for s in eff.scopes] == [None]
-    assert _scope(eff, None).files == ("products/visual_review/a.py",)
+    assert [s.path for s in eff.file_scopes] == [None]
+    assert _file_scope(eff, None).files == ("products/visual_review/a.py",)
     assert eff.folder_prose == "advice only"
 
 
@@ -378,17 +428,26 @@ def test_resolve_carries_sanitized_prose(fake_repo: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "n_global, expected_ok",
+    "vr_additions, global_additions, n_global, expected_ok, expected_where",
     [
-        pytest.param(19, True, id="both-budgets-fit"),
-        pytest.param(21, False, id="global-budget-exceeded"),
+        pytest.param(5, 5, 19, True, None, id="both-budgets-fit"),
+        pytest.param(5, 5, 21, False, "global", id="global-file-budget-exceeded"),
+        pytest.param(5, 30, 19, False, "global", id="global-line-budget-exceeded"),
+        pytest.param(30, 5, 19, True, None, id="folder-lines-exceed-global-ceiling-but-fit-own"),
+        pytest.param(40, 5, 19, False, _VISUAL_REVIEW_FILE, id="folder-line-budget-exceeded"),
     ],
 )
-def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> None:
-    # 30 folder-scoped files ride the folder's ceiling while the remaining
-    # files are judged against the global ceiling on their own.
-    vr_files = [{"filename": f"products/visual_review/f{i}.py", "additions": 5, "deletions": 0} for i in range(30)]
-    global_files = [{"filename": f"posthog/api/m{i}.py", "additions": 5, "deletions": 0} for i in range(n_global)]
+def test_size_gate_applies_mixed_leniency(
+    vr_additions: int, global_additions: int, n_global: int, expected_ok: bool, expected_where: str | None
+) -> None:
+    # 30 folder-scoped files ride the folder's ceilings while the remaining
+    # files are judged against the global ceilings on their own.
+    vr_files = [
+        {"filename": f"products/visual_review/f{i}.py", "additions": vr_additions, "deletions": 0} for i in range(30)
+    ]
+    global_files = [
+        {"filename": f"posthog/api/m{i}.py", "additions": global_additions, "deletions": 0} for i in range(n_global)
+    ]
 
     pipeline = review_pr.Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = PRData(
@@ -408,18 +467,23 @@ def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> N
         review_comments=[],
         check_runs=[],
     )
+    vr_names = tuple(f["filename"] for f in vr_files)
+    global_names = tuple(f["filename"] for f in global_files)
     pipeline.effective_policy = EffectivePolicy(
-        max_lines=500,
-        scopes=(
-            ScopeBudget(path=_VISUAL_REVIEW_FILE, max_files=50, files=tuple(f["filename"] for f in vr_files)),
-            ScopeBudget(path=None, max_files=20, files=tuple(f["filename"] for f in global_files)),
+        file_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=50, files=vr_names),
+            ScopeBudget(path=None, ceiling=20, files=global_names),
+        ),
+        line_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=1000, files=vr_names),
+            ScopeBudget(path=None, ceiling=500, files=global_names),
         ),
     )
 
     ok, message = pipeline._check_size()
     assert ok is expected_ok
-    if not expected_ok:
-        assert "global" in message
+    if expected_where is not None:
+        assert f"in {expected_where}" in message
 
 
 @pytest.mark.parametrize(
@@ -438,10 +502,10 @@ def test_resolve_child_rides_nearest_grant_and_accumulates_ancestor_prose(
     _write_agent_policy(fake_repo, "products", parent_fm, "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", child_fm, "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    scope = _scope(eff, scope_path)
-    assert scope.max_files == max_files
+    scope = _file_scope(eff, scope_path)
+    assert scope.ceiling == max_files
     assert scope.files == ("products/visual_review/a.py",)
-    assert _scope(eff, None).files == ()
+    assert _file_scope(eff, None).files == ()
     assert eff.invalid_folder_files == ()
     assert eff.folder_prose == _multi_prose(
         (_PRODUCTS_FILE, "parent guidance"),
@@ -453,11 +517,29 @@ def test_resolve_nearest_grant_wins_across_siblings(fake_repo: Path) -> None:
     _write_agent_policy(fake_repo, "products", _grant(30), "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", _grant(50), "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/foo.py"])
-    assert _scope(eff, _VISUAL_REVIEW_FILE).max_files == 50
-    assert _scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
-    assert _scope(eff, _PRODUCTS_FILE).max_files == 30
-    assert _scope(eff, _PRODUCTS_FILE).files == ("products/foo.py",)
-    assert _scope(eff, None).files == ()
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).ceiling == 50
+    assert _file_scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
+    assert _file_scope(eff, _PRODUCTS_FILE).ceiling == 30
+    assert _file_scope(eff, _PRODUCTS_FILE).files == ("products/foo.py",)
+    assert _file_scope(eff, None).files == ()
+
+
+def test_resolve_walks_the_chain_separately_for_each_ceiling(fake_repo: Path) -> None:
+    # The child grants lines only, so its files still share the parent's one file
+    # budget rather than getting a second one of their own.
+    _write_agent_policy(fake_repo, "products", _grant(max_files=50), "parent guidance")
+    _write_agent_policy(fake_repo, "products/visual_review", _grant(max_lines=1000), "child guidance")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/foo.py"])
+    parent_files = _file_scope(eff, _PRODUCTS_FILE)
+    assert parent_files.ceiling == 50
+    assert set(parent_files.files) == {"products/visual_review/a.py", "products/foo.py"}
+    assert [s.path for s in eff.file_scopes] == [_PRODUCTS_FILE, None]
+    child_lines = _line_scope(eff, _VISUAL_REVIEW_FILE)
+    assert child_lines.ceiling == 1000
+    assert child_lines.files == ("products/visual_review/a.py",)
+    global_lines = _line_scope(eff, None)
+    assert global_lines.ceiling == gates.MAX_LINES
+    assert global_lines.files == ("products/foo.py",)
 
 
 def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
@@ -466,10 +548,10 @@ def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
     _write_agent_policy(fake_repo, "products", _grant(30), "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", _grant(99), "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    parent_scope = _scope(eff, _PRODUCTS_FILE)
-    assert parent_scope.max_files == 30
+    parent_scope = _file_scope(eff, _PRODUCTS_FILE)
+    assert parent_scope.ceiling == 30
     assert parent_scope.files == ("products/visual_review/a.py",)
-    assert _scope(eff, None).files == ()
+    assert _file_scope(eff, None).files == ()
     assert eff.invalid_folder_files == (_VISUAL_REVIEW_FILE,)
     assert eff.folder_prose == "parent guidance"
 
@@ -554,10 +636,13 @@ def _body_pipeline(fam) -> "review_pr.Pipeline":
         "assurance": {"head_approvals": [], "head_commented_users": ["greptile-apps[bot]"]},
     }
     pipeline.effective_policy = EffectivePolicy(
-        max_lines=500,
-        scopes=(
-            ScopeBudget(path=_VISUAL_REVIEW_FILE, max_files=50, files=("products/visual_review/a.py",)),
-            ScopeBudget(path=None, max_files=20, files=()),
+        file_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=50, files=("products/visual_review/a.py",)),
+            ScopeBudget(path=None, ceiling=20, files=()),
+        ),
+        line_scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, ceiling=1000, files=("products/visual_review/a.py",)),
+            ScopeBudget(path=None, ceiling=500, files=()),
         ),
     )
     pipeline.gate_results = [review_pr.GateResult("size", True, "4L, 1F substantive")]
