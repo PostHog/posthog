@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import type { DashboardListSavedView } from './dashboardSavedViewsLogic'
@@ -76,15 +77,20 @@ export default meta
 
 type Story = StoryObj<typeof SavedDashboardViewsPicker>
 
-const openPicker: Story['play'] = async () => {
-    const trigger = document.querySelector<HTMLElement>('[data-attr="dashboard-saved-views-picker"]')
-    if (!trigger) {
-        throw new Error('Saved views picker trigger not found')
-    }
+const openPicker: Story['play'] = async ({ canvasElement }) => {
+    const trigger = await waitFor(() => {
+        const element = canvasElement.querySelector<HTMLElement>('[data-attr="dashboard-saved-views-picker"]')
+        if (!element) {
+            throw new Error('Saved views picker trigger not yet rendered')
+        }
+        return element
+    })
     await userEvent.click(trigger)
-    if (!document.querySelector('.Popover')) {
-        throw new Error('Saved views picker did not open')
-    }
+    await waitFor(() => {
+        if (!document.querySelector('.Popover')) {
+            throw new Error('Saved views picker did not open')
+        }
+    })
 }
 
 export const Default: Story = {
