@@ -188,6 +188,12 @@ export function ReportTriageFocus({
   );
   const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
+  const canRemoveSelfFromReviewers = report?.is_suggested_reviewer === true;
+  const handleRemoveReviewer = useCallback(() => {
+    if (bulkActions.isRemovingReviewer) return;
+    void bulkActions.removeReviewerSelected();
+  }, [bulkActions]);
+
   const handleDismissConfirm = useCallback(
     async (result: DismissReportDialogResult) => {
       const ok = isDismissalReasonSnooze(result.reason)
@@ -251,6 +257,10 @@ export function ReportTriageFocus({
           event.preventDefault();
           handleOpenReport();
           break;
+        case "r":
+          event.preventDefault();
+          if (canRemoveSelfFromReviewers) handleRemoveReviewer();
+          break;
         case "Escape":
           event.preventDefault();
           handleExit();
@@ -259,7 +269,16 @@ export function ReportTriageFocus({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dismissOpen, report, goNext, goPrev, handleExit, handleOpenReport]);
+  }, [
+    dismissOpen,
+    report,
+    goNext,
+    goPrev,
+    handleExit,
+    handleOpenReport,
+    canRemoveSelfFromReviewers,
+    handleRemoveReviewer,
+  ]);
 
   if (!report) {
     // The queue ran dry mid-session — every decision is made.
@@ -291,6 +310,7 @@ export function ReportTriageFocus({
           nextReport={nextReport}
           expanded={expanded}
           prShortcut={prShortcut}
+          canRemoveSelfFromReviewers={canRemoveSelfFromReviewers}
           actions={
             <ReportVerdictBanner
               report={report}

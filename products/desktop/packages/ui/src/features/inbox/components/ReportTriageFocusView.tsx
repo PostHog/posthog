@@ -35,6 +35,8 @@ export interface ReportTriageFocusViewProps {
   nextReport?: SignalReport | null;
   expanded: boolean;
   prShortcut: "open" | "create" | null;
+  /** Shows the R hint: pressing it removes the current user from reviewers. */
+  canRemoveSelfFromReviewers: boolean;
   actions: ReactNode;
   reviewers?: ReactNode;
   onExit: () => void;
@@ -54,6 +56,7 @@ export function ReportTriageFocusView({
   nextReport,
   expanded,
   prShortcut,
+  canRemoveSelfFromReviewers,
   actions,
   reviewers,
   onExit,
@@ -269,6 +272,12 @@ export function ReportTriageFocusView({
           <KeyHint>O</KeyHint>
           open
         </span>
+        {canRemoveSelfFromReviewers && (
+          <span className="flex items-center gap-1">
+            <KeyHint>R</KeyHint>
+            remove me as reviewer
+          </span>
+        )}
         <span className="flex items-center gap-1">
           <KeyHint>Enter</KeyHint>
           summary
