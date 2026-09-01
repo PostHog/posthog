@@ -4017,7 +4017,7 @@
             "label": "Feature enrollment"
         },
         "$feature_flag_called": {
-            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
+            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
             "examples": [
                 "beta-feature"
             ],
