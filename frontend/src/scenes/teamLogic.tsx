@@ -165,12 +165,12 @@ export interface teamLogicValues {
     hasOnboardedAnyProduct: boolean
     isCurrentTeamUnavailable: boolean
     isTeamTokenResetAvailable: boolean
-    teamBeingDeleted: TeamType | null
-    updatingTeamFields: Record<string, number>
     pendingTeamPatch: Partial<TeamType> | null
+    teamBeingDeleted: TeamType | null
     teamWithPendingPatch: TeamPublicType | TeamType | null
     testAccountFilterFrequentMistakes: FrequentMistakeAdvice[]
     timezone: string
+    updatingTeamFields: Record<string, number>
     weekStartDay: number
 }
 
