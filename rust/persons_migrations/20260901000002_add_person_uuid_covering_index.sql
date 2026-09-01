@@ -12,18 +12,19 @@
 -- while autovacuum keeps the touched pages all-visible; confirm on real batches
 -- with EXPLAIN (ANALYZE, BUFFERS) that Heap Fetches stays low.
 --
--- This UNIQUE index enforces the same (team_id, uuid) constraint as the existing
--- unique index, so the older one is now redundant and can be dropped out-of-band
--- once this index is live in every environment. It is left in place here because
--- its name differs across environments (posthog_person_new_uuid_idx in
--- migration-built databases, posthog_person_team_id_uuid_uniq in prod-US/EU), so
--- a portable migration cannot reference it safely.
+-- NOT UNIQUE on purpose. Uniqueness of (team_id, uuid) is already enforced by
+-- the existing unique index in partitioned environments, so this index only has
+-- to cover the read. A non-unique index also builds safely on hobby, where
+-- posthog_person is the old non-partitioned table with only a plain (uuid)
+-- index and no (team_id, uuid) uniqueness, and where duplicate (team_id, uuid)
+-- rows can exist; a UNIQUE index would fail the upgrade there.
 --
 -- LOCKING: a plain CREATE INDEX takes a SHARE lock that blocks writes for the
--- build. On the large production posthog_person table, build this index
--- out-of-band and concurrently per partition first; then IF NOT EXISTS makes this
--- migration a no-op there. On fresh or small databases (dev, CI, hobby) the
--- inline build is cheap. Idempotent and safe to re-run.
+-- build, and the migration runner wraps each file in a transaction, so
+-- CONCURRENTLY cannot be used here. On the large production posthog_person,
+-- build this index out-of-band and concurrently per partition FIRST; then
+-- IF NOT EXISTS makes this migration a no-op there. On fresh or small databases
+-- (dev, CI, hobby) the inline build is cheap. Idempotent and safe to re-run.
 
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_person_team_id_uuid_covering_idx
+CREATE INDEX IF NOT EXISTS posthog_person_team_id_uuid_covering_idx
     ON posthog_person (team_id, uuid) INCLUDE (id);
