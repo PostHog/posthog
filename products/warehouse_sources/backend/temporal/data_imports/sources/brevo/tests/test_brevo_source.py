@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import BrevoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import (
+    BREVO_INVALID_API_KEY_MESSAGE,
+    BrevoSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
 
 
@@ -14,11 +17,7 @@ class TestBrevoSource:
         ("valid", "expected_ok", "expected_msg"),
         [
             (True, True, None),
-            (
-                False,
-                False,
-                "Your Brevo API key is invalid or expired. Create a new key in your Brevo account settings, then try again.",
-            ),
+            (False, False, BREVO_INVALID_API_KEY_MESSAGE),
         ],
     )
     def test_validate_credentials(self, valid: bool, expected_ok: bool, expected_msg: str | None) -> None:
