@@ -17,6 +17,7 @@ export interface TaskMetadataPatch {
   archivedTitle?: string | null;
   archivedTaskCreatedAt?: string | null;
   archivedRepository?: string | null;
+  serverArchiveScope?: string | null;
   piSessionFile?: string | null;
 }
 

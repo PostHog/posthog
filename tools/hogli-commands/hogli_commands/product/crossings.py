@@ -33,6 +33,11 @@ test that imports anything the location defines, through the facade or directly,
 yields no line at all, which reads the same as no dependency. Such a test is counted as
 `drives(unresolved-kind)` against every query location it could reach, so the unreadable case holds
 the inputs rather than releasing them in silence.
+
+The fourth channel does not read source at all. A relation field that crosses a product boundary
+without `related_name="+"` adds a reverse accessor to the target class — no import, no name-level
+use, only the model registry can see it. reverse_accessors.py walks the graph; each edge is counted
+as the disallowed kind `reverse-accessor(<name>)`.
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ from pathlib import Path
 from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
 from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
 from .paths import PRODUCTS_DIR, REPO_ROOT
+from .reverse_accessors import reverse_accessor_edge_lines
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
 # frontend, infra, or standalone tooling that never imports Django product models.
@@ -133,7 +139,10 @@ class CrossingClass:
 
 @dataclass(frozen=True)
 class CrossingUse:
-    """One kind of use of one crossing class in one consumer module, with how often it appears."""
+    """One kind of use of one crossing class in one consumer module, with how often it appears.
+
+    `reverse-accessor(...)` rows overload `consumer_module` with the relation declaration
+    (`app.Model.field`) — a path into the model graph, not an importable module."""
 
     crossing: str  # CrossingClass.label
     consumer_module: str  # dotted, e.g. "products.product_analytics.backend.presentation.insight"
@@ -1383,6 +1392,34 @@ def disallowed_uses(uses: Iterable[CrossingUse]) -> list[CrossingUse]:
 
 
 # ---------------------------------------------------------------------------
+# Reverse accessors — the fourth channel, read from the model graph
+# ---------------------------------------------------------------------------
+
+
+def reverse_accessor_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """Cross-boundary reverse accessors as CrossingUse rows.
+
+    The crossing is the class that grows the accessor; the consumer slot holds the relation field
+    that creates it, as `app.Model.field` — a declaration path, not an importable module (the one
+    kind that overloads the field this way). With a product filter, an edge counts when the
+    *target* class belongs to a listed product, matching the other channels' one-sided scoping.
+    """
+    wanted = set(products) if products is not None else None
+    uses = []
+    for line in reverse_accessor_edge_lines():
+        target, owner_field, accessor = line.split(" ")
+        if wanted is not None and target.split(".")[0] not in wanted:
+            continue
+        uses.append(CrossingUse(target, owner_field, f"reverse-accessor({accessor})", 1))
+    return uses
+
+
+def all_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """Every channel: the three AST scans plus the model-graph reverse accessors."""
+    return scan_crossing_uses(products) + reverse_accessor_uses(products)
+
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 
@@ -1447,15 +1484,22 @@ BASELINE_HEADER = """\
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Three channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# Four channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
 # historical registry, which is the only way a migration can.
-# And the kind `drives(<Kind or Name>)`, read from tests only: a test outside the product that
+# The kind `drives(<Kind or Name>)`, read from tests only: a test outside the product that
 # executes a query runner in the product's wiring location backend/hogql_queries/, by the query
 # kind it builds and runs, or by the name it imports from there. While a line stands for a
 # location, `hogli product:lint` keeps that location in the contract-check inputs.
+# And the kind `reverse-accessor(<name>)`, read from the model graph: a relation field that
+# crosses a product boundary without related_name="+" adds a reverse accessor to the target
+# class, with no import for any other check to see. The line reads
+# `target.Class owner.Model.field reverse-accessor(<name>) 1`. Seal the relation with
+# related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
+# filter() traversal alive), and delete the line in the same change; a caller that needs reverse
+# access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.

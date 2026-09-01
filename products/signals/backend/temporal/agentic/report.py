@@ -22,7 +22,7 @@ from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
-from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
@@ -448,28 +448,10 @@ async def _persist_agentic_report_artefacts(
         await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
             result.research_task_id, team_id, f"Research: {result.title}"
         )
-
-    try:
-        await maybe_autostart_implementation_task(
-            team_id=team_id,
-            report_id=report_id,
-            repository=repo_selection.repository or "",
-            title=result.title,
-            summary=result.summary,
-            actionability=result.effective_actionability(),
-            priority=result.effective_priority(),
-            reviewers_content=reviewers_content,
-            repository_autostart_eligible=repo_selection.autostart_eligible,
-        )
-    except Exception as error:
-        posthoganalytics.capture_exception(error)
-        logger.exception(
-            "signals auto-start task failed",
-            report_id=report_id,
-            team_id=team_id,
-            repository=repo_selection.repository,
-            error=str(error),
-        )
+    # Auto-start is not triggered here. The summary workflow starts implementation once the report
+    # has settled (READY with no pending signals), so the task is scoped to the report's final
+    # summary rather than whichever research pass finished first — see
+    # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
 def _team_has_business_knowledge(team_id: int) -> bool:

@@ -19,6 +19,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Task run has started execution */
   RUN_STARTED: "_posthog/run_started",
 
+  COMMAND_DISPATCHED: "_posthog/agent_command_dispatched",
+
   /** Task has completed (success or failure) */
   TASK_COMPLETE: "_posthog/task_complete",
 

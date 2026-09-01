@@ -113,6 +113,7 @@ from products.tasks.backend.presentation.serializers import (
     SandboxEnvironmentWriteSerializer,
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
+    SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
     TaskCommentDetailQuerySerializer,
@@ -415,13 +416,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
+        filters["hog_flow_id"] = getattr(request, "validated_query_data", {}).get("hog_flow_id")
         # Staff can opt into seeing every team task; re-check server-side so a client can't
         # forge the flag to bypass the per-user visibility gate.
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
@@ -940,16 +942,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if result.outcome == "no_mapping" and (thread := result.no_mapping_thread) is not None:
             return Response(
-                {
-                    "detail": "no_mapping",
-                    "thread": {
-                        "url": thread.url,
-                        "channel": thread.channel,
-                        "thread_ts": thread.thread_ts,
-                        "slack_workspace_id": thread.slack_workspace_id,
-                        "mentioning_slack_user_id": thread.mentioning_slack_user_id,
-                    },
-                },
+                {"detail": "no_mapping", "thread": SlackThreadContextThreadSerializer(thread).data},
                 status=status.HTTP_404_NOT_FOUND,
             )
         serializer = SlackThreadContextResponseSerializer(result.context)

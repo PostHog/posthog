@@ -2,19 +2,29 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
+import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
+import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
+import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
+import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -165,4 +175,101 @@ export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateS
             },
         },
     }
+)
+
+// Actions detection lists actions on mount - answer "none yet".
+const actionsMocks = {
+    get: { '/api/projects/:team_id/actions/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(actionsEmptyState, 'needs-setup', {
+    mocks: actionsMocks,
+})
+
+// Annotations detection lists annotations on mount - answer "none yet".
+const annotationsMocks = {
+    get: { '/api/projects/:team_id/annotations/': [200, { count: 0, results: [] }] },
+} as const
+
+export const AnnotationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    annotationsEmptyState,
+    'needs-setup',
+    { mocks: annotationsMocks }
+)
+
+// Cohorts detection lists cohorts on mount - answer "none yet".
+const cohortsMocks = {
+    get: { '/api/projects/:team_id/cohorts/': [200, { count: 0, results: [] }] },
+} as const
+
+export const CohortsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(cohortsEmptyState, 'needs-setup', {
+    mocks: cohortsMocks,
+})
+
+// Dashboards detection lists dashboards on mount - answer "none yet".
+const dashboardsMocks = {
+    get: { '/api/projects/:team_id/dashboards/': [200, { count: 0, results: [] }] },
+} as const
+
+export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dashboardsEmptyState,
+    'needs-setup',
+    { mocks: dashboardsMocks }
+)
+
+// Error tracking detection asks the issues-exists API on mount - answer "none yet".
+const errorTrackingMocks = {
+    get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
+} as const
+
+export const ErrorTrackingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'needs-setup',
+    { mocks: errorTrackingMocks }
+)
+
+export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'waiting-for-data',
+    { mocks: errorTrackingMocks }
+)
+
+// Logs detection asks the has-logs API on mount - answer "none yet".
+export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/logs/has_logs': [200, { hasLogs: false }] } },
+})
+
+// Tracing detection asks the has-spans API on mount - answer "none yet".
+export const TracingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(tracingEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.tracing is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/tracing/spans/has_spans': [200, { hasSpans: false }] } },
+})
+
+// Metrics detection asks the has-metrics API on mount - answer "none yet".
+export const MetricsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(metricsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/metrics/has_metrics/': [200, { hasMetrics: false }] } },
+})
+
+// Surveys detection counts surveys (live + archived) on mount - answer "none yet".
+export const SurveysNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(surveysEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/surveys/': [200, { count: 0, results: [] }] } },
+})
+
+// Session replay detection lists recordings on mount - answer "none yet".
+const sessionReplayMocks = {
+    // nosemgrep: no-environments-api-urls-frontend -- api.recordings is env-scoped, so the msw mock must match /api/environments to intercept it
+    get: { '/api/environments/:team_id/session_recordings': [200, { results: [] }] },
+} as const
+
+export const SessionReplayNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'needs-setup',
+    { mocks: sessionReplayMocks }
+)
+
+export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'waiting-for-data',
+    { mocks: sessionReplayMocks }
 )

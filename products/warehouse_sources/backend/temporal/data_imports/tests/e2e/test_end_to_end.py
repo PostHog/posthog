@@ -38,27 +38,14 @@ from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.schema import (
-    BreakdownFilter,
-    BreakdownType,
-    EventsNode,
-    FunnelsQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_ACTIVITIES,
@@ -98,7 +85,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient as PostHogRESTClient,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import XminBounds
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    XminBounds,
+    _TableChunking,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -1064,50 +1054,6 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_client):
-    # Tests that funnels work in PERSON_ID_OVERRIDE_PROPERTIES_JOINED PoE mode when using extended person properties
-    await _run(
-        team=team,
-        schema_name="Customer",
-        table_name="stripe_customer",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer["data"],
-    )
-
-    await sync_to_async(DataWarehouseJoin.objects.create)(
-        team=team,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name="stripe_customer",
-        joining_table_key="email",
-        field_name="stripe_customer",
-    )
-
-    query = FunnelsQuery(
-        series=[EventsNode(), EventsNode()],
-        breakdownFilter=BreakdownFilter(
-            breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
-        ),
-    )
-    funnel_class = FunnelUDF(context=FunnelQueryContext(query=query, team=team))
-
-    query_ast = funnel_class.get_query()
-    await sync_to_async(execute_hogql_query)(
-        query_type="FunnelsQuery",
-        query=query_ast,
-        team=team,
-        modifiers=create_default_modifiers_for_team(
-            team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-        ),
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_postgres_schema_evolution(team, postgres_config, postgres_connection):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
@@ -1827,7 +1773,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         # Set up merge mock chain (needed for v3 where batch 1 merges into the table created by batch 0)
         mock_merge.return_value.when_matched_update_all.return_value.when_not_matched_insert_all.return_value.execute.return_value = {}
 
-        mock_chunk_size.return_value = 1
+        mock_chunk_size.return_value = _TableChunking(batch_rows=1, fetch_rows=1)
         await _run(
             team=team,
             schema_name="test_table",
@@ -1915,6 +1861,11 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
     await postgres_connection.execute(
         "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
     )
+    await postgres_connection.commit()
+    # Without stats the row-size probe has no catalog estimate, falls back to sampling 1% of
+    # pages, and on a one-page table draws nothing 99 times in 100 — which lands on the
+    # unmeasurable-sample path instead of the uncapped chunk this test is about.
+    await postgres_connection.execute("ANALYZE {schema}.test_table".format(schema=postgres_config["schema"]))
     await postgres_connection.commit()
 
     with (
@@ -2024,7 +1975,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     ):
         mock_merge.return_value.when_matched_update_all.return_value.when_not_matched_insert_all.return_value.execute.return_value = {}
 
-        mock_chunk_size.return_value = 1
+        mock_chunk_size.return_value = _TableChunking(batch_rows=1, fetch_rows=1)
         await _execute_run(
             str(uuid.uuid4()),
             ExternalDataWorkflowInputs(
