@@ -459,7 +459,9 @@ class TestPostgresSourceNonRetryableErrors:
         # Mirror the finalizer's first-match selection so a reorder that shadows it with an earlier
         # None-valued key, or a revert of this bucket back to None, is caught. The relation name is
         # invented, not a real customer value.
-        error_msg = 'relation "public.orders" does not exist LINE 1: DECLARE _cur CURSOR FOR SELECT * FROM "public"."orders"'
+        error_msg = (
+            'relation "public.orders" does not exist LINE 1: DECLARE _cur CURSOR FOR SELECT * FROM "public"."orders"'
+        )
         matches = [
             friendly
             for pattern, friendly in source.get_non_retryable_errors().items()
