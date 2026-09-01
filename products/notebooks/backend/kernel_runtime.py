@@ -781,6 +781,11 @@ class KernelRuntimeService:
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
+        # Record the shape this sandbox gets, so the price can describe what is running rather
+        # than what the notebook is configured for. The two diverge until a restart.
+        runtime.provisioned_cpu_cores = sandbox_config.cpu_cores
+        runtime.provisioned_memory_gb = sandbox_config.memory_gb
+        runtime.save(update_fields=["provisioned_cpu_cores", "provisioned_memory_gb"])
         sandbox_class = self._get_sandbox_class(backend)
         try:
             sandbox = sandbox_class.create(sandbox_config)
