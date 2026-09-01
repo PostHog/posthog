@@ -36,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
 )
@@ -664,6 +665,7 @@ async def _arequest_hogql_fix(
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
+    fix_prompt = prepend_hogql_query_writing_rules(fix_prompt)
     rendered = render_prompt(
         fix_prompt,
         {"description": step_description, "error": error_message, "original_hogql": original_hogql},
