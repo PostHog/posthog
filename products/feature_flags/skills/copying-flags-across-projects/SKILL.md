@@ -70,6 +70,7 @@ Call `posthog:feature-flags-copy-flags-create` with:
 - `target_project_ids`: the resolved list of target project ids
 - `disable_copied_flag`: from step 4 (default `true`)
 - `copy_schedule`: from step 4 (default `false`)
+- `copy_dependencies`: from step 4a (default `false`). Omitting it silently skips dependency copying, even when the user approved it.
 
 ### 6. Report per-target outcome
 
