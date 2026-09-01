@@ -139,6 +139,21 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
+    // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
+    // Django side, picks an hourly and a daily cap from these tables. See
+    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    //   "off"     - the caps are not consulted.
+    //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
+    //               but nothing is delayed.
+    //   "enforce" - a reached cap reschedules the send.
+    EMAIL_TEAM_SENDING_CAP_MODE: string
+    // Comma-separated caps indexed by tier. Both lists must be the same length.
+    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
+    // ISO date. When set, only teams created on or after it are capped, so enforcement can start
+    // with new projects and leave established ones alone. Empty means every team.
+    EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: string
+
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -320,6 +335,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+
+        // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
+        // then enforced. Match the defaults in posthog/settings/web.py.
+        EMAIL_TEAM_SENDING_CAP_MODE: 'off',
+        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
+        EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
+        EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
