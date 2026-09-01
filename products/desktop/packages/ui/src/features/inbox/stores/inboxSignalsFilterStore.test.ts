@@ -195,6 +195,16 @@ describe("inboxSignalsFilterStore", () => {
     },
   );
 
+  it("ignores a saved source filter when the surface hides that control", () => {
+    useInboxSignalsFilterStore.getState().toggleSourceProduct("github");
+
+    expect(
+      hasActiveInboxFilters(useInboxSignalsFilterStore.getState(), {
+        includeSourceFilter: false,
+      }),
+    ).toBe(false);
+  });
+
   it("migrates pre-v2 localStorage by dropping the dead filter slots", () => {
     localStorage.setItem(
       "inbox-signals-filter-storage",

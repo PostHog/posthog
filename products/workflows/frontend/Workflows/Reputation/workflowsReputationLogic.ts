@@ -6,6 +6,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { hogFlowsReputationRetrieve } from 'products/workflows/frontend/generated/api'
 import type {
     AwsTenantReputationApi,
+    EmailSendingAllowanceApi,
     EmailSendingRatesApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailSendingRatesApi,
@@ -18,6 +19,7 @@ export interface workflowsReputationLogicValues {
     reputationResponse: TeamEmailReputationResponseApi | null
     reputationResponseLoading: boolean
     search: string
+    sendingAllowance: EmailSendingAllowanceApi | null
     teamReputation: EmailSendingRatesApi | null
     workflowSnapshots: readonly WorkflowEmailSendingRatesApi[]
 }
@@ -54,6 +56,7 @@ export interface workflowsReputationLogicActions {
 export interface workflowsReputationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         awsReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => AwsTenantReputationApi | null
+        sendingAllowance: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingAllowanceApi | null
         teamReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingRatesApi | null
         workflowSnapshots: (
             reputationResponse: TeamEmailReputationResponseApi | null
@@ -118,6 +121,11 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         awsReputation: [
             (s) => [s.reputationResponse],
             (response: TeamEmailReputationResponseApi | null): AwsTenantReputationApi | null => response?.aws ?? null,
+        ],
+        sendingAllowance: [
+            (s) => [s.reputationResponse],
+            (response: TeamEmailReputationResponseApi | null): EmailSendingAllowanceApi | null =>
+                response?.sending_allowance ?? null,
         ],
         teamReputation: [
             (s) => [s.reputationResponse],
