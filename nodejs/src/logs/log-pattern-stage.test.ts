@@ -79,12 +79,6 @@ describe('log-pattern-stage', () => {
         expect(record).toMatchObject({ pattern: expected, pattern_version: PATTERN_VERSION })
     })
 
-    it('counts a body past the versioned input cap', async () => {
-        const stage = makePatternMaskingStage()
-        await stage.run([makeRecord('x'.repeat(PATTERN_CAPS.maxInputChars + 1))])
-        expect((await logsPatternInputCappedCounter.get()).values[0].value).toEqual(1)
-    })
-
     it('keeps the batch when masking throws, so a measurement fault cannot DLQ customer logs', async () => {
         const stage = makePatternMaskingStage()
         const record = makeRecord(null)

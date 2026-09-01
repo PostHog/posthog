@@ -14,9 +14,9 @@ export const PATTERN_VERSION = 3
  */
 export type PatternCaps = {
     /** Ceiling on the body chars fed to the masker; longer bodies are cut first (CPU guard). */
-    maxInputChars: number
+    readonly maxInputChars: number
     /** Truncation applied to the masked pattern, after masking, so more real content survives the cut. */
-    maxOutputChars: number
+    readonly maxOutputChars: number
 }
 
 export const PATTERN_CAPS: PatternCaps = {
@@ -122,7 +122,7 @@ export type LogPatternResult = {
     ruleFires: number[]
 }
 
-const MESSAGE_KEYS = ['message', 'msg', 'event'] as const
+export const MESSAGE_KEYS = ['message', 'msg', 'event'] as const
 
 function extractJsonMessage(value: object): string | null {
     if (Array.isArray(value)) {
@@ -136,6 +136,9 @@ function extractJsonMessage(value: object): string | null {
     }
     return null
 }
+
+const capOutput = (pattern: string, caps: PatternCaps): string =>
+    pattern.length > caps.maxOutputChars ? pattern.slice(0, caps.maxOutputChars) : pattern
 
 function jsonKeySetPattern(value: object): string {
     const keys = Object.keys(value).sort()
@@ -166,7 +169,7 @@ export function computeLogPattern(body: string | null | undefined, caps: Pattern
                 const isArray = Array.isArray(parsed.value)
                 const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
                 return {
-                    pattern: pattern.length > caps.maxOutputChars ? pattern.slice(0, caps.maxOutputChars) : pattern,
+                    pattern: capOutput(pattern, caps),
                     bodyKind,
                     inputCapped,
                     maskedLength: pattern.length,
@@ -190,7 +193,7 @@ export function computeLogPattern(body: string | null | undefined, caps: Pattern
 
     const { masked, ruleFires } = maskString(maskInput)
     return {
-        pattern: masked.length > caps.maxOutputChars ? masked.slice(0, caps.maxOutputChars) : masked,
+        pattern: capOutput(masked, caps),
         bodyKind,
         inputCapped,
         maskedLength: masked.length,

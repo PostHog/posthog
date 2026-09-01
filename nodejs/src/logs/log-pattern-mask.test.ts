@@ -4,6 +4,7 @@ import RE2 from 're2'
 import {
     JSON_ARRAY,
     MASK_RULES,
+    MESSAGE_KEYS,
     PATTERN_CAPS,
     PATTERN_VERSION,
     type PatternCaps,
@@ -216,17 +217,25 @@ describe('log-pattern-mask', () => {
         /**
          * Bodies chosen to reach every branch that decides a pattern's shape: each mask rule, the
          * message keys, the key-set and array forms, both caps, and the order of parse and cap.
+         *
+         * The message-key bodies are derived from `MESSAGE_KEYS` so a new key joins the corpus, and
+         * moves the digest, on arrival. Mask rules cannot be derived that way, so a coverage test
+         * below holds the equivalent line for them.
          */
         const CORPUS: (string | null)[] = [
             null,
             '',
             'started at 2026-08-24T10:20:45.123Z ok',
             'I0827 11:39:40.307946 1 proxier.go:1484] reloading',
+            'W0101 00:00:00 rotate E0102 01:02:03 retry F0103 02:03:04 exit',
             'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 took 7141ms',
             'mail ops@example.com via api.example.com at 10.0.0.7 slot 0xdeadbeef',
-            '{"message":"user 5 logged in","level":"info"}',
-            '{"msg":"served 3 requests"}',
+            'checksum deadbeefdeadbeef00 verified',
+            ...MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
+            '{"msg":"loses 2","message":"wins 1"}',
             '{"level":"info","count":3}',
+            '{}',
+            JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_unused, index) => [`k${index}`, 1]))),
             '[1,2,3]',
             '"a bare json string with 4 words"',
             'true',
@@ -235,35 +244,63 @@ describe('log-pattern-mask', () => {
             `head ${'z'.repeat(PATTERN_CAPS.maxOutputChars)} tail`,
         ]
 
+        const RATCHET_FIRST_VERSION = 3
+
         /**
-         * One frozen digest per version, never edited in place. Editing an entry rewrites the shape of
-         * rows already in ClickHouse under that version, so the only correct fix for a red digest is a
-         * new entry under a new `PATTERN_VERSION`.
+         * One frozen digest per version. A red digest means the emitted shape moved, and the only correct
+         * fix is a new entry under a new `PATTERN_VERSION` — editing an entry in place relabels rows
+         * already in ClickHouse under that version. The one exception is growing `CORPUS`, which moves the
+         * digest without moving the shape; re-record only in a commit that touches nothing but the corpus.
          *
-         * Versions before 3 predate this ratchet, so no digest was recorded for them.
+         * Versions before `RATCHET_FIRST_VERSION` predate this ratchet, so no digest was recorded for them.
          */
         const SHAPE_DIGESTS: Record<number, string> = {
-            3: '1dfc6aa769551bae',
+            3: 'ed312a5324f9f760',
         }
+
+        /**
+         * The shape inputs no corpus body can reveal, hashed alongside the patterns the corpus emits.
+         *
+         * Emitted patterns catch control flow — the order of parse and cap, the key-set form — which a
+         * hash of the rules cannot see. They do not catch a rule broadened without changing what the
+         * corpus emits: adding a TLD to `host`, or widening `hex` from 16 chars to 12, leaves every
+         * corpus pattern byte-identical while real bodies change shape. Neither half covers the other,
+         * so the digest takes both.
+         */
+        const SHAPE_INPUTS = JSON.stringify({
+            rules: MASK_RULES.map((rule) => [rule.name, rule.pattern, rule.replacement]),
+            caps: PATTERN_CAPS,
+            messageKeys: MESSAGE_KEYS,
+        })
 
         const shapeDigest = (): string =>
             createHash('sha256')
-                .update(CORPUS.map((body) => computeLogPattern(body).pattern).join('\x01'))
+                .update([SHAPE_INPUTS, ...CORPUS.map((body) => computeLogPattern(body).pattern)].join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
 
         it('pins the emitted patterns to the current version', () => {
-            // Hashing emitted patterns rather than the rules that make them is what makes this a gate:
-            // MASK_RULES, PATTERN_CAPS, MESSAGE_KEYS, the key-set form, and the order of parse and cap
-            // all move the digest. Do not edit the entry for the current version to make this pass.
             expect({ [PATTERN_VERSION]: shapeDigest() }).toEqual({ [PATTERN_VERSION]: SHAPE_DIGESTS[PATTERN_VERSION] })
+        })
+
+        it('reaches every mask rule, so a new rule cannot land without moving the digest', () => {
+            const fires = MASK_RULES.map(() => 0)
+            for (const body of CORPUS) {
+                computeLogPattern(body).ruleFires.forEach((count, index) => (fires[index] += count))
+            }
+            // Reported by pattern, not name: klogtime is four rules under one name, so a name would
+            // not say which of them the corpus misses.
+            expect(MASK_RULES.filter((_rule, index) => fires[index] === 0).map((rule) => rule.pattern)).toEqual([])
         })
 
         it('carries a digest for every version since the ratchet, so a bump cannot drop its predecessor', () => {
             const recorded = Object.keys(SHAPE_DIGESTS)
                 .map(Number)
                 .sort((left, right) => left - right)
-            const expected = Array.from({ length: PATTERN_VERSION - 2 }, (_unused, index) => index + 3)
+            const expected = Array.from(
+                { length: PATTERN_VERSION - RATCHET_FIRST_VERSION + 1 },
+                (_unused, index) => RATCHET_FIRST_VERSION + index
+            )
             expect(recorded).toEqual(expected)
         })
 
