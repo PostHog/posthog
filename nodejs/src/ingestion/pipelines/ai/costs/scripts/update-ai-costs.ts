@@ -139,7 +139,10 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
 
 export interface EndpointCandidate {
     key: string
+    /** De-discounted list price, stored under the provider key a direct caller resolves to. */
     cost: ModelCost
+    /** Price as OpenRouter serves it, used to backfill `default`, which keeps the promotion. */
+    servedCost: ModelCost
     discount: number
 }
 
@@ -150,18 +153,19 @@ export interface EndpointCandidate {
 export const MODALITY_OUTPUT_FIELDS: ReadonlyArray<keyof ModelCost> = ['image_output', 'audio_output']
 
 /** Copies a modality-output rate onto `default` from a provider variant when the
- * model-level pricing omits it. Prefers an undiscounted variant, because its list
- * price equals what a direct caller pays. Falls back to any variant with the rate,
- * because even a de-discounted rate beats the completion fallback. */
+ * model-level pricing omits it. Reads the variant's served rate, not its
+ * de-discounted list rate, because `default` holds what OpenRouter bills. Prefers
+ * an undiscounted variant for a stable rate, then falls back to any variant's
+ * served rate, which still beats the completion fallback. */
 export const backfillDefaultModalityRates = (defaultCost: ModelCost, candidates: EndpointCandidate[]): void => {
     for (const field of MODALITY_OUTPUT_FIELDS) {
         if (defaultCost[field] !== undefined) {
             continue
         }
         const source =
-            candidates.find((candidate) => candidate.discount === 0 && candidate.cost[field] !== undefined) ??
-            candidates.find((candidate) => candidate.cost[field] !== undefined)
-        const rate = source?.cost[field]
+            candidates.find((candidate) => candidate.discount === 0 && candidate.servedCost[field] !== undefined) ??
+            candidates.find((candidate) => candidate.servedCost[field] !== undefined)
+        const rate = source?.servedCost[field]
         if (rate !== undefined) {
             defaultCost[field] = rate
         }
@@ -314,6 +318,10 @@ export const buildModelRow = (
         if (!endpointCost) {
             continue
         }
+        const endpointServedCost = buildModelCost(withoutDiscount(endpoint.pricing), context)
+        if (!endpointServedCost) {
+            continue
+        }
 
         const providerKey = endpointProviderKey(endpoint)
         // Normalized too: every key here is interpolated into canonical-providers.ts
@@ -327,6 +335,7 @@ export const buildModelRow = (
         candidates.push({
             key: safeProviderKey,
             cost: endpointCost,
+            servedCost: endpointServedCost,
             discount: parseDiscountRate(endpoint.pricing ?? {}, context, false),
         })
     }

@@ -43,6 +43,7 @@ const cost = (promptPrice: string, discount = 0, completion = promptPrice): Retu
 const candidate = (key: string, promptPrice: string, discount: number): EndpointCandidate => ({
     key,
     cost: cost(promptPrice, discount)!,
+    servedCost: cost(promptPrice, 0)!,
     discount,
 })
 
@@ -418,8 +419,8 @@ describe('buildModelRow()', () => {
     })
 
     it('prefers an undiscounted variant when backfilling a modality rate', () => {
-        // A de-discounted rate still beats the completion fallback, but the
-        // undiscounted variant is exactly what a direct caller pays.
+        // With both a discounted and an undiscounted variant carrying the rate,
+        // `default` takes the undiscounted one, whose served rate is its list price.
         const built = buildModelRow('x/y', listPricing, [
             {
                 tag: 'discounted',
@@ -433,6 +434,21 @@ describe('buildModelRow()', () => {
             },
         ])
         expect(built!.cost.default.image_output).toBe(0.00012)
+    })
+
+    it('backfills the served rate, not the list rate, when every variant is discounted', () => {
+        // The fallback branch: no undiscounted variant carries the rate. `default`
+        // must get what OpenRouter serves (0.00005), not the de-discounted list
+        // price the provider key holds (0.00005 / (1 - 0.5) = 0.0001).
+        const built = buildModelRow('x/y', listPricing, [
+            {
+                tag: 'discounted',
+                provider_name: 'discounted',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00005', discount: 0.5 },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00005)
+        expect(built!.cost.discounted.image_output).toBe(0.0001)
     })
 
     it('confines a hostile provider name to a safe key', () => {
@@ -481,11 +497,13 @@ describe('confirmDiscountAgainstSiblings()', () => {
         const discounted: EndpointCandidate = {
             key: 'openai',
             cost: buildModelCost({ prompt: '0.0000005', completion: '0.000009', discount: 0.5 })!,
+            servedCost: buildModelCost({ prompt: '0.0000005', completion: '0.000009' })!,
             discount: 0.5,
         }
         const sibling: EndpointCandidate = {
             key: 'azure',
             cost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
+            servedCost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
             discount: 0,
         }
         expect(confirmDiscountAgainstSiblings(discounted, [discounted, sibling])).toBe('confirmed')
