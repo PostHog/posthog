@@ -235,11 +235,10 @@ def select_sizing_metric(
     order = {uuid: index for index, uuid in enumerate(ordered_uuids or [])}
     fallback = len(order)
 
-    def rank(pair: tuple[int, dict[str, Any]]) -> tuple[int, int]:
-        index, metric = pair
-        return order.get(metric.get("uuid", ""), fallback), index
+    # Sort by the metric's saved display rank, falling back to list order for metrics not in the ordering.
+    ordered_metrics = sorted(metrics, key=lambda metric: order.get(metric.get("uuid", ""), fallback))
 
-    for _, metric in sorted(enumerate(metrics), key=rank):
+    for metric in ordered_metrics:
         calc_type = _calculator_metric_type(metric)
         if calc_type is not None:
             return metric, calc_type
