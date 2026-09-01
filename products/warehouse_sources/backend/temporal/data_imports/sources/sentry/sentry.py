@@ -1120,6 +1120,19 @@ def validate_credentials(
         return False, str(exc)
 
     url = f"{base_url}/api/0/organizations/{organization_slug}/projects/"
+
+    try:
+        auth_token.encode("latin-1")
+    except UnicodeEncodeError:
+        # The token rides in the Authorization header, which http.client encodes as latin-1. A
+        # character outside that range raises mid-request; reject it as invalid input rather than
+        # letting the UnicodeEncodeError surface as a 500.
+        return (
+            False,
+            "Invalid Sentry auth token. It contains characters that can't be sent to Sentry. "
+            "Copy the token again from Sentry, then reconnect.",
+        )
+
     headers = _auth_headers(auth_token)
 
     try:
