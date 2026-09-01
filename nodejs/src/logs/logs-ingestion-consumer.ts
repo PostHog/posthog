@@ -370,10 +370,7 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
-        this.patternMaskingStage = makePatternMaskingStage(
-            mergedConfig.LOGS_PATTERN_MASKING_MAX_INPUT_CHARS,
-            mergedConfig.LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS
-        )
+        this.patternMaskingStage = makePatternMaskingStage()
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
