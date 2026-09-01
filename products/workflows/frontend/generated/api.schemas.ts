@@ -1179,6 +1179,11 @@ export interface WorkflowProposalApi {
     readonly content: WorkflowProposalApiContent
     /** The numbers behind the proposal. Conventional keys: metric, current_value, target_value, window, query, app_source_id. Two are required whenever a rate is claimed: `n`, the denominator that rate was computed over, and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window. A rate with no denominator lets a reviewer mistake noise for a result, and a target with no counter-metrics hides a change that lifts one number by harming another. */
     readonly evidence: WorkflowProposalApiEvidence
+    /**
+     * The workflow step this is about, when it is about one. The evidence and the outcome both read metrics for this step, so a change to one email in a sequence is not measured against every other email in it.
+     * @nullable
+     */
+    readonly step_id: string | null
     /** Live workflow version this was authored against. Drives a staleness warning, not a block. */
     readonly base_version: number
     /** Whether the live workflow has moved on to a newer version since this was proposed. */
@@ -1249,6 +1254,12 @@ export interface WorkflowProposalCreateApi {
     evidence?: WorkflowProposalCreateApiEvidence
     /** Workflow version this was authored against. Defaults to the current live version. */
     base_version?: number
+    /**
+     * The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest.
+     * @maxLength 200
+     * @nullable
+     */
+    step_id?: string | null
     /** What kind of producer authored this proposal.
      *
      * * `scout` - Scout
