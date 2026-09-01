@@ -2534,9 +2534,12 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
     return [r for r in results if r is not None]
 
 
-# pgrep -f matches the whole command line, so the subcommand does not follow `git`
-# directly when a caller passes -C or -c. The launchd repack job uses `git -C <path>`.
-_GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +.*?)* +(gc|repack|maintenance|pack-objects)( |$)"
+# pgrep compiles this as a POSIX extended regular expression, which has no lazy
+# quantifiers, so it must stay portable. Keep it loose on purpose: it is a cheap
+# prefilter over the process table, and _process_belongs_to_repo decides. Encoding
+# repository identity in the pattern is what made earlier versions wrong, because
+# `git` takes global options before the subcommand and paths may contain spaces.
+_GIT_HOUSEKEEPING_PGREP_PATTERN = r"git .*(gc|repack|maintenance|pack-objects)"
 
 
 def _names_path(haystack: str, path: str) -> bool:
@@ -2627,6 +2630,12 @@ def _git_housekeeping_running(main_worktree: Path, common_dir: Path) -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return True  # Cannot tell, so assume yes and do nothing.
+    if result.returncode > 1:
+        # pgrep exits 1 for no match and 2 or more for its own errors, such as a
+        # pattern its regex engine rejects. Reading that as "nothing is running"
+        # silently disables the guard, so say so instead.
+        click.secho(f"Could not scan for running git processes: {result.stderr.strip()}", fg="yellow", err=True)
+        return True
     if result.returncode != 0:
         return False
     repo = str(main_worktree)
@@ -2732,7 +2741,9 @@ def doctor_git(fix: bool) -> None:
     health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
     packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
     # Run the process scan only when a result depends on it.
-    busy = _git_housekeeping_running(main_worktree, common_dir) if (health.stale_lock or packs_high) else False
+    # --fix writes the same files scheduled maintenance does, so it needs the scan too.
+    needs_scan = bool(health.stale_lock) or packs_high or fix
+    busy = _git_housekeeping_running(main_worktree, common_dir) if needs_scan else False
     acted = False
 
     if health.stale_lock and not busy:

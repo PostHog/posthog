@@ -1,8 +1,8 @@
 import os
-import re
 import json
 import time
 import fcntl
+import shutil
 import hashlib
 import threading
 import subprocess
@@ -1313,26 +1313,48 @@ def test_doctor_git_spawns_the_repack_detached_instead_of_blocking(
     assert not any("repack" in cmd for cmd in ran)
 
 
+@pytest.mark.skipif(shutil.which("pgrep") is None, reason="pgrep is not installed")
+def test_housekeeping_pattern_compiles_in_the_real_regex_engine() -> None:
+    # pgrep uses a POSIX extended regular expression, which has no lazy quantifiers.
+    # A pattern it rejects exits 2, which the scan must not read as "nothing running".
+    # Testing this with Python's re passed while the real engine refused to compile.
+    result = subprocess.run(["pgrep", "-f", _GIT_HOUSEKEEPING_PGREP_PATTERN], capture_output=True, text=True)
+    assert result.returncode <= 1, result.stderr
+
+
 @pytest.mark.parametrize(
-    "command_line",
+    "command_line, expected",
     [
-        "git repack -adl --threads=0",
-        "git -C /home/x/posthog repack -adl --threads=0",
-        "git -C /tmp/PostHog Work/posthog repack -adl",
-        "taskpolicy -b git -C /home/x/posthog repack -adl",
-        "git -c gc.auto=0 gc --prune=now",
-        "git maintenance run --schedule=daily",
+        ("git repack -adl --threads=0", True),
+        ("git -C /home/x/posthog repack -adl --threads=0", True),
+        ("git -C /tmp/PostHog Work/posthog repack -adl", True),
+        ("taskpolicy -b git -C /home/x/posthog repack -adl", True),
+        ("git -c gc.auto=0 gc --prune=now", True),
+        ("git maintenance run --schedule=daily", True),
+        ("git status --porcelain", False),
     ],
 )
-def test_housekeeping_pattern_matches_git_behind_global_options(command_line: str) -> None:
-    # The pattern gates whether a second repack starts. A version that requires the
-    # subcommand straight after `git` misses `git -C <path> repack`, which is how the
-    # scheduled job invokes it, and two repacks then run against one object store.
-    assert re.search(_GIT_HOUSEKEEPING_PGREP_PATTERN, command_line)
+@pytest.mark.skipif(shutil.which("grep") is None, reason="grep is not installed")
+def test_housekeeping_pattern_selects_candidate_processes(command_line: str, expected: bool) -> None:
+    # The pattern is only a prefilter, so it may over-match. It must not under-match,
+    # because a missed process means a second repack against the same object store.
+    result = subprocess.run(
+        ["grep", "-E", _GIT_HOUSEKEEPING_PGREP_PATTERN], input=command_line, capture_output=True, text=True
+    )
+    assert (result.returncode == 0) is expected
 
 
-def test_housekeeping_pattern_ignores_unrelated_git_commands() -> None:
-    assert not re.search(_GIT_HOUSEKEEPING_PGREP_PATTERN, "git log --oneline -20")
+def test_housekeeping_scan_reports_a_pgrep_error_instead_of_assuming_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pgrep exits 2 on a pattern it cannot compile. Reading that as no-match leaves
+    # the guard permanently off, which is how a bad pattern stays invisible.
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: SimpleNamespace(returncode=2, stdout="", stderr="cannot compile"),
+    )
+
+    assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is True
 
 
 def test_git_common_dir_resolves_a_relative_worktree_pointer(tmp_path: Path) -> None:
