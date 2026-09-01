@@ -1191,15 +1191,16 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 statusReceived: ({ status }) => {
                     cache.disposables.dispose('statusPoll')
+                    // A null -> id move (the first version appearing) must count as a change, so compare
+                    // against undefined, which only holds before the first status arrives. Reload even when
+                    // the list is empty, or a settings panel opened before generation keeps a stale history.
                     const currentVersionChanged = Boolean(
                         status.current_version_id &&
-                        cache.currentVersionId &&
+                        cache.currentVersionId !== undefined &&
                         cache.currentVersionId !== status.current_version_id
                     )
                     if (currentVersionChanged) {
-                        if (values.versions.length) {
-                            actions.loadVersions(true)
-                        }
+                        actions.loadVersions(true)
                         cache.pendingCurrentVersionId = status.artifact_url ? null : status.current_version_id
                     }
                     if (

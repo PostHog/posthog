@@ -202,6 +202,46 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.versionsLoading).toBe(false)
     })
 
+    it('loads version history when the first version appears mid-generation', async () => {
+        const firstVersion: WidgetVersionApi = {
+            id: '00000000-0000-0000-0000-000000000002',
+            parent_version_id: null,
+            version: 1,
+            version_operation: 'initial',
+            prompt_delta: 'Render a globe',
+            effective_prompt: 'Render a globe',
+            model: 'claude-sonnet-4-6',
+            created_at: '2026-08-26T12:00:00Z',
+            build_status: 'ready',
+            artifact_url: 'https://example.com/widget.html',
+            frame_names: [],
+            is_current: true,
+            security_review: null,
+            build_hash: 'a'.repeat(64),
+        }
+        // The first status carries no version, matching a settings panel opened before generation.
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [firstVersion], count: 1, next_offset: null })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(notebooksWidgetVersions).not.toHaveBeenCalled()
+
+        logic.actions.statusReceived(
+            status({
+                lifecycle_status: 'ready',
+                artifact_url: firstVersion.artifact_url,
+                current_version_id: firstVersion.id,
+                has_versions: true,
+            })
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetVersions).toHaveBeenCalledTimes(1)
+        expect(logic.values.versions).toEqual([firstVersion])
+        expect(logic.values.selectedVersion?.id).toBe(firstVersion.id)
+    })
+
     it('ignores repeated status polls and reloads explicit resets during an in-flight request', async () => {
         const initialVersion: WidgetVersionApi = {
             id: '00000000-0000-0000-0000-000000000002',
