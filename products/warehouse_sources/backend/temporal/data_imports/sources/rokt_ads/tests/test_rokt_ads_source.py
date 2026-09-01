@@ -243,19 +243,27 @@ class TestNonRetryableErrors:
         errors = RoktAdsSource().get_non_retryable_errors()
         assert not error_message_matches(token_error, errors.keys())
 
-    def test_missing_dimension_config_error_stops_retrying(self):
-        # An advertiser-only account lacks the partner dimensions TransactionPerformance needs, so the
-        # source raises on purpose. The pattern must match that raised message, or Temporal retries a
-        # dead condition until it exhausts the budget.
-        allowed = ALL_DIMENSIONS - {"partner_vertical", "partner_sub_vertical"}
+    @parameterized.expand(
+        [
+            # An advertiser-only account holds every metric but lacks the partner dimensions
+            # TransactionPerformance needs to identify a row.
+            (
+                "missing_dimensions",
+                ReportCapabilities(
+                    dimensions=ALL_DIMENSIONS - {"partner_vertical", "partner_sub_vertical"},
+                    metrics=ALL_METRICS,
+                ),
+            ),
+            # An account holds every dimension but is granted none of the table's metrics.
+            ("missing_metrics", ReportCapabilities(dimensions=ALL_DIMENSIONS, metrics=set())),
+        ]
+    )
+    def test_capability_config_error_stops_retrying(self, _name, capabilities):
+        # build_report_body raises on purpose when a fixed account capability is missing. The
+        # non-retryable map must match that raised message, or Temporal retries a dead condition
+        # until it exhausts the budget.
         with pytest.raises(RoktAdsError) as raised:
-            build_report_body(
-                "TransactionPerformance",
-                MARCH_WINDOW,
-                ReportCapabilities(dimensions=allowed, metrics=ALL_METRICS),
-                None,
-                None,
-            )
+            build_report_body("TransactionPerformance", MARCH_WINDOW, capabilities, None, None)
 
         errors = RoktAdsSource().get_non_retryable_errors()
         assert error_message_matches(str(raised.value), errors.keys())
