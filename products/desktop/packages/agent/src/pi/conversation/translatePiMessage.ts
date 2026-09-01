@@ -4,13 +4,15 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
-import type {
-  AgentContent,
-  AgentConversationEvent,
-  AgentToolCallContent,
-  AgentToolCallStatus,
+import {
+  type AgentContent,
+  type AgentConversationEvent,
+  type AgentToolCallContent,
+  type AgentToolCallStatus,
+  createPiToolCallRecord,
+  isPiToolName,
+  type PiToolName,
 } from "@posthog/shared";
-import { type PiToolName, TOOL_KIND_BY_NAME } from "./toolKind";
 import { bashTranslator } from "./tools/bashTranslator";
 import { editTranslator } from "./tools/editTranslator";
 import { findTranslator } from "./tools/findTranslator";
@@ -38,10 +40,6 @@ interface PendingToolCall {
 interface PiToolExecutionResult {
   content: ToolResultMessage["content"];
   details?: unknown;
-}
-
-function isPiToolName(name: string): name is PiToolName {
-  return name in TOOL_KIND_BY_NAME;
 }
 
 function toGenericToolContent(
@@ -184,20 +182,17 @@ export function createPiMessageTranslator(): PiMessageTranslator {
           arguments: block.arguments,
         });
 
-        const kind = isPiToolName(block.name)
-          ? TOOL_KIND_BY_NAME[block.name]
-          : null;
-
         events.push({
           type: "tool_call_started",
           timestamp: message.timestamp,
-          toolCall: {
-            id: block.id,
-            title: block.name,
-            kind,
-            status: "pending",
-            rawInput: block.arguments,
-          },
+          toolCall: createPiToolCallRecord(
+            {
+              id: block.id,
+              name: block.name,
+              arguments: block.arguments,
+            },
+            "pending",
+          ),
         });
       }
     }
@@ -230,6 +225,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       status,
       rawOutput: result.content,
     };
+
+    if (result.details !== undefined) {
+      toolCall.details = result.details;
+    }
 
     const translator = isPiToolName(toolName)
       ? TRANSLATOR_BY_NAME[toolName]
