@@ -1350,7 +1350,12 @@ def _resume_task_with_new_run(
     extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
-        new_run = tasks_facade.create_run(mapping.task_id, mode="interactive", extra_state=extra_state)
+        # The replying user, not the task creator: the safety-net default resolution and
+        # its gated-model entitlement check inside `create_run` must run against whoever
+        # launches this follow-up.
+        new_run = tasks_facade.create_run(
+            mapping.task_id, mode="interactive", extra_state=extra_state, acting_user_id=run_actor.id
+        )
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",
