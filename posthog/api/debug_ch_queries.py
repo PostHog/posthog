@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.core.cache import cache
 from django.db.models import Count
 from django.utils.timezone import now
 
@@ -35,7 +36,6 @@ from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -168,16 +168,20 @@ def _cache_table_stats() -> list[dict]:
 
 # Products on the shared lazy-precompute framework, keyed by the `product` query
 # param of `precompute_health`. Lazy-served reads share the framework's uniform
-# `_lazy_query` tag suffix; everything product-specific lives here:
-# `warming_triggers` — log_comment trigger values of the product's background
-# warmers (unioned with the framework-shared triggers, single source of truth in
-# the product modules); `eligible_live_query_types` — live (non-precomputed) read
-# tags whose shapes the product's lazy path could have served, the denominator of
-# its hit ratio. When a product grows a new live strategy tag, add it here or the
-# ratio undercounts that family's misses.
-_PRECOMPUTE_PRODUCTS: dict[str, dict[str, tuple[str, ...]]] = {
+# `_lazy_query` tag suffix, scoped by `log_comment_product` (the product tag the
+# runners set) so registered products cannot cross-contaminate each other's hit
+# ratios. `warming_triggers` are the product's OWN background-warmer triggers,
+# imported from the product module — deliberately not the framework-shared
+# "warmingV2", which belongs to the fleet-wide generic insight cache warmer and
+# would attribute every product's insight warming to this product's economics.
+# `eligible_live_query_types` — live (non-precomputed) read tags whose shapes the
+# product's lazy path could have served, the denominator of its hit ratio. When a
+# product grows a new live strategy tag, add it here or the ratio undercounts
+# that family's misses.
+_PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
     "web_analytics": {
-        "warming_triggers": tuple(sorted(WEB_ANALYTICS_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS)),
+        "log_comment_product": "web_analytics",
+        "warming_triggers": tuple(sorted(WEB_ANALYTICS_WARMING_TRIGGERS)),
         "eligible_live_query_types": (
             "web_overview_query",
             "web_overview_preaggregated_query",
@@ -1196,11 +1200,20 @@ class DebugCHQueries(viewsets.ViewSet):
             if team_id_filter <= 0:
                 raise exceptions.ValidationError("team_id must be a positive integer.")
 
+        # Identical params yield near-identical answers within minutes, but every
+        # request costs several fleet-wide query_log scans — polling automation
+        # must not multiply that load onto the shared cluster.
+        response_cache_key = f"precompute_health/{product}/{hours}/{team_id_filter}"
+        cached_payload = cache.get(response_cache_key)
+        if cached_payload is not None:
+            return Response(cached_payload)
+
         params: dict = {
             "hours": hours,
             "cluster": CLICKHOUSE_CLUSTER,
             "eligible_live_types": vocabulary["eligible_live_query_types"],
             "warming_triggers": vocabulary["warming_triggers"],
+            "log_product": vocabulary["log_comment_product"],
             "excluded_workloads": _PRECOMPUTE_EXCLUDED_WORKLOADS,
         }
         team_filter_sql = ""
@@ -1208,38 +1221,72 @@ class DebugCHQueries(viewsets.ViewSet):
             team_filter_sql = " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
             params["team_id"] = team_id_filter
 
-        # User-facing reads only: exclude background workloads, temporal batch
-        # requests, and API-key scripts so the ratio reflects dashboard traffic.
-        hourly_rows = sync_execute(
+        # One failed scan (a timeout on a strained cluster, a memory limit) must
+        # cost its own section, not 500 the whole response — this endpoint is for
+        # incidents, when scans are slowest. Mirrors _cache_table_stats.
+        unavailable_sections: list[str] = []
+
+        def run_section(name: str, query: str) -> list:
+            try:
+                return sync_execute(query, params, settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS)
+            except Exception:
+                logger.exception("precompute_health: section %s failed", name)
+                unavailable_sections.append(name)
+                return []
+
+        # Shared read predicate: the product's lazy-served reads (framework
+        # `_lazy_query` suffix, scoped by the product tag so another registered
+        # product's lazy reads cannot inflate this product's numerator) or its
+        # eligible live reads. The LIKE prefilter keeps the JSON parsing off the
+        # bulk of query_log rows that never carried a query_type tag.
+        read_predicate = """log_comment LIKE '%%"query_type"%%'
+                AND (
+                    (
+                        endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
+                        AND JSONExtractString(log_comment, 'product') = %(log_product)s
+                    )
+                    OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                )"""
+
+        # User-facing reads only: background workloads, temporal batch requests,
+        # and API-key scripts would distort the ratio. Exception rows are counted
+        # too — tenants whose live reads FAIL are the ones precompute would help
+        # most, and dropping them hid exactly those teams from the rankings.
+        user_facing_sql = """
+                AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
+                AND JSONExtractString(log_comment, 'kind') != 'temporal'
+                AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'"""
+
+        hourly_rows = run_section(
+            "hourly",
             f"""
             SELECT
                 toStartOfHour(event_time) AS hour,
                 countIf(endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')) AS lazy_hits,
-                countIf(JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s) AS eligible_live
+                countIf(JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s) AS eligible_live,
+                countIf(
+                    JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                    AND exception_code != 0
+                ) AS live_errored
             FROM clusterAllReplicas(%(cluster)s, system.query_log)
             WHERE event_time > now() - toIntervalHour(%(hours)s)
-                AND type = 'QueryFinish'
-                AND is_initial_query
-                AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
-                AND JSONExtractString(log_comment, 'kind') != 'temporal'
-                AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
-                AND (
-                    endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
-                    OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
-                ){team_filter_sql}
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                AND is_initial_query{user_facing_sql}
+                AND {read_predicate}{team_filter_sql}
             GROUP BY hour
             ORDER BY hour
             """,
-            params,
-            settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
         )
 
-        warming_rows = sync_execute(
+        warming_rows = run_section(
+            "warming",
             f"""
             SELECT
                 toStartOfHour(event_time) AS hour,
                 count() AS queries,
-                uniqExact(JSONExtractInt(log_comment, 'team_id')) AS teams,
+                uniqExactIf(
+                    JSONExtractInt(log_comment, 'team_id'), JSONExtractInt(log_comment, 'team_id') != 0
+                ) AS teams,
                 countIf(exception_code != 0) AS errored
             FROM clusterAllReplicas(%(cluster)s, system.query_log)
             WHERE event_time > now() - toIntervalHour(%(hours)s)
@@ -1250,28 +1297,24 @@ class DebugCHQueries(viewsets.ViewSet):
             GROUP BY hour
             ORDER BY hour
             """,
-            params,
-            settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
         )
 
-        miss_rows = sync_execute(
+        miss_rows = run_section(
+            "miss_breakdown",
             f"""
             SELECT
                 JSONExtractString(log_comment, 'query_type') AS query_type,
-                count() AS misses
+                count() AS misses,
+                countIf(exception_code != 0) AS errored
             FROM clusterAllReplicas(%(cluster)s, system.query_log)
             WHERE event_time > now() - toIntervalHour(%(hours)s)
-                AND type = 'QueryFinish'
-                AND is_initial_query
-                AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
-                AND JSONExtractString(log_comment, 'kind') != 'temporal'
-                AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                AND is_initial_query{user_facing_sql}
+                AND log_comment LIKE '%%"query_type"%%'
                 AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s{team_filter_sql}
             GROUP BY query_type
             ORDER BY misses DESC
             """,
-            params,
-            settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
         )
 
         # Per-strategy execution detail for one tenant: latency percentiles, volume,
@@ -1281,7 +1324,8 @@ class DebugCHQueries(viewsets.ViewSet):
         # be an unbounded scan for numbers the hourly sections already summarize.
         detail_rows: list = []
         if team_id_filter is not None:
-            detail_rows = sync_execute(
+            detail_rows = run_section(
+                "query_detail",
                 f"""
                 SELECT
                     JSONExtractString(log_comment, 'query_type') AS query_type,
@@ -1296,42 +1340,35 @@ class DebugCHQueries(viewsets.ViewSet):
                 FROM clusterAllReplicas(%(cluster)s, system.query_log)
                 WHERE event_time > now() - toIntervalHour(%(hours)s)
                     AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
-                    AND is_initial_query
-                    AND (
-                        endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
-                        OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
-                    ){team_filter_sql}
+                    AND is_initial_query{user_facing_sql}
+                    AND {read_predicate}{team_filter_sql}
                 GROUP BY query_type
                 ORDER BY reads DESC
                 """,
-                params,
-                settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
             )
 
         # Which tenants eat the most live (missed) reads — the scout's raw material
         # for enrollment/coverage suggestions. Redundant under a team filter.
         top_team_rows: list = []
         if team_id_filter is None:
-            top_team_rows = sync_execute(
+            top_team_rows = run_section(
+                "top_missing_teams",
                 f"""
                 SELECT
                     JSONExtractInt(log_comment, 'team_id') AS team_id,
-                    count() AS misses
+                    count() AS misses,
+                    countIf(exception_code != 0) AS errored
                 FROM clusterAllReplicas(%(cluster)s, system.query_log)
                 WHERE event_time > now() - toIntervalHour(%(hours)s)
-                    AND type = 'QueryFinish'
-                    AND is_initial_query
-                    AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
-                    AND JSONExtractString(log_comment, 'kind') != 'temporal'
-                    AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+                    AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                    AND is_initial_query{user_facing_sql}
+                    AND log_comment LIKE '%%"query_type"%%'
                     AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
                     AND JSONExtractInt(log_comment, 'team_id') != 0
                 GROUP BY team_id
                 ORDER BY misses DESC
                 LIMIT 25
                 """,
-                params,
-                settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
             )
 
         # Warming spend per tenant — the cost side of the per-team economics the
@@ -1339,7 +1376,8 @@ class DebugCHQueries(viewsets.ViewSet):
         # (the hourly warming section already carries that tenant's numbers).
         top_warmed_rows: list = []
         if team_id_filter is None:
-            top_warmed_rows = sync_execute(
+            top_warmed_rows = run_section(
+                "top_warmed_teams",
                 f"""
                 SELECT
                     JSONExtractInt(log_comment, 'team_id') AS team_id,
@@ -1357,64 +1395,91 @@ class DebugCHQueries(viewsets.ViewSet):
                 ORDER BY warming_seconds DESC
                 LIMIT 25
                 """,
-                params,
-                settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
             )
+
+        # ClickHouse returns naive server-time (UTC) datetimes; stamp them and
+        # zero-fill the series so a silent hour reads as an explicit zero (a dead
+        # warmer is the alarm condition, not a missing bucket). A failed section
+        # stays an empty list — zeros there would masquerade as data.
+        window_end = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        hour_keys = [window_end - timedelta(hours=offset) for offset in range(hours, -1, -1)]
+        hourly_by_hour = {row[0].replace(tzinfo=UTC): row for row in hourly_rows}
+        warming_by_hour = {row[0].replace(tzinfo=UTC): row for row in warming_rows}
+
+        hourly_series = []
+        if "hourly" not in unavailable_sections:
+            for key in hour_keys:
+                _, lazy, live, live_errored = hourly_by_hour.get(key, (key, 0, 0, 0))
+                hourly_series.append(
+                    {
+                        "hour": key.isoformat(),
+                        "lazy_hits": lazy,
+                        "eligible_live": live,
+                        "live_errored": live_errored,
+                        "hit_ratio": round(100.0 * lazy / (lazy + live), 1) if lazy + live else None,
+                    }
+                )
+        warming_series = []
+        if "warming" not in unavailable_sections:
+            warming_series = [
+                {"hour": key.isoformat(), "queries": row[1], "teams": row[2], "errored": row[3]}
+                for key in hour_keys
+                for row in [warming_by_hour.get(key, (key, 0, 0, 0))]
+            ]
 
         total_lazy = sum(row[1] for row in hourly_rows)
         total_live = sum(row[2] for row in hourly_rows)
-        return Response(
-            {
-                "product": product,
-                "hours": hours,
-                "team_id": team_id_filter,
-                "summary": {
-                    "lazy_hits": total_lazy,
-                    "eligible_live": total_live,
-                    "hit_ratio": round(100.0 * total_lazy / (total_lazy + total_live), 1)
-                    if total_lazy + total_live
-                    else None,
-                },
-                "hourly": [
-                    {
-                        "hour": hour.isoformat(),
-                        "lazy_hits": lazy,
-                        "eligible_live": live,
-                        "hit_ratio": round(100.0 * lazy / (lazy + live), 1) if lazy + live else None,
-                    }
-                    for hour, lazy, live in hourly_rows
-                ],
-                "warming": [
-                    {"hour": hour.isoformat(), "queries": queries, "teams": teams, "errored": errored}
-                    for hour, queries, teams, errored in warming_rows
-                ],
-                "miss_breakdown": [{"query_type": query_type, "misses": misses} for query_type, misses in miss_rows],
-                "top_missing_teams": [{"team_id": team_id, "misses": misses} for team_id, misses in top_team_rows],
-                "top_warmed_teams": [
-                    {
-                        "team_id": team_id,
-                        "warming_queries": warming_queries,
-                        "warming_seconds": warming_seconds,
-                        "errored": errored,
-                    }
-                    for team_id, warming_queries, warming_seconds, errored in top_warmed_rows
-                ],
-                "query_detail": [
-                    {
-                        "query_type": query_type,
-                        "reads": reads,
-                        "p50_ms": p50,
-                        "p95_ms": p95,
-                        "p99_ms": p99,
-                        "max_read_bytes": max_read_bytes,
-                        "max_memory_bytes": max_memory_bytes,
-                        "errored": errored,
-                        "error_codes": error_codes,
-                    }
-                    for query_type, reads, p50, p95, p99, max_read_bytes, max_memory_bytes, errored, error_codes in detail_rows
-                ],
-            }
-        )
+        payload = {
+            "product": product,
+            "hours": hours,
+            "team_id": team_id_filter,
+            "unavailable_sections": unavailable_sections,
+            "summary": {
+                "lazy_hits": total_lazy,
+                "eligible_live": total_live,
+                "live_errored": sum(row[3] for row in hourly_rows),
+                "hit_ratio": round(100.0 * total_lazy / (total_lazy + total_live), 1)
+                if total_lazy + total_live
+                else None,
+            },
+            "hourly": hourly_series,
+            "warming": warming_series,
+            "miss_breakdown": [
+                {"query_type": query_type, "misses": misses, "errored": errored}
+                for query_type, misses, errored in miss_rows
+            ],
+            "top_missing_teams": [
+                {"team_id": team_id, "misses": misses, "errored": errored} for team_id, misses, errored in top_team_rows
+            ],
+            "top_warmed_teams": [
+                {
+                    "team_id": team_id,
+                    "warming_queries": warming_queries,
+                    "warming_seconds": warming_seconds,
+                    "errored": errored,
+                }
+                for team_id, warming_queries, warming_seconds, errored in top_warmed_rows
+            ],
+            "query_detail": [
+                {
+                    "query_type": query_type,
+                    "reads": reads,
+                    "p50_ms": p50,
+                    "p95_ms": p95,
+                    "p99_ms": p99,
+                    "max_read_bytes": max_read_bytes,
+                    "max_memory_bytes": max_memory_bytes,
+                    "errored": errored,
+                    "error_codes": error_codes,
+                }
+                for query_type, reads, p50, p95, p99, max_read_bytes, max_memory_bytes, errored, error_codes in detail_rows
+            ],
+        }
+        # A partial response must not be served for the cache window as if it
+        # were the real state — only complete payloads are cached.
+        if not unavailable_sections:
+            cache.set(response_cache_key, payload, timeout=120)
+        return Response(payload)
 
     # Keys match the experiment_precompute_table tag on build INSERTs; both are always present in
     # the response so the charts render a (zero) series even for a table with no builds in window.

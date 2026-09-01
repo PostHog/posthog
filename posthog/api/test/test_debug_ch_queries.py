@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
@@ -167,6 +168,10 @@ class TestDebugCHQuery(APIBaseTest):
 class TestPrecomputeHealth(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()  # the endpoint caches complete payloads; tests must not share them
+
     def _create_pat(self, scopes: list[str]) -> str:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -209,32 +214,83 @@ class TestPrecomputeHealth(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        hour = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
         results = iter(
             [
-                [(hour, 750, 250)],  # hourly: lazy, eligible_live
-                [(hour, 12000, 2100, 3)],  # warming: queries, teams, errored
-                [("web_overview_query", 180), ("stats_table_main_query", 70)],
-                [(2, 120), (1589, 60)],  # top_missing_teams
+                [(hour.replace(tzinfo=None), 750, 250, 12)],  # hourly: lazy, eligible_live, live_errored
+                [(hour.replace(tzinfo=None), 12000, 2100, 3)],  # warming: queries, teams, errored
+                [("web_overview_query", 180, 9), ("stats_table_main_query", 70, 0)],
+                [(2, 120, 5), (1589, 60, 0)],  # top_missing_teams
                 [(2, 45210, 3811.5, 4)],  # top_warmed_teams
             ]
         )
-        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=lambda *a, **k: next(results)):
+        call_count = {"n": 0}
+
+        def fake_sync_execute(*_a, **_k):
+            call_count["n"] += 1
+            return next(results)
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
             resp = self.client.get("/api/debug_ch_queries/precompute_health/?hours=9999")
 
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
         data = resp.json()
         self.assertEqual(data["hours"], 168)  # clamped
-        self.assertEqual(data["summary"], {"lazy_hits": 750, "eligible_live": 250, "hit_ratio": 75.0})
-        self.assertEqual(data["hourly"][0]["hit_ratio"], 75.0)
-        self.assertEqual(data["warming"][0]["errored"], 3)
-        self.assertEqual(data["miss_breakdown"][0], {"query_type": "web_overview_query", "misses": 180})
-        self.assertEqual(data["top_missing_teams"][0], {"team_id": 2, "misses": 120})
+        self.assertEqual(data["unavailable_sections"], [])
+        self.assertEqual(
+            data["summary"], {"lazy_hits": 750, "eligible_live": 250, "live_errored": 12, "hit_ratio": 75.0}
+        )
+        # Series are zero-filled over the whole window with explicit UTC stamps —
+        # a silent hour must read as zero, and the data hour must land in place.
+        self.assertEqual(len(data["hourly"]), 169)
+        (data_hour,) = [e for e in data["hourly"] if e["lazy_hits"]]
+        self.assertEqual(data_hour["hour"], hour.isoformat())
+        self.assertEqual(data_hour["hit_ratio"], 75.0)
+        self.assertEqual(sum(e["queries"] for e in data["warming"]), 12000)
+        self.assertEqual(data["miss_breakdown"][0], {"query_type": "web_overview_query", "misses": 180, "errored": 9})
+        self.assertEqual(data["top_missing_teams"][0], {"team_id": 2, "misses": 120, "errored": 5})
         self.assertEqual(
             data["top_warmed_teams"][0],
             {"team_id": 2, "warming_queries": 45210, "warming_seconds": 3811.5, "errored": 4},
         )
         self.assertEqual(data["product"], "web_analytics")
+
+        # A complete payload is cached: an identical request runs no new scans.
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=AssertionError("must be cached")):
+            resp2 = self.client.get("/api/debug_ch_queries/precompute_health/?hours=9999")
+        self.assertEqual(resp2.status_code, HTTP_200_OK, resp2.content)
+        self.assertEqual(resp2.json()["summary"], data["summary"])
+
+    def test_failed_section_degrades_to_partial_response(self) -> None:
+        # One slow scan (timeout, OOM) must cost its own section, not 500 the
+        # whole response — and a partial payload must not be cached as complete.
+        self.user.is_staff = True
+        self.user.save()
+
+        def fake_sync_execute(query: str, *_a, **_k) -> list:
+            if "'trigger'" in query or '"trigger"' in query:
+                raise Exception("Code: 159. DB::Exception: Timeout exceeded")
+            return []
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            resp = self.client.get("/api/debug_ch_queries/precompute_health/")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["unavailable_sections"], ["warming", "top_warmed_teams"])
+        self.assertEqual(data["warming"], [])
+        self.assertEqual(len(data["hourly"]), 25)  # healthy sections still zero-fill
+
+        # Not cached: the next request must re-run the scans.
+        calls = {"n": 0}
+
+        def counting_sync_execute(*_a, **_k) -> list:
+            calls["n"] += 1
+            return []
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=counting_sync_execute):
+            self.client.get("/api/debug_ch_queries/precompute_health/")
+        self.assertGreater(calls["n"], 0)
 
     def test_team_filter_narrows_all_sections_and_skips_team_ranking(self) -> None:
         # A per-team read must inject the tenant filter into every section's SQL,
@@ -261,6 +317,7 @@ class TestPrecomputeHealth(APIBaseTest):
         self.assertEqual(resp.json()["top_missing_teams"], [])
         self.assertEqual(resp.json()["top_warmed_teams"], [])
         self.assertEqual(resp.json()["query_detail"], [])
+        self.assertEqual(resp.json()["unavailable_sections"], [])
 
 
 class TestCacheTableStats(SimpleTestCase):
