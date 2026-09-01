@@ -24,6 +24,7 @@ from products.marketing_analytics.dags.marketing_precompute import (
 )
 
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
+_ACTIVE = "products.marketing_analytics.dags.marketing_precompute._recently_active_team_ids"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
@@ -130,21 +131,38 @@ class TestConversionWarming(APIBaseTest):
             team.marketing_analytics_config.save()
         return team
 
-    def test_unset_audience_is_teams_with_conversion_goals(self):
-        # Precompute-only serving requires every team with a conversion goal to be warmed, so the default
-        # audience is discovered from config. Teams with an empty goal list, or no marketing config at all,
-        # are left out — warming them would be wasted work.
-        with_goals = self._make_team("with_goals", goals=[_PRECOMPUTABLE_GOAL])
+    def test_unset_audience_is_recently_active_teams_with_goals(self):
+        # The rolling warm set is bounded to the active population: a team must both have a conversion goal
+        # and have opened marketing analytics recently. A team with goals but no recent activity drops out
+        # (warmed on-demand on its next visit instead); a team with no goals is never in scope.
+        active = self._make_team("active", goals=[_PRECOMPUTABLE_GOAL])
+        inactive = self._make_team("inactive", goals=[_PRECOMPUTABLE_GOAL])
         empty_goals = self._make_team("empty_goals", goals=[])
-        no_config = self._make_team("no_config")
 
-        with patch.dict(os.environ, {}, clear=False):
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch(_ACTIVE, return_value={active.pk}),
+        ):
+            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
+            selected = get_selected_team_ids()
+
+        assert active.pk in selected
+        assert inactive.pk not in selected
+        assert empty_goals.pk not in selected
+
+    def test_unset_fails_open_to_all_goal_teams_when_activity_unknown(self):
+        # If the activity query can't answer (query_log unavailable), warm every goal team this run rather
+        # than starve the fleet into not-ready.
+        with_goals = self._make_team("with_goals", goals=[_PRECOMPUTABLE_GOAL])
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch(_ACTIVE, return_value=None),
+        ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
             selected = get_selected_team_ids()
 
         assert with_goals.pk in selected
-        assert empty_goals.pk not in selected
-        assert no_config.pk not in selected
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
