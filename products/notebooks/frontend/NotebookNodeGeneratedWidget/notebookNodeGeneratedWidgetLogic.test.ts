@@ -140,6 +140,29 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(requestSignal?.aborted).toBe(true)
     })
 
+    it('ignores an aborted mutation request after the node unmounts', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        jest.mocked(notebooksWidgetGenerate).mockImplementation(
+            (_projectId, _shortId, _nodeId, _body, options) =>
+                new Promise((_resolve, reject) => {
+                    options?.signal?.addEventListener('abort', () => reject(options?.signal?.reason), { once: true })
+                })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const statusCallsBeforeUnmount = jest.mocked(notebooksWidgetStatus).mock.calls.length
+
+        logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'regenerate')
+        await expectLogic(logic).toDispatchActions(['generationRequestStarted'])
+
+        logic.unmount()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        // The unmount abort must not open a recovery status read on a logic that is going away.
+        expect(jest.mocked(notebooksWidgetStatus).mock.calls.length).toBe(statusCallsBeforeUnmount)
+    })
+
     it.each(['../other-widget', 'folder/widget', 'widget?status', 'widget#status'])(
         'rejects the unsafe widget identifier %s before making a request',
         async (nodeId) => {

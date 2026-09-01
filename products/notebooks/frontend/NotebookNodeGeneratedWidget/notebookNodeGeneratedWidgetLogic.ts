@@ -16,7 +16,7 @@ import {
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
-import { ApiError } from 'lib/api'
+import { ApiError, isAbortError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import {
     buildNotebookDependencyGraph,
@@ -831,6 +831,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.generationCanceled()
                         actions.loadStatus()
                     } catch (error) {
+                        // An unmount aborts in-flight requests; that is not a failure to recover from or report.
+                        if (isAbortError(error)) {
+                            return
+                        }
                         const recoveredStatus = isAmbiguousMutationError(error)
                             ? await loadStatusAfterMutationFailure()
                             : null
@@ -873,6 +877,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.generationRequestStarted()
                     invalidateStatusRequests()
                     const generationId = uuidv4()
+                    let aborted = false
                     try {
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
                             await requestWithTimeout((signal) =>
@@ -904,6 +909,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         invalidateStatusRequests()
                         actions.statusReceived(queuedStatus)
                     } catch (error) {
+                        // An unmount aborts in-flight requests; that is not a failure to recover from or report.
+                        if (isAbortError(error)) {
+                            aborted = true
+                            return
+                        }
                         const recoveredStatus = isAmbiguousMutationError(error)
                             ? await loadStatusAfterMutationFailure()
                             : null
@@ -920,7 +930,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         })
                         actions.generationFailed(message)
                     } finally {
-                        actions.generationRequestFinished()
+                        if (!aborted) {
+                            actions.generationRequestFinished()
+                        }
                     }
                 },
                 loadMoreVersions: () => {
@@ -1173,6 +1185,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.loadVersions(true)
                         actions.refreshData()
                     } catch (error) {
+                        // An unmount aborts in-flight requests; that is not a failure to recover from or report.
+                        if (isAbortError(error)) {
+                            return
+                        }
                         const recoveredStatus = isAmbiguousMutationError(error)
                             ? await loadStatusAfterMutationFailure()
                             : null
