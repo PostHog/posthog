@@ -9,15 +9,14 @@ const apiClient = vi.hoisted(() => ({
 }));
 const archiveLocally = vi.hoisted(() => vi.fn());
 const refreshArchiveState = vi.hoisted(() => vi.fn());
+const serverArchiveScope = '["us","user-a",42]';
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => apiClient,
 }));
 
-vi.mock("@posthog/ui/features/auth/store", () => ({
-  useAuthStateValue: (
-    selector: (state: { currentProjectId: number }) => unknown,
-  ) => selector({ currentProjectId: 42 }),
+vi.mock("./useServerArchiveScope", () => ({
+  useServerArchiveScope: () => serverArchiveScope,
 }));
 
 vi.mock("@posthog/di/react", () => ({
@@ -159,6 +158,7 @@ describe("useServerArchiveSync", () => {
         title: "Archived elsewhere",
         taskCreatedAt: "2026-08-20T10:00:00Z",
         repository: "posthog/example",
+        serverArchiveScope,
       }),
     );
     expect(useServerArchiveSyncStore.getState().syncedTaskIds).toContain("t1");
@@ -172,7 +172,7 @@ describe("useServerArchiveSync", () => {
 
   it("continues a large server archive from its durable offset", async () => {
     useServerArchiveSyncStore.setState({
-      archiveImportOffsets: { "42": 100 },
+      archiveImportOffsets: { [serverArchiveScope]: 100 },
     });
     apiClient.getTasksPage.mockResolvedValue({
       tasks: [
@@ -197,9 +197,11 @@ describe("useServerArchiveSync", () => {
       limit: 100,
       offset: 100,
     });
-    expect(useServerArchiveSyncStore.getState().archiveImportOffsets[42]).toBe(
-      101,
-    );
+    expect(
+      useServerArchiveSyncStore.getState().archiveImportOffsets[
+        serverArchiveScope
+      ],
+    ).toBe(101);
   });
 
   it("does not rearchive a local restore while its server update is pending", async () => {

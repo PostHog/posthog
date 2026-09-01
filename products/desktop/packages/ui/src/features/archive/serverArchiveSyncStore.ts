@@ -19,13 +19,13 @@ interface ServerArchiveSyncStore {
    * pass reads the local archive, which the restore just removed it from.
    */
   pendingUnarchiveTaskIds: string[];
-  /** Next archived-task offset to import for each project. */
+  /** Next archived-task offset to import for each account and project. */
   archiveImportOffsets: Record<string, number>;
   markSynced: (taskId: string) => void;
   forgetSynced: (taskId: string) => void;
   queueUnarchive: (taskId: string) => void;
   clearUnarchive: (taskId: string) => void;
-  setArchiveImportOffset: (projectId: number, offset: number) => void;
+  setArchiveImportOffset: (serverArchiveScope: string, offset: number) => void;
 }
 
 export const useServerArchiveSyncStore = create<ServerArchiveSyncStore>()(
@@ -62,11 +62,11 @@ export const useServerArchiveSyncStore = create<ServerArchiveSyncStore>()(
             (id) => id !== taskId,
           ),
         })),
-      setArchiveImportOffset: (projectId, offset) =>
+      setArchiveImportOffset: (serverArchiveScope, offset) =>
         set((state) => ({
           archiveImportOffsets: {
             ...state.archiveImportOffsets,
-            [projectId]: offset,
+            [serverArchiveScope]: offset,
           },
         })),
     }),

@@ -12,6 +12,7 @@ export interface ArchiveClient {
     title?: string;
     taskCreatedAt?: string;
     repository?: string | null;
+    serverArchiveScope?: string;
   }): Promise<unknown>;
   refreshArchiveState(): Promise<void>;
   unarchive(input: {

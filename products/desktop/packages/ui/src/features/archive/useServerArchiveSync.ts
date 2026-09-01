@@ -7,11 +7,11 @@ import { useService } from "@posthog/di/react";
 import { useServerArchiveSyncStore } from "@posthog/ui/features/archive/serverArchiveSyncStore";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useServerArchiveScope } from "./useServerArchiveScope";
 
 const log = logger.scope("server-archive-sync");
 const SERVER_ARCHIVE_IMPORT_LIMIT = 100;
@@ -36,7 +36,7 @@ export function forgetServerArchive(taskId: string): void {
 /** Keep the local archive and the shared server archive aligned across devices. */
 export function useServerArchiveSync(): void {
   const client = useOptionalAuthenticatedClient();
-  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const serverArchiveScope = useServerArchiveScope();
   const archiveClient = useService<ArchiveClient>(ARCHIVE_CLIENT);
   const archivedTaskIds = useArchivedTaskIds();
   const queryClient = useQueryClient();
@@ -52,7 +52,7 @@ export function useServerArchiveSync(): void {
   const archivedRef = useRef(archivedTaskIds);
   const clientRef = useRef(client);
   const archiveClientRef = useRef(archiveClient);
-  const importedProjects = useRef(new Set<number>());
+  const importedScopes = useRef(new Set<string>());
 
   // The drain loop re-reads these between passes. If a trigger lands too late
   // for the running drain to see it, rerunRequested starts another pass.
@@ -129,12 +129,12 @@ export function useServerArchiveSync(): void {
         const api = clientRef.current;
         if (
           api &&
-          projectId !== null &&
-          !importedProjects.current.has(projectId)
+          serverArchiveScope !== null &&
+          !importedScopes.current.has(serverArchiveScope)
         ) {
-          importedProjects.current.add(projectId);
+          importedScopes.current.add(serverArchiveScope);
           const store = useServerArchiveSyncStore.getState();
-          const offset = store.archiveImportOffsets[projectId] ?? 0;
+          const offset = store.archiveImportOffsets[serverArchiveScope] ?? 0;
           const serverArchive = await api.getTasksPage({
             archived: true,
             limit: SERVER_ARCHIVE_IMPORT_LIMIT,
@@ -156,6 +156,7 @@ export function useServerArchiveSync(): void {
                 title: task.title,
                 taskCreatedAt: task.created_at,
                 repository: task.repository,
+                serverArchiveScope,
               });
               useServerArchiveSyncStore.getState().markSynced(task.id);
               imported++;
@@ -172,7 +173,7 @@ export function useServerArchiveSync(): void {
               serverArchive.tasks.length === 0 ||
               offset + serverArchive.tasks.length >= serverArchive.count;
             store.setArchiveImportOffset(
-              projectId,
+              serverArchiveScope,
               reachedEnd ? 0 : offset + serverArchive.tasks.length,
             );
           }
@@ -204,6 +205,6 @@ export function useServerArchiveSync(): void {
     pendingUnarchive,
     queryClient,
     drainGeneration,
-    projectId,
+    serverArchiveScope,
   ]);
 }
