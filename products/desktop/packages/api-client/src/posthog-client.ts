@@ -4979,6 +4979,11 @@ export class PostHogAPIClient {
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    // The list is newest-first and truncates to 100 rows by default, which drops the oldest
+    // task_run artefacts, including the scout run written when the report is created. Match the
+    // web client and request the full log so long-lived reports still show every run.
+    const ARTEFACT_FETCH_LIMIT = 1000;
+    url.searchParams.set("limit", String(ARTEFACT_FETCH_LIMIT));
 
     try {
       const response = await this.api.fetcher.fetch({

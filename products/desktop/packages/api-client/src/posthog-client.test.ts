@@ -2238,6 +2238,19 @@ describe("PostHogAPIClient", () => {
       // attribution survives the fallback path
       expect(results[0].task_id).toBe("t1");
     });
+
+    it("requests the full log so older runs are not truncated off the first page", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 0, results: [] }),
+      });
+      const client = makeClient(fetch);
+
+      await client.getSignalReportArtefacts("r1");
+
+      const { url } = fetch.mock.calls[0][0] as { url: URL };
+      expect(url.searchParams.get("limit")).toBe("1000");
+    });
   });
 
   describe("updateSignalReportArtefact", () => {
