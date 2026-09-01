@@ -31,7 +31,7 @@ import { urls } from 'scenes/urls'
 
 import { LoginMethod, Region, SSOProvider } from '~/types'
 
-import { loginLogic } from './loginLogic'
+import { loginLogic, PrecheckResponseType } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
@@ -48,15 +48,28 @@ function loginMethodLabel(method: LoginMethod): string {
     return method ? SSO_PROVIDER_NAMES[method] : ''
 }
 
+// The precheck hides account existence for a password-only address: it answers
+// password_login_available:true for an unknown email too, to block enumeration. So an account is
+// confirmed real only by data a nonexistent email cannot return — a known passwordless account,
+// linked social identities, or passkeys.
+export function precheckConfirmsAccount(precheckResponse: PrecheckResponseType): boolean {
+    return (
+        precheckResponse.password_login_available === false ||
+        !!precheckResponse.social_providers?.length ||
+        !!precheckResponse.webauthn_credentials?.length
+    )
+}
+
 // The support form starts empty for the person, so a login-error ticket loses the context the page
 // already holds. Prefill the message with the error code, region, and login methods, so support can
 // triage without a round trip.
-function buildLoginSupportMessage({
+export function buildLoginSupportMessage({
     errorCode,
     region,
     ssoEnforcement,
     availableLoginMethods,
     precheckTrusted,
+    precheckConfirmedAccount,
     codeVerificationPending,
 }: {
     errorCode?: string
@@ -64,6 +77,7 @@ function buildLoginSupportMessage({
     ssoEnforcement?: SSOProvider | null
     availableLoginMethods: LoginMethod[]
     precheckTrusted: boolean
+    precheckConfirmedAccount: boolean
     codeVerificationPending: boolean
 }): string {
     const lines = ['I need help logging in.']
@@ -82,7 +96,14 @@ function buildLoginSupportMessage({
         } else {
             const labels = availableLoginMethods.map(loginMethodLabel).filter(Boolean)
             if (labels.length) {
-                lines.push(`Login methods available: ${labels.join(', ')}`)
+                // Claim "available" only for a confirmed account. Otherwise report what the form
+                // showed, so support never reads a password reset as the fix for an account that
+                // does not exist.
+                lines.push(
+                    precheckConfirmedAccount
+                        ? `Login methods available: ${labels.join(', ')}`
+                        : `Login options shown: ${labels.join(', ')}`
+                )
             }
         }
     }
@@ -239,6 +260,7 @@ export function LoginForm(): JSX.Element {
                                             precheckResponse.status === 'completed' &&
                                             !precheckResponse.precheckFailed &&
                                             precheckResponse.email === login.email
+                                        const precheckConfirmedAccount = precheckConfirmsAccount(precheckResponse)
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
@@ -253,6 +275,7 @@ export function LoginForm(): JSX.Element {
                                                       ssoEnforcement: precheckResponse.sso_enforcement,
                                                       availableLoginMethods,
                                                       precheckTrusted,
+                                                      precheckConfirmedAccount,
                                                       codeVerificationPending: codeVerificationRequired,
                                                   }),
                                         })
