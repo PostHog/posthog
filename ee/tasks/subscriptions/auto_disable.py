@@ -80,7 +80,7 @@ def target_type_label(target_type: str | None) -> str:
     if not target_type:
         return ""
     try:
-        return Subscription.SubscriptionTarget(target_type).label
+        return str(Subscription.SubscriptionTarget(target_type).label)
     except ValueError:
         return target_type
 
