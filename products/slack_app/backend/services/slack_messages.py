@@ -611,8 +611,9 @@ def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
     """The thumbs a reader rates one agent answer with.
 
     Slack's own feedback element rather than a pair of buttons: it renders as the two
-    small icons a reader already knows from other AI apps, and Slack keeps the chosen
-    thumb selected afterwards, so a rating stays visible without us rewriting the reply.
+    small icons a reader already knows from other AI apps. Whether Slack marks the
+    clicked thumb afterwards is its own business and is not documented either way; we
+    store no rating and never rewrite the reply to show one.
 
     Both buttons carry the same run plus their own sentiment, because Slack sends back
     only the button that was clicked. The integration rides along so the cross-region

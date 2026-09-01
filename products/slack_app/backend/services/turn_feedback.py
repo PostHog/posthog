@@ -274,8 +274,9 @@ def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
 def handle_turn_feedback_click(payload: dict) -> HttpResponse:
     """Record a clicked thumb, and ask a thumbs-down what went wrong.
 
-    Slack keeps the clicked thumb selected on the message itself, so nothing here has to
-    rewrite the reply to show that the rating landed.
+    The reply is left as it is. A rating is one reader's view of an answer the whole
+    thread can see, so rewriting the message would report it to everyone; the modal is
+    what tells a thumbs-down that the click landed.
     """
     value = clicked_feedback_value(payload)
     sentiment = value.get("sentiment")
