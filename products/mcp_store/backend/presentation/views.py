@@ -46,10 +46,9 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
-from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
-from ..facade.api import resolve_member_tool_states
+from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -425,7 +424,8 @@ class InstallCustomSerializer(serializers.Serializer):
     )
 
     def validate_url(self, value: str) -> str:
-        allowed, error = is_url_allowed(value)
+        team = self.context.get("team")
+        allowed, error = check_mcp_url_policy(value, getattr(team, "id", None))
         if not allowed:
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
@@ -982,7 +982,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
-        allowed, reason = is_url_allowed(mcp_url)
+        allowed, reason = check_mcp_url_policy(mcp_url, self.team_id)
         if not allowed:
             logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
             return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1540,6 +1540,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     @validated_request(
         InstallCustomSerializer,
+        include_serializer_context=True,
         responses={
             200: OpenApiResponse(response=OAuthRedirectResponseSerializer),
             201: OpenApiResponse(response=MCPServerInstallationSerializer),
