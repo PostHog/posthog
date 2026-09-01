@@ -3633,6 +3633,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
             "rationale",
             "content",
             "evidence",
+            "step_id",
             "base_version",
             "is_stale",
             "status",
@@ -3669,6 +3670,15 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     base_version = serializers.IntegerField(
         required=False,
         help_text="Workflow version this was authored against. Defaults to the current live version.",
+    )
+    step_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=200,
+        help_text=(
+            "The step this is about, when it is about one. Both the evidence and the outcome then read "
+            "that step's metrics, so a change to one email in a sequence is not measured against the rest."
+        ),
     )
     source_type = serializers.ChoiceField(
         choices=WorkflowProposal.SourceType.choices,
@@ -5126,6 +5136,7 @@ class HogFlowViewSet(
             rationale=params["rationale"],
             content=content,
             evidence=params.get("evidence") or {},
+            step_id=params.get("step_id") or None,
             base_version=params.get("base_version") or instance.version or 1,
             source_type=params["source_type"],
             source_id=source_id,
@@ -5289,22 +5300,28 @@ class HogFlowViewSet(
             WorkflowProposalOutcomeSerializer(
                 {
                     "window": window,
-                    "before": self._version_outcome(instance, proposal.base_version, after_date),
-                    "after": self._version_outcome(instance, proposal.applied_version, after_date),
+                    "before": self._version_outcome(instance, proposal.base_version, after_date, proposal.step_id),
+                    "after": self._version_outcome(instance, proposal.applied_version, after_date, proposal.step_id),
                     "unavailable_guardrails": list(UNAVAILABLE_GUARDRAILS),
                 }
             ).data
         )
 
-    def _version_outcome(self, hog_flow: HogFlow, version: Optional[int], after: Any) -> Optional[dict]:
+    def _version_outcome(
+        self, hog_flow: HogFlow, version: Optional[int], after: Any, step_id: Optional[str] = None
+    ) -> Optional[dict]:
         if version is None:
             return None
+        # Scoped to the step the suggestion is about, when it names one. Without that, a workflow with
+        # several email steps measures a change to one of them against the sends of all of them, which
+        # dilutes a real move and attributes an unrelated one.
         totals = fetch_app_metric_totals(
             team_id=self.team_id,
             app_source=HOG_FLOW_VERSION_APP_SOURCE,
             app_source_id=f"{hog_flow.id}/{version}",
             breakdown_by="name",
             after=after,
+            instance_id=step_id or None,
             name=[
                 TARGET_SEND_METRIC,
                 TARGET_OPEN_METRIC,
