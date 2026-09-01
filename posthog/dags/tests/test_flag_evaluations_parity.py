@@ -52,6 +52,20 @@ class TestParityAlertLines:
         assert lines is not None
         assert any(expected in line for line in lines)
 
+    def test_summary_counts_queried_teams_not_only_teams_with_rows(self) -> None:
+        # Ten teams were queried but only one had rows on the day. The summary must report the
+        # queried count, not len(checked), or it understates coverage and contradicts the
+        # truncation line.
+        results = ParityResults(
+            day=datetime.now(tz=UTC).date(),
+            checked=[TeamParity(1, 5, 0, 0)],
+            teams_enabled=10,
+            teams_truncated=0,
+        )
+        lines = parity_alert_lines(results)
+        assert lines is not None
+        assert any("Checked 10 of 10 enabled teams (1 had rows on the day)" in line for line in lines)
+
 
 @pytest.mark.django_db
 def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: ClickhouseCluster) -> None:

@@ -187,10 +187,15 @@ def parity_alert_lines(results: ParityResults) -> list[str] | None:
     if not deficits and not results.teams_truncated:
         return None
 
+    # A team the query covered but that had no rows on the day emits no result row, so
+    # len(checked) counts only teams with rows. Report the queried count so this does not
+    # understate coverage or contradict the truncation line below.
+    queried = results.teams_enabled - results.teams_truncated
     excess_total = sum(team.only_in_flag_evaluations for team in results.checked)
     lines = [
         f"*flag_evaluations parity* for `{results.day}`",
-        f"Checked {len(results.checked)} of {results.teams_enabled} enabled teams. Excess rows: {excess_total:,}.",
+        f"Checked {queried} of {results.teams_enabled} enabled teams "
+        f"({len(results.checked)} had rows on the day). Excess rows: {excess_total:,}.",
     ]
     if results.teams_truncated:
         lines.append(f"{results.teams_truncated} enabled teams were not checked; raise `max_teams`.")
@@ -214,7 +219,8 @@ def report_flag_evaluations_parity(
     context.add_output_metadata(
         {
             "day": str(results.day),
-            "teams_checked": len(results.checked),
+            "teams_checked": results.teams_enabled - results.teams_truncated,
+            "teams_with_rows": len(results.checked),
             "teams_enabled": results.teams_enabled,
             "deficit_rows": sum(team.only_in_events for team in results.checked),
             "excess_rows": sum(team.only_in_flag_evaluations for team in results.checked),
