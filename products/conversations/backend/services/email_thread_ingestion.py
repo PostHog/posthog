@@ -19,6 +19,7 @@ from products.conversations.backend.models import (
     EmailThreadParticipant,
     EmailThreadParticipantKind,
 )
+from products.conversations.backend.services.email_links import recover_links_from_html
 from products.customer_analytics.backend.facade.email_matching import (
     schedule_email_thread_link_recalculation_for_threads,
 )
@@ -45,6 +46,7 @@ class ParsedEmail:
     subject: str
     body_plain: str
     stripped_text: str
+    body_html: str = ""
     sender_authenticated: bool
     dkim_passed: bool
     dkim_signing_domains: tuple[str, ...]
@@ -184,8 +186,10 @@ def _upsert_participants(
 
 def _message_content(*, thread: EmailThread, email: ParsedEmail) -> str:
     if thread.message_count > 0:
-        return email.stripped_text or email.body_plain
-    return email.body_plain or email.stripped_text
+        base = email.stripped_text or email.body_plain
+    else:
+        base = email.body_plain or email.stripped_text
+    return recover_links_from_html(base, email.body_html)
 
 
 def _update_thread_summary(*, thread: EmailThread, email: ParsedEmail, content: str) -> None:

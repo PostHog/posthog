@@ -43,6 +43,7 @@ from products.conversations.backend.services.email_channel_setup import (
     capture_google_forwarding_confirmation,
     process_forwarding_challenges,
 )
+from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
     ParsedEmail,
@@ -459,6 +460,7 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEm
         subject=request.POST.get("subject", "")[:500],
         body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
+        body_html=request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH],
         sender_authenticated=_sender_authenticated(request, sender_email),
         dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
         dkim_signing_domains=_dkim_signing_domains(request),
@@ -542,6 +544,7 @@ def _process_support_email(
         content = email.stripped_text or email.body_plain
     else:
         content = email.body_plain or email.stripped_text
+    content = recover_links_from_html(content, email.body_html)
 
     posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
     is_team_member = posthog_user is not None
