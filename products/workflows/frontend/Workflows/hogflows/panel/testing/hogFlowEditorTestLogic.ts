@@ -1071,7 +1071,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             actions.loadSampleGlobalsSuccess(exampleGlobals)
             if (values.triggerAction?.config.type === 'slack-message') {
                 actions.setSampleGlobalsError(
-                    "A real Slack message can't be loaded here. This example matches your channel and poster filters. Edit it to test any other filters, such as message text."
+                    "A real Slack message can't be loaded here. This example matches your channel and who-can-start-a-run filters. Edit it to test any other filters, such as message text."
                 )
             }
         }
