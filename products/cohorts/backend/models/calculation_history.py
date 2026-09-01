@@ -45,6 +45,14 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
             models.Index(fields=["team", "cohort"]),
             models.Index(fields=["team", "started_at"]),
             models.Index(fields=["cohort", "-started_at"]),
+            # The cohort list reads the newest failed calculation per cohort. Failures are a
+            # small part of the history, so a partial index keeps that lookup off the full
+            # per-cohort history, which grows with every recalculation.
+            models.Index(
+                fields=["cohort", "-started_at"],
+                condition=models.Q(error__isnull=False) & ~models.Q(error=""),
+                name="cohort_calc_hist_error_idx",
+            ),
         ]
 
     def __str__(self):
