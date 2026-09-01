@@ -11,7 +11,7 @@
 - The comparison is tilted **in GLM's favor**; its results below are its ceiling on this stack, not its floor.
 - Shipping GLM in prod would require shipping the same tools-mode override (or new prompt plumbing for exec mode). Without it, GLM reviews blind.
 
-Also kept on this branch: `project:read` added to `REVIEW_MCP_SCOPES`. A later investigation disproved the first read of the "missing scope: project:read" warning — the handshake's project fetch is best-effort and never refuses a connection (the only refusing scope is `user:read`, fixed earlier in #88697). The scope stays for attribution on MCP analytics events, the active-project line in the environment prompt, and one less captured exception per session.
+The MCP scopes are unchanged from master (`llm_skill:read`, `user:read`). Mid-experiment a `project:read` addition was tried on the theory that the "missing scope: project:read" warning refused the handshake; a later investigation disproved that (the project fetch is best-effort, only `user:read` refuses — fixed earlier in #88697), and code review then found `GET /api/projects/<id>/` returns the team's unmasked `secret_api_token`, so granting it to an injectable session was dropped.
 
 ## Setup
 
@@ -59,7 +59,7 @@ The cost is genuinely remarkable — $0.02–0.05 per verdict vs Opus's $1.06 �
 
 ## Bugs found on the way
 
-- **The "missing scope: project:read" warning is non-fatal** — first read as a handshake refusal, later disproven: the project fetch is best-effort, and the only scope whose absence refuses a session is `user:read` (#88697, already fixed). `project:read` was still added to `REVIEW_MCP_SCOPES` (the one surviving diff) for analytics attribution, the environment-prompt project line, and less error-tracking noise.
+- **The "missing scope: project:read" warning is non-fatal** — first read as a handshake refusal, later disproven: the project fetch is best-effort, and the only scope whose absence refuses a session is `user:read` (#88697, already fixed). A `project:read` addition was tried, then dropped: it buys only attribution, but `GET /api/projects/<id>/` returns the team's unmasked `secret_api_token`, which an injectable session must not reach.
 - **The skill-fetch prompt says `skill-get(...)` but non-allowlisted MCP clients get an exec-only surface** since #69629 — Claude/Codex models bridge the gap, GLM does not. Prompt wording or a tools-mode header needs to be a deliberate choice, not luck (FINDINGS item 5).
 - Zero-token `claude-opus-4-8` rows can appear in the usage stream when a validation session's calls fail — watch for them as a session-death signature.
 
@@ -70,5 +70,5 @@ The cost is genuinely remarkable — $0.02–0.05 per verdict vs Opus's $1.06 �
 ## Recommendation
 
 1. **Keep the prod pins**: Sol @ xhigh reviewer, Opus 5 @ xhigh validator. GLM 5.3 Flash joins neither seat.
-2. **Land the `project:read` scope addition** from this branch — not a bug fix, but it gives MCP sessions proper project attribution and quiets a per-session captured exception.
+2. If MCP-session project attribution is wanted, do it server-side from the team id already on the token — never by granting the session `project:read`, which would expose the team's unmasked `secret_api_token` to an injectable agent.
 3. If a future flash-class model is retried, budget the tools-mode question first (FINDINGS 5), and check validator **coverage** (every finding gets a verdict) before judging precision/recall — it is the metric the standard table hides.

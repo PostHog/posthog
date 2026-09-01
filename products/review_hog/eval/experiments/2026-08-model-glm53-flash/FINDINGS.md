@@ -23,13 +23,15 @@ Run-by-run results stay in [PLAN.md](./PLAN.md); this file carries the traps.
    `RESTRICTED_MODEL_PRODUCTS` entry. Both marked `EXPERIMENT local-only, revert`. Restart the
    `llm-gateway` phrocs process after (it sources `.env` at start). Probe before any run:
    `curl localhost:3308/background_agents/v1/models` must list the model.
-4. **The "missing scope: project:read" log line is a red herring.** A later investigation
-   (2026-08-31) disproved the first read of it: the MCP handshake's project fetch is best-effort,
-   so `project:read` is NOT required to connect — the only scope whose absence refuses the
-   connection is `user:read` (the real silent-failure class, fixed in #88697). We still added
-   `project:read` to `REVIEW_MCP_SCOPES` for what it actually buys: project attribution on MCP
-   analytics events, the active-project line in the environment prompt, and one less captured
-   exception per session. ALWAYS smoke `skill-get` in a sandbox before an experiment night.
+4. **The "missing scope: project:read" log line is a red herring — and the scope is a security
+   footgun, do NOT grant it.** A later investigation (2026-08-31) disproved the first read: the
+   MCP handshake's project fetch is best-effort, so `project:read` is NOT required to connect —
+   the only scope whose absence refuses the connection is `user:read` (the real silent-failure
+   class, fixed in #88697). A `project:read` addition was tried, then dropped: it buys only
+   attribution, but `GET /api/projects/<id>/` returns the team's UNMASKED `secret_api_token`
+   (plain serializer field, no redaction), which an injectable session reading untrusted PR text
+   must never reach. The token is team-scoped so it is not cross-team, but leaking the reviewed
+   team's own secret is enough. ALWAYS smoke `skill-get` in a sandbox before an experiment night.
 5. **⚠️ READ BEFORE TRUSTING THE FINAL REPORT — GLM cannot fetch its skill on the default MCP
    surface, so this experiment runs a local MCP-mode override.** Since #69629 (2026-07-09) the
    MCP server defaults every non-allowlisted client (sandbox agents included) to CLI mode:
