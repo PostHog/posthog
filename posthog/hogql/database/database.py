@@ -1399,8 +1399,10 @@ class Database(BaseModel):
 
         For internal queries that touch only built-in tables. It has no warehouse tables, views, or
         joins, no group-type tables, and no per-user access control, so it must never serve
-        user-written HogQL. create_for runs a dozen Postgres queries and feature-flag checks that
-        such a query never uses; on teams with many warehouse tables that costs more than the query."""
+        user-written HogQL. Every access-controlled or entitlement-gated system table is removed up
+        front, so a query that names one fails with TableAccessDeniedError instead of reading rows
+        unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
+        query never uses; on teams with many warehouse tables that costs more than the query."""
         if timings is None:
             timings = HogQLTimings()
         with timings.measure("modifiers"):
@@ -1416,7 +1418,7 @@ class Database(BaseModel):
             bypass_warehouse_access_control=False,
             direct_connection_metadata=None,
             user_access_control=None,
-            denied_system_table_names=set(),
+            denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
