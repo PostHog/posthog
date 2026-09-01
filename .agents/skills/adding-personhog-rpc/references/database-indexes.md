@@ -10,8 +10,8 @@ All indexes below are sourced from `rust/persons_migrations/` SQL files — the 
 Partitioned by `team_id` (64 hash partitions).
 Primary key is composite `(team_id, id)`.
 
-| Index name                         | Type   | Columns           | Notes                                                                                                               |
-| ---------------------------------- | ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Index name                                 | Type   | Columns                      | Notes                                                                                                               |
+| ------------------------------------------ | ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `posthog_person_new_pkey`                  | PK     | `(team_id, id)`              | Partition-pruned lookup                                                                                             |
 | `posthog_person_team_id_uuid_uniq`         | UNIQUE | `(team_id, uuid)`            | Partition-pruned uuid lookup. **Named `posthog_person_new_uuid_idx` in migration-built databases** — see note below |
 | `posthog_person_team_id_uuid_covering_idx` | UNIQUE | `(team_id, uuid) INCLUDE id` | Covering variant: `uuid -> id` resolution runs index-only, no heap fetch. Supersedes the plain unique index above   |
