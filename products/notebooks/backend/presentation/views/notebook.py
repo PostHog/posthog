@@ -1386,11 +1386,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Price the shape the next sandbox will actually get, so a notebook that leaves one knob
         # unset is still quoted against the default that fills it in.
         configured = build_notebook_sandbox_config(notebook)
-        kernel_is_live = KernelRuntime.objects.filter(
-            team_id=self.team_id,
-            notebook_short_id=notebook.short_id,
-            status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
-        ).exists()
+        # Scoped to the requester, like kernel_status: runtimes are per user, and restarting on a
+        # collaborator's row would provision a paid sandbox for whoever called this while leaving
+        # that collaborator on the old shape.
+        config_user = self._current_user()
+        live_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=config_user if isinstance(config_user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        # A RUNNING row can outlive its sandbox, and restarting on a stale one would turn a
+        # config-only call into new paid compute. Confirm the sandbox before acting on the row.
+        kernel_is_live = live_runtime is not None and self._sandbox_is_running(notebook, config_user, live_runtime)
         shape_changed = (
             abs(shape_before.cpu_cores - configured.cpu_cores) > 1e-6
             or abs(shape_before.memory_gb - configured.memory_gb) > 1e-6
@@ -1402,7 +1414,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         restarted = False
         if kernel_is_live and shape_changed:
             try:
-                get_kernel_runtime(notebook, self._current_user()).restart()
+                get_kernel_runtime(notebook, config_user).restart()
                 restarted = True
             except (SandboxProvisionError, RuntimeError):
                 logger.exception("notebook_kernel_config_restart_failed", notebook_short_id=notebook.short_id)
@@ -1419,6 +1431,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),
         }
         return Response(NotebookKernelConfigResponseSerializer(config_payload).data)
+
+    def _sandbox_is_running(self, notebook: Notebook, user: Any, runtime: KernelRuntime) -> bool:
+        """Whether the runtime row still has a sandbox behind it, the check kernel_status makes."""
+        if not runtime.sandbox_id or runtime.backend not in (
+            KernelRuntime.Backend.MODAL,
+            KernelRuntime.Backend.DOCKER,
+        ):
+            return False
+        try:
+            service = get_kernel_runtime(notebook, user).service
+            sandbox = service._get_sandbox_class(runtime.backend).get_by_id(runtime.sandbox_id)
+            return sandbox.get_status() == SandboxStatus.RUNNING
+        except Exception:
+            return False
 
     @staticmethod
     def _preset_key_for(cpu_cores: float | None, memory_gb: float | None) -> str | None:

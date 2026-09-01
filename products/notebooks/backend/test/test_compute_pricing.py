@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models import User
+
 from products.notebooks.backend.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -119,8 +121,12 @@ class TestComputeOptionsEndpoint(APIBaseTest):
             backend=KernelRuntime.Backend.MODAL,
         )
 
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=True,
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
-    def test_a_resize_restarts_the_live_kernel(self, mock_runtime: MagicMock) -> None:
+    def test_a_resize_restarts_the_live_kernel(self, mock_runtime: MagicMock, _alive: MagicMock) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
         self._live_kernel(notebook)
 
@@ -136,8 +142,12 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         # The quote now describes the sandbox that is actually running.
         assert payload["restart_required"] is False
 
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=True,
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
-    def test_an_idle_timeout_change_leaves_the_kernel_alone(self, mock_runtime: MagicMock) -> None:
+    def test_an_idle_timeout_change_leaves_the_kernel_alone(self, mock_runtime: MagicMock, _alive: MagicMock) -> None:
         # A restart discards every materialized dataframe, which is far too much to spend on a
         # setting a live sandbox cannot pick up anyway.
         notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=4, kernel_memory_gb=8)
@@ -157,6 +167,49 @@ class TestComputeOptionsEndpoint(APIBaseTest):
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
     def test_a_resize_with_no_live_kernel_starts_nothing(self, mock_runtime: MagicMock) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 4, "memory_gb": 8},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_runtime.return_value.restart.assert_not_called()
+        assert response.json()["restarted"] is False
+
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=True,
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_a_collaborators_kernel_is_not_restarted(self, mock_runtime: MagicMock, _alive: MagicMock) -> None:
+        # Runtimes are per user. Restarting on someone else's row would provision a paid sandbox
+        # for the caller and leave the collaborator on the old shape.
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        runtime = self._live_kernel(notebook)
+        runtime.user = other
+        runtime.save(update_fields=["user"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 4, "memory_gb": 8},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_runtime.return_value.restart.assert_not_called()
+        assert response.json()["restarted"] is False
+
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=False,
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_a_stale_running_row_does_not_provision_compute(self, mock_runtime: MagicMock, _alive: MagicMock) -> None:
+        # A RUNNING row can outlive its sandbox. Acting on it would turn a config-only call into
+        # new paid compute.
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        self._live_kernel(notebook)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
