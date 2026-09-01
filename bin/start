@@ -167,14 +167,11 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
-# Keep git housekeeping healthy. Three things git cannot do for itself on a partial
-# clone: a lock left by a killed maintenance run disables every scheduled git task
-# silently, a fresh clone has no scheduled maintenance registered at all, and nothing
-# ever consolidates promisor packs (gc.autoPackLimit does not count them and
-# incremental-repack does not merge them). Reading the state touches directory
-# entries only and stops counting packs at the threshold, so it costs the same on a
-# clone that is a day old and one that is years old. The repack is spawned detached
-# at background priority, so start never waits for it.
+# Repair git housekeeping. On a partial clone git never consolidates its own pack
+# files. A maintenance run killed by sleep or reboot also leaves a lock, which
+# disables every scheduled task without a message. Reading the state is cheap and
+# the repack runs detached, so start does not wait (see doctor_git in
+# hogli_commands/doctor.py).
 # Set HOGLI_SKIP_GIT_CHECK=1 to skip.
 if [[ -z "${HOGLI_SKIP_GIT_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:git || true

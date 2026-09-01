@@ -2260,19 +2260,20 @@ def _check_zombies(repo_root: Path) -> CheckResult:
     )
 
 
-# A blob:none clone writes a new promisor pack on every on-demand blob fetch, and
-# nothing consolidates them: `gc.autoPackLimit` does not count promisor packs, and
-# the `incremental-repack` maintenance task does not merge them either. Pack lookup
-# cost scales with pack count, so `git fetch` and `git status` degrade as they pile up.
+# A blob:none clone writes a new promisor pack on each on-demand blob fetch.
+# Nothing consolidates them, because `gc.autoPackLimit` does not count promisor
+# packs and the `incremental-repack` maintenance task does not merge them.
+# Pack lookup cost grows with the pack count, which makes `git fetch` and
+# `git status` slow.
 #
-# Threshold set where the cost becomes visible rather than where it becomes measurable.
-# Around 900 packs `git fetch` still returns in about a second. At 13,000 it took 34s.
-# Warning earlier than this trains people to ignore the line.
+# The threshold is a budget, not a measurement. Set it where a person notices the
+# cost. A lower value warns while the repo is still fast, and people then ignore
+# the line.
 _GIT_PACK_WARNING_THRESHOLD = 1000
 
-# `git maintenance run` treats an existing lock as "another run is in progress" and
-# exits 0 silently. A run killed by sleep or reboot leaves one behind, which disables
-# every scheduled maintenance task until someone deletes it. Nothing reports this.
+# `git maintenance run` reads an existing lock as "another run is in progress".
+# It then exits 0 and prints nothing. A run killed by sleep or reboot leaves a lock
+# behind, which disables every scheduled maintenance task until a person deletes it.
 _GIT_MAINTENANCE_LOCK_STALE_SECONDS = 6 * 60 * 60
 
 
@@ -2312,8 +2313,8 @@ class GitHealth:
 def _git_health(common_dir: Path, pack_cap: int) -> GitHealth:
     """Read git housekeeping state with a bounded amount of work.
 
-    Stops counting packs once past ``pack_cap`` so a neglected clone with tens of
-    thousands of them costs the same as a healthy one.
+    The scan stops counting packs past ``pack_cap``, so a neglected clone costs the
+    same as a healthy one.
     """
     pack_dir = common_dir / "objects" / "pack"
     pack_count = 0
@@ -2524,7 +2525,7 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
 
 
 def _git_housekeeping_running() -> bool:
-    """True while git is already packing, so we never touch a live lock or pack dir."""
+    """True while git already packs, so the caller leaves the lock and pack dir alone."""
     try:
         result = subprocess.run(
             ["pgrep", "-f", "git (gc|repack|maintenance|pack-objects)"],
@@ -2558,14 +2559,13 @@ def _git_maintenance_registered(main_worktree: Path) -> bool:
 def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
     """Start `git repack -ad` detached, at background priority.
 
-    Runs unattended because git cannot do this itself: `gc.autoPackLimit` ignores
-    promisor packs and the `incremental-repack` maintenance task never merges them,
-    so on a partial clone nothing ever consolidates. Detached because it takes
-    minutes, and `hogli start` must not wait for it.
+    A repack takes minutes, and `hogli start` must not wait for it. Git never does
+    this itself on a partial clone, for the reason given at
+    `_GIT_PACK_WARNING_THRESHOLD`.
     """
     cmd = ["git", "-C", str(main_worktree), "repack", "-ad", "--threads=0"]
-    # taskpolicy -b puts it in the background QoS band, which throttles its IO as
-    # well as its CPU. Without that a repack competes with the dev stack booting.
+    # taskpolicy -b puts the repack in the background QoS band, which throttles its
+    # IO as well as its CPU. Without it the repack competes with the dev stack.
     if shutil.which("taskpolicy"):
         cmd = ["taskpolicy", "-b", *cmd]
     else:
@@ -2606,12 +2606,10 @@ def _write_commit_graph(main_worktree: Path) -> None:
 )
 @click.option("--fix", is_flag=True, help="Repack in the foreground and wait for it, instead of in the background")
 def doctor_git(fix: bool) -> None:
-    """Repair git housekeeping, doing the slow part in the background.
+    """Repair git housekeeping, and run the slow part in the background.
 
-    Everything here is either instant or detached, because this runs on every
-    ``hogli start``. Reading the state touches directory entries only. Clearing a
-    stale lock is one unlink. Registering scheduled maintenance is a one-time
-    command. The repack is minutes, so it is spawned detached unless ``--fix``.
+    This runs on every ``hogli start``, so each step is instant or detached.
+    ``--fix`` runs the repack in the foreground instead.
     """
     common_dir = _git_common_dir(REPO_ROOT)
     if common_dir is None:
@@ -2621,7 +2619,7 @@ def doctor_git(fix: bool) -> None:
     main_worktree = _git_main_worktree(common_dir)
     health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
     packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
-    # Only pay for the process scan when there is something it would gate.
+    # Run the process scan only when a result depends on it.
     busy = _git_housekeeping_running() if (health.stale_lock or packs_high) else False
     acted = False
 
@@ -2635,8 +2633,8 @@ def doctor_git(fix: bool) -> None:
         except OSError:
             pass  # Another process got there first, or the dir is read-only.
 
-    # Without this, none of git's own scheduled tasks ever run, and a fresh clone
-    # never gets a commit-graph. Registering is instant and the check is free.
+    # A fresh clone has no registration, so none of git's own scheduled tasks run
+    # and it never gets a commit-graph.
     if not _git_maintenance_registered(main_worktree):
         if _run_ok(["git", "-C", str(main_worktree), "maintenance", "start"], timeout=30):
             click.secho("Registered this repo for scheduled git maintenance.", fg="yellow")
