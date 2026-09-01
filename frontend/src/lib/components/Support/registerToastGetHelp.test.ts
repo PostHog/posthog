@@ -13,11 +13,12 @@ import { registerToastGetHelp } from './registerToastGetHelp'
 describe('registerToastGetHelp', () => {
     const windowOpen = jest.fn()
 
-    const setUp = (cloud: boolean): void => {
+    const setUp = ({ cloud, sidePanelAvailable }: { cloud: boolean; sidePanelAvailable: boolean }): void => {
         // sidePanelStateLogic reflects open state in the URL hash, which initKeaTests doesn't reset.
         window.history.replaceState(null, '', '/')
         initKeaTests()
         sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.setSidePanelAvailable(sidePanelAvailable)
         preflightLogic.mount()
         preflightLogic.actions.loadPreflightSuccess({ cloud } as PreflightStatus)
         registerToastGetHelp()
@@ -33,7 +34,7 @@ describe('registerToastGetHelp', () => {
     })
 
     it('opens the support side panel on cloud instead of leaving the app', async () => {
-        setUp(true)
+        setUp({ cloud: true, sidePanelAvailable: true })
 
         await expectLogic(sidePanelStateLogic, () => getHelp()).toFinishAllListeners()
 
@@ -43,9 +44,13 @@ describe('registerToastGetHelp', () => {
         expect(windowOpen).not.toHaveBeenCalled()
     })
 
-    // A self-hosted instance has no support panel, so opening one would leave the person with nothing.
-    it('sends self-hosted instances to the support page', async () => {
-        setUp(false)
+    // Self-hosted has no Support tab, and a scene without a panel falls through to the support modal,
+    // which asks every plan for a message. Both keep the page they send people to today.
+    it.each([
+        ['a self-hosted instance', { cloud: false, sidePanelAvailable: true }],
+        ['a scene without a side panel', { cloud: true, sidePanelAvailable: false }],
+    ])('sends %s to the support page', async (_, options) => {
+        setUp(options)
 
         await expectLogic(sidePanelStateLogic, () => getHelp()).toFinishAllListeners()
 
