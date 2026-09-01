@@ -23,6 +23,7 @@ import type { DataQualitySubjectRef } from './checksApi'
 import { checkTypeLabel } from './checksConstants'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
+import { formatPreviewCell } from './previewCell'
 
 export function CheckEditorModal(): JSX.Element {
     const {
@@ -279,8 +280,13 @@ function CustomSqlField(): JSX.Element {
     // Key and index by position, not by column name: HogQL can return two columns with the same name
     // (e.g. `SELECT id, id`), which would collide on an object key and on the React header key.
     const previewColumns: LemonTableColumns<unknown[]> =
-        customSqlPreview?.columns.map((column, index) => ({ title: column, key: String(index), dataIndex: index })) ??
-        []
+        customSqlPreview?.columns.map((column, index) => ({
+            title: column,
+            key: String(index),
+            dataIndex: index,
+            // Never hand a raw object to LemonTable: it would spread the value's `props` onto the cell.
+            render: (value: unknown) => formatPreviewCell(value),
+        })) ?? []
 
     return (
         <LemonField
