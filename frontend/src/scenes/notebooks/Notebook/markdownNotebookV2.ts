@@ -86,30 +86,6 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.SupportTickets]: 'SupportTickets',
 }
 
-const LEGACY_WIDGET_MARKDOWN_TAGS = new Set(['GenUI', 'GeneratedWidget'])
-
-export function normalizeWidgetMarkdownTags(markdown: string): string {
-    if (!markdown.includes('<GenUI') && !markdown.includes('<GeneratedWidget')) {
-        return markdown
-    }
-
-    const document = parseMarkdownNotebook(markdown)
-    let changed = false
-    const nodes = document.nodes.map((node) => {
-        if (node.type !== 'component' || !LEGACY_WIDGET_MARKDOWN_TAGS.has(node.tagName)) {
-            return node
-        }
-
-        changed = true
-        const explicitNodeId = node.props.nodeId
-        // Implicit component IDs include the tag name, so persist the old ID before renaming the tag.
-        const nodeId = typeof explicitNodeId === 'string' && explicitNodeId ? explicitNodeId : node.id
-        return { ...node, tagName: 'Widget', props: { ...node.props, nodeId } }
-    })
-
-    return changed ? serializeMarkdownNotebook({ ...document, nodes }) : markdown
-}
-
 const RICH_CONTENT_NODE_TYPE_ALIASES: Record<string, string> = {
     bullet_list: 'bulletList',
     ordered_list: 'orderedList',

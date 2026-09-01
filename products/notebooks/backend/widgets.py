@@ -263,7 +263,7 @@ def _widget_node_ids(content: object) -> set[str]:
     if markdown is not None:
         occurrences: dict[str, int] = {}
         for tag_name, raw, _next_line_index in _iter_markdown_component_blocks(markdown):
-            if tag_name not in {"Widget", "GeneratedWidget", "GenUI"}:
+            if tag_name != "Widget":
                 continue
             props = _parse_markdown_component_props(raw)
             fingerprint = _get_markdown_component_fingerprint(tag_name, props)

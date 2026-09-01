@@ -23,7 +23,6 @@ import {
     getSqlV2PropsFromQueryProp,
     insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
-    normalizeWidgetMarkdownTags,
     notebookArtifactContentToMarkdown,
     notebookContentHasCommentMarks,
     visualizationArtifactContentToNotebookArtifactContent,
@@ -268,19 +267,6 @@ Dashboard 123
                 content: [{ type: nodeType, attrs: { id: 'resource-id' } }],
             })
         ).toEqual(`<${tagName} id="resource-id" />`)
-    })
-
-    it.each(['GenUI', 'GeneratedWidget'])('normalizes legacy %s blocks without changing their identity', (tagName) => {
-        const legacyMarkdown = `<${tagName} prompt="Render a globe" />`
-        const legacyNode = parseMarkdownNotebook(legacyMarkdown).nodes[0]
-        const markdown = normalizeWidgetMarkdownTags(legacyMarkdown)
-        const normalizedNode = parseMarkdownNotebook(markdown).nodes[0]
-
-        expect(normalizedNode).toMatchObject({
-            type: 'component',
-            tagName: 'Widget',
-            props: { nodeId: legacyNode.id, prompt: 'Render a globe' },
-        })
     })
 
     it('converts query nodes with an insight ID to the Insight component', () => {

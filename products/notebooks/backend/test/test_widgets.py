@@ -385,10 +385,7 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert _strip_legacy_frame_bridge(source) == "export default function Canvas() { return <div /> }"
 
-    @parameterized.expand(
-        [("widget", "Widget"), ("legacy_generated_widget", "GeneratedWidget"), ("legacy_genui", "GenUI")]
-    )
-    def test_infers_dataframe_context_from_the_notebook(self, _name: str, tag_name: str) -> None:
+    def test_infers_dataframe_context_from_the_notebook(self) -> None:
         notebook = cast(
             Notebook,
             SimpleNamespace(
@@ -396,7 +393,7 @@ class TestWidgetGeneration(SimpleTestCase):
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
                     '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
-                    f'<{tag_name} nodeId="globe" prompt="Render a globe" />\n\n'
+                    '<Widget nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
             ),
@@ -404,17 +401,29 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert infer_widget_inputs(notebook, "globe") == ["locations_df", "summary_df", "future_df"]
 
+    @parameterized.expand([("generated_widget", "GeneratedWidget"), ("genui", "GenUI")])
+    def test_rejects_removed_widget_tags(self, _name: str, tag_name: str) -> None:
+        notebook = cast(
+            Notebook,
+            SimpleNamespace(content=markdown_content(f'<{tag_name} nodeId="globe" prompt="Render a globe" />')),
+        )
+
+        with self.assertRaises(WidgetError) as error:
+            infer_widget_inputs(notebook, "globe")
+
+        assert error.exception.code == "node_not_found"
+
     def test_infers_dataframe_context_without_an_explicit_id(self) -> None:
         notebook = cast(
             Notebook,
             SimpleNamespace(
                 content=markdown_content(
-                    '<SQLV2 nodeId="source" returnVariable="sql_df" />\n\n<GeneratedWidget prompt="Render a globe" />'
+                    '<SQLV2 nodeId="source" returnVariable="sql_df" />\n\n<Widget prompt="Render a globe" />'
                 )
             ),
         )
 
-        assert infer_widget_inputs(notebook, "mdn-mjjdae-0") == ["sql_df"]
+        assert infer_widget_inputs(notebook, "mdn-qb29jd-0") == ["sql_df"]
 
     def test_rejects_an_explicit_node_id_that_cannot_be_persisted(self) -> None:
         node_id = "x" * 129

@@ -60,7 +60,6 @@ import {
     convertDroppedPostHogUrlToMarkdownNode,
     convertDroppedRichContentNodeToMarkdownNode,
     getMarkdownNotebookMarkdown,
-    normalizeWidgetMarkdownTags,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
@@ -109,10 +108,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         setMarkdownAIPresenceActive,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const remoteMarkdown = useMemo(
-        () => normalizeWidgetMarkdownTags(getMarkdownNotebookMarkdown(notebook?.content)),
-        [notebook?.content]
-    )
+    const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)

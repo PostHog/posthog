@@ -85,18 +85,13 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('gates widget insertion and always renders legacy widget blocks', () => {
+        it('gates widget insertion and registers only the Widget component', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
                 { key: 'component-Widget', category: 'Common' },
             ])
             expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
             for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
-                expect(NOTEBOOK_MARKDOWN_REGISTRY.components[legacyTag]).toMatchObject({
-                    label: 'Widget',
-                    insertCommand: undefined,
-                    ToolbarComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ToolbarComponent,
-                    ViewComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ViewComponent,
-                })
+                expect(NOTEBOOK_MARKDOWN_REGISTRY.components).not.toHaveProperty(legacyTag)
             }
             expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ToolbarComponent).toBeTruthy()
         })

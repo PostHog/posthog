@@ -13,7 +13,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
 - Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows without sending values to the model.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
-- `<Widget>` is the canonical notebook markdown tag. Legacy `<GeneratedWidget>` and `<GenUI>` tags normalize to it while preserving widget identity.
+- `<Widget>` is the only notebook markdown tag for generated widgets.
 - Organizations must approve AI data processing before a job is queued and when its worker starts.
 - Production creation and data-frame reads require the `notebook-generated-widgets` feature flag. Keep it disabled until the generated-code data boundary and mixed-version Canvas rollout are approved.
 - Artifact URLs use Django's rotating `SECRET_KEY` values by default. Deployments can set `CANVAS_ARTIFACT_SIGNING_KEYS` for independent rotation.

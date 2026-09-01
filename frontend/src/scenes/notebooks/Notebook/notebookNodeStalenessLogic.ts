@@ -141,10 +141,10 @@ export interface notebookNodeStalenessLogicActions {
         downstreamNodeIds: string[]
         nodeId: string
     }
-    setWidgetDataChainNodeIds: (nodeIds: string[]) => {
+    setWidgetDataChainCompletedNodeIds: (nodeIds: string[]) => {
         nodeIds: string[]
     }
-    setWidgetDataChainCompletedNodeIds: (nodeIds: string[]) => {
+    setWidgetDataChainNodeIds: (nodeIds: string[]) => {
         nodeIds: string[]
     }
     unregisterChainNode: (nodeId: string) => {
