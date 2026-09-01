@@ -3,12 +3,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import BreakdownType, MultipleBreakdownType, PropertyMathType, TrendsQuery
 
 from posthog.hogql_queries.insights.trends.aggregation_operations import SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN
-from posthog.hogql_queries.insights.utils.breakdowns import (
-    has_breakdown_filter,
-    has_multi_breakdown,
-    has_single_breakdown,
-)
-from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter, has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.validation.utils import get_query_insight_name
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 

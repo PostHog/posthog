@@ -12,7 +12,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
+from posthog.hogql_queries.utils.entities import is_equal, is_superset
 from posthog.types import EntityNode
 
 testdata_equals: list[tuple[EntityNode, EntityNode, bool]] = [
