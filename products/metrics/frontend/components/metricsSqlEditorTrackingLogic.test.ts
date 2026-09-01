@@ -37,14 +37,11 @@ describe('metricsSqlEditorTrackingLogic', () => {
     })
 
     // The intent feeds the growth team's activation funnel; a renamed or disconnected
-    // sqlEditorLogic action would silently stop recording it. The auto-init first run is
-    // skipped so it isn't counted as user intent. (Save-as intents aren't covered here:
-    // dispatching the real submit actions needs the full data-node logic graph mounted.)
-    it('a manual query run records a product intent, the auto-init first run does not', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.sqlEditorRunQuery()
-        }).toNotHaveDispatchedActions([sqlRunIntent()])
-
+    // sqlEditorLogic action would silently stop recording it. The editor no longer auto-runs
+    // on mount, so every run is a user run and the first one counts. (Save-as intents aren't
+    // covered here: dispatching the real submit actions needs the full data-node logic graph
+    // mounted.)
+    it('a query run records a product intent', async () => {
         await expectLogic(logic, () => {
             logic.actions.sqlEditorRunQuery()
         }).toDispatchActions([sqlRunIntent()])
