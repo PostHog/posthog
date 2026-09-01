@@ -112,10 +112,11 @@ def clone_repository(input: ProvisionedWizardWorker) -> PreparedGitRepositoryWor
             )
         )
     except cloud_worker.WizardWorkerExecutionError as error:
+        # Clone failures are usually transient (DNS, TLS, GitHub transport) and the clone is
+        # idempotent, so stay retryable and let PREPARATION_RETRY_POLICY reattempt.
         raise ApplicationError(
             str(error),
             type=WIZARD_WORKER_EXECUTION_ERROR_TYPE,
-            non_retryable=True,
         ) from error
 
     return PreparedGitRepositoryWorkspace(
