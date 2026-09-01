@@ -27,7 +27,7 @@ from structlog import getLogger
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, SyntaxError
 from posthog.hogql.json_ast import deserialize_ast
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
@@ -482,11 +482,13 @@ def _run_rejection_shadow(
         return
     try:
         _invoke_parser(backends.shadow, rule, statement, start)
-    except BaseHogQLError:
+    except ExposedHogQLError:
+        # Both backends refuse the query for a user-facing reason: a fault in the query, not a regression.
         _count("both_rejected")
         return
     except Exception as err:
-        # Packaging-class failure (broken wheel / panic). Counted, never raised.
+        # Broken shadow wheel or panic, surfaced as an InternalHogQLError (cpp raises ParsingError, rust wraps a
+        # panic as NotImplementedError), plus any other unexpected failure. Counted and captured, never raised.
         _count("shadow_error")
         capture_exception(
             err,

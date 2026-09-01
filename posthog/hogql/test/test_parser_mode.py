@@ -9,7 +9,10 @@ from posthog.hogql import (
     ast,
     parser as parser_module,
 )
-from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
+from posthog.hogql.errors import (
+    ParsingError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.parser import (
     HogQLParserShadowMismatch,
     ParseRule,
@@ -263,6 +266,28 @@ class TestParserMode(BaseTest):
         props = captured.call_args.kwargs["additional_properties"]
         self.assertIn("rejection_probe", props["hogql_parser_statement"])
         self.assertIn("simulated cpp-json regression", props["hogql_parser_primary_error"])
+
+    def test_rejection_shadow_counts_internal_shadow_failure_as_shadow_error(self):
+        real_invoke = parser_module._invoke_parser
+
+        def primary_rejects_shadow_breaks(backend, rule, statement, start):
+            if backend == "cpp-json":
+                raise HogQLSyntaxError("simulated primary rejection")
+            if backend == "rust-py":
+                raise ParsingError("simulated broken shadow wheel")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=primary_rejects_shadow_breaks):
+            with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
+                with patch("posthog.hogql.parser.capture_exception") as captured:
+                    with self.assertRaises(HogQLSyntaxError):
+                        parse_select(
+                            "select rejection_probe from events",
+                            parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                        )
+        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["shadow_error"])
+        captured.assert_called_once()
+        self.assertIsInstance(captured.call_args.args[0], ParsingError)
 
     def test_rejection_shadow_stays_silent_when_both_backends_reject(self):
         with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
