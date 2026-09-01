@@ -1441,6 +1441,9 @@ export interface AnnouncementProperties {
 
 // Privacy: these events never carry the referenced id, name, query text, or
 // result data. For a hogql reference the id is the SQL itself.
+/** Where the preview was requested from: a chip hover, its prefetch, or the object page. */
+export type EvidencePreviewSource = "hover" | "prefetch" | "page";
+
 export interface EvidencePreviewShownProperties {
   kind: string;
   cache: "hit" | "miss";
@@ -1448,14 +1451,14 @@ export interface EvidencePreviewShownProperties {
 
 export interface EvidencePreviewReadyProperties {
   kind: string;
-  source: "hover" | "prefetch";
+  source: EvidencePreviewSource;
   latency_ms: number;
   has_preview: boolean;
 }
 
 export interface EvidencePreviewFailedProperties {
   kind: string;
-  source: "hover" | "prefetch";
+  source: EvidencePreviewSource;
   latency_ms: number;
 }
 

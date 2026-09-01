@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -15,9 +16,10 @@ import {
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
+  EVIDENCE_PREVIEW_STALE_TIME,
   type EvidenceCardData,
-  fetchEvidencePreview,
 } from "@posthog/ui/features/editor/evidencePreview";
+import { fetchEvidencePreviewTimed } from "@posthog/ui/features/editor/evidencePreviewAnalytics";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -131,9 +133,13 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
 function UnavailableObject({
   isError,
   objectKind,
+  onRetry,
+  retrying,
 }: {
   isError: boolean;
   objectKind: string;
+  onRetry?: () => void;
+  retrying?: boolean;
 }) {
   const ObjectIcon = getObjectKind(objectKind).icon;
   return (
@@ -149,10 +155,23 @@ function UnavailableObject({
         </EmptyTitle>
         <EmptyDescription>
           {isError
-            ? "Try again, or open PostHog to review it."
+            ? "The request failed. Try again, or open PostHog to review it."
             : "Check the identifier or open PostHog to review access."}
         </EmptyDescription>
       </EmptyHeader>
+      {isError && onRetry && (
+        <EmptyContent>
+          <Button
+            variant="primary"
+            size="default"
+            data-attr="posthog-object-retry"
+            loading={retrying}
+            onClick={onRetry}
+          >
+            Try again
+          </Button>
+        </EmptyContent>
+      )}
     </Empty>
   );
 }
@@ -167,6 +186,9 @@ export interface PostHogObjectViewProps {
   occurrenceCount?: number;
   state: "loading" | "error" | "missing" | "ready";
   preview: EvidenceCardData | null;
+  /** Runs the preview request again from the error state. */
+  onRetry?: () => void;
+  retrying?: boolean;
 }
 
 /** Pure page body; `PostHogObjectPage` resolves the preview and URL. */
@@ -178,6 +200,8 @@ export function PostHogObjectPageView({
   occurrenceCount,
   state,
   preview,
+  onRetry,
+  retrying,
 }: PostHogObjectViewProps) {
   const object = getObjectKind(objectKind);
   const ObjectIcon = object.icon;
@@ -277,6 +301,8 @@ export function PostHogObjectPageView({
             <UnavailableObject
               isError={state === "error"}
               objectKind={objectKind}
+              onRetry={onRetry}
+              retrying={retrying}
             />
           )}
         </div>
@@ -306,13 +332,14 @@ export function PostHogObjectPage({
   const query = useAuthenticatedQuery(
     ["evidence-preview", metadata.object_kind, metadata.object_id],
     (client) =>
-      fetchEvidencePreview(client, {
-        kind: metadata.object_kind,
-        id: metadata.object_id,
-      }),
+      fetchEvidencePreviewTimed(
+        client,
+        { kind: metadata.object_kind, id: metadata.object_id },
+        "page",
+      ),
     {
       enabled: !usesChartRenderer,
-      staleTime: 5 * 60 * 1000,
+      staleTime: EVIDENCE_PREVIEW_STALE_TIME,
       refetchOnWindowFocus: false,
       retry: 1,
     },
@@ -340,6 +367,8 @@ export function PostHogObjectPage({
       occurrenceCount={metadata.occurrence_count}
       state={state}
       preview={query.data ?? null}
+      onRetry={() => void query.refetch()}
+      retrying={query.isFetching}
     />
   );
 }

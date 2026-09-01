@@ -362,6 +362,45 @@ describe("PostHogAPIClient", () => {
       expect(listUrl.pathname).toBe("/api/projects/42/persons/");
       expect(listUrl.searchParams.get("search")).toBe(distinctId);
     });
+
+    const clientWithStatus = (status: number) =>
+      new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        {
+          fetch: vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ detail: "Nope." }), {
+              status,
+              headers: { "Content-Type": "application/json" },
+            }),
+          ),
+        },
+      );
+
+    it.each([
+      ["ticket", "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+      ["replay", "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+      ["survey", "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+      ["eval", "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+      ["dashboard", "7"],
+      ["cohort", "7"],
+      ["action", "7"],
+    ])("returns null for a %s the project cannot read", async (kind, id) => {
+      await expect(
+        clientWithStatus(404).getEvidencePreview(kind, id),
+      ).resolves.toBeNull();
+      await expect(
+        clientWithStatus(403).getEvidencePreview(kind, id),
+      ).resolves.toBeNull();
+    });
+
+    it("still throws when the lookup fails for another reason", async () => {
+      await expect(
+        clientWithStatus(500).getEvidencePreview("ticket", "ticket-1"),
+      ).rejects.toBeInstanceOf(ApiRequestError);
+    });
   });
 
   it("fetches later task pages before reporting complete results", async () => {

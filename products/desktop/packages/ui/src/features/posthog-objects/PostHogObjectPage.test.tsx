@@ -14,27 +14,12 @@ const useEvidenceUrl = vi.hoisted(() =>
   ),
 );
 
+const query = vi.hoisted(() => ({
+  current: {} as Record<string, unknown>,
+}));
+
 vi.mock("@posthog/ui/hooks/useAuthenticatedQuery", () => ({
-  useAuthenticatedQuery: () => ({
-    isPending: false,
-    isError: false,
-    data: {
-      title: "new-checkout-flow",
-      detail: "Enabled",
-      // The preview resolves the flag key to its numeric id.
-      resolvedId: "42",
-      facts: ["100% rollout", "Used by 1 experiment"],
-      sections: [
-        {
-          title: "Configuration",
-          fields: [
-            { label: "Type", value: "Boolean" },
-            { label: "Release conditions", value: "All users" },
-          ],
-        },
-      ],
-    },
-  }),
+  useAuthenticatedQuery: () => query.current,
 }));
 
 vi.mock("@posthog/ui/features/editor/components/EvidenceRefChip", () => ({
@@ -48,6 +33,28 @@ describe("PostHogObjectPage", () => {
       configurable: true,
       value: { writeText },
     });
+    query.current = {
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+      data: {
+        title: "new-checkout-flow",
+        detail: "Enabled",
+        // The preview resolves the flag key to its numeric id.
+        resolvedId: "42",
+        facts: ["100% rollout", "Used by 1 experiment"],
+        sections: [
+          {
+            title: "Configuration",
+            fields: [
+              { label: "Type", value: "Boolean" },
+              { label: "Release conditions", value: "All users" },
+            ],
+          },
+        ],
+      },
+    };
     render(
       <Theme>
         <PostHogObjectPage
@@ -81,5 +88,27 @@ describe("PostHogObjectPage", () => {
         screen.getByRole("button", { name: "ID copied" }),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("retries the preview when the load failed", () => {
+    const refetch = vi.fn();
+    query.current = {
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      refetch,
+      data: undefined,
+    };
+    render(
+      <Theme>
+        <PostHogObjectPage
+          fallbackName="Ticket fallback"
+          metadata={{ object_kind: "ticket", object_id: "ticket-1" }}
+        />
+      </Theme>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

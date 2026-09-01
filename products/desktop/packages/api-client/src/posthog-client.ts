@@ -6733,6 +6733,21 @@ export class PostHogAPIClient {
     kind: string,
     id: string,
   ): Promise<EvidencePreview | null> {
+    try {
+      return await this.resolveEvidencePreview(kind, id);
+    } catch (error) {
+      // An object that was deleted, or that this project cannot read, is not
+      // a failure: the caller shows a static reference instead.
+      const status = requestErrorStatus(error);
+      if (status === 404 || status === 403) return null;
+      throw error;
+    }
+  }
+
+  private async resolveEvidencePreview(
+    kind: string,
+    id: string,
+  ): Promise<EvidencePreview | null> {
     const projectId = (await this.getTeamId()).toString();
     const numericId = /^\d+$/.test(id) ? Number(id) : null;
 

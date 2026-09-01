@@ -220,6 +220,19 @@ export const Loading: Story = {
   },
 };
 
+export const FailedToLoad: Story = {
+  args: {
+    objectKind: "ticket",
+    objectId: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    fallbackName: "Support ticket",
+    url: "https://us.posthog.com/project/2/support",
+    occurrenceCount: 1,
+    state: "error",
+    preview: null,
+    onRetry: () => {},
+  },
+};
+
 export const MissingObject: Story = {
   args: {
     objectKind: "flag",
