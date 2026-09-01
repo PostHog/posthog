@@ -41,6 +41,13 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * The actionable query-failure family the backend raises for a query it declined to run: 512 for a
+ * query it estimates is too slow, 513 for one that ran out of ClickHouse memory. `getInsightErrorKind`
+ * routes both to the insight error panel with retry, so they are a designed outcome, not a defect.
+ */
+const HANDLED_QUERY_FAILURE_STATUSES: ReadonlySet<number> = new Set([512, 513])
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -54,6 +61,8 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - 512/513 — the query-failure family the insight error state already renders with retry, also
+ *   recorded by the `insight error message shown` capture.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -72,7 +81,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === undefined) {
         return true
     }
-    if (status === 401 || isTransientGatewayStatus(status)) {
+    if (status === 401 || isTransientGatewayStatus(status) || HANDLED_QUERY_FAILURE_STATUSES.has(status)) {
         return false
     }
     if (isAccessDeniedError(failure)) {
