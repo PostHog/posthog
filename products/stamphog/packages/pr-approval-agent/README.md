@@ -75,7 +75,8 @@ Size ceiling (hard gate)
     within the `overrides` contract in policy.yml (see .stamphog/README.md)
   - The whole PR still has to fit the most generous ceiling in play, so
     per-scope budgets never sum. With no folder grant that roof is the global
-    ceiling above, which keeps the derivation and the gate measuring PR size
+    ceiling above, so the gate keeps measuring the PR size these limits were
+    derived from
   - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
