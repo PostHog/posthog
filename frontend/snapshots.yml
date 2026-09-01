@@ -1292,6 +1292,14 @@ snapshots:
         hash: v1.k794b7964.868caa7623ec9c4b1675cfb19f4cab893c4de645ce9d557b98d955c003dd741e.Rf8-ZIb5gy4vbo9vmyZ6YxI7B1LSxxNkG5ONyk7YQUk
     components-itemperformanceevent--no-performance-observer-captured-data--light:
         hash: v1.k794b7964.bfe32c7d513222270317b40c3e5721c5f9f968bd9bcda1026c8ccde52c86295e.iXYO1V2JKWEJGnB10yUKqSxoVCMbCaaDEpQImac6r3I
+    components-itemperformanceevent--no-response-recorded--dark:
+        hash: v1.k794b7964.d25643a9785e6ae04ac2a7f8c73393692abfaf4f8fbb9bc57f0125e9428e0da5.G4aWYn5d1xdoNpX0mJincAKnc7ofCWTsNAfZR5rzOxw
+    components-itemperformanceevent--no-response-recorded--light:
+        hash: v1.k794b7964.a4621b27841d2dce2bb7d20798ed6f9c7dd3e48e1695743f9065a75ba0552cc5.kWMI3AIXx-DYWUuTsmaiqG7T9DK8Wevu9VzcTJBbyoY
+    components-itemperformanceevent--timed-out-body-display--dark:
+        hash: v1.k794b7964.8558b680a337aff8beac6a2af6c9a2664f27c3c00a950cbf90681bc4bd97351c.OKknzco6mhDt_Q1dAVpp2gG7pqZbdxif2b5S5Tq7dOk
+    components-itemperformanceevent--timed-out-body-display--light:
+        hash: v1.k794b7964.4c0a64785d3a9f20db8cfd594e5a44ff7c05a3d9d6ea5ee3f20010f5c38e975a.q5lMkH4L2ZG9W4fO6WHCjJ6WTdiJTTlJktU2DSQQMK8
     components-markdown-editor-inline--bubble-menu-and-slash-commands--dark:
         hash: v1.k794b7964.a2c70c465689c5fbcb781e3748805a3411d8312a3b6fb512bb662273bfa8a6ed.L3RvOOkAyB_85uLzfdti9I2h96tS45LTWamutDYIMoE
     components-markdown-editor-inline--bubble-menu-and-slash-commands--light:
