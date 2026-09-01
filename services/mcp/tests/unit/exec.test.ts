@@ -1108,19 +1108,28 @@ describe('exec tool', () => {
             )
         })
 
-        it('hints scope-gated tools that match but are hidden by missing scopes', async () => {
+        it('hints scope-gated tools that match, each labeled with its access class', async () => {
             const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
                 {
                     name: 'external-data-sources-refresh-schemas',
                     title: 'Refresh available schemas',
                     description: 'Fetch the latest table list from the remote database',
                     missingScopes: ['external_data_source:write'],
+                    access: 'write',
                 },
                 {
                     name: 'external-data-schemas-list',
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    access: 'read',
+                },
+                {
+                    name: 'external-data-sources-delete',
+                    title: 'Delete data source',
+                    description: 'Delete a data source connection',
+                    missingScopes: ['external_data_source:write'],
+                    access: 'destructive',
                 },
             ])
             const result = JSON.parse(
@@ -1129,9 +1138,20 @@ describe('exec tool', () => {
                 })) as string
             )
             expect(result.matches).toEqual([])
+            // Each gated match carries its own access class, so a destructive gated tool
+            // is never read the read-only-by-omission way `matches` are.
             expect(result.scope_gated_matches).toEqual([
-                { name: 'external-data-sources-refresh-schemas', missing_scopes: ['external_data_source:write'] },
-                { name: 'external-data-schemas-list', missing_scopes: ['external_data_source:read'] },
+                {
+                    name: 'external-data-sources-refresh-schemas',
+                    access: 'write',
+                    missing_scopes: ['external_data_source:write'],
+                },
+                { name: 'external-data-schemas-list', access: 'read', missing_scopes: ['external_data_source:read'] },
+                {
+                    name: 'external-data-sources-delete',
+                    access: 'destructive',
+                    missing_scopes: ['external_data_source:write'],
+                },
             ])
             expect(result.hint).toContain('external_data_source:read')
             expect(result.hint).toContain('external_data_source:write')
@@ -1145,6 +1165,7 @@ describe('exec tool', () => {
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    access: 'read',
                 },
             ])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
@@ -1173,13 +1194,14 @@ describe('exec tool', () => {
                     title: 'Create experiment',
                     description: 'Create a new experiment',
                     missingScopes: ['experiment:write'],
+                    access: 'write',
                 },
             ])
             const result = JSON.parse(
                 (await exec.handler(mockContext, { command: 'search create experiment' })) as string
             )
             expect(result.scope_gated_matches).toEqual([
-                { name: 'experiment-create', missing_scopes: ['experiment:write'] },
+                { name: 'experiment-create', access: 'write', missing_scopes: ['experiment:write'] },
             ])
             expect(result.hint).toContain('experiment:write')
         })
@@ -1254,6 +1276,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        access: 'write',
                     },
                 ])
 

@@ -771,6 +771,7 @@ export function createExecTool(
                             ...access,
                             scope_gated_matches: gatedMatches.map((t) => ({
                                 name: t.name,
+                                access: t.access,
                                 missing_scopes: t.missingScopes,
                             })),
                             hint:
