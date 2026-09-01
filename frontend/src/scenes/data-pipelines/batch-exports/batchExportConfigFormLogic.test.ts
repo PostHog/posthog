@@ -478,6 +478,30 @@ describe('batchExportConfigFormLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Dataset ID'))
             expect(lemonToast.error).not.toHaveBeenCalledWith(expect.stringContaining('Table ID'))
         })
+
+        // A filled-but-invalid field carries a format error, not a "required" one. The toast must show
+        // that message verbatim, not tell the person to fill a field they already filled.
+        it('toasts a destination format error verbatim, not a required-field prompt', async () => {
+            await initLogic({ service: 'AwsS3', id: null })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                bucket_name: 'MyBucket',
+                region: 'us-east-1',
+                prefix: 'test/',
+                integration_id: 31,
+                file_format: 'Parquet',
+                interval: 'hour',
+                name: 'Test Export',
+                model: 'events',
+            })
+
+            logic.actions.submitConfiguration()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Bucket name must be lowercase')
+            expect(lemonToast.error).not.toHaveBeenCalledWith(expect.stringContaining('Fill in the required fields'))
+        })
     })
 
     describe('S3 bucket name validation', () => {

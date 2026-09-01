@@ -122,6 +122,10 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
 // leave it out by default. It shows up prefilled under "Exclude events" and can be removed there.
 export const DEFAULT_EXCLUDE_EVENTS = ['$feature_flag_called']
 
+// Sentinel message the form's `errors` builder writes for an empty required field. Kept in one place
+// so the submit-failure listener can tell required errors apart from destination format errors.
+const REQUIRED_FIELD_ERROR = 'This field is required'
+
 // Turn a form field key into a label for the "required fields" toast, e.g. `table_id` -> "Table ID".
 function humanizeFieldName(field: string): string {
     const spaced = field.replace(/_id$/, ' ID').replace(/_/g, ' ')
@@ -1174,15 +1178,27 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         },
         submitConfigurationFailure: () => {
             // kea-forms blocks the submit and turns the offending fields red, but the Create button
-            // stays enabled and nothing points at what's wrong. Name the blocking fields and scroll
-            // the first one into view so the failed click isn't silent. A handler that threw (an API
-            // error, already toasted elsewhere) leaves configurationErrors empty, so nothing is named.
-            const blockingFields = Object.entries(values.configurationErrors ?? {})
-                .filter(([, message]) => typeof message === 'string')
-                .map(([field]) => humanizeFieldName(field))
+            // stays enabled and nothing points at what's wrong. Surface what's wrong and scroll the
+            // first errored field into view so the failed click isn't silent. A handler that threw (an
+            // API error, already toasted elsewhere) leaves configurationErrors empty, so nothing shows.
+            //
+            // configurationErrors mixes two kinds of message: an empty required field, and a
+            // destination format error (e.g. "Bucket name must be lowercase"). Name the empty fields
+            // together, but show a format error verbatim — telling someone to fill in a field they
+            // already filled names the wrong cause and action.
+            const errorEntries = Object.entries(values.configurationErrors ?? {}).filter(
+                ([, message]) => typeof message === 'string'
+            ) as [string, string][]
 
-            if (blockingFields.length > 0) {
-                lemonToast.error(`Fill in the required fields: ${blockingFields.join(', ')}`)
+            const missingFields = errorEntries
+                .filter(([, message]) => message === REQUIRED_FIELD_ERROR)
+                .map(([field]) => humanizeFieldName(field))
+            if (missingFields.length > 0) {
+                lemonToast.error(`Fill in the required fields: ${missingFields.join(', ')}`)
+            }
+
+            for (const [, message] of errorEntries.filter(([, message]) => message !== REQUIRED_FIELD_ERROR)) {
+                lemonToast.error(message)
             }
 
             setTimeout(
@@ -1211,10 +1227,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         configuration: {
             errors: (formdata) => {
                 const requiredFieldErrors = Object.fromEntries(
-                    values.requiredFields.map((field) => [
-                        field,
-                        formdata[field] ? undefined : 'This field is required',
-                    ])
+                    values.requiredFields.map((field) => [field, formdata[field] ? undefined : REQUIRED_FIELD_ERROR])
                 )
 
                 const destination = formdata.destination as BatchExportService['type'] | undefined
