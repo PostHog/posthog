@@ -23021,6 +23021,7 @@ export namespace Schemas {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -24350,6 +24351,7 @@ export namespace Schemas {
       Customerly: 'Customerly',
       Datascope: 'Datascope',
       Dbt: 'Dbt',
+      Demodesk: 'Demodesk',
       Deputy: 'Deputy',
       DevinAI: 'DevinAI',
       Docuseal: 'Docuseal',
@@ -25693,6 +25695,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
@@ -27770,6 +27773,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
@@ -36257,6 +36261,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
@@ -37620,6 +37625,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
@@ -77790,6 +77796,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
@@ -79161,6 +79168,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
@@ -80522,6 +80530,7 @@ export namespace Schemas {
        * * `Customerly` - Customerly
        * * `Datascope` - Datascope
        * * `Dbt` - Dbt
+       * * `Demodesk` - Demodesk
        * * `Deputy` - Deputy
        * * `DevinAI` - DevinAI
        * * `Docuseal` - Docuseal
