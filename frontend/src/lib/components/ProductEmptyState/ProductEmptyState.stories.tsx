@@ -9,6 +9,7 @@ import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
@@ -203,6 +204,17 @@ const cohortsMocks = {
 export const CohortsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(cohortsEmptyState, 'needs-setup', {
     mocks: cohortsMocks,
 })
+
+// Dashboards detection lists dashboards on mount - answer "none yet".
+const dashboardsMocks = {
+    get: { '/api/projects/:team_id/dashboards/': [200, { count: 0, results: [] }] },
+} as const
+
+export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dashboardsEmptyState,
+    'needs-setup',
+    { mocks: dashboardsMocks }
+)
 
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {

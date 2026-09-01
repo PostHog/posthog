@@ -25,6 +25,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
   useActivitySelection,
@@ -400,15 +401,9 @@ function BrowserTabStripImpl() {
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      // Settings is a full-window overlay that classifies as the spaces pane, so
-      // recording its href here would overwrite the tab's real last spaces
-      // location and a later Spaces rail click would reopen Settings. Keep the
-      // existing map on the settings route, as the strip did before settings
-      // stayed mounted.
-      lastByPane:
-        routeAppView === "settings"
-          ? previousLastByPane
-          : { ...previousLastByPane, [railPane]: visit },
+      lastByPane: isRestorableVisitHref(railPane, locationHref)
+        ? { ...previousLastByPane, [railPane]: visit }
+        : previousLastByPane,
     };
     const decision = decideTabNavigation({
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
