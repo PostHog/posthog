@@ -125,6 +125,34 @@ def test_build_dependent_resource_forwards_endpoint_extras(mock_rest_api_resourc
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_threads_parent_data_selector(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_data_selector="data",
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+    )
+
+    config = mock_rest_api_resources.call_args.args[0]
+    parent_endpoint = config["resources"][0]["endpoint"]
+    child_endpoint = config["resources"][1]["endpoint"]
+    # The selector unwraps an enveloped parent list; the child request keeps its bare-list shape.
+    assert parent_endpoint["data_selector"] == "data"
+    assert "data_selector" not in child_endpoint
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_resources) -> None:
     mock_rest_api_resources.return_value = [_stub_child_resource()]
     build_dependent_resource(

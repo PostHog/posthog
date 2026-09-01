@@ -17,6 +17,10 @@ APP_ID_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=["id"],
     parent_field_renames={"id": "app_id"},
+    # `/v1/apps` wraps its rows in a `{"data": [...]}` envelope, same as the standalone Apps
+    # resource. Without this, the fan-out reads the envelope as one parent row and every child
+    # sync fails before it fetches a row.
+    parent_data_selector="data",
 )
 
 

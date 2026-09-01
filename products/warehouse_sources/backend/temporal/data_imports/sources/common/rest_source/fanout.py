@@ -39,6 +39,11 @@ class DependentEndpointConfig:
     parent_field_renames: dict[str, str] = field(default_factory=dict)
     parent_params: dict[str, Any] = field(default_factory=dict)
     child_params: dict[str, Any] = field(default_factory=dict)
+    # Selects the parent row list inside an enveloped list response (e.g. `"data"` for a
+    # `{"data": [...]}` body). Leave None when the parent endpoint returns a bare array.
+    # Without it, an enveloped body is read as a single parent row and the fan-out fails when
+    # `process_parent_data_item` cannot find the resolve field on the envelope.
+    parent_data_selector: str | None = None
     # Applied to the CHILD request only. Use this to tolerate a per-parent-item failure (e.g. a
     # 404 for a parent row deleted/merged between the parent listing and this child fetch)
     # without failing the whole fan-out — see resource.py's response_actions "ignore" handling.
@@ -124,6 +129,8 @@ def build_dependent_resource(
         "path": parent_path,
         "params": parent_params,
     }
+    if fanout.parent_data_selector is not None:
+        parent_endpoint_config["data_selector"] = fanout.parent_data_selector
     if parent_endpoint_extra:
         if "params" in parent_endpoint_extra:
             raise ValueError(

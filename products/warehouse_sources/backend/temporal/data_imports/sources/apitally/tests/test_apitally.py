@@ -1,16 +1,22 @@
 from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally import (
+    _client_config,
     _format_apitally_datetime,
     _incremental_window,
     apitally_source,
     get_resource,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.settings import APITALLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
@@ -36,6 +42,47 @@ class _FakeDltResource:
 
     def __iter__(self):
         return iter(self._rows)
+
+
+class _FakePreparedRequest:
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.headers: dict[str, str] = {}
+
+
+class _FakeResponse:
+    def __init__(self, body: Any) -> None:
+        self._body = body
+        self.status_code = 200
+        self.is_redirect = False
+
+    def json(self) -> Any:
+        return self._body
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class _EnvelopeParentSession:
+    """Fake `requests` session: the parent `/v1/apps` returns an enveloped body, each child a bare list."""
+
+    def __init__(self, apps: list[dict[str, Any]], children_by_app: dict[str, list[dict[str, Any]]]) -> None:
+        self.headers: dict[str, str] = {}
+        self._apps = apps
+        self._children_by_app = children_by_app
+        self.requested_paths: list[str] = []
+
+    def prepare_request(self, request: Any) -> _FakePreparedRequest:
+        return _FakePreparedRequest(request.url)
+
+    def send(self, prepared: _FakePreparedRequest, allow_redirects: bool = True, timeout: Any = None) -> _FakeResponse:
+        path = urlsplit(prepared.url).path
+        self.requested_paths.append(path)
+        if path == "/v1/apps":
+            return _FakeResponse({"data": self._apps})
+        # /v1/apps/{app_id}/consumers
+        app_id = path.split("/")[3]
+        return _FakeResponse(self._children_by_app.get(app_id, []))
 
 
 def _response(status_code: int = 200, json_body: Any = None, text: str = "") -> Mock:
@@ -250,6 +297,44 @@ class TestApitallyFanout:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["incremental_field"] == "period_end"
         assert kwargs["incremental_config_factory"] is _incremental_window
+
+    def test_fanout_extracts_enveloped_parent_and_fetches_children(self) -> None:
+        # `/v1/apps` wraps its rows in a `{"data": [...]}` envelope. Drive the real fan-out
+        # through a fake transport: without `parent_data_selector` the parent page is the
+        # envelope itself, so `process_parent_data_item` cannot find "id" and every child
+        # sync fails before it fetches a row.
+        session = _EnvelopeParentSession(
+            apps=[{"id": "app-1"}, {"id": "app-2"}],
+            children_by_app={
+                "app-1": [{"id": "consumer-1"}],
+                "app-2": [{"id": "consumer-2"}, {"id": "consumer-3"}],
+            },
+        )
+        client_config = cast(Any, {**_client_config("key"), "session": session})
+
+        resource = build_dependent_resource(
+            endpoint_configs=APITALLY_ENDPOINTS,
+            child_endpoint="Consumers",
+            fanout=cast(Any, APITALLY_ENDPOINTS["Consumers"].fanout),
+            client_config=client_config,
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+        )
+
+        rows = [row for page in cast(Any, resource) for row in page]
+
+        assert [(row["app_id"], row["id"]) for row in rows] == [
+            ("app-1", "consumer-1"),
+            ("app-2", "consumer-2"),
+            ("app-2", "consumer-3"),
+        ]
+        assert session.requested_paths == [
+            "/v1/apps",
+            "/v1/apps/app-1/consumers",
+            "/v1/apps/app-2/consumers",
+        ]
 
     def test_client_config_uses_cursor_paginator_and_api_key_header(self) -> None:
         with patch(
