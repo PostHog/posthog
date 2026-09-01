@@ -1343,11 +1343,19 @@ class TestSandboxTaskCostThrottle:
         assert (await throttle.allow_request(context)).allowed is True
 
     @pytest.mark.asyncio
-    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(self) -> None:
+    @pytest.mark.parametrize(
+        ("product", "user"),
+        [
+            ("signals", make_signals_user(interactive=True)),
+            ("slack_app", make_user()),
+        ],
+    )
+    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(
+        self, product: str, user: AuthenticatedUser
+    ) -> None:
         throttle = SandboxTaskCostThrottle(redis=None)
-        user = make_signals_user(interactive=True)
-        spent = make_context(product="signals", user=user, sandbox_task_id="task-1")
-        sibling = make_context(product="signals", user=user, sandbox_task_id="task-2")
+        spent = make_context(product=product, user=user, sandbox_task_id="task-1")
+        sibling = make_context(product=product, user=user, sandbox_task_id="task-2")
         limit, _ = throttle._get_limit_and_window(spent)
 
         await throttle.record_cost(spent, limit)

@@ -95,6 +95,10 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 # runs are far shorter than this, so in practice each task gets one budget for its lifetime.
 DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "signals_interactive": ProductCostLimit(limit_usd=50.0, window_seconds=604800),
+    # Slack runs had no ceiling but the run duration cap, which lets one stuck run spend for
+    # hours. A Slack task is the thread, so the budget covers every reply in it; the window is a
+    # day rather than a week so a thread a person comes back to does not inherit yesterday's spend.
+    "slack_app": ProductCostLimit(limit_usd=200.0, window_seconds=86400),
 }
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
