@@ -36,6 +36,8 @@ from posthog.temporal.data_modeling.activities import (
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
+    DESCRIBE_FALLBACK_MAX_EXECUTION_TIME,
+    DESCRIBE_QUERY_SETTINGS,
     LOGGER,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
@@ -1644,7 +1646,7 @@ class _EmptyArrowClient:
         self.describe_settings: dict[str, str] | None = None
         self.describe_query: str | None = None
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
-        self.reject_describe_with_settings = False
+        self.reject_local_describe = False
         self.arrow_query: str | None = None
 
     async def astream_query_as_arrow(
@@ -1673,7 +1675,9 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
-            if self.reject_describe_with_settings and settings is not None:
+            # ClickHouse cannot plan the downgraded probe for some shapes: reject the copy that
+            # dropped GLOBAL, so only the untouched fallback describes.
+            if self.reject_local_describe and "globalIn(" not in query:
                 raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
             self.describe_settings = settings
             self.describe_query = query
@@ -1785,7 +1789,7 @@ class TestHogqlTableDescribeSettings:
     async def test_describe_probe_falls_back_to_the_untouched_query(self, ateam: Team) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
         client.describe_body = b"distinct_id\tString\n"
-        client.reject_describe_with_settings = True
+        client.reject_local_describe = True
         query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
 
         @contextlib.asynccontextmanager
@@ -1797,11 +1801,14 @@ class TestHogqlTableDescribeSettings:
         ):
             batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
+        # Both probes keep the settings that hold GLOBAL off; the fallback still runs the untouched
+        # GLOBAL query, so it is capped far below the activity budget to fail fast.
         assert [settings for _, settings in client.describe_calls] == [
-            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"},
-            None,
+            DESCRIBE_QUERY_SETTINGS,
+            DESCRIBE_QUERY_SETTINGS,
         ]
         assert "globalIn(" in client.describe_calls[1][0]
+        assert f"max_execution_time={DESCRIBE_FALLBACK_MAX_EXECUTION_TIME}" in client.describe_calls[1][0]
         assert batches[0][1] == [("distinct_id", "String")]
 
 
