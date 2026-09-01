@@ -883,7 +883,12 @@ export function autoFormatYTick(value: number, domainMax: number): string {
 
 export function autoFormatterFor(ticks: number[]): (value: number) => string {
     const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
-    return (v) => autoFormatYTick(v, domainMax)
+    const formatter = (value: number): string => autoFormatYTick(value, domainMax)
+
+    if (new Set(ticks.map(formatter)).size < new Set(ticks).size) {
+        return (value) => value.toLocaleString('en-US', { maximumFractionDigits: 10 })
+    }
+    return formatter
 }
 
 export function resolveYScaleForSeries<S extends (value: number) => number>(

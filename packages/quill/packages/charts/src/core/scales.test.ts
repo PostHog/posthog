@@ -1,6 +1,7 @@
 import { dimensions, makeSeries } from '../testing'
 import {
     applyValueBounds,
+    autoFormatterFor,
     autoFormatYTick,
     buildSegmentResolveValue,
     buildStackedPositionValue,
@@ -869,6 +870,15 @@ describe('hog-charts scales', () => {
 
         it('formats negative values correctly', () => {
             expect(autoFormatYTick(-5, 10)).toBe('-5')
+        })
+    })
+
+    describe('autoFormatterFor', () => {
+        it('keeps fractional ticks distinct on an axis that extends to five', () => {
+            const ticks = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+            const formatter = autoFormatterFor(ticks)
+
+            expect(ticks.map(formatter)).toEqual(['0', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5'])
         })
     })
 
