@@ -147,12 +147,14 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
 - Each slot records: complete or not, event count, byte count. The counts serve the budget in change 23.
+- The byte count is the payload plus the key plus every header key and value: the bytes the process holds for the message. Today's `CONSUMER_BATCH_SIZE_KB` counts the payload only; the budget is a memory bound, so it counts what is retained.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns one past the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix below the frontier.
 - The frontier is in Kafka's committed-offset representation: the next offset to read, not the last offset processed. The current commit path already commits in this representation (the poll's max offset plus one), so the frontier is commit-ready as returned — no call site adds or subtracts one.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
-- The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never block the frontier. The sentinel keeps the alert on gaps.
+- The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never block the frontier.
+- The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`ingestion_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
 - Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
 
 **Interfaces:**
@@ -186,6 +188,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 - Add `ingestion_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
 - Add `ingestion_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
+- Add `ingestion_consumer_ledger_gaps_total` (counter): offset gaps the ledger walked over. Expected to stay at zero on the ingestion topics; a non-zero value is the signal the sentinel's gap alert gave before change 5 retires it.
 
 ### 4. Commit from the ledger frontier (switchover)
 
@@ -250,7 +253,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 **Goal:** The dispatch concurrency becomes an implementation detail behind one interface.
 
 - Interface in: one accumulator per poll — the poll's demuxed groups, submitted on the consumer loop in poll order.
-- Interface out: one completion event per group, with its partition, offsets, and accepted count.
+- Interface out: one completion event per group, with its partition, its assignment epoch, its offsets, and its accepted count.
 - This is the design doc's boundary: accumulators in, completions out. It is the final shape and does not change again.
 - No batch identity crosses the boundary. The facade creates an internal batch id per accumulator for the old machinery and the wire request. The consumer correlates completions by partition and offset — the same key the ledger uses.
 - The facade breaks each resolved send into its groups. The send resolution in `scatter` already carries them (`routing_keys` and `key_offsets` on `PendingSubBatch`), and a send is all-or-nothing.
@@ -259,14 +262,14 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion — moving code without changing it — not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the admission cap. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
 - The no-progress watchdog survives the move: a poll that gains no completions for the stall window fails the process and replays, exactly as the deferred-flush timeout does today. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
-- The consumer discards a completion for a partition it no longer owns (the revoke dropped its ledger) and counts it. Cycle 10 replaces this with the assignment-epoch check.
+- The consumer discards a completion whose epoch is not the partition's current epoch, and counts it. The epoch already exists on master. Carrying it on the completion from this change closes the window a partition-ownership check leaves open: a partition revoked and reassigned while a group is out gets a new ledger, and the old incarnation's completion must not land in it.
 - Changes 8 and 9 extract the scheduler seam inside this boundary.
 
 **Interfaces:**
 
 - Add `Accumulator`: one poll's groups, in poll order.
 - Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in, a channel of `GroupCompletion` out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`. It creates batch ids internally.
-- Add `GroupCompletion`: partition, offsets, accepted count. No batch id.
+- Add `GroupCompletion`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
 - Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by partition and offset.
 - Modify `main.rs`: construct one `Batcher` from the existing transport, registry, and router. The consumer no longer sees the dispatcher.
 - Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them.
@@ -595,7 +598,7 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 - Charge each message on poll. The ledger slots already carry the costs (change 2).
 - Refund the charge when the commit that covers the message is issued.
 - Gauge the outstanding charge per partition and in total.
-- New config: the budget in events and in bytes. Unset means no constraint.
+- New config: the budget in events and in bytes, and the low watermark as a fraction of the budget (default 0.8). Unset means no constraint.
 
 **Interfaces:**
 
@@ -615,7 +618,8 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 
 - A charts values PR sets the budget lane by lane. The admission cap and the budget both bound work during the transition.
 - Derive the first values from the current config: events near the batch size times the cap, bytes from the byte bound. The effective bound then does not change at the switchover.
-- Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
+- Pause the assignment when the outstanding charge reaches the budget on either axis. Resume only when it is back at or under the low watermark on both axes. A pause purges librdkafka's fetch queue and a resume refetches it, so a gate that reopens on the first refund refetches on every crossing.
+- Do not stop polling while paused. A paused consumer still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled one does neither. When a partition is assigned while the gate is closed, pause it too: an assignment resets librdkafka's pause flags.
 - Watch the pause gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
 
 **Interfaces:**
@@ -640,7 +644,8 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 Outcome: a revocation drains in bounded time, and a wedged partition fails the process instead of hanging. Needs cycle 3.
 Until this cycle, revocation keeps today's behavior: no drain, uncommitted work replays on the new owner, and the old owner's in-flight sends finish as duplicate work. Nothing in cycles 1 to 9 changes that.
 
-**Verify:** e2e rebalance tests with the drain on, then the canary rebalance in change 28.
+**Verify:** rebalance tests with the drain on, then the canary rebalance in change 28.
+rdkafka's `MockCluster` runs cooperative rebalances with no broker container, so the drain ordering is testable in the crate. The mock coordinator delays the first join by 3 s and every later round by `session.timeout.ms` minus one second, so test consumers need a session timeout above 3 s.
 Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the deadline, and `ingestion_consumer_drain_dropped_messages_total` matches the expected replay volume.
 
 ### 26. Add revoke and drained markers (prepare)
@@ -659,17 +664,24 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 **Goal:** The drain exists and is tested. Off means today's behavior: replay without drain.
 
+- rdkafka runs the rebalance callback inside `poll`, on the task that awaits `recv()`: the consumer loop's own task. The callback must not wait for the drain, because the loop that would end the drain is the one blocked in the callback. On revoke the callback only reports; the loop hands the partitions back later with `incremental_unassign`, which librdkafka allows outside the callback. On assign the callback still calls `incremental_assign` at once; an assignment has nothing to wait for.
 - On revoke, send the in-band marker to the batcher, after earlier accumulators.
 - The batcher drops queued unsent work for the partition. Kafka replays it for the next owner.
 - Wait only for requests in flight. Send the drained marker after the final completion.
-- The loop issues one final commit, refunds the remaining charge, and unassigns the partition.
-- Check completions against the assignment epoch. The epoch already exists on master.
-- Add a stall deadline per partition. Outside a rebalance, an expired deadline fails the process. Replay is at most B.
+- The loop issues one final commit and refunds the remaining charge per partition. It hands the partitions back once every partition in the revoke set has drained, with one `incremental_unassign` carrying the list the callback received. A subset counts as the whole answer, and librdkafka re-revokes the rest in a later round.
+- While a revoke waits for the hand-back, librdkafka pauses every assigned partition, not only the revoked ones. The drain window is a pod-wide fetch pause, bounded by the request timeout. Set the rebalance timeout (`max.poll.interval.ms`) above the request timeout, and keep polling through the wait so the callbacks and the liveness clock keep running.
+- A lost assignment skips the final commit. When `assignment_lost()` is true at the revoke (the session or `max.poll.interval.ms` expired) or the callback reports an error, the broker has fenced the generation and the commit would fail. Drop the partition's ledger, refund its charge, hand it back at once, and still send the marker so the batcher clears its queues. Completions for it die by epoch.
+- Closing the consumer revokes the whole assignment through the same callback, and rdkafka's `Drop` polls until the close completes. A deferred hand-back there never comes and the drop spins forever. A `closing` flag makes the callback answer inline; set it before any path that drops the consumer, the clean shutdown and the fatal-error exit alike.
+- Shutdown is a drain of every assigned partition: a revoke marker per partition through the same path, the final commit per drained marker, then one synchronous commit of every partition's last attempted offset, then close. A drain cut short by the graceful-shutdown deadline replays its un-acked tail, bounded by B.
+- Empty assign events arrive after a hand-back and at the end of a rebalance round. They are no-ops.
+- Check completions against the assignment epoch. The epoch already exists on master and rides on `GroupCompletion` since change 7.
+- Add a stall deadline per partition, reset only when its frontier moves. Outside a rebalance, an expired deadline fails the process. A partition being drained stands down: its wait is bounded by the request timeout. Replay is at most B.
 
 **Interfaces:**
 
 - Modify `KeyTableScheduler`: drop queued work per partition on the revoke marker.
 - Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the stall deadline.
+- Modify `SentinelContext`: override `rebalance` so a revoke reports without unassigning, with the `closing` flag and the lost-assignment path above.
 - Modify `Config`: add the drain switch, default off.
 
 **Metrics:**
