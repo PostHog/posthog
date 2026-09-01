@@ -4,6 +4,7 @@ import {
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
     formatPropertyLabel,
+    groupTypeIndexForFilterKey,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -25,6 +26,8 @@ import {
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
+    GroupType,
+    GroupTypeIndex,
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -49,6 +52,39 @@ describe('isGroupCardFilterKey()', () => {
         { key: undefined, type: PropertyFilterType.Group, expected: false },
     ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
         expect(isGroupCardFilterKey(key, type)).toBe(expected)
+    })
+})
+
+describe('groupTypeIndexForFilterKey()', () => {
+    const groupTypes = new Map<GroupTypeIndex, GroupType>([
+        [0 as GroupTypeIndex, { group_type: 'organization', group_type_index: 0 as GroupTypeIndex }],
+        [1 as GroupTypeIndex, { group_type: 'project', group_type_index: 1 as GroupTypeIndex }],
+    ])
+
+    it.each([
+        // Group identity keys keep resolving against the filter's own group type.
+        { key: '$group_key', type: PropertyFilterType.Group, groupTypeIndex: 1, expected: 1 },
+        { key: 'id', type: PropertyFilterType.Group, groupTypeIndex: 1, expected: 1 },
+        { key: '$group_key', type: PropertyFilterType.Group, groupTypeIndex: undefined, expected: null },
+        // A `<group_type>_id` property holds a group key, whatever it hangs off.
+        { key: 'organization_id', type: PropertyFilterType.Person, groupTypeIndex: undefined, expected: 0 },
+        { key: 'organization_id', type: PropertyFilterType.Event, groupTypeIndex: undefined, expected: 0 },
+        { key: 'project_id', type: PropertyFilterType.Person, groupTypeIndex: undefined, expected: 1 },
+        { key: 'Organization_ID', type: PropertyFilterType.Person, groupTypeIndex: undefined, expected: 0 },
+        // No group type by that name, so nothing to resolve against.
+        { key: 'account_id', type: PropertyFilterType.Person, groupTypeIndex: undefined, expected: null },
+        { key: 'email', type: PropertyFilterType.Person, groupTypeIndex: undefined, expected: null },
+        { key: undefined, type: PropertyFilterType.Person, groupTypeIndex: undefined, expected: null },
+    ])('returns $expected for key=$key type=$type', ({ key, type, groupTypeIndex, expected }) => {
+        expect(groupTypeIndexForFilterKey(key, type, groupTypeIndex as GroupTypeIndex | undefined, groupTypes)).toBe(
+            expected
+        )
+    })
+
+    it('resolves nothing when the project has no group types', () => {
+        expect(
+            groupTypeIndexForFilterKey('organization_id', PropertyFilterType.Person, undefined, new Map())
+        ).toBeNull()
     })
 })
 

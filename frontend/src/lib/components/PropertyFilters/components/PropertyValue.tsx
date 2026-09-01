@@ -19,7 +19,11 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { useGroupKeyNames } from 'lib/components/PropertyFilters/components/useGroupKeyNames'
+import {
+    groupTypeIndexForFilterKey,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -33,6 +37,7 @@ import {
 } from 'lib/utils/operators'
 import { toString } from 'lib/utils/strings'
 
+import { groupsModel } from '~/models/groupsModel'
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
@@ -96,6 +101,7 @@ export function PropertyValue({
     propertyTypeOverride,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
+    const { groupTypes } = useValues(groupsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
     const propertyOptions = options[propertyKey]
     const isFlagDependencyProperty = type === PropertyFilterType.Flag
@@ -118,15 +124,24 @@ export function PropertyValue({
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
     const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
 
-    // A group property like `id` often holds the group key. We don't swap the
-    // value editor (that would break filtering the property by an arbitrary
-    // value), but we do decorate the value with a read-only group-info card so
-    // the user can confirm a pasted id resolves to the right group. Display only
+    // A property like a group's `id`, or `organization_id` on a person, holds a
+    // group key. We don't swap the value editor (that would break filtering the
+    // property by an arbitrary value), but we do label the value with the group's
+    // name and a read-only group-info card, so a list of pasted UUIDs is readable
+    // and the user can confirm each one resolves to the right group. Display only
     // — it falls back to the plain value when the lookup isn't a real group key.
-    const showGroupCardOnValue = isGroupCardFilterKey(propertyKey, type) && groupTypeIndex != null
+    const groupCardTypeIndex = groupTypeIndexForFilterKey(propertyKey, type, groupTypeIndex, groupTypes)
+    const showGroupCardOnValue = groupCardTypeIndex !== null
+    const selectedValues = useMemo(
+        () => (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(String),
+        [value]
+    )
+    const groupNames = useGroupKeyNames(groupCardTypeIndex, showGroupCardOnValue ? selectedValues : [])
+    const withGroupName = (groupKey: string): string =>
+        groupNames[groupKey] ? `(${groupNames[groupKey]}) ${groupKey}` : groupKey
     const groupCardTooltip = (groupKey: string): JSX.Element => (
         <GroupKeyFilterTooltip
-            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
+            groupTypeIndex={groupCardTypeIndex as GroupTypeIndex}
             groupKey={groupKey}
             fallbackLabel={groupKey}
         />
@@ -345,11 +360,11 @@ export function PropertyValue({
 
     if (!editable) {
         if (isGroupKeyProperty && groupKeyNames) {
-            const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-                String
-            )
-            const displayValues = rawValues.map((key) => groupKeyNames[key] || key)
+            const displayValues = selectedValues.map((key) => groupKeyNames[key] || key)
             return <>{displayValues.join(' or ')}</>
+        }
+        if (showGroupCardOnValue) {
+            return <>{selectedValues.map(withGroupName).join(' or ')}</>
         }
         return <>{formattedValues.join(' or ')}</>
     }
@@ -514,9 +529,10 @@ export function PropertyValue({
                 options={[
                     ...displayOptions.map(({ name: _name }, index) => {
                         const name = toString(_name)
+                        const label = showGroupCardOnValue ? withGroupName(name) : name
                         return {
                             key: name,
-                            label: name,
+                            label,
                             value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                             tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
                             labelComponent: (
@@ -524,19 +540,21 @@ export function PropertyValue({
                                     key={name}
                                     data-attr={'prop-val-' + index}
                                     className="ph-no-capture flex items-center gap-1.5"
-                                    title={name}
+                                    title={label}
                                 >
-                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                    {showGroupCardOnValue
+                                        ? label
+                                        : formatLabelContent(isFlagDependencyProperty ? _name : name)}
                                 </span>
                             ),
                         }
                     }),
-                    // A pasted group id is a custom value absent from the suggestions, so add
-                    // an option for each selected value to carry the group-card tooltip on its snack.
+                    // A pasted group id is a custom value absent from the suggestions, so add an
+                    // option for each selected value to carry its name and group card on its snack.
                     ...(showGroupCardOnValue
                         ? formattedValues
                               .filter((v) => !displayOptions.some((o) => toString(o.name) === v))
-                              .map((v) => ({ key: v, label: v, tooltip: groupCardTooltip(v) }))
+                              .map((v) => ({ key: v, label: withGroupName(v), tooltip: groupCardTooltip(v) }))
                         : []),
                 ]}
             />

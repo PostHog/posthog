@@ -36,6 +36,8 @@ import {
     FilterLogicalOperator,
     FlagPropertyFilter,
     GroupPropertyFilter,
+    GroupType,
+    GroupTypeIndex,
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
@@ -325,6 +327,36 @@ function formatBehavioralPropertyLabel(
 export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
     return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
 }
+
+// Which group type, if any, a filter's values can be resolved against. Beyond the
+// group-identity keys above, a `<group_type>_id` property (e.g. `organization_id`
+// on a person) conventionally holds a group key, so its raw UUIDs can be labelled
+// with the group's name. The convention is not guaranteed by the schema, so this
+// stays display only — an unresolvable value falls back to the raw value.
+export function groupTypeIndexForFilterKey(
+    key: string | number | undefined,
+    type: PropertyFilterType | undefined,
+    groupTypeIndex: GroupTypeIndex | undefined,
+    groupTypes: Map<GroupTypeIndex, GroupType>
+): GroupTypeIndex | null {
+    if (isGroupCardFilterKey(key, type)) {
+        return groupTypeIndex ?? null
+    }
+    if (typeof key !== 'string') {
+        return null
+    }
+    const namedGroupType = key.toLowerCase().match(/^(.+)_id$/)?.[1]
+    if (!namedGroupType) {
+        return null
+    }
+    for (const groupType of groupTypes.values()) {
+        if (groupType.group_type.toLowerCase() === namedGroupType) {
+            return groupType.group_type_index
+        }
+    }
+    return null
+}
+
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }

@@ -9,6 +9,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
+import { clearGroupLookupCache } from './groupKeyTooltipLogic'
 import { PropertyValue } from './PropertyValue'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -30,9 +31,25 @@ describe('PropertyValue', () => {
                     results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
                     refreshing: false,
                 },
+                '/api/projects/:team/groups_types': [{ group_type: 'organization', group_type_index: 0 }],
+                '/api/environments/:team/groups/find': ({ request }) => {
+                    const groupKey = new URL(request.url).searchParams.get('group_key')
+                    return groupKey === 'uuid-001'
+                        ? [
+                              200,
+                              {
+                                  group_type_index: 0,
+                                  group_key: 'uuid-001',
+                                  group_properties: { name: 'Fjellride AB' },
+                                  created_at: '2024-01-01',
+                              },
+                          ]
+                        : [404, { detail: 'Not found' }]
+                },
             },
         })
         initKeaTests()
+        clearGroupLookupCache()
         propertyDefinitionsModel.mount()
         loadPropertyValuesSpy = jest.spyOn(propertyDefinitionsModel.actions, 'loadPropertyValues')
     })
@@ -302,5 +319,25 @@ describe('PropertyValue', () => {
         expect(screen.queryByPlaceholderText('Search groups by name...')).not.toBeInTheDocument()
         // The pasted id is shown as the value.
         expect(screen.getByText('org-abc-123')).toBeInTheDocument()
+    })
+
+    it('labels an `organization_id` person filter with the organization name', async () => {
+        // A list of raw org UUIDs is unreadable, so each value is labelled with the
+        // name of the group it resolves to, keeping the id for copying and searching.
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="organization_id"
+                    type={PropertyFilterType.Person}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={['uuid-001', 'uuid-unknown']}
+                />
+            </Provider>
+        )
+
+        expect(await screen.findByText('(Fjellride AB) uuid-001')).toBeInTheDocument()
+        // An id that resolves to no group keeps showing as itself.
+        expect(screen.getByText('uuid-unknown')).toBeInTheDocument()
     })
 })
