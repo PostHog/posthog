@@ -1424,8 +1424,8 @@ def test_doctor_git_fix_reports_a_failed_step_instead_of_success(
     "stale_lock, packs_over, missing_graph, expected",
     [
         (False, False, True, "run `hogli doctor:git --fix`"),
-        (False, True, True, "run `hogli doctor:git`"),
-        (True, False, True, "run `hogli doctor:git`"),
+        (False, True, True, "run `hogli doctor:git --fix`"),
+        (True, False, True, "run `hogli doctor:git --fix`"),
         (False, True, False, "run `hogli doctor:git`"),
     ],
 )
@@ -1579,3 +1579,49 @@ def test_housekeeping_scan_ignores_a_sibling_clone_with_a_shared_prefix(
     monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: Path("/work/posthog-copy/.git"))
 
     assert _git_housekeeping_running(Path("/work/posthog"), Path("/work/posthog/.git")) is False
+
+
+def test_housekeeping_scan_ignores_a_repository_nested_under_another_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # /tmp/work/posthog ends with /work/posthog. A trailing boundary alone claims it.
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: (
+            SimpleNamespace(returncode=0, stdout="4242\n", stderr="")
+            if cmd[0] == "pgrep"
+            else SimpleNamespace(returncode=0, stdout="git -C /tmp/work/posthog repack -adl\n", stderr="")
+        ),
+    )
+    monkeypatch.setattr("hogli_commands.doctor._process_cwd", lambda pid: Path("/tmp/work/posthog"))
+    monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: Path("/tmp/work/posthog/.git"))
+
+    assert _git_housekeeping_running(Path("/work/posthog"), Path("/work/posthog/.git")) is False
+
+
+def test_doctor_git_reports_a_stale_lock_it_cannot_remove(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Swallowing the error printed "clean" while the lock still disabled every
+    # scheduled git task, which is exactly the silent failure this check removes.
+    repo = tmp_path / "posthog"
+    (repo / ".git" / "objects" / "pack").mkdir(parents=True)
+    lock = tmp_path / "maintenance.lock"
+    lock.write_text("")
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda *a: False)
+    monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
+    monkeypatch.setattr(
+        "hogli_commands.doctor._git_health",
+        lambda common, pack_cap: SimpleNamespace(
+            pack_count=3,
+            packs_capped=False,
+            has_promisor=True,
+            stale_lock=lock,
+            missing_commit_graph=False,
+        ),
+    )
+    monkeypatch.setattr(Path, "unlink", lambda self, **kw: (_ for _ in ()).throw(PermissionError("read-only")))
+
+    result = CliRunner().invoke(doctor_git, [])
+
+    assert "clean" not in result.output
+    assert "stays disabled" in result.output

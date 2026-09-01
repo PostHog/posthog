@@ -2381,13 +2381,13 @@ def _check_git_health(repo_root: Path) -> CheckResult:
         problems.append("no commit-graph")
 
     if problems:
-        # The default path repacks in the background, but only --fix writes the graph.
-        graph_only = health.missing_commit_graph and not health.stale_lock and not packs_high
+        # The default path repacks in the background but never writes the graph, so
+        # every case that involves a missing graph has to name the command that does.
         return CheckResult(
             name="Git housekeeping",
             status=CheckStatus.WARNING,
             summary=", ".join(problems),
-            remediation="run `hogli doctor:git --fix`" if graph_only else "run `hogli doctor:git`",
+            remediation="run `hogli doctor:git --fix`" if health.missing_commit_graph else "run `hogli doctor:git`",
         )
     return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="clean")
 
@@ -2542,9 +2542,10 @@ _GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +.*?)* +(gc|repack|maintenance|p
 def _names_path(haystack: str, path: str) -> bool:
     """Whether text names a path, and not a sibling that merely starts the same way.
 
-    A plain substring test reads `/work/posthog-copy` as `/work/posthog`.
+    A plain substring test reads `/work/posthog-copy` as `/work/posthog`, and a
+    trailing boundary alone still reads `/tmp/work/posthog` as `/work/posthog`.
     """
-    return re.search(re.escape(path) + r"(?=$|[\s/'\"])", haystack) is not None
+    return re.search(r"(?<![^\s'\"])" + re.escape(path) + r"(?=$|[\s/'\"])", haystack) is not None
 
 
 def _is_within(candidate: Path, root: Path) -> bool:
@@ -2741,8 +2742,14 @@ def doctor_git(fix: bool) -> None:
             click.echo("Scheduled git maintenance was disabled for as long as it was there.")
             health.stale_lock = None
             acted = True
-        except OSError:
-            pass  # Another process got there first, or the dir is read-only.
+        except FileNotFoundError:
+            health.stale_lock = None  # Another process removed it first.
+        except OSError as e:
+            # Reporting clean here would hide a lock that still disables every
+            # scheduled task, which is the failure this check exists to remove.
+            click.secho(f"Could not remove the stale git maintenance lock: {e}", fg="red", err=True)
+            click.echo(f"Scheduled git maintenance stays disabled until {health.stale_lock} is gone.")
+            acted = True
 
     # A fresh clone has no registration, so none of git's own scheduled tasks run
     # and it never gets a commit-graph.
