@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -293,6 +295,23 @@ class TestWorkflowProposals(APIBaseTest):
             },
         )
         assert proposal["evidence"]["guardrails"][0]["metric"] == "complaint rate"
+
+    def test_the_outcome_reads_the_step_the_suggestion_named(self, _mock_flag):
+        # A workflow with several email steps would otherwise measure a change to one of them against
+        # the sends of all of them, diluting a real move and attributing an unrelated one.
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id, step_id="action_1")
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        with patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals") as mock_totals:
+            mock_totals.return_value = SimpleNamespace(totals={})
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+            )
+
+        assert response.status_code == 200, response.json()
+        assert {call.kwargs["instance_id"] for call in mock_totals.call_args_list} == {"action_1"}
 
     def test_outcome_reports_both_versions_with_their_sample_sizes(self, _mock_flag):
         flow_id = self._create_active_flow()
