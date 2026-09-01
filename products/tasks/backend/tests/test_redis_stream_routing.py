@@ -1,10 +1,11 @@
 import asyncio
 import concurrent.futures
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import redis.exceptions
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
@@ -56,6 +57,30 @@ class TestEvaluateDedicatedStreamFlag(SimpleTestCase):
     def test_fails_safe_to_shared_on_flag_error(self):
         with patch.object(tasks_redis.posthoganalytics, "feature_enabled", side_effect=RuntimeError("boom")):
             self.assertFalse(tasks_redis.evaluate_dedicated_stream_flag(organization_id="org", distinct_id="u"))
+
+
+class TestTasksCacheAddRedisFallback(SimpleTestCase):
+    def test_add_degrades_to_per_process_guard(self):
+        # A guard that fails open during an outage disables the heartbeat throttle and the push
+        # cooldown on every process, so a redis failure must dedup per process instead.
+        failing_cache = MagicMock()
+        failing_cache.add.side_effect = redis.exceptions.BusyLoadingError()
+
+        with (
+            patch.object(tasks_redis, "get_tasks_cache", return_value=failing_cache),
+            patch.object(tasks_redis, "capture_exception") as mock_capture,
+            patch.object(tasks_redis, "_next_capture_at", 0.0),
+            patch.dict(tasks_redis._local_guard_expiry, clear=True),
+            patch("products.tasks.backend.redis.time") as mock_time,
+        ):
+            mock_time.monotonic.return_value = 1000.0
+            self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+            self.assertFalse(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+            self.assertTrue(tasks_redis.tasks_cache_add("other-key", True, timeout=60))
+            mock_capture.assert_called_once()
+
+            mock_time.monotonic.return_value = 1061.0
+            self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
 
 
 class _ThreadHungryAsyncClient:

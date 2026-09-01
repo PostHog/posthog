@@ -1,10 +1,32 @@
+import time
+import threading
+from typing import Any
+
 from django.conf import settings
 from django.core.cache import BaseCache, caches
 
+import structlog
 import posthoganalytics
+import redis.exceptions
+from django_redis.exceptions import ConnectionInterrupted
+from posthoganalytics import capture_exception
 
 from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
 from posthog.redis import get_async_client, get_client
+
+logger = structlog.get_logger(__name__)
+
+# Redis/transport failures a best-effort cache call degrades on. django-redis wraps the raw
+# redis error in ConnectionInterrupted; the raw redis errors and the builtin socket errors
+# under OSError are caught too in case a backend surfaces them directly. Mirrors
+# posthog/storage/hypercache.py.
+_REDIS_ERRORS = (
+    ConnectionInterrupted,
+    redis.exceptions.RedisError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 # Evaluated once at run creation and pinned onto TaskRun.state["use_dedicated_stream"] so the
 # SSE reader and the temporal worker always agree for a run's life (no split-brain on flag
@@ -56,3 +78,77 @@ def get_tasks_cache() -> BaseCache:
     if settings.TASKS_REDIS_URL and TASKS_DEDICATED_CACHE_ALIAS in settings.CACHES:
         return caches[TASKS_DEDICATED_CACHE_ALIAS]
     return caches["default"]
+
+
+# The best-effort helpers run on hot serialization paths, so capturing every failed redis
+# command during an outage would emit hundreds of events per request. One capture per process
+# per window is enough to surface the outage in error tracking; the warning log keeps the
+# per-failure signal.
+_CAPTURE_INTERVAL_SECONDS = 60.0
+_capture_lock = threading.Lock()
+_next_capture_at = 0.0
+
+
+def _note_cache_failure(operation: str, error: Exception) -> None:
+    global _next_capture_at
+    logger.warning("tasks_cache_unavailable", operation=operation, error=type(error).__name__)
+    now = time.monotonic()
+    with _capture_lock:
+        if now < _next_capture_at:
+            return
+        _next_capture_at = now + _CAPTURE_INTERVAL_SECONDS
+    capture_exception(error)
+
+
+# Per-process stand-in for the shared dedup/cooldown guards while redis is unavailable. A
+# guard that fails open would let every callback through: each heartbeat opens a fresh
+# Temporal connection in the request thread, and one turn end can push the same notification
+# several times. Falling back per process bounds that at one pass per process per window.
+# Same degrade shape as posthog/egress/limiter/backends.py.
+_local_guard_lock = threading.Lock()
+_local_guard_expiry: dict[str, float] = {}
+
+
+def _local_guard_add(key: str, timeout: int) -> bool:
+    now = time.monotonic()
+    with _local_guard_lock:
+        expired = [k for k, expires_at in _local_guard_expiry.items() if expires_at <= now]
+        for k in expired:
+            del _local_guard_expiry[k]
+        if key in _local_guard_expiry:
+            return False
+        _local_guard_expiry[key] = now + timeout
+        return True
+
+
+def tasks_cache_get(key: str, default: Any = None) -> Any:
+    """Best-effort ``cache.get``. Returns ``default`` on a redis failure instead of raising, so a
+    redis blip cannot 500 a request that only reads an optional cached value."""
+    try:
+        return get_tasks_cache().get(key, default)
+    except _REDIS_ERRORS as e:
+        _note_cache_failure("get", e)
+        return default
+
+
+def tasks_cache_set(key: str, value: Any, timeout: int | None = None) -> bool:
+    """Best-effort ``cache.set``. Returns whether the write landed; a redis failure degrades to
+    ``False`` instead of raising."""
+    try:
+        get_tasks_cache().set(key, value, timeout=timeout)
+        return True
+    except _REDIS_ERRORS as e:
+        _note_cache_failure("set", e)
+        return False
+
+
+def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
+    """Best-effort ``cache.add`` used as a dedup/cooldown guard. Returns True when the key was
+    newly added (the caller should proceed), False when it already existed. A redis failure
+    degrades to a per-process guard with the same key and timeout, so an outage throttles per
+    process instead of not at all."""
+    try:
+        return bool(get_tasks_cache().add(key, value, timeout=timeout))
+    except _REDIS_ERRORS as e:
+        _note_cache_failure("add", e)
+        return _local_guard_add(key, timeout)
