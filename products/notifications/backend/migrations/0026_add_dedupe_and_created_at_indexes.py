@@ -20,6 +20,6 @@ class Migration(migrations.Migration):
         ),
         SafeAddIndexConcurrently(
             model_name="notificationevent",
-            index=models.Index(fields=["created_at"], name="notification_event_created_at_idx"),
+            index=models.Index(fields=["created_at"], name="notification_event_created_idx"),
         ),
     ]

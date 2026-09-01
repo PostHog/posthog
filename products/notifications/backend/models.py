@@ -57,7 +57,7 @@ class NotificationEvent(UUIDModel):
                 name="notification_event_dedupe_idx",
             ),
             # Serves the 90-day cleanup task, which filters created_at with no organization predicate.
-            models.Index(fields=["created_at"], name="notification_event_created_at_idx"),
+            models.Index(fields=["created_at"], name="notification_event_created_idx"),
         ]
 
 
