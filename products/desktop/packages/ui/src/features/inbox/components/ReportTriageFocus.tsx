@@ -131,16 +131,18 @@ export function ReportTriageFocus({
   const clamped = Math.min(index, Math.max(0, reports.length - 1));
   const report = reports[clamped];
   const reportId = report?.id;
-  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
-    reportId ?? "",
-    report?.status ?? "candidate",
-  );
+  const {
+    data: reportTasks,
+    isLoading: reportTasksLoading,
+    isError: reportTasksFailed,
+  } = useReportTasks(reportId ?? "", report?.status ?? "candidate");
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr =
     report?.status === "ready" &&
     canCreateImplementationPr(report, {
       hasLiveImplementationTask: continuableTask !== null,
-      isTaskLookupPending: reportTasksLoading,
+      // A failed lookup leaves task state unknown, same as a pending one.
+      isTaskLookupPending: reportTasksLoading || reportTasksFailed,
     });
   const livePrUrl = report?.implementation_pr_merged
     ? null
