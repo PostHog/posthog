@@ -2,7 +2,7 @@
 
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -35,6 +35,7 @@ from posthog.models.integration import (
     Integration,
     invalidate_github_repository_caches_for_installation,
 )
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 
 class TestExtractFailingChecks(SimpleTestCase):
@@ -90,6 +91,16 @@ class TestGitHubIntegrationModel(BaseTest):
             integration_id=(config or {}).get("installation_id"),
             config=_config,
             sensitive_config=_sensitive_config,
+        )
+
+    def create_user_integration(self, installation_id: str, **fields: Any) -> UserIntegration:
+        return UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=installation_id,
+            config={"installation_id": installation_id},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+            **fields,
         )
 
     def mock_github_client_request(
@@ -1457,8 +1468,6 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_all.assert_called_once_with()
 
     def test_invalidate_github_repository_caches_for_installation_clears_team_and_personal_rows(self):
-        from posthog.models.user_integration import UserIntegration
-
         team_integration = self.create_integration(
             {"installation_id": "12345", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
@@ -1468,12 +1477,8 @@ class TestGitHubIntegrationModel(BaseTest):
         team_integration.repository_cache_updated_at = timezone.now()
         team_integration.save(update_fields=["integration_id", "repository_cache", "repository_cache_updated_at"])
 
-        user_integration = UserIntegration.objects.create(
-            user=self.user,
-            kind=UserIntegration.IntegrationKind.GITHUB,
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        user_integration = self.create_user_integration(
+            "12345",
             repository_cache=[{"id": 2, "name": "b", "full_name": "org/b"}],
             repository_cache_updated_at=timezone.now(),
         )
@@ -1596,6 +1601,27 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_default_branch.assert_not_called()
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.get_default_branch")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_branches")
+    def test_branch_cache_is_shared_across_rows_on_one_installation(
+        self, mock_list_all_branches: MagicMock, mock_default_branch: MagicMock
+    ) -> None:
+        mock_list_all_branches.return_value = ["main", "develop"]
+        mock_default_branch.return_value = "main"
+        repo = "posthog/posthog"
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        user_integration = self.create_user_integration("INSTALL")
+
+        GitHubIntegration(integration).list_cached_branches(repo)
+        branches, default_branch, _ = UserGitHubIntegration(user_integration).list_cached_branches(repo)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        mock_list_all_branches.assert_called_once_with(repo)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
