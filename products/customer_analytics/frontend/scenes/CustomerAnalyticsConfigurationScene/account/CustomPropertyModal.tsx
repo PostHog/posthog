@@ -205,7 +205,7 @@ function PersonSourceEditor(): JSX.Element {
             </span>
         ),
     }))
-    const keyColumnName = keyColumnLabel(customPropertyForm.targetType)
+    const keyColumnLabelText = keyColumnLabel(customPropertyForm.targetType)
     // Bulk mapping needs the key column chosen first, since that is what it excludes. Naming the
     // reason in the disabled state keeps a wide table from being mapped with its identifier in it.
     const mapAllDisabledReason = !customPropertyForm.warehouseSource
@@ -213,7 +213,7 @@ function PersonSourceEditor(): JSX.Element {
         : selectedTableColumnsLoading
           ? 'Loading columns'
           : !customPropertyForm.keyColumn?.trim()
-            ? `Choose the ${keyColumnName} first`
+            ? `Choose the ${keyColumnLabelText} first`
             : !mappableColumns.length
               ? 'Every column is mapped already'
               : undefined
@@ -428,7 +428,7 @@ function PersonSourceEditor(): JSX.Element {
                         </LemonButton>
                     </div>
                     <span className="text-secondary text-xs">
-                        Mapping every column keeps the warehouse column names. The {keyColumnName} is left out, because
+                        Mapping every column keeps the warehouse column names. The {keyColumnLabelText} is left out, because
                         its values identify the {entityLabel} rather than describing it. Nothing is saved until you
                         create the property, so you can edit or remove any row first.
                     </span>

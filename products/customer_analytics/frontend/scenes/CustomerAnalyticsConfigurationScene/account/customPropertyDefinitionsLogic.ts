@@ -541,6 +541,11 @@ export interface customPropertyDefinitionsLogicMeta {
         ) => WarehouseColumn[]
         serializedColumnPropertyMap: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         serializedColumnDescriptions: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
+        profileMappingDisabledReason: (
+            customPropertyForm: CustomPropertyFormValues,
+            editingDefinition: CustomPropertyDefinitionApi | null,
+            serializedColumnPropertyMap: Record<string, string>
+        ) => string | undefined
         columnMappingWarnings: (
             customPropertyForm: CustomPropertyFormValues,
             personPropertyDefinitions: PropertyDefinition[]
@@ -1181,10 +1186,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             (form: CustomPropertyFormValues, personPropertyDefinitions: PropertyDefinition[]): (string | null)[] => {
                 const existing = new Set(personPropertyDefinitions.map((definition) => definition.name))
                 const keyColumn = form.keyColumn?.trim()
-                const keyColumnName = keyColumnLabel(form.targetType)
+                const keyColumnLabelText = keyColumnLabel(form.targetType)
                 return form.columnMappings.map((mapping) => {
                     if (keyColumn && mapping.column.trim() === keyColumn) {
-                        return `"${keyColumn}" is the ${keyColumnName}, so this mapping isn't saved. Map a different column.`
+                        return `"${keyColumn}" is the ${keyColumnLabelText}, so this mapping isn't saved. Map a different column.`
                     }
                     const name = mapping.property.trim()
                     if (!name) {
