@@ -4,6 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { ExecResult } from '@posthog/hogvm'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { elementsChainFromProperties } from '~/common/utils/elements-chain'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { createTrackedRE2 } from '~/common/utils/tracked-re2'
@@ -230,7 +231,7 @@ export function convertToHogFunctionFilterGlobal(
     // whose stored globals are trimmed) can arrive without `properties` — default it
     // rather than dereferencing undefined.
     const properties = globals.event.properties ?? {}
-    const elementsChain = globals.event.elements_chain ?? properties['$elements_chain']
+    const elementsChain = globals.event.elements_chain || elementsChainFromProperties(properties)
 
     const response: HogFunctionFilterGlobals = {
         event: globals.event.event,

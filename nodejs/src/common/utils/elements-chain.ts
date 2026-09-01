@@ -107,6 +107,17 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
     return elements
 }
 
+export function elementsChainFromProperties(properties: Record<string, any>): string {
+    if (properties['$elements_chain']) {
+        return properties['$elements_chain']
+    }
+    const elements: Record<string, any>[] | undefined = properties['$elements']
+    if (elements && elements.length) {
+        return elementsToString(extractElements(elements))
+    }
+    return ''
+}
+
 export function extractElements(elements: Array<Record<string, any>>): Element[] {
     return elements.map((el) => ({
         text: el['$el_text']?.slice(0, 400),
