@@ -1,5 +1,5 @@
 import type { WizardRunApi } from './generated/api.schemas'
-import { wizardGithubRepositoryUrl, wizardRunFailureStage } from './wizardRunDisplay'
+import { wizardGithubRepositoryUrl, wizardRunCanCancel, wizardRunFailureStage } from './wizardRunDisplay'
 
 function makeRun(overrides: Partial<WizardRunApi>): WizardRunApi {
     return {
@@ -57,5 +57,19 @@ describe('wizardRunFailureStage', () => {
 describe('wizardGithubRepositoryUrl', () => {
     test('builds the GitHub URL for a repository', () => {
         expect(wizardGithubRepositoryUrl('posthog/posthog')).toBe('https://github.com/posthog/posthog')
+    })
+})
+
+describe('wizardRunCanCancel', () => {
+    test.each([
+        ['creator sees cancel on an active run', 'running', 7, 7, true],
+        ['teammate cannot cancel someone else’s run', 'running', 7, 9, false],
+        ['no cancel once the run is terminal', 'completed', 7, 7, false],
+        ['runs without a creator hide cancel from everyone', 'running', null, 7, false],
+        ['unknown current user hides cancel', 'running', 7, null, false],
+    ])('%s', (_label, status, createdById, currentUserId, expected) => {
+        const run = makeRun({ status: status as WizardRunApi['status'], created_by_id: createdById })
+
+        expect(wizardRunCanCancel(run, currentUserId)).toBe(expected)
     })
 })

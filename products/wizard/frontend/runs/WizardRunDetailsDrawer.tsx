@@ -8,6 +8,7 @@ import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } 
 import {
     WIZARD_LOCAL_RUNS_VISIBLE,
     wizardGithubRepositoryUrl,
+    wizardRunCanCancel,
     wizardRunDiffCanRender,
     wizardRunIsActive,
     wizardWorkspaceLabel,
@@ -23,6 +24,7 @@ export function WizardRunDetailsDrawer({
     run,
     artifacts,
     artifactsLoading,
+    currentUserId,
     refreshing,
     cancelling,
     diffArtifactId,
@@ -40,6 +42,7 @@ export function WizardRunDetailsDrawer({
     run: WizardRunApi | null
     artifacts: WizardRunArtifactApi[]
     artifactsLoading: boolean
+    currentUserId: number | null
     refreshing: boolean
     cancelling: boolean
     diffArtifactId: string | null
@@ -85,7 +88,7 @@ export function WizardRunDetailsDrawer({
                             <LemonButton type="primary" to={pullRequest.url} targetBlank>
                                 Open pull request
                             </LemonButton>
-                        ) : wizardRunIsActive(run) ? (
+                        ) : wizardRunCanCancel(run, currentUserId) ? (
                             <LemonButton
                                 status="danger"
                                 icon={<IconStopFilled />}

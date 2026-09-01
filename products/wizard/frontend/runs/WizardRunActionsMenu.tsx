@@ -4,10 +4,11 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
 import type { WizardRunApi } from '../generated/api.schemas'
-import { wizardRunIsActive } from '../wizardRunDisplay'
+import { wizardRunCanCancel } from '../wizardRunDisplay'
 
 export function WizardRunActionsMenu({
     run,
+    currentUserId,
     refreshing,
     cancelling,
     onView,
@@ -16,6 +17,7 @@ export function WizardRunActionsMenu({
     onCancel,
 }: {
     run: WizardRunApi
+    currentUserId: number | null
     refreshing: boolean
     cancelling: boolean
     onView: (run: WizardRunApi) => void
@@ -44,7 +46,7 @@ export function WizardRunActionsMenu({
                 },
             ],
         },
-        wizardRunIsActive(run) && {
+        wizardRunCanCancel(run, currentUserId) && {
             items: [
                 {
                     label: 'Cancel run',

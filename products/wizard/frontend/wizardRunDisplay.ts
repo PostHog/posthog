@@ -20,6 +20,12 @@ export function wizardRunIsActive(run: WizardRunApi): boolean {
     return run.status === 'created' || run.status === 'running'
 }
 
+export function wizardRunCanCancel(run: WizardRunApi, currentUserId: number | null): boolean {
+    // The API only lets the run's creator cancel it, so hide the control for everyone else.
+    // A run with no creator has no owner who can cancel it, so hide it there too.
+    return wizardRunIsActive(run) && run.created_by_id !== null && run.created_by_id === currentUserId
+}
+
 const FAILURE_STAGE_BY_ERROR_CODE: Record<string, WizardRunStageEnumApi> = {
     dispatch_failed: WizardRunStageEnumApi.Dispatching,
     provisioning_failed: WizardRunStageEnumApi.Provisioning,

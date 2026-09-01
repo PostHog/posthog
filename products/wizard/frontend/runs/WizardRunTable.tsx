@@ -14,6 +14,7 @@ import { WizardRunStatusTag } from './WizardRunStatusTag'
 export function WizardRunTable({
     runs,
     selectedRunId,
+    currentUserId,
     loading,
     failed,
     hasActiveFilters,
@@ -29,6 +30,7 @@ export function WizardRunTable({
 }: {
     runs: WizardRunApi[]
     selectedRunId: string | null
+    currentUserId: number | null
     loading: boolean
     failed: boolean
     hasActiveFilters: boolean
@@ -148,6 +150,7 @@ export function WizardRunTable({
             rowActions={(run) => (
                 <WizardRunActionsMenu
                     run={run}
+                    currentUserId={currentUserId}
                     refreshing={refreshing}
                     cancelling={cancelling}
                     onView={onSelect}

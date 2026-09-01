@@ -4,6 +4,7 @@ import { IconBook, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -21,6 +22,7 @@ export const scene: SceneExport = {
 }
 
 export function WizardRunsScene(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { environment, filteredRuns, hasRunFilters, refreshingRuns, runsFailed, runsInitialLoading, search, status } =
         useValues(wizardRunsLogic)
     const { clearRunFilters, refreshRuns, setEnvironment, setSearch, setStatus } = useActions(wizardRunsLogic)
@@ -137,6 +139,7 @@ export function WizardRunsScene(): JSX.Element {
             <WizardRunTable
                 runs={filteredRuns}
                 selectedRunId={selectedRunId}
+                currentUserId={user?.id ?? null}
                 loading={runsInitialLoading}
                 failed={runsFailed}
                 hasActiveFilters={hasRunFilters}
@@ -185,6 +188,7 @@ export function WizardRunsScene(): JSX.Element {
                 run={selectedRun}
                 artifacts={selectedRunArtifacts}
                 artifactsLoading={selectedRunArtifactsInitialLoading}
+                currentUserId={user?.id ?? null}
                 refreshing={runDetailsLoading}
                 cancelling={cancelRunRequestLoading}
                 diffArtifactId={selectedRunDiffArtifactId}
