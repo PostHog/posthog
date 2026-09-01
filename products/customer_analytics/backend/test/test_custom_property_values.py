@@ -625,6 +625,33 @@ class TestSetExternalAccountCustomProperties(BaseTest):
         assert result.values is not None
         assert {(v.value) for v in result.values} == {"enterprise", 42.0}
 
+    def test_batch_clears_an_active_value_and_returns_only_set_values(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        region = create_custom_property_definition(team_id=self.team.id, name="Region", display_type=DisplayType.TEXT)
+        facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): "enterprise", str(region.id): "US"}
+        )
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): None, str(seats.id): 42}
+        )
+
+        assert result.error is None
+        assert result.values is not None
+        assert [(value.definition_id, value.value) for value in result.values] == [(seats.id, 42.0)]
+        assert (
+            not CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=plan, is_deleted=False)
+            .exists()
+        )
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .get(account=self.account, definition=region, is_deleted=False)
+            .value_str
+            == "US"
+        )
+
     def test_unknown_external_id_returns_account_not_found(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
         result = facade.set_external_account_custom_properties(self.team.id, "missing", properties={str(plan.id): "x"})

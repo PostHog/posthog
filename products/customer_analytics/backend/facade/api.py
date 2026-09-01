@@ -757,12 +757,13 @@ def set_external_account_custom_properties(
     created_by_id: int | None = None,
     workflow_id: str | None = None,
 ) -> contracts.ExternalAccountCustomPropertiesResult:
-    """Set custom property values on an account by definition id, for the external API.
+    """Set or clear custom property values on an account by definition id, for the external API.
 
     Resolves the account by external id, then applies every ``{definition_id: value}`` pair
-    transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
-    the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
-    value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
+    transactionally. A null value clears an active value. A bad value or unknown definition rolls
+    the whole batch back. Returns a result the view maps to the exact HTTP status/body: account not
+    found, unknown definition, invalid value, a concurrent-write conflict, a generic write failure,
+    or success carrying only the set values.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
