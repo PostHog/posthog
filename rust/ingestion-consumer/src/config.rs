@@ -4,8 +4,8 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::discovery::DiscoveryMode;
-use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
+use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
 ///
