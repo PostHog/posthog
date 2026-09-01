@@ -455,6 +455,41 @@ class TestContextLayerAPI(APIBaseTest):
         assert proposed.status_code == 200, proposed.content
         assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
 
+    def test_agent_route_accepts_organization_scopes_from_an_interactive_task(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Build the space context",
+        )
+        token = self._bearer(
+            "organization:read organization:write task:write internal_run:read",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+
+        proposed = self.client.get(
+            f"{self.agent_url}/channel-pages/{channel.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert proposed.status_code == 200, proposed.content
+        assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
+
+        created = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": proposed.json()["path"],
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert created.status_code == 200, created.content
+
     def test_loop_token_creates_its_channels_missing_page_at_the_proposed_path(self, _flag) -> None:
         self._enable()
         with team_scope(self.team.id):
