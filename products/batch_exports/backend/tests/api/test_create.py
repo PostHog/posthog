@@ -413,23 +413,9 @@ def test_cannot_create_batch_export_with_integration_from_another_team(
 
 
 def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "every 5 minutes",
-    }
+    batch_export_data = {**s3_batch_export_data, "interval": "every 5 minutes"}
 
     client.force_login(user)
     with mock.patch(
@@ -469,7 +455,7 @@ FROM events
 
 
 def test_create_batch_export_with_custom_schema(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_batch_export_data
 ):
     """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
 
@@ -479,22 +465,7 @@ def test_create_batch_export_with_custom_schema(
     expected inputs.
     """
 
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "hogql_query": TEST_HOGQL_QUERY,
-        "interval": "hour",
-    }
+    batch_export_data = {**s3_batch_export_data, "hogql_query": TEST_HOGQL_QUERY}
 
     client.force_login(user)
 
@@ -589,26 +560,18 @@ def test_create_batch_export_with_custom_schema(
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(
-    client: HttpClient, invalid_query, expected_error_message, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient,
+    invalid_query,
+    expected_error_message,
+    temporal,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
 ):
     """Test creating a BatchExport should fail with an invalid query."""
 
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-        "hogql_query": invalid_query,
-    }
+    batch_export_data = {**s3_batch_export_data, "hogql_query": invalid_query}
 
     client.force_login(user)
 
