@@ -84,5 +84,15 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             sceneKey: 'Workflows',
         },
+        {
+            path: 'Broadcasts',
+            intents: [ProductKey.WORKFLOWS],
+            href: urls.broadcasts(),
+            type: 'broadcasts',
+            category: ProductItemCategory.TOOLS,
+            iconType: 'broadcasts',
+            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            sceneKey: 'Broadcast',
+        },
     ],
 }

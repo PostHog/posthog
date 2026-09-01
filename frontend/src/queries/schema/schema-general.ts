@@ -5077,6 +5077,7 @@ export type FileSystemIconType =
     | 'tracing'
     | 'metrics'
     | 'workflows'
+    | 'broadcasts'
     | 'notebook'
     | 'action'
     | 'activity'

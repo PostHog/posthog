@@ -32,6 +32,7 @@ import {
     IconLlmPromptManagement,
     IconMCP,
     IconMegaphone,
+    IconSend,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -214,6 +215,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     workflows: {
         icon: <IconDecisionTree />,
+        iconColor: ['var(--color-product-workflows-light)'],
+    },
+    broadcasts: {
+        icon: <IconSend />,
         iconColor: ['var(--color-product-workflows-light)'],
     },
     notebook: {

@@ -1919,6 +1919,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Broadcasts'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -1996,6 +1997,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         sceneKey: 'StreamlitApps',
         sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+    },
+    {
+        path: 'Broadcasts',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.broadcasts(),
+        type: 'broadcasts',
+        category: ProductItemCategory.TOOLS,
+        iconType: 'broadcasts',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        sceneKey: 'Broadcast',
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
     {
         path: 'Business knowledge',

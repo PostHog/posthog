@@ -2,11 +2,10 @@ import { useValues } from 'kea'
 
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -68,31 +67,8 @@ export function BroadcastsTable(): JSX.Element {
                 return <span>{humanFriendlyNumber(details.totals[metricName] ?? 0)}</span>
             },
         })),
-        {
-            title: 'Created by',
-            width: 0,
-            render: (_, item) =>
-                item.created_by ? (
-                    <div className="flex items-center gap-2">
-                        <ProfilePicture
-                            user={{
-                                email: item.created_by.email,
-                                first_name: item.created_by.first_name,
-                                last_name: item.created_by.last_name,
-                            }}
-                            size="sm"
-                        />
-                        <span>{item.created_by.first_name || item.created_by.email}</span>
-                    </div>
-                ) : (
-                    <span className="text-muted">Unknown</span>
-                ),
-        },
-        {
-            title: 'Created',
-            width: 0,
-            render: (_, item) => <TZLabel time={item.created_at} />,
-        },
+        createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
+        createdAtColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
     ]
 
     const isEmpty = hasLoadedBroadcasts && !broadcastsLoading && broadcasts.results.length === 0

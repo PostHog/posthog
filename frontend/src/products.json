@@ -276,6 +276,13 @@
             "iconType": "workflows",
             "type": "workflows",
             "intents": ["workflows"]
+        },
+        {
+            "path": "Broadcasts",
+            "category": "Tools",
+            "iconType": "broadcasts",
+            "type": "broadcasts",
+            "intents": ["workflows"]
         }
     ],
     "games": [
