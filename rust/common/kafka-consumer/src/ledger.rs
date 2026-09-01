@@ -5,9 +5,8 @@ use crate::types::Offset;
 
 #[derive(Debug)]
 struct Slot {
-    offset: Offset,
-    charge: Charge,
     complete: bool,
+    charge: Charge,
 }
 
 /// A consumed contiguous prefix and the charge it covers.
@@ -17,10 +16,17 @@ pub struct TakenFrontier {
     pub charge: Charge,
 }
 
-/// Per-partition delivered-offset ledger. Completion only marks slots; commit
-/// paths explicitly consume the contiguous prefix after observing it.
+/// Per-partition delivered-offset ledger, stored as a dense ring over one
+/// contiguous offset range so that completion is an index lookup instead of a
+/// scan. Completion only marks slots; commit paths explicitly consume the
+/// contiguous prefix after observing it.
 #[derive(Debug, Default)]
 pub struct OffsetLedger {
+    /// The offset of `slots[0]`; `None` until the first delivery.
+    base: Option<i64>,
+    /// Number of completed slots at the front of the ring, kept current on
+    /// every completion so `frontier` stays O(1).
+    prefix: usize,
     slots: VecDeque<Slot>,
 }
 
@@ -29,20 +35,28 @@ impl OffsetLedger {
         Self::default()
     }
 
-    /// Record offsets in delivery order and return their total charge.
+    /// Record offsets in delivery order and return their total charge. An
+    /// offset gap (transaction control records) gets pre-completed zero-charge
+    /// filler slots, so the ring stays dense and the frontier walks over the
+    /// gap.
     pub fn charge(&mut self, offsets: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
         let mut total = Charge::ZERO;
         for (offset, charge) in offsets {
-            if let Some(last) = self.slots.back() {
-                assert!(
-                    offset > last.offset,
-                    "offset {offset} was not delivered in order"
-                );
+            let base = *self.base.get_or_insert(offset.0);
+            let end = base + self.slots.len() as i64;
+            assert!(
+                offset.0 >= end,
+                "offset {offset} was not delivered in order"
+            );
+            for _ in end..offset.0 {
+                self.slots.push_back(Slot {
+                    complete: true,
+                    charge: Charge::ZERO,
+                });
             }
             self.slots.push_back(Slot {
-                offset,
-                charge,
                 complete: false,
+                charge,
             });
             total += charge;
         }
@@ -51,42 +65,54 @@ impl OffsetLedger {
 
     /// Mark delivered offsets complete in any order.
     pub fn complete(&mut self, offsets: &[Offset]) {
+        let base = self.base.expect("completion before any delivery");
         for offset in offsets {
+            let index = usize::try_from(offset.0 - base).expect("completion below the ring base");
             let slot = self
                 .slots
-                .iter_mut()
-                .find(|slot| slot.offset == *offset)
+                .get_mut(index)
                 .expect("completion for an uncharged offset");
             assert!(!slot.complete, "offset {offset} completed twice");
             slot.complete = true;
         }
+        while self
+            .slots
+            .get(self.prefix)
+            .is_some_and(|slot| slot.complete)
+        {
+            self.prefix += 1;
+        }
     }
 
-    /// Highest complete delivered offset before the first incomplete slot.
+    /// Highest contiguous completed offset. This can be a gap offset when
+    /// filler ends the completed prefix; a commit one past it is still correct
+    /// because a gap holds no messages.
     pub fn frontier(&self) -> Option<Offset> {
-        self.slots
-            .iter()
-            .take_while(|slot| slot.complete)
-            .last()
-            .map(|slot| slot.offset)
+        let base = self.base?;
+        (self.prefix > 0).then(|| Offset(base + self.prefix as i64 - 1))
     }
 
     /// Consume the contiguous completed prefix previously observable through
     /// `frontier`. This is intentionally separate from `complete` for shadow
     /// comparisons against the current commit path.
     pub fn take_frontier(&mut self) -> Option<TakenFrontier> {
-        let mut charge = Charge::ZERO;
-        let mut offset = None;
-        while self.slots.front().is_some_and(|slot| slot.complete) {
-            let slot = self.slots.pop_front().expect("front checked");
-            charge += slot.charge;
-            offset = Some(slot.offset);
-        }
-        offset.map(|offset| TakenFrontier { offset, charge })
+        let offset = self.frontier()?;
+        let charge = self
+            .slots
+            .drain(..self.prefix)
+            .map(|slot| slot.charge)
+            .sum();
+        *self.base.as_mut().expect("frontier implies a base") += self.prefix as i64;
+        self.prefix = 0;
+        Some(TakenFrontier { offset, charge })
     }
 
     pub fn len(&self) -> usize {
         self.slots.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
     }
 }
 
@@ -131,5 +157,29 @@ mod tests {
         ledger.charge([charge(0), charge(3)]);
         ledger.complete(&[Offset(0), Offset(3)]);
         assert_eq!(ledger.frontier(), Some(Offset(3)));
+    }
+
+    #[test]
+    fn gap_filler_carries_no_charge_and_the_frontier_walks_over_it() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0), charge(3)]);
+        ledger.complete(&[Offset(0)]);
+        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        ledger.complete(&[Offset(3)]);
+        let taken = ledger.take_frontier().unwrap();
+        assert_eq!(taken.offset, Offset(3));
+        assert_eq!(taken.charge.events, 2);
+    }
+
+    #[test]
+    fn the_ring_continues_across_take_frontier() {
+        let mut ledger = OffsetLedger::new();
+        ledger.charge([charge(0), charge(1)]);
+        ledger.complete(&[Offset(0), Offset(1)]);
+        ledger.take_frontier().unwrap();
+        ledger.charge([charge(2)]);
+        ledger.complete(&[Offset(2)]);
+        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.take_frontier().unwrap().charge.events, 1);
     }
 }
