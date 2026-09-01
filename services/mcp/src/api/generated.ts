@@ -4727,6 +4727,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -4817,6 +4819,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6301,6 +6305,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6329,6 +6335,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -6415,6 +6423,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6451,6 +6461,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -7434,6 +7446,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -7538,6 +7552,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -20884,6 +20900,74 @@ export namespace Schemas {
       id?: number;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
+    }
+
+    export interface DashboardSavedViewFilters {
+      /** @maxLength 200 */
+      search?: string;
+      createdBy?: number[] | 'All users';
+      pinned?: boolean;
+      shared?: boolean;
+      /**
+         * @maxItems 50
+         * @items.maxLength 100
+         */
+      tags?: string[];
+      /**
+         * @maxLength 4000
+         * @nullable
+         */
+      folder?: string | null;
+    }
+
+    /**
+     * * `private` - Private
+     * * `team` - Team
+     */
+    export type DashboardSavedViewScopeEnum = typeof DashboardSavedViewScopeEnum[keyof typeof DashboardSavedViewScopeEnum];
+
+
+    export const DashboardSavedViewScopeEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    export interface DashboardSavedView {
+      readonly id: string;
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name: string;
+      /** Dashboard list filters stored by this view. */
+      filters: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** Whether the current user can change this view's visibility. */
+      readonly can_change_scope: boolean;
+    }
+
+    export interface DashboardSavedViewWrite {
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name: string;
+      /** Dashboard list filters stored by this view. */
+      filters: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
     }
 
     export interface DashboardSubscribeNudgeResponse {
@@ -42135,14 +42219,14 @@ export namespace Schemas {
     }
 
     /**
-     * Test trigger payload, typically {event, person, groups}.
+     * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
 
     export interface HogFlowInvocation {
       /** Optional override; omit to use saved definition. */
       configuration?: HogFlow;
-      /** Test trigger payload, typically {event, person, groups}. */
+      /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
@@ -53838,6 +53922,14 @@ export namespace Schemas {
       results: DashboardBasic[];
     }
 
+    export interface PaginatedDashboardSavedViewList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DashboardSavedView[];
+    }
+
     export interface PaginatedDashboardTemplateList {
       count: number;
       /** @nullable */
@@ -60661,6 +60753,29 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedDashboardSavedView {
+      readonly id?: string;
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Dashboard list filters stored by this view. */
+      filters?: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** Whether the current user can change this view's visibility. */
+      readonly can_change_scope?: boolean;
     }
 
     export interface PatchedDashboardTemplate {
@@ -71562,6 +71677,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -71590,6 +71707,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -71676,6 +71795,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -71701,6 +71822,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -72093,6 +72216,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -72121,6 +72246,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -72207,6 +72334,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -72232,6 +72361,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -88753,10 +88884,10 @@ export namespace Schemas {
 
     export interface _MetricSamplesBody {
       /**
-         * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+         * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
          * @maxLength 255
          */
-      metricName: string;
+      metricName?: string;
       /** Lower bound (inclusive) for the sample window. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
@@ -88766,6 +88897,11 @@ export namespace Schemas {
          * @maxLength 255
          */
       traceId?: string;
+      /**
+         * Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.
+         * @maxLength 255
+         */
+      spanId?: string;
       /** Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.
        *
        * * `gauge` - gauge
@@ -91568,6 +91704,33 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DashboardSavedViewsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Return saved views with this visibility scope.
+     *
+     * * `private` - Private
+     * * `team` - Team
+     * @minLength 1
+     */
+    scope?: DashboardSavedViewsListScope;
+    };
+
+    export type DashboardSavedViewsListScope = typeof DashboardSavedViewsListScope[keyof typeof DashboardSavedViewsListScope];
+
+
+    export const DashboardSavedViewsListScope = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
 
     export type DashboardTemplatesListParams = {
     /**

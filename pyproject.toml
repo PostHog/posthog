@@ -206,7 +206,7 @@ dependencies = [
     "wrapt==1.17.3",
     "limits==5.8.0",
     "deltalite==0.1.7",
-    "posthog-hogland==0.3.1",
+    "posthog-hogland==0.4.1",
 ]
 
 [dependency-groups]
@@ -728,6 +728,7 @@ ignore_imports = [
     "products.cohorts.backend.routes -> products.cohorts.backend.api.staff_tools",
     "products.conversations.backend.routes -> products.conversations.backend.api",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard",
+    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_saved_view",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_templates",
     "products.early_access_features.backend.routes -> products.early_access_features.backend.api",
     "products.exports.backend.routes -> products.exports.backend.api.exports",

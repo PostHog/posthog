@@ -489,6 +489,48 @@ describe("AgentService", () => {
     });
   });
 
+  it("groups models by provider when allHarnessModels is set", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+      {
+        id: "gpt-5.6-sol",
+        owned_by: "openai",
+        context_window: 400_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const options = await service.getPreviewConfigOptions(
+      "https://us.posthog.com",
+      "claude",
+      true,
+    );
+
+    const modelOption = options.find((option) => option.id === "model");
+    expect(modelOption).toMatchObject({
+      type: "select",
+      options: [
+        {
+          group: "anthropic",
+          options: [expect.objectContaining({ value: "claude-opus-4-8" })],
+        },
+        {
+          group: "openai",
+          options: [expect.objectContaining({ value: "gpt-5.6-sol" })],
+        },
+      ],
+    });
+  });
+
   describe("mcp-apps config resolver", () => {
     function registeredResolver(): (serverName: string) => Promise<void> {
       const call = deps.mcpAppsService.setConfigResolver.mock.calls[0];
