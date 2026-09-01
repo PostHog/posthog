@@ -139,6 +139,10 @@ class FeatureFlagStatusChecker:
     ):
         self.feature_flag_id = feature_flag_id
         self.feature_flag = feature_flag
+        # Set when `get_status` reaches STALE through the configuration route, where the reason it
+        # returns already states the rollout. Callers that narrate the rollout separately read this
+        # rather than re-deriving the route from the flag.
+        self.reason_states_rollout = False
 
     def get_status(self) -> tuple[FeatureFlagStatus, FeatureFlagStatusReason]:
         if not self.feature_flag_id and not self.feature_flag:
@@ -190,6 +194,7 @@ class FeatureFlagStatusChecker:
             if is_flag_at_least_thirty_days_old:
                 is_fully_rolled_out, rolled_out_reason = self.is_flag_fully_rolled_out(flag)
                 if is_fully_rolled_out:
+                    self.reason_states_rollout = True
                     return FeatureFlagStatus.STALE, rolled_out_reason
 
         return FeatureFlagStatus.ACTIVE, "Flag has no usage data yet"

@@ -26,25 +26,30 @@ const ACTION_SELECTOR = '[data-attr="feature-flag-stale-banner-view-usage"]'
 const HEADING = 'This flag may no longer be needed'
 const GUIDANCE = 'Review usage and code references before disabling or archiving this flag.'
 const STALE_REASON = 'This boolean flag will always evaluate to "true"'
-const CALLED_AT = '2026-01-01T00:00:00Z'
 
-const NO_ROLLOUT = {
+// One condition covering everyone with no property filters, which is what the summary reports for
+// a flag whose only condition omits its rollout percentage.
+const FULL_ROLLOUT = {
     effectively_full_rollout: false,
     has_targeting_conditions: false,
     max_rollout_percentage: 100,
     is_multivariate: false,
 }
 
+// The backend reached the stale verdict from evaluation data, so `reason` says nothing about the
+// rollout and the banner is free to describe it.
 const STALE_STATUS = {
     status: 'stale',
     reason: STALE_REASON,
-    rollout: NO_ROLLOUT,
+    reason_states_rollout: false,
+    rollout: FULL_ROLLOUT,
 }
 
 const ACTIVE_STATUS = {
     status: 'active',
     reason: 'Flag was called today',
-    rollout: NO_ROLLOUT,
+    reason_states_rollout: false,
+    rollout: FULL_ROLLOUT,
 }
 
 function buildFlag(overrides: Partial<FeatureFlagType> = {}): FeatureFlagType {
@@ -103,7 +108,9 @@ describe('FeatureFlagStaleBanner', () => {
     })
 
     it('explains a stale flag and offers a way to check its usage', async () => {
-        useMocks(endpointMocks())
+        // The reason already states the rollout, so no rollout line joins it and the reason can be
+        // matched exactly. The rollout lines have their own cases below.
+        useMocks(endpointMocks({ status: { ...STALE_STATUS, reason_states_rollout: true } }))
         const logic = mountAndRender()
         await settle(logic)
 
@@ -118,16 +125,16 @@ describe('FeatureFlagStaleBanner', () => {
     it.each([
         {
             name: 'a flag that covers everyone',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
-            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true },
-            says: /One release condition rolls out to all users, so they all get the same result\./,
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT, effectively_full_rollout: true },
+            says: /One release condition rolls out to all users\./,
         },
         {
             // One 100% condition plus one 100% variant satisfies the full-rollout check while a
             // targeted condition above it serves a different variant, so both flags come back true
             // and the full-rollout sentence would be false.
             name: 'a multivariate flag that targets a subset and also covers everyone',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
+            flag: buildFlag(),
             rollout: {
                 effectively_full_rollout: true,
                 has_targeting_conditions: true,
@@ -142,8 +149,8 @@ describe('FeatureFlagStaleBanner', () => {
             // to a 75% blanket one. The maximum belongs to the blanket condition, so the banner must
             // not place it inside the targeted one.
             name: 'a flag whose largest rollout sits outside its targeted condition',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
-            rollout: { ...NO_ROLLOUT, has_targeting_conditions: true, max_rollout_percentage: 75 },
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT, has_targeting_conditions: true, max_rollout_percentage: 75 },
             says: /Its highest rollout across release conditions is 75%\. Some conditions target specific users, so this may not be 75% of all users\./,
         },
         {
@@ -151,51 +158,66 @@ describe('FeatureFlagStaleBanner', () => {
             // percentage here reads as a contradiction next to 'will always evaluate to "true"'.
             name: 'a targeted flag the backend calls stale from its rollout alone',
             flag: buildFlag(),
-            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true, has_targeting_conditions: true },
+            reasonStatesRollout: true,
+            rollout: { ...FULL_ROLLOUT, effectively_full_rollout: true, has_targeting_conditions: true },
             says: null,
         },
         {
             name: 'a flag that still serves part of the user base',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
-            rollout: { ...NO_ROLLOUT, max_rollout_percentage: 40 },
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT, max_rollout_percentage: 40 },
             says: /Its rollout is 40% of all users\./,
+        },
+        {
+            // A rollout written through the API keeps more precision than the editor allows, and the
+            // raw float reads as a bug. FractionalRolloutWarning on the same page trims it the same way.
+            name: 'a flag on a high-precision fractional rollout',
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT, max_rollout_percentage: 33.333333333333336 },
+            says: /Its rollout is 33.33% of all users\./,
         },
         {
             // A boolean flag whose only condition omits its percentage evaluates to 100% at runtime,
             // so max_rollout_percentage is 100 while effectively_full_rollout stays false. It still
             // reaches everyone, and the banner must say so rather than fall silent.
             name: 'a boolean flag whose condition omits its rollout percentage',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
-            rollout: { ...NO_ROLLOUT },
-            says: /It rolls out to all users\./,
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT },
+            says: /One release condition rolls out to all users\./,
         },
         {
             // is_multivariate reports only that variants exist, not how traffic divides. A single
             // 100% variant produces the same summary as a real split, so the banner cannot claim a
             // split; it states the coverage both shapes share.
             name: 'a multivariate flag that covers everyone',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
-            rollout: { ...NO_ROLLOUT, is_multivariate: true },
-            says: /It rolls out to all users\./,
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT, is_multivariate: true },
+            says: /One release condition rolls out to all users\./,
         },
         {
             // `effectively_full_rollout` is true for a flag with no release conditions, so a
             // sentence about a condition would describe something that is not there.
             name: 'a flag with no release conditions',
-            flag: buildFlag({ last_called_at: CALLED_AT }),
-            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true, max_rollout_percentage: null },
+            flag: buildFlag(),
+            rollout: { ...FULL_ROLLOUT, effectively_full_rollout: true, max_rollout_percentage: null },
             says: null,
         },
         {
-            // With no usage data the backend reads the rollout to reach its verdict, so the reason
-            // already carries the fact and the banner must not repeat it.
+            // The backend read the rollout to reach its verdict, so the reason already carries the
+            // fact and the banner must not repeat it.
             name: 'a flag the backend calls stale from its rollout alone',
             flag: buildFlag(),
-            rollout: { ...NO_ROLLOUT, effectively_full_rollout: true },
+            reasonStatesRollout: true,
+            rollout: { ...FULL_ROLLOUT, effectively_full_rollout: true },
             says: null,
         },
-    ])('describes the rollout of $name', async ({ flag, rollout, says }) => {
-        useMocks(endpointMocks({ flag, status: { ...STALE_STATUS, rollout } }))
+    ])('describes the rollout of $name', async ({ flag, rollout, says, reasonStatesRollout }) => {
+        useMocks(
+            endpointMocks({
+                flag,
+                status: { ...STALE_STATUS, rollout, reason_states_rollout: Boolean(reasonStatesRollout) },
+            })
+        )
         const logic = mountAndRender()
         await settle(logic)
 
@@ -217,12 +239,12 @@ describe('FeatureFlagStaleBanner', () => {
             },
         ] as any)
 
-        const flag = buildFlag({
-            last_called_at: CALLED_AT,
-            filters: { ...NEW_FLAG.filters, aggregation_group_type_index: 0 },
-        })
+        const flag = buildFlag({ filters: { ...NEW_FLAG.filters, aggregation_group_type_index: 0 } })
         useMocks(
-            endpointMocks({ flag, status: { ...STALE_STATUS, rollout: { ...NO_ROLLOUT, max_rollout_percentage: 40 } } })
+            endpointMocks({
+                flag,
+                status: { ...STALE_STATUS, rollout: { ...FULL_ROLLOUT, max_rollout_percentage: 40 } },
+            })
         )
         const logic = mountAndRender()
         await settle(logic)

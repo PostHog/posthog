@@ -12260,6 +12260,45 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["rollout"], expected_rollout)
 
+    # (name, last_called_at, expected) — the route the stale verdict came from.
+    @parameterized.expand(
+        [
+            ("config_route", None, True),
+            ("usage_route", datetime.now(UTC) - timedelta(days=45), False),
+        ]
+    )
+    def test_flag_status_reports_whether_reason_states_rollout(self, name, last_called_at, expected):
+        flag = FeatureFlag.objects.create(
+            name=f"{name} flag",
+            key=f"{name}-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=last_called_at,
+            created_at=datetime.now(UTC) - timedelta(days=45),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], FeatureFlagStatus.STALE)
+        self.assertEqual(response.json()["reason_states_rollout"], expected)
+
+    def test_flag_status_keeps_whole_rollout_percentages_as_integers(self):
+        """A whole rollout stays the integer the endpoint has always sent; a fractional one keeps its value."""
+        for key, percentage, expected in (("whole", 100, 100), ("fractional", 0.5, 0.5)):
+            flag = FeatureFlag.objects.create(
+                name=f"{key} flag",
+                key=f"{key}-rollout-flag",
+                team=self.team,
+                active=True,
+                filters={"groups": [{"rollout_percentage": percentage, "properties": []}]},
+                last_called_at=datetime.now(UTC),
+            )
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            returned = response.json()["rollout"]["max_rollout_percentage"]
+            self.assertEqual(returned, expected)
+            self.assertIsInstance(returned, type(expected))
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()

@@ -2,31 +2,23 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { endWithPunctation } from 'lib/utils/strings'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 
+import { formatPercentage } from './FractionalRolloutWarning'
 import type { FeatureFlagRolloutSummaryApi } from './generated/api.schemas'
 
-// The status endpoint returns reasons without terminating punctuation, and the banner reads them
-// next to sentences written here.
-function asSentence(reason: string): string {
-    const trimmed = reason.trim()
-    if (!trimmed || /[.!?]$/.test(trimmed)) {
-        return trimmed
-    }
-    return `${trimmed}.`
-}
-
-// Rollout is supporting detail, not a second verdict on staleness. Branch order matters here:
-// `effectively_full_rollout` and `has_targeting_conditions` can both be true for a multivariate
-// flag, because one 100% condition plus one 100% variant satisfies the full-rollout check while a
-// separate targeted condition above it serves a different variant. Reading full rollout first would
-// claim one result for every user while targeted users get another.
+// Rollout is supporting detail, not a second verdict on staleness. Every line states only what the
+// summary establishes, because the summary reads `filters.groups` and `filters.multivariate` and
+// nothing else. It cannot see evaluation order, early exit, or which variant a condition overrides.
+// Targeting is checked before full rollout: both can be true for a multivariate flag, and the
+// targeted case is the one the reader needs.
 // `targets` is the flag's aggregation unit (people, or a group noun like "organizations"), so a
 // flag evaluated on groups does not report its rollout as a share of users.
 function rolloutSentence(
     rollout: FeatureFlagRolloutSummaryApi | undefined,
-    hasUsageData: boolean,
+    reasonStatesRollout: boolean,
     targets: string
 ): string | null {
     if (!rollout || rollout.max_rollout_percentage === null) {
@@ -34,40 +26,33 @@ function rolloutSentence(
         // naming a condition that rolls out to everyone would describe something that is not there.
         return null
     }
-    const percentage = rollout.max_rollout_percentage
+    const percentage = formatPercentage(rollout.max_rollout_percentage)
 
     if (rollout.has_targeting_conditions) {
         // The two fields are computed independently over the whole condition list.
         // `has_targeting_conditions` means some condition has property filters, and
         // `max_rollout_percentage` is the maximum across every condition. They need not describe the
         // same condition, so the banner reports the number without saying which one produced it.
-        // Without usage data the backend reached its verdict from the rollout, so `reason` already
-        // carries the fact, as in the `effectively_full_rollout` branch below.
-        return hasUsageData
-            ? `Its highest rollout across release conditions is ${percentage}%. Some conditions target specific ${targets}, so this may not be ${percentage}% of all ${targets}.`
-            : null
+        // When the reason already states the rollout, repeating it adds nothing.
+        return reasonStatesRollout
+            ? null
+            : `Its highest rollout across release conditions is ${percentage}. Some conditions target specific ${targets}, so this may not be ${percentage} of all ${targets}.`
     }
-    if (rollout.effectively_full_rollout) {
-        // Without usage data the backend reaches its stale verdict from the rollout itself, so
-        // `reason` already says the flag always resolves one way. Saying it again adds nothing.
-        return hasUsageData
-            ? `One release condition rolls out to all ${targets}, so they all get the same result.`
-            : null
+    if (rollout.max_rollout_percentage < 100) {
+        // `effectively_full_rollout` needs a condition at an explicit 100, so it implies a maximum
+        // of 100 and cannot be true here.
+        return `Its rollout is ${percentage} of all ${targets}.`
     }
-    if (percentage < 100) {
-        return `Its rollout is ${percentage}% of all ${targets}.`
-    }
-    // The highest condition has no property filters and rolls out to 100% (an explicit 100, or an
-    // omitted percentage that evaluates to 100% at runtime), so the flag reaches everyone. This
-    // covers a usage-stale boolean flag that would otherwise fall through with no line. Without
-    // usage data a fully-rolled-out flag is stale by the config route and its reason already carries
-    // the fact, as in the `effectively_full_rollout` branch. The summary reports only that variants
-    // exist, not how traffic divides, so the banner cannot claim a split.
-    return hasUsageData ? `It rolls out to all ${targets}.` : null
+    // A condition with no property filters covers everyone, at an explicit 100% or with the
+    // percentage omitted, which evaluates to 100% at runtime. The banner stops there rather than
+    // saying everyone gets the same result, which the summary cannot establish: with early exit an
+    // earlier partial condition short-circuits the rest, and another condition can override the
+    // variant. When the reason already states the rollout, repeating it adds nothing.
+    return reasonStatesRollout ? null : `One release condition rolls out to all ${targets}.`
 }
 
 export function FeatureFlagStaleBanner(): JSX.Element | null {
-    const { showStaleFlagBanner, flagStatus, featureFlag, hasExperiment, dependentFlags, aggregationTargetName } =
+    const { showStaleFlagBanner, flagStatus, hasExperiment, dependentFlags, aggregationTargetName } =
         useValues(featureFlagLogic)
     const { setSelectedTab } = useActions(featureFlagLogic)
 
@@ -75,7 +60,7 @@ export function FeatureFlagStaleBanner(): JSX.Element | null {
         return null
     }
 
-    const rollout = rolloutSentence(flagStatus.rollout, Boolean(featureFlag.last_called_at), aggregationTargetName)
+    const rollout = rolloutSentence(flagStatus.rollout, flagStatus.reason_states_rollout, aggregationTargetName)
 
     return (
         <LemonBanner
@@ -92,7 +77,7 @@ export function FeatureFlagStaleBanner(): JSX.Element | null {
             <div className="flex flex-col gap-1">
                 <strong>This flag may no longer be needed</strong>
                 <span>
-                    {asSentence(flagStatus.reason)}
+                    {endWithPunctation(flagStatus.reason)}
                     {rollout ? ` ${rollout}` : ''}
                 </span>
                 {hasExperiment && <span>This flag is linked to an experiment.</span>}
