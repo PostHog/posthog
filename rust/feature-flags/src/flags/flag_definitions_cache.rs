@@ -252,7 +252,7 @@ impl FlagDefinitionsCache {
 
 /// Validates a `HypercacheFlagsWrapper` and compiles its regexes. Validation
 /// runs here, not on the cache-lookup path, so hits never re-validate.
-/// Malformed wrappers fail fast with `DataParsingErrorWithContext`.
+/// Malformed wrappers fail fast with the `flag_data_parsing_error` 500.
 pub(crate) fn compile_from_wrapper(
     team_id: TeamId,
     wrapper: Option<HypercacheFlagsWrapper>,
@@ -636,8 +636,8 @@ mod tests {
     }
 
     /// A malformed wrapper (flags present but `dependency_stages` empty) must
-    /// surface as `FlagError::DataParsingErrorWithContext`, not be collapsed
-    /// into `Internal` at the cache boundary.
+    /// surface under the `flag_data_parsing_error` code, not be collapsed into a
+    /// generic `internal_error` at the cache boundary.
     #[tokio::test]
     async fn test_validation_errors_preserve_variant() {
         let cache = FlagDefinitionsCache::new(None, None);
@@ -656,8 +656,14 @@ mod tests {
             .await
             .expect_err("malformed wrapper must error");
         assert!(
-            matches!(err, FlagError::DataParsingErrorWithContext(_)),
-            "expected DataParsingErrorWithContext, got {err:?}"
+            matches!(
+                err,
+                FlagError::InternalError {
+                    code: "flag_data_parsing_error",
+                    ..
+                }
+            ),
+            "expected flag_data_parsing_error, got {err:?}"
         );
     }
 

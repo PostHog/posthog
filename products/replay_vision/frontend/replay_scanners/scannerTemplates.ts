@@ -9,7 +9,7 @@ import type {
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL, defaultScannerName } from './types'
 
 export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
@@ -77,9 +77,9 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         icon: 'target',
         scanner_type: 'classifier',
         scanner_name: 'User intent',
-        scanner_description: 'Tag each session with the likely intent behind it.',
+        scanner_description: 'Categorize each session by the likely intent behind it.',
         scanner_config: {
-            prompt: 'Classify what the user appeared to be trying to accomplish in this session, based on their primary actions. Pick from the configured tag vocabulary.',
+            prompt: 'Classify what the user appeared to be trying to accomplish in this session, based on their primary actions. Pick from the configured categories.',
             tags: ['browsing', 'purchasing', 'researching', 'support', 'account_management', 'returning_task'],
             multi_label: false,
         },
@@ -100,13 +100,13 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     {
         key: 'session_outcome',
         name: 'Session outcome',
-        description: 'Tag each session with what actually happened: task completed, abandoned, errored, etc.',
+        description: 'Categorize each session by what actually happened: task completed, abandoned, errored, etc.',
         icon: 'check',
         scanner_type: 'classifier',
         scanner_name: 'Session outcome',
         scanner_description: 'Classify the outcome of each session.',
         scanner_config: {
-            prompt: 'Classify what happened in this session. Did the user complete what they were trying to do, abandon partway through, hit an error that blocked them, or just browse without a clear task? Pick from the configured tag vocabulary.',
+            prompt: 'Classify what happened in this session. Did the user complete what they were trying to do, abandon partway through, hit an error that blocked them, or just browse without a clear task? Pick from the configured categories.',
             tags: ['task_completed', 'task_abandoned', 'blocked_by_error', 'browsing_only', 'inconclusive'],
             multi_label: false,
         },
@@ -120,13 +120,14 @@ export function findScannerTemplate(key: string | undefined): ScannerTemplate | 
     return defaultScannerTemplates.find((t) => t.key === key)
 }
 
-export function newScanner(templateKey?: string | null): ScannerFormValues {
+export function newScanner(templateKey?: string | null, teamName?: string | null): ScannerFormValues {
     const base = {
         id: 'new',
         enabled: true,
         tags: [] as string[],
-        sampling_rate: 1,
-        sampling_mode: 'comprehensive' as const,
+        // Starts narrow: a wizard that opens on every recording at full rate quotes a scary first number.
+        sampling_rate: 0.2,
+        sampling_mode: 'balanced' as const,
         query: { kind: NodeKind.RecordingsQuery },
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
@@ -167,7 +168,8 @@ export function newScanner(templateKey?: string | null): ScannerFormValues {
     }
     return {
         ...base,
-        name: '',
+        // Every details field is optional, so an unnamed scanner starts from a name that already reads sensibly.
+        name: defaultScannerName(teamName, 'monitor'),
         description: '',
         scanner_type: 'monitor',
         scanner_config: { prompt: '' },

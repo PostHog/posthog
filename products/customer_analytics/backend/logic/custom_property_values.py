@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -30,6 +31,7 @@ from products.customer_analytics.backend.models import (
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
 CoercedValue = float | bool | str | datetime
+_LINK_VALIDATOR = URLValidator(schemes=["http", "https"])
 
 
 class InvalidCustomPropertyValue(ValueError):
@@ -185,6 +187,30 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
     return False
 
 
+def set_synced_custom_property_value(
+    *, team_id: int, account_id: str | UUID, definition: CustomPropertyDefinition, value: Any
+) -> bool:
+    """Set a staged warehouse value for an account already resolved inside this team."""
+    _, coerced = _coerce_to_column(definition, value)
+    current = (
+        CustomPropertyValue.objects.for_team(team_id)
+        .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+        .first()
+    )
+    if current is not None:
+        current.definition = definition
+        if value_of(current) == coerced:
+            return False
+    _set_value(
+        team_id=team_id,
+        account_id=account_id,
+        definition=definition,
+        value=value,
+        created_by_id=None,
+    )
+    return True
+
+
 def _set_value(
     *,
     team_id: int,
@@ -226,8 +252,6 @@ def _set_value(
                 f"An active value for custom property '{definition.name}' was set concurrently."
             ) from exc
         raise
-    # Cache the definition we already hold so callers reading row.definition.* don't trigger a
-    # lazy FK load against the fail-closed manager (which would raise outside request scope).
     row.definition = definition
     return row
 
@@ -407,6 +431,15 @@ def _coerce_string(definition: CustomPropertyDefinition, value: Any) -> str:
     raise InvalidCustomPropertyValue(_expects(definition, "a text value"))
 
 
+def _coerce_link(definition: CustomPropertyDefinition, value: Any) -> str:
+    link = _coerce_string(definition, value)
+    try:
+        _LINK_VALIDATOR(link)
+    except ValidationError:
+        raise InvalidCustomPropertyValue(_expects(definition, "an HTTP or HTTPS URL"))
+    return link
+
+
 def _coerce_select(definition: CustomPropertyDefinition, value: Any) -> str:
     labels = [option["label"] for option in definition.options or []]
     if isinstance(value, str) and value in labels:
@@ -427,6 +460,8 @@ _HANDLER_BY_DATA_TYPE: dict[DataType, tuple[str, Callable[[CustomPropertyDefinit
 def _coerce_to_column(definition: CustomPropertyDefinition, value: Any) -> tuple[str, CoercedValue]:
     if definition.display_type == DisplayType.SELECT:
         return "value_str", _coerce_select(definition, value)
+    if definition.display_type == DisplayType.LINK:
+        return "value_str", _coerce_link(definition, value)
     column, coerce = _HANDLER_BY_DATA_TYPE[definition.data_type]
     return column, coerce(definition, value)
 

@@ -97,7 +97,7 @@ Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database
 
 ### Resource-level: the `warehouse_objects` umbrella
 
-`warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `posthog/rbac/user_access_control.py`).
+`warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `products/access_control/backend/facade/user_access_control.py`).
 Denying `warehouse_objects` for a user filters every warehouse table and view out of their schema at build time.
 
 ### Object-level: per-source, per-table, and per-view
@@ -112,7 +112,7 @@ The deny checks are `_is_warehouse_table_denied` and `_is_warehouse_view_denied`
 ### How a table's access level resolves
 
 A table can be part of a source, so rules can exist at both levels.
-`RESOURCE_FALLBACK_MAP` (`posthog/rbac/user_access_control.py`) resolves this by applying the most specific rule that exists:
+`RESOURCE_FALLBACK_MAP` (`products/access_control/backend/facade/user_access_control.py`) resolves this by applying the most specific rule that exists:
 
 1. This table
 2. Its source
@@ -166,7 +166,7 @@ execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 
 ## 3. Property access control
 
-Hides sensitive event and person properties (e.g. `email`) from query results.
+Hides sensitive event, person, and group properties (e.g. `email`) from query results.
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
 Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
@@ -178,6 +178,8 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 - **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeys(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
+
+Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 
@@ -193,7 +195,7 @@ Otherwise a denied user gets served an allowed user's cached rows.
 
 The cache key is derived from `get_cache_payload()`:
 
-- `QueryRunner.get_cache_payload()` adds `restricted_properties` (sorted `(name, type)` pairs) when the user has property restrictions.
+- `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, when the user has property restrictions.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
 Two things keep cache hit rates high:
@@ -205,13 +207,13 @@ When a run has no user but does read access-controlled resources, the fingerprin
 
 ## One preloaded `UserAccessControl` everywhere
 
-`UserAccessControl` (`posthog/rbac/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
+`UserAccessControl` (`products/access_control/backend/facade/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
 
 The same instance is reused across:
 
 - **Schema filtering:** passed into `Database.create_for()`, warmed by `_compute_system_table_access_decision()`, stored as `database.user_access_control`.
 - **Cache fingerprint:** `QueryRunnerWithHogQLContext.user_access_control` returns `self.database.user_access_control`, so the fingerprint and the schema strip resolve access from the same preloaded rows.
 - **Print-time row guards:** `build_access_control_guard()` reads `blocked_resource_ids_by_scope` off the same instance.
-- **API-level (viewset) access control:** `TeamAndOrgViewSetMixin.user_access_control` (`posthog/api/routing.py`) creates one instance per request, and dashboard rendering passes it down into each tile's query runner (`products/product_analytics/backend/api/insight.py`), so N insights share one access-control fetch.
+- **API-level (viewset) access control:** `TeamAndOrgViewSetMixin.user_access_control` (`posthog/api/routing.py`) creates one instance per request, and dashboard rendering passes it down into each tile's query runner (`products/product_analytics/backend/presentation/insight.py`), so N insights share one access-control fetch.
 
 When both access-control types are active, a query run makes just one query to `AccessControl` and one to `PropertyAccessControl`.

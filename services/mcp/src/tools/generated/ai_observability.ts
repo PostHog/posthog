@@ -53,7 +53,6 @@ import {
     LlmAnalyticsEvaluationReportsRetrieveParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
     LlmAnalyticsEvaluationReportsRunsListQueryParams,
-    LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsPersonalSpendListQueryParams,
     LlmAnalyticsProviderKeysListQueryParams,
@@ -99,6 +98,7 @@ import {
     TaggersTestHogCreateBody,
 } from '@/generated/ai_observability/api'
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import {
     withPostHogUrl,
@@ -831,7 +831,10 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
     },
 })
 
-const LlmaEvaluationDeleteSchema = EvaluationsDestroyParams.omit({ project_id: true })
+const LlmaEvaluationDeleteSchema = z.preprocess(
+    normalizeParamAliases({ id: ['evaluationId', 'evaluation_id'] }),
+    EvaluationsDestroyParams.omit({ project_id: true })
+)
 
 const llmaEvaluationDelete = (): ToolBase<typeof LlmaEvaluationDeleteSchema, Schemas.Evaluation> => ({
     name: 'llma-evaluation-delete',
@@ -947,7 +950,10 @@ const llmaEvaluationDirectoryUpdate = (): ToolBase<
     },
 })
 
-const LlmaEvaluationGetSchema = EvaluationsRetrieveParams.omit({ project_id: true })
+const LlmaEvaluationGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['evaluationId', 'evaluation_id'] }),
+    EvaluationsRetrieveParams.omit({ project_id: true })
+)
 
 const llmaEvaluationGet = (): ToolBase<typeof LlmaEvaluationGetSchema, Schemas.Evaluation> => ({
     name: 'llma-evaluation-get',
@@ -1183,7 +1189,10 @@ const llmaEvaluationReportUpdate = (): ToolBase<
     },
 })
 
-const LlmaEvaluationRunSchema = EvaluationRunsCreateBody
+const LlmaEvaluationRunSchema = z.preprocess(
+    normalizeParamAliases({ evaluation_id: ['evaluationId', 'id'] }),
+    EvaluationRunsCreateBody
+)
 
 const llmaEvaluationRun = (): ToolBase<typeof LlmaEvaluationRunSchema, unknown> => ({
     name: 'llma-evaluation-run',
@@ -1209,38 +1218,6 @@ const llmaEvaluationRun = (): ToolBase<typeof LlmaEvaluationRunSchema, unknown> 
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluation_runs/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationSummaryCreateSchema = LlmAnalyticsEvaluationSummaryCreateBody
-
-const llmaEvaluationSummaryCreate = (): ToolBase<
-    typeof LlmaEvaluationSummaryCreateSchema,
-    Schemas.EvaluationSummaryResponse
-> => ({
-    name: 'llma-evaluation-summary-create',
-    schema: LlmaEvaluationSummaryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationSummaryCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.evaluation_id !== undefined) {
-            body['evaluation_id'] = params.evaluation_id
-        }
-        if (params.filter !== undefined) {
-            body['filter'] = params.filter
-        }
-        if (params.generation_ids !== undefined) {
-            body['generation_ids'] = params.generation_ids
-        }
-        if (params.force_refresh !== undefined) {
-            body['force_refresh'] = params.force_refresh
-        }
-        const result = await context.api.request<Schemas.EvaluationSummaryResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_summary/`,
             body,
         })
         return result
@@ -1282,8 +1259,9 @@ const llmaEvaluationTestHog = (): ToolBase<typeof LlmaEvaluationTestHogSchema, S
     },
 })
 
-const LlmaEvaluationUpdateSchema = EvaluationsPartialUpdateParams.omit({ project_id: true }).extend(
-    EvaluationsPartialUpdateBody.shape
+const LlmaEvaluationUpdateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['evaluationId', 'evaluation_id'] }),
+    EvaluationsPartialUpdateParams.omit({ project_id: true }).extend(EvaluationsPartialUpdateBody.shape)
 )
 
 const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Schemas.Evaluation> => ({
@@ -1413,8 +1391,9 @@ const llmaPromptDuplicate = (): ToolBase<typeof LlmaPromptDuplicateSchema, Schem
     },
 })
 
-const LlmaPromptGetSchema = LlmPromptsNameRetrieveParams.omit({ project_id: true }).extend(
-    LlmPromptsNameRetrieveQueryParams.shape
+const LlmaPromptGetSchema = z.preprocess(
+    normalizeParamAliases({ prompt_name: ['name', 'promptName', 'prompt_id', 'promptId', 'id'] }),
+    LlmPromptsNameRetrieveParams.omit({ project_id: true }).extend(LlmPromptsNameRetrieveQueryParams.shape)
 )
 
 const llmaPromptGet = (): ToolBase<typeof LlmaPromptGetSchema, Schemas.LLMPromptPublic> => ({
@@ -2572,7 +2551,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-report-run-list': llmaEvaluationReportRunList,
     'llma-evaluation-report-update': llmaEvaluationReportUpdate,
     'llma-evaluation-run': llmaEvaluationRun,
-    'llma-evaluation-summary-create': llmaEvaluationSummaryCreate,
     'llma-evaluation-test-hog': llmaEvaluationTestHog,
     'llma-evaluation-update': llmaEvaluationUpdate,
     'llma-personal-spend': llmaPersonalSpend,
@@ -2613,6 +2591,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
+        urlPrefix: '/ai-observability/traces',
     }),
-    'query-llm-trace': createQueryWrapper({ name: 'query-llm-trace', schema: AssistantTraceQuery, kind: 'TraceQuery' }),
+    'query-llm-trace': createQueryWrapper({
+        name: 'query-llm-trace',
+        schema: AssistantTraceQuery,
+        kind: 'TraceQuery',
+        urlPrefix: '/ai-observability/traces/{traceId}',
+    }),
 }

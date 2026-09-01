@@ -1,14 +1,22 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
-import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
+import { AccessControlLevel, AccessControlResourceType, UniversalFiltersGroup } from '~/types'
+
+import { metricsErrorSpikesRetrieve, metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
+import type {
+    _MetricErrorSpikeApi,
+    _MetricEventSampleApi,
+    _MetricFilterApi,
+    OtelMetricTypeEnumApi,
+} from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { formatSeriesName, seriesColor } from './metricsSeries'
-import { type MetricsViewMode, type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
+import { type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 // The side panel next to the chart: per-series aggregates, or the raw emissions
 // behind the chart with their trace linkage (the metric->trace pivot).
@@ -38,13 +46,17 @@ export interface metricsSamplesLogicValues {
     dateFrom: string | null // metricsViewerLogic
     dateTo: string | null // metricsViewerLogic
     metricName: string // metricsViewerLogic
+    queryFilters: _MetricFilterApi[] // metricsViewerLogic
     queryResults: MetricsViewerSeries[] // metricsViewerLogic
-    viewMode: MetricsViewMode // metricsViewerLogic
+    selectedMetricType: OtelMetricTypeEnumApi | null // metricsViewerLogic
     currentTeamId: number | null // teamLogic
     activeTab: MetricsPanelTab
     aggregateRows: MetricsAggregateRow[]
+    errorSpikes: _MetricErrorSpikeApi[]
+    errorSpikesLoading: boolean
     samples: _MetricEventSampleApi[]
     samplesLoading: boolean
+    showErrorSpikes: boolean
     traceExemplars: MetricsTraceExemplar[]
 }
 
@@ -63,9 +75,30 @@ export interface metricsSamplesLogicActions {
     setDateTo: (dateTo: string | null) => {
         dateTo: string | null
     } // metricsViewerLogic
+    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+        filterGroup: UniversalFiltersGroup
+    } // metricsViewerLogic
     setMetricName: (metricName: string) => {
         metricName: string
     } // metricsViewerLogic
+    setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
+        metricType: OtelMetricTypeEnumApi | null
+    } // metricsViewerLogic
+    loadErrorSpikes: (_: any) => any
+    loadErrorSpikesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadErrorSpikesSuccess: (
+        errorSpikes: _MetricErrorSpikeApi[],
+        payload?: any
+    ) => {
+        errorSpikes: _MetricErrorSpikeApi[]
+        payload?: any
+    }
     loadSamples: (_: any) => any
     loadSamplesFailure: (
         error: string,
@@ -83,6 +116,9 @@ export interface metricsSamplesLogicActions {
     }
     setActiveTab: (activeTab: MetricsPanelTab) => {
         activeTab: MetricsPanelTab
+    }
+    toggleShowErrorSpikes: () => {
+        value: true
     }
 }
 
@@ -111,15 +147,27 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             teamLogic,
             ['currentTeamId'],
             metricsViewerLogic,
-            ['metricName', 'dateFrom', 'dateTo', 'queryResults', 'viewMode'],
+            ['metricName', 'dateFrom', 'dateTo', 'queryFilters', 'selectedMetricType', 'queryResults'],
         ],
-        actions: [metricsViewerLogic, ['setMetricName', 'setDateFrom', 'setDateTo', 'fetchQueryResultsSuccess']],
+        actions: [
+            metricsViewerLogic,
+            [
+                'setMetricName',
+                'setDateFrom',
+                'setDateTo',
+                'setFilterGroup',
+                'setSelectedMetricType',
+                'fetchQueryResultsSuccess',
+            ],
+        ],
     })),
     actions({
         setActiveTab: (activeTab: MetricsPanelTab) => ({ activeTab }),
+        toggleShowErrorSpikes: true,
     }),
     reducers({
         activeTab: ['aggregates' as MetricsPanelTab, { setActiveTab: (_, { activeTab }) => activeTab }],
+        showErrorSpikes: [false, { toggleShowErrorSpikes: (state) => !state }],
     }),
     loaders(({ values }) => ({
         samples: [
@@ -141,8 +189,40 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                             metricName,
                             dateFrom,
                             ...(dateTo ? { dateTo } : {}),
+                            ...(values.selectedMetricType ? { metricType: values.selectedMetricType } : {}),
+                            ...(values.queryFilters.length ? { filters: values.queryFilters } : {}),
                             limit: SAMPLES_LIMIT,
                         },
+                    })
+                    breakpoint()
+                    return response.results
+                },
+            },
+        ],
+        errorSpikes: [
+            [] as _MetricErrorSpikeApi[],
+            {
+                loadErrorSpikes: async (_, breakpoint) => {
+                    // The single gate for the overlay's data: listeners dispatch this
+                    // unconditionally, and this guard decides — returning [] also clears
+                    // stale spikes when the toggle turns off. Error Tracking view access
+                    // is required because the response is that product's data.
+                    if (
+                        !canViewMetrics() ||
+                        !values.showErrorSpikes ||
+                        !userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+                    ) {
+                        return []
+                    }
+                    const dateFrom = resolveDate(values.dateFrom)
+                    if (!dateFrom) {
+                        return []
+                    }
+                    await breakpoint(300)
+                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const response = await metricsErrorSpikesRetrieve(String(values.currentTeamId), {
+                        dateFrom,
+                        ...(dateTo ? { dateTo } : {}),
                     })
                     breakpoint()
                     return response.results
@@ -182,35 +262,38 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     })),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setActiveTab: ({ activeTab }) => {
-            if (activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-        // The chart's exemplar overlay renders from these samples, so every chart
-        // redraw refreshes them; stat mode has no chart to dot, so skip it there.
-        fetchQueryResultsSuccess: () => {
-            if (values.viewMode === 'chart') {
-                actions.loadSamples({})
-            }
-        },
+    listeners(({ actions, values }) => {
         // The viewer's filters are the samples' filters: any change that redraws
         // the chart refreshes the visible samples too, but only when they're shown.
-        setMetricName: () => {
+        const reloadWhenShown = (): void => {
             if (values.activeTab === 'samples') {
                 actions.loadSamples({})
             }
-        },
-        setDateFrom: () => {
-            if (values.activeTab === 'samples') {
+        }
+        return {
+            setActiveTab: ({ activeTab }) => {
+                if (activeTab === 'samples') {
+                    actions.loadSamples({})
+                }
+            },
+            // The chart's exemplar overlay renders from these samples, so every chart
+            // redraw refreshes them. Error spikes ride the same trigger, so both
+            // overlays stay in sync with the chart's own window. Both dispatches are
+            // unconditional — the loaders' own guards are the single gate.
+            fetchQueryResultsSuccess: () => {
                 actions.loadSamples({})
-            }
-        },
-        setDateTo: () => {
-            if (values.activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-    })),
+                actions.loadErrorSpikes({})
+            },
+            toggleShowErrorSpikes: () => {
+                actions.loadErrorSpikes({})
+            },
+            setMetricName: reloadWhenShown,
+            setDateFrom: reloadWhenShown,
+            setDateTo: reloadWhenShown,
+            setFilterGroup: reloadWhenShown,
+            // The viewer pins the type in its own setMetricName listener, so without
+            // this a metric switch can load samples pinned to the previous type.
+            setSelectedMetricType: reloadWhenShown,
+        }
+    }),
 ])

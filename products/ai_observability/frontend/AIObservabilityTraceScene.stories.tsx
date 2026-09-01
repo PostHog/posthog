@@ -1,15 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
-import { useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { LLMTrace } from '~/queries/schema/schema-general'
 
 import fullTrace from './__mocks__/fullTrace.json'
 import traceWithoutContent from './__mocks__/traceWithoutContent.json'
 import { AIObservabilityTraceScene } from './AIObservabilityTraceScene'
+import { AIObservabilityInstrumentationCheckEnumApi, InstrumentationCheckStatusEnumApi } from './generated/api.schemas'
 
 interface AIObservabilityTraceSceneProps {
     trace: LLMTrace
@@ -77,4 +79,32 @@ export const WithoutContent: Story = {
     args: {
         trace: traceWithoutContent,
     },
+}
+
+export const MissingSpanInstrumentation: Story = {
+    args: {
+        trace: traceWithoutContent,
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/ai_observability/instrumentation_checklist/': {
+                    window_days: 30,
+                    checks: [
+                        {
+                            key: AIObservabilityInstrumentationCheckEnumApi.TraceStructure,
+                            status: InstrumentationCheckStatusEnumApi.Warning,
+                            title: 'Trace structure',
+                            detail: 'Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them.',
+                            docs_url: 'https://posthog.com/docs/ai-observability/installation',
+                            stats: { total_events: 1611, spans: 0, events_with_parent: 0 },
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
 }

@@ -79,7 +79,6 @@ export function PullRequestCardView({
                 <ConventionalCommitScopeTag
                   type={conventionalTitle.type}
                   scope={conventionalTitle.scope}
-                  compact
                 />
               )
             }
@@ -129,10 +128,7 @@ export function PullRequestCardView({
       {renderBody(body, inboxCardBodyClassName)}
 
       <InboxCardActions>
-        <SuggestedReviewerAvatarStack
-          reportId={report.id}
-          artefacts={artefacts}
-        />
+        <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />
         <UiButton
           type="button"
           variant="soft"
@@ -184,13 +180,11 @@ export function PullRequestCard({
   isDismissPending = false,
 }: PullRequestCardProps) {
   const detailRoute = {
-    to: "/code/inbox/pulls/$reportId" as const,
+    to: "/inbox/pulls/$reportId" as const,
     params: { reportId: report.id },
   };
-  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(
-    report,
-    detailRoute,
-  );
+  const { prefetch, pointerHandlers } =
+    useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)

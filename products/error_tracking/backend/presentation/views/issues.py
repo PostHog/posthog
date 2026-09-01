@@ -25,7 +25,7 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
-    ErrorTrackingExternalReferenceSerializer,
+    ErrorTrackingExternalReferenceResultSerializer,
 )
 
 IssueNotFoundError = facade_api.IssueNotFoundError
@@ -76,8 +76,57 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     description = serializers.CharField(allow_null=True)
     first_seen = serializers.DateTimeField(allow_null=True)
     assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
-    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    external_issues = ErrorTrackingExternalReferenceResultSerializer(many=True)
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
+
+
+@extend_schema_field(
+    {"oneOf": [{"type": "integer"}, {"type": "string"}]},
+    component_name="ErrorTrackingIssueAssigneeId",
+)
+class ErrorTrackingIssueAssigneeIdField(serializers.Field):
+    def to_internal_value(self, data: object) -> int | str:
+        if isinstance(data, bool) or not isinstance(data, int | str):
+            raise serializers.ValidationError("Expected a user ID or role UUID.")
+        return data
+
+    def to_representation(self, value: object) -> int | str:
+        return value if isinstance(value, int | str) else str(value)
+
+
+class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
+    id = ErrorTrackingIssueAssigneeIdField(help_text="User ID or role UUID to assign the issue to.")
+    type = serializers.ChoiceField(
+        choices=["user", "role"],
+        help_text="Assignment target type: user or role.",
+    )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        assignee_id = attrs["id"]
+        if attrs["type"] == "user":
+            try:
+                attrs["id"] = int(str(assignee_id))
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({"id": "Provide a numeric user ID."})
+        else:
+            try:
+                attrs["id"] = str(UUID(str(assignee_id)))
+            except ValueError:
+                raise serializers.ValidationError({"id": "Provide a valid role UUID."})
+        return attrs
+
+
+class ErrorTrackingIssueAssignRequestSerializer(serializers.Serializer):
+    assignee = ErrorTrackingIssueAssigneeWriteSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Assignment target. Set to null or omit to remove the current assignment.",
+    )
+
+
+class ErrorTrackingIssueAssignResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the assignment update completed successfully.")
 
 
 class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
@@ -246,14 +295,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
+    @validated_request(
+        request_serializer=ErrorTrackingIssueAssignRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueAssignResponseSerializer)},
+    )
     @action(methods=["PATCH"], detail=True)
-    def assign(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        assignee = request.data.get("assignee", None)
+    def assign(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         try:
             issues_facade.assign_issue(
                 self.team.id,
                 UUID(str(pk)),
-                assignee,
+                request.validated_data["assignee"],
                 user=request.user,
                 was_impersonated=is_impersonated(request),
             )

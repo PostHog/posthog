@@ -1,24 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
+import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 import { tracingConfigLogic } from '../../tracingConfigLogic'
-import { tracingFiltersLogic } from '../../tracingFiltersLogic'
-import { Facet } from './Facet'
-import { facetCountsLogic } from './facetCountsLogic'
+import { customFacetsLogic } from './customFacetsLogic'
+import { facetPresenceLogic } from './facetPresenceLogic'
 import { facetRailLogic } from './facetRailLogic'
-import {
-    FacetConfig,
-    FacetOption,
-    facetSelection,
-    facetsByGroup,
-    filterFacetsByName,
-    mergeSelectedIntoOptions,
-} from './facets'
+import { facetsByGroup, filterFacetsByName } from './facets'
+import { RailFacet } from './RailFacet'
+
+const ADD_FACET_GROUP_TYPES = [TaxonomicFilterGroupType.SpanAttributes, TaxonomicFilterGroupType.SpanResourceAttributes]
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
@@ -27,11 +25,11 @@ const COLLAPSE_THRESHOLD_PX = 120
 export function FacetRail(): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
-    const { serviceNames, filters } = useValues(tracingFiltersLogic)
-    const { facetValues, loadingFacetKeys, erroredFacetKeys, facetSearch, visibleFacets } = useValues(facetCountsLogic)
-    const { setFacetSearch } = useActions(facetCountsLogic)
-    const { collapsedFacets, facetNameSearch } = useValues(facetRailLogic)
-    const { toggleFacetValue, toggleFacetCollapsed, setFacetNameSearch } = useActions(facetRailLogic)
+    const { visibleFacets } = useValues(facetPresenceLogic)
+    const { facetNameSearch } = useValues(facetRailLogic)
+    const { setFacetNameSearch } = useActions(facetRailLogic)
+    const { addCustomFacet } = useActions(customFacetsLogic)
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic)
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -51,77 +49,10 @@ export function FacetRail(): JSX.Element {
     )
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const renderFacet = (facet: FacetConfig): JSX.Element => {
-        const { source } = facet
-        // Selection: the service facet reads the dedicated serviceNames field (include-only);
-        // everything else reads its property filters out of the group, both polarities.
-        const { included: selected, excluded } = facetSelection(filters.filterGroup, serviceNames, source)
-        // Values + counts come from the cross-filtered endpoint, keyed by facet.key. Drop the
-        // empty-value bucket (spans missing the attribute): it renders as a blank, label-less row
-        // that the selection reader can't track, so it would become a stuck, un-toggleable filter.
-        const fetched: FacetOption[] = (facetValues[facet.key] ?? [])
-            .filter((row) => row.value !== '')
-            .map((row) => ({
-                value: row.value,
-                label: row.value,
-                count: row.count,
-            }))
-        const loading = loadingFacetKeys.includes(facet.key)
-        const error = erroredFacetKeys.includes(facet.key)
-        const onToggle = (value: string): void => toggleFacetValue(source, value)
-        const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
-        const collapsed = collapsedFacets.includes(facet.key)
-
-        if (facet.kind === 'fixed') {
-            // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
-            const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
-            const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
-                ...option,
-                count: countByValue.get(option.value) ?? 0,
-            }))
-            return (
-                <Facet
-                    key={facet.key}
-                    title={facet.title}
-                    options={options}
-                    selected={selected}
-                    excluded={excluded}
-                    onToggle={onToggle}
-                    loading={loading}
-                    collapsed={collapsed}
-                    onToggleCollapsed={onToggleCollapsed}
-                    dimZeroCounts
-                    error={error}
-                />
-            )
-        }
-
-        // Dynamic facet: values + counts come straight from the cross-filtered endpoint (zeros never
-        // appear), with any selected-but-absent values injected so they stay visible and toggleable.
-        const search = facet.searchable ? facetSearch[facet.key] : undefined
-        return (
-            <Facet
-                key={facet.key}
-                title={facet.title}
-                options={mergeSelectedIntoOptions(fetched, [...selected, ...excluded], search)}
-                selected={selected}
-                excluded={excluded}
-                onToggle={onToggle}
-                loading={loading}
-                emptyLabel={facet.emptyLabel}
-                searchValue={facet.searchable ? (search ?? '') : undefined}
-                onSearchChange={facet.searchable ? (value) => setFacetSearch(facet.key, value) : undefined}
-                searchPlaceholder={facet.searchPlaceholder}
-                collapsed={collapsed}
-                onToggleCollapsed={onToggleCollapsed}
-                maxHeight={facet.maxHeight}
-                error={error}
-            />
-        )
-    }
-
-    // Filter the rail by the field-name search, then group — empty groups fall away in facetsByGroup.
-    const displayedGroups = facetsByGroup(filterFacetsByName(visibleFacets, facetNameSearch))
+    // Every visible facet renders a container, whether or not the field-name search matches it: a
+    // non-matching one renders nothing but stays mounted, so clearing the search doesn't refetch.
+    const matchingKeys = new Set(filterFacetsByName(visibleFacets, facetNameSearch).map((f) => f.key))
+    const groups = facetsByGroup(visibleFacets)
 
     return (
         <div
@@ -133,7 +64,7 @@ export function FacetRail(): JSX.Element {
             style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: COLLAPSE_THRESHOLD_PX, maxWidth: '40%' }}
             data-attr="tracing-facet-rail"
         >
-            <div className="px-2 py-1 border-b">
+            <div className="flex items-center gap-1 px-2 py-1 border-b">
                 <LemonInput
                     type="search"
                     size="small"
@@ -143,20 +74,43 @@ export function FacetRail(): JSX.Element {
                     onChange={setFacetNameSearch}
                     data-attr="tracing-facet-rail-search"
                 />
+                {customFacetsEnabled && (
+                    <TaxonomicStringPopover
+                        groupType={TaxonomicFilterGroupType.SpanAttributes}
+                        groupTypes={ADD_FACET_GROUP_TYPES}
+                        placeholder={null}
+                        size="small"
+                        icon={<IconPlus />}
+                        tooltip="Add custom facet"
+                        disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
+                        data-attr="tracing-facet-rail-add"
+                        onChange={(value, groupType) =>
+                            addCustomFacet(
+                                value,
+                                groupType === TaxonomicFilterGroupType.SpanResourceAttributes
+                                    ? 'resourceAttribute'
+                                    : 'attribute'
+                            )
+                        }
+                    />
+                )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {displayedGroups.length === 0 && facetNameSearch.trim() ? (
+                {matchingKeys.size === 0 && facetNameSearch.trim() && (
                     <div className="px-1 text-xs text-muted">No matching facets</div>
-                ) : (
-                    displayedGroups.map(([group, facets]) => (
-                        <div key={group}>
+                )}
+                {groups.map(([group, facets]) => (
+                    <div key={group}>
+                        {facets.some((facet) => matchingKeys.has(facet.key)) && (
                             <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
                                 {group}
                             </div>
-                            {facets.map(renderFacet)}
-                        </div>
-                    ))
-                )}
+                        )}
+                        {facets.map((facet) => (
+                            <RailFacet key={facet.key} facet={facet} hidden={!matchingKeys.has(facet.key)} />
+                        ))}
+                    </div>
+                ))}
             </div>
             <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
         </div>

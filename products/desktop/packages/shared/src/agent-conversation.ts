@@ -1,5 +1,6 @@
 export type AgentToolKind =
   | "read"
+  | "list"
   | "edit"
   | "delete"
   | "move"
@@ -47,13 +48,13 @@ export interface AgentResourceLinkContent {
   title?: string | null;
 }
 
-export interface AgentTextResource {
+interface AgentTextResource {
   uri: string;
   mimeType?: string | null;
   text: string;
 }
 
-export interface AgentBlobResource {
+interface AgentBlobResource {
   uri: string;
   mimeType?: string | null;
   blob: string;
@@ -107,6 +108,7 @@ export interface AgentToolCall {
   locations?: AgentToolCallLocation[];
   rawInput?: unknown;
   rawOutput?: unknown;
+  details?: unknown;
   parentId?: string;
   origin?: "agent" | "user_shell";
 }
@@ -178,6 +180,7 @@ export type AgentConversationEvent = (
       type: "turn_completed";
       timestamp: number;
       stopReason?: string;
+      totalTokens?: number;
     }
 ) &
   AgentConversationEventIdentity;

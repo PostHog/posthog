@@ -37,6 +37,8 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    # Cache-bust knob. Keep in sync with ci-backend.yml, which saves these caches.
+    SCHEMA_CACHE_EPOCH: v2
     # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461b81b72'
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
@@ -52,6 +54,9 @@ jobs:
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
 
         services:
             postgres:
@@ -80,6 +85,10 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
+                  fetch-depth: 1000
+                  filter: blob:none
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -118,6 +127,103 @@ jobs:
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Fetch current PR base for merge-base
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -z "$MERGE_BASE" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
+                      exit 0
+                  fi
+                  # Routing decides which app labels reach the dump, so an edited routing config matches no master dump.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
+                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched, so restore falls back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps; the
+                  # migrate step below tops a slightly stale dump up in seconds instead of
+                  # replaying the full history.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
+
+            - name: Prime test_posthog from cached schema
+              # hogli db:restore-test-db is unusable here: it shells into the docker compose db service.
+              if: ${{ github.event_name == 'pull_request' }}
+              env:
+                  PGHOST: localhost
+                  PGUSER: posthog
+                  PGPASSWORD: posthog
+              run: |
+                  # The default shell is `bash -e`, so without this psql's exit code hides a failed
+                  # gunzip and a truncated dump commits as a half-primed schema.
+                  set -o pipefail
+                  prime() {
+                      gunzip -c schema.sql.gz \
+                          | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
+                      # The dump is schema-only, so rows written by data migrations are absent.
+                      python manage.py ensure_migration_defaults || return 1
+                  }
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::schema cache miss, so migrate runs from scratch"
+                      exit 0
+                  fi
+                  if ! prime; then
+                      # A half-primed database would let migrate skip work it still needs to do.
+                      echo "::warning::schema restore failed (stale or incompatible dump?), so migrate runs from scratch"
+                      psql -v ON_ERROR_STOP=1 postgres -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
+                  fi
 
             - name: Set up test database schema
               run: |

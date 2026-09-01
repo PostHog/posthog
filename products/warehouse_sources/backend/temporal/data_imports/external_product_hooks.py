@@ -14,6 +14,8 @@ import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
+from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -69,7 +71,7 @@ def emit_signals_enabled_for(
 
 
 # --- Revenue-analytics view sync ------------------------------------------------------
-RevenueViewSync = Callable[["ExternalDataSchema", "ExternalDataSource"], None]
+RevenueViewSync = Callable[[RevenueViewSyncInput], None]
 _revenue_view_sync: Optional[RevenueViewSync] = None
 
 
@@ -78,10 +80,10 @@ def register_revenue_view_sync(fn: RevenueViewSync) -> None:
     _revenue_view_sync = fn
 
 
-def run_revenue_view_sync(schema: "ExternalDataSchema", source: "ExternalDataSource") -> None:
+def run_revenue_view_sync(sync_input: RevenueViewSyncInput) -> None:
     if _revenue_view_sync is None:
         return
-    _revenue_view_sync(schema, source)
+    _revenue_view_sync(sync_input)
 
 
 # --- Engineering-analytics view sync --------------------------------------------------
@@ -100,10 +102,52 @@ def run_engineering_analytics_view_sync(schema: "ExternalDataSchema", source: "E
     _engineering_analytics_view_sync(schema, source)
 
 
+# --- Warehouse binding ----------------------------------------------------------------
+# A person/group-target source reads one warehouse object: a schema imported by a data-import job,
+# or a materialized view maintained by a data-modeling job. Both land as a Delta table on S3 and
+# both stage row projections for the same post-run upsert, so everything downstream of "here are
+# the rows" is shared — only the staging prefix and the Delta location differ. The kind is a plain
+# string so the binding crosses the Temporal payload boundary without a custom converter.
+
+BINDING_KIND_SCHEMA = "schema"
+BINDING_KIND_SAVED_QUERY = "saved_query"
+
+# Log/label value for a view-backed run, where there is no import source type to name.
+MATERIALIZED_VIEW_SOURCE_TYPE = "materialized_view"
+
+
+@dataclasses.dataclass(frozen=True)
+class WarehouseBinding:
+    """Which warehouse object a person/group-target source reads."""
+
+    kind: str
+    id: str
+
+    @property
+    def is_saved_query(self) -> bool:
+        return self.kind == BINDING_KIND_SAVED_QUERY
+
+
+def schema_binding(schema_id: "str | uuid.UUID") -> WarehouseBinding:
+    return WarehouseBinding(kind=BINDING_KIND_SCHEMA, id=str(schema_id))
+
+
+def saved_query_binding(saved_query_id: "str | uuid.UUID") -> WarehouseBinding:
+    return WarehouseBinding(kind=BINDING_KIND_SAVED_QUERY, id=str(saved_query_id))
+
+
+def _binding_from_ids(schema_id: "uuid.UUID | None", saved_query_id: "uuid.UUID | None") -> WarehouseBinding:
+    if saved_query_id is not None:
+        return saved_query_binding(saved_query_id)
+    if schema_id is None:
+        raise ValueError("A person-property payload needs either a schema_id or a saved_query_id")
+    return schema_binding(schema_id)
+
+
 # --- Person-property staging projection -----------------------------------------------
-# Person-target Customer analytics sources stage a projection of each synced chunk to S3 so a
-# post-sync job can upsert warehouse columns onto person properties. The pipeline asks this hook
-# which columns to stage for a schema; each enabled person source contributes its key (the person
+# Person-target Customer analytics sources stage a projection of each written chunk to S3 so a
+# post-run job can upsert warehouse columns onto person properties. The pipeline asks this hook
+# which columns to stage for a binding; each enabled person source contributes its key (the person
 # identifier) plus its mapped property columns. Key columns are tracked separately from mapped
 # columns so the sink never stages property values with no person identifier to attach them to.
 # The hook returns None when nothing needs staging. customer_analytics registers the resolver at
@@ -120,7 +164,7 @@ class PersonPropertySourceProjection:
     columns: frozenset[str]
 
 
-PersonPropertyProjectionResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySourceProjection]]]
+PersonPropertyProjectionResolver = Callable[[int, WarehouseBinding], Optional[list[PersonPropertySourceProjection]]]
 _person_property_projection_resolver: Optional[PersonPropertyProjectionResolver] = None
 
 
@@ -130,17 +174,42 @@ def register_person_property_projection(fn: PersonPropertyProjectionResolver) ->
 
 
 def person_property_projection_for(
-    team_id: int, schema_id: "str | uuid.UUID"
+    team_id: int, binding: WarehouseBinding
 ) -> Optional[list[PersonPropertySourceProjection]]:
     if _person_property_projection_resolver is None:
         return None
-    return _person_property_projection_resolver(team_id, schema_id)
+    return _person_property_projection_resolver(team_id, binding)
 
 
-def person_property_sync_enabled_for(team_id: int, schema_id: "uuid.UUID") -> bool:
-    """Gate for starting the person-property sync child workflow: true when the schema feeds at
+def person_property_sync_enabled_for(team_id: int, binding: WarehouseBinding) -> bool:
+    """Gate for starting the person-property sync child workflow: true when the binding feeds at
     least one enabled person-target source (i.e. there are columns to stage/upsert)."""
-    return person_property_projection_for(team_id, schema_id) is not None
+    return person_property_projection_for(team_id, binding) is not None
+
+
+@dataclasses.dataclass(frozen=True)
+class AccountPropertySourceProjection:
+    """One account-target source's materialization projection."""
+
+    key_column: str
+    columns: frozenset[str]
+
+
+AccountPropertyProjectionResolver = Callable[[int, WarehouseBinding], Optional[list[AccountPropertySourceProjection]]]
+_account_property_projection_resolver: Optional[AccountPropertyProjectionResolver] = None
+
+
+def register_account_property_projection(fn: AccountPropertyProjectionResolver) -> None:
+    global _account_property_projection_resolver
+    _account_property_projection_resolver = fn
+
+
+def account_property_projection_for(
+    team_id: int, binding: WarehouseBinding
+) -> Optional[list[AccountPropertySourceProjection]]:
+    if _account_property_projection_resolver is None:
+        return None
+    return _account_property_projection_resolver(team_id, binding)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -162,7 +231,7 @@ class PersonPropertySyncSource:
     group_type_index: int | None = None
 
 
-PersonPropertySyncSourcesResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySyncSource]]]
+PersonPropertySyncSourcesResolver = Callable[[int, WarehouseBinding], Optional[list[PersonPropertySyncSource]]]
 _person_property_sync_sources_resolver: Optional[PersonPropertySyncSourcesResolver] = None
 
 
@@ -172,31 +241,43 @@ def register_person_property_sync_sources(fn: PersonPropertySyncSourcesResolver)
 
 
 def person_property_sync_sources_for(
-    team_id: int, schema_id: "str | uuid.UUID"
+    team_id: int, binding: WarehouseBinding
 ) -> Optional[list[PersonPropertySyncSource]]:
     if _person_property_sync_sources_resolver is None:
         return None
-    return _person_property_sync_sources_resolver(team_id, schema_id)
+    return _person_property_sync_sources_resolver(team_id, binding)
 
 
 @dataclasses.dataclass(frozen=True)
 class PersonPropertySyncActivityInputs:
-    """Payload the import workflow sends to the person-property sync child workflow."""
+    """Payload a warehouse run sends to the person-property sync child workflow.
+
+    Exactly one of ``schema_id`` (an import job's schema) and ``saved_query_id`` (a materialized
+    view) identifies what was written; read the pair through ``binding``. Both stay positional, and
+    ``saved_query_id`` is appended with a default, so a history recorded before views were supported
+    still decodes. ``source_type``/``schema_name`` are the run's log labels for either kind.
+    """
 
     team_id: int
-    schema_id: uuid.UUID
-    source_id: uuid.UUID
+    schema_id: uuid.UUID | None
+    source_id: uuid.UUID | None
     job_id: str
     source_type: str
     schema_name: str
     last_synced_at: str | None
+    saved_query_id: uuid.UUID | None = None
+
+    @property
+    def binding(self) -> WarehouseBinding:
+        return _binding_from_ids(self.schema_id, self.saved_query_id)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "schema_id": str(self.schema_id),
-            "source_id": str(self.source_id),
+            "schema_id": str(self.schema_id) if self.schema_id else None,
+            "saved_query_id": str(self.saved_query_id) if self.saved_query_id else None,
+            "source_id": str(self.source_id) if self.source_id else None,
             "job_id": self.job_id,
             "source_type": self.source_type,
             "schema_name": self.schema_name,
@@ -206,26 +287,35 @@ class PersonPropertySyncActivityInputs:
 # --- Person-property backfill trigger contract ----------------------------------------
 # A backfill reads a warehouse table's full Delta data from S3 (rather than the incrementally
 # staged rows) to populate historical rows a new/changed person mapping never saw. It is keyed by
-# schema, not source: one backfill workflow reads the table once and upserts every enabled person
+# binding, not source: one backfill workflow reads the table once and upserts every enabled person
 # source on it.
 
 
 @dataclasses.dataclass(frozen=True)
 class PersonPropertyBackfillActivityInputs:
-    """Payload for the person-property backfill workflow (see person_property_backfill_job.py)."""
+    """Payload for the person-property backfill workflow (see person_property_backfill_job.py).
+
+    Carries the same either/or binding as :class:`PersonPropertySyncActivityInputs`.
+    """
 
     team_id: int
-    schema_id: uuid.UUID
+    schema_id: uuid.UUID | None
     source_type: str
     schema_name: str
     # "backfill" (auto on create/enable) or "manual" (a user asked to re-run). Recorded on the run.
     trigger: str
+    saved_query_id: uuid.UUID | None = None
+
+    @property
+    def binding(self) -> WarehouseBinding:
+        return _binding_from_ids(self.schema_id, self.saved_query_id)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "schema_id": str(self.schema_id),
+            "schema_id": str(self.schema_id) if self.schema_id else None,
+            "saved_query_id": str(self.saved_query_id) if self.saved_query_id else None,
             "source_type": self.source_type,
             "schema_name": self.schema_name,
             "trigger": self.trigger,
@@ -286,7 +376,10 @@ class PersonPropertySyncRunRecord:
     without timezone/serialization surprises."""
 
     team_id: int
-    schema_id: str
+    # The warehouse object the rows came from, flattened to a kind + id so the record stays a plain
+    # serializable payload across the hook boundary.
+    binding_kind: str
+    binding_id: str
     source_id: str
     job_id: str | None
     trigger: str

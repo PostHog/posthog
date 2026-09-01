@@ -9,9 +9,16 @@ from posthog.schema import DateRange, HogQLFilters, IntervalType
 
 from posthog.hogql.parser import ast
 
+from posthog.dataclasses import frozen
 from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+
+@frozen
+class DateRangeBounds:
+    date_from: datetime
+    date_to: datetime
 
 
 def compare_interval_length(
@@ -196,6 +203,33 @@ class QueryDateRange:
     @cached_property
     def previous_period_date_from(self) -> datetime:
         return self.date_from() - (self.date_to() - self.date_from())
+
+    def nominal_comparison_date_to(self, current_period_date_to: datetime) -> datetime:
+        """End of the current period used to size a comparison (previous) period.
+
+        Day and coarser intervals snap `date_to` to the end of the current day, so the comparison
+        period comes back complete. Hour and minute intervals snap only to the end of the current
+        hour or minute, which sizes the comparison period to the elapsed part of the period and cuts
+        it short (the "both lines stop halfway" bug). For a day-anchored range that runs up to now
+        (today, this week, "-7d"), extend the end to the end of the current day so hour and minute
+        granularity match the coarser intervals. Rolling sub-day windows ("-24h", "-30m") keep their
+        real end, since their previous period is just the window before them.
+        """
+        if self.interval_name not in ("hour", "minute"):
+            return current_period_date_to
+        if self._exact_timerange or self.explicit:
+            return current_period_date_to
+        if self._date_range and self._date_range.date_to:
+            return current_period_date_to
+        date_from = (
+            self._date_range.date_from if self._date_range and isinstance(self._date_range.date_from, str) else "-7d"
+        )
+        if date_from == "all":
+            return current_period_date_to
+        delta = relative_date_parse_with_delta_mapping(date_from, self._timezone_info, now=self.now_with_timezone)[1]
+        if delta is None or any(unit in delta for unit in ("hours", "minutes", "seconds")):
+            return current_period_date_to
+        return current_period_date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     @cached_property
     def now_with_timezone(self) -> datetime:

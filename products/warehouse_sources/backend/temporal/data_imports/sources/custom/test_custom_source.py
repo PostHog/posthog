@@ -316,6 +316,14 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok, err
 
+    def test_rejects_base_url_with_http_method_prefix(self):
+        # A user who pastes "POST https://..." from API docs used to get an unhelpful
+        # "missing a hostname" — the message must instead tell them to drop the method.
+        manifest = _minimal_manifest(base_url="POST https://api.example.com/v1")
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "Remove the HTTP method" in (err or "")
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
@@ -1780,6 +1788,25 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
 
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(ctx.exception) for key in non_retryable)
+
+    def test_http_407_proxy_auth_is_classified_non_retryable(self):
+        # A proxy that refuses the request (the egress proxy blocking a disallowed address, or an
+        # upstream proxy needing credentials) returns 407 deterministically, so retrying can't fix
+        # it. Build the real requests HTTPError raise_for_status() produces, so this breaks if the
+        # matched substring drifts. Route through the classifier's message so a regression that
+        # leaves it None (raw driver text) is caught too. The URL is a placeholder.
+        response = Response()
+        response.status_code = 407
+        response.reason = "Proxy Authentication Required"
+        response.url = "https://api.example.com/data"
+        with self.assertRaises(requests.exceptions.HTTPError) as ctx:
+            response.raise_for_status()
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        matches = [friendly for key, friendly in non_retryable.items() if key in str(ctx.exception)]
+        assert matches
+        assert matches[0] is not None
+        assert "proxy" in matches[0].lower()
 
     def test_non_json_response_message_is_classified_non_retryable(self):
         # The REST client raises RESTClientNonRetryableError when a configured endpoint

@@ -240,7 +240,16 @@ Output: {output_data}"""
     client = Client(
         provider_key=provider_key,
         config=config,
-        capture_analytics=False,
+        privacy_mode=True,
+        distinct_id=f"team-{team_id}",
+        properties={
+            "ai_product": "aio_evaluations",
+            "ai_feature": "tagger",
+            "team_id": team_id,
+            "tagger_id": tagger["id"],
+            "$ai_billable": not is_byok,
+            "is_byok": is_byok,
+        },
     )
 
     try:

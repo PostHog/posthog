@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { ApiConfig, ApiError } from '~/lib/api'
+import { isAccessDeniedError } from '~/lib/api-error'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb } from '~/types'
@@ -35,6 +36,7 @@ import type {
     LLMSkillFileInputApi,
     LLMSkillListApi,
     LLMSkillVersionSummaryApi,
+    UserBasicApi,
 } from 'products/skills/frontend/generated/api.schemas'
 
 import { exportAndDownloadSkill, llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
@@ -123,6 +125,12 @@ export interface PublishConflict {
     latestVersion: number | null
 }
 
+export interface SkillLoadError {
+    /** Undefined when the request never reached the server: a `NetworkError` carries no status. */
+    status: number | undefined
+    code: string | null
+}
+
 // Sorted by path so a reorder that ends up byte-identical on the server is not presented as a change.
 function sortSkillFilesByPath(files: SkillFormFileValues[]): SkillFormFileValues[] {
     return [...files].sort((a, b) => a.path.localeCompare(b.path))
@@ -201,12 +209,14 @@ export interface llmSkillLogicValues {
     }>
     downloadingZip: boolean
     fileContentsLoading: boolean
+    hasSkillLoadError: boolean
     isDiffVisible: boolean
     isEditMode: boolean
     isHistoricalVersion: boolean
     isNewSkill: boolean
     isOutlineExpanded: boolean
     isPublishReviewOpen: boolean
+    isSkillAccessDenied: boolean
     isSkillFormDirty: boolean
     isSkillFormSubmitting: boolean
     isSkillFormValid: boolean
@@ -214,7 +224,12 @@ export interface llmSkillLogicValues {
     isViewMode: boolean
     mode: SkillMode
     nextVersion: number | null
+    ownerDraft: string[]
+    ownerDraftChanged: boolean
+    ownersEditing: boolean
     publishConflict: PublishConflict | null
+    savingOwners: boolean
+    selectedVersion: number | null
     shouldDisplaySkeleton: boolean
     showSkillFormErrors: boolean
     skill: ResolvedLLMSkill | SkillFormValues | null
@@ -229,7 +244,10 @@ export interface llmSkillLogicValues {
     skillFormTouched: boolean
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
+    skillLoadError: SkillLoadError | null
     skillLoading: boolean
+    skillName: string
+    skillOwners: readonly UserBasicApi[]
     versionDescription: string
     versions: LLMSkillVersionSummaryApi[]
     versionsLoading: boolean
@@ -241,6 +259,9 @@ export interface llmSkillLogicActions {
         files: SkillFileUpload[]
     }
     cancelEditing: () => {
+        value: true
+    }
+    closeOwnersEditor: () => {
         value: true
     }
     closePublishReview: () => {
@@ -288,6 +309,9 @@ export interface llmSkillLogicActions {
         skill: ResolvedLLMSkill
         payload?: any
     }
+    openOwnersEditor: () => {
+        value: true
+    }
     openPublishReview: () => {
         value: true
     }
@@ -296,6 +320,9 @@ export interface llmSkillLogicActions {
     }
     resetSkillForm: (values?: SkillFormValues) => {
         values?: SkillFormValues
+    }
+    saveOwners: (ownerUuids: string[]) => {
+        ownerUuids: string[]
     }
     setCompareVersion: (compareVersion: number | null) => {
         compareVersion: number | null
@@ -309,8 +336,14 @@ export interface llmSkillLogicActions {
     setMode: (mode: SkillMode) => {
         mode: SkillMode
     }
+    setOwnerDraft: (ownerUuids: string[]) => {
+        ownerUuids: string[]
+    }
     setPublishConflict: (publishConflict: PublishConflict | null) => {
         publishConflict: PublishConflict | null
+    }
+    setSavingOwners: (saving: boolean) => {
+        saving: boolean
     }
     setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => {
         skill: ResolvedLLMSkill | SkillFormValues
@@ -366,10 +399,15 @@ export interface llmSkillLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNewSkill: (arg: any) => boolean
+        skillName: (arg: SkillLogicProps) => string
+        selectedVersion: (arg: SkillLogicProps) => number | null
+        isSkillAccessDenied: (skillLoadError: SkillLoadError | null) => boolean
+        hasSkillLoadError: (skillLoadError: SkillLoadError | null, isSkillAccessDenied: boolean) => boolean
         isSkillMissing: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
             skillLoading: boolean,
-            skillFetched: boolean
+            skillFetched: boolean,
+            skillLoadError: SkillLoadError | null
         ) => boolean
         shouldDisplaySkeleton: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
@@ -380,6 +418,7 @@ export interface llmSkillLogicMeta {
         isHistoricalVersion: (skill: ResolvedLLMSkill | SkillFormValues | null) => boolean
         breadcrumbs: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
+            skillName: string,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
         isViewMode: (mode: SkillMode, arg: any) => boolean
@@ -401,6 +440,8 @@ export interface llmSkillLogicMeta {
             label: string
             value: number
         }>
+        skillOwners: (skill: ResolvedLLMSkill | SkillFormValues | null) => readonly UserBasicApi[]
+        ownerDraftChanged: (ownerDraft: string[], skillOwners: readonly UserBasicApi[]) => boolean
     }
 }
 
@@ -435,6 +476,11 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         closePublishReview: true,
         setVersionDescription: (versionDescription: string) => ({ versionDescription }),
         setSkillFormBaseline: (baseline: SkillFormValues | null) => ({ baseline }),
+        openOwnersEditor: true,
+        closeOwnersEditor: true,
+        setOwnerDraft: (ownerUuids: string[]) => ({ ownerUuids }),
+        saveOwners: (ownerUuids: string[]) => ({ ownerUuids }),
+        setSavingOwners: (saving: boolean) => ({ saving }),
     }),
 
     reducers(({ props }) => ({
@@ -450,6 +496,17 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 loadSkillSuccess: () => true,
                 loadSkillFailure: () => true,
+            },
+        ],
+        skillLoadError: [
+            null as SkillLoadError | null,
+            {
+                loadSkill: () => null,
+                loadSkillSuccess: () => null,
+                loadSkillFailure: (_, { errorObject }) => ({
+                    status: errorObject?.status,
+                    code: errorObject?.code ?? null,
+                }),
             },
         ],
         versionsLoading: [
@@ -535,6 +592,27 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 loadSkillSuccess: (_, { skill }) => (isSkill(skill) ? getSkillFormDefaults(skill) : null),
                 setSkillFormBaseline: (_, { baseline }) => baseline,
+            },
+        ],
+        ownersEditing: [
+            false,
+            {
+                openOwnersEditor: () => true,
+                closeOwnersEditor: () => false,
+                loadSkillSuccess: () => false,
+            },
+        ],
+        ownerDraft: [
+            [] as string[],
+            {
+                setOwnerDraft: (_, { ownerUuids }) => ownerUuids,
+            },
+        ],
+        savingOwners: [
+            false,
+            {
+                saveOwners: () => true,
+                setSavingOwners: (_, { saving }) => saving,
             },
         ],
     })),
@@ -698,10 +776,43 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     selectors({
         isNewSkill: [() => [(_, props) => props], (props) => props.skillName === 'new'],
 
+        skillName: [
+            () => [(_: unknown, props: SkillLogicProps) => props],
+            (props: SkillLogicProps): string => props.skillName,
+        ],
+
+        selectedVersion: [
+            () => [(_: unknown, props: SkillLogicProps) => props],
+            (props: SkillLogicProps): number | null => props.selectedVersion ?? null,
+        ],
+
+        isSkillAccessDenied: [
+            (s) => [s.skillLoadError],
+            (skillLoadError: SkillLoadError | null): boolean =>
+                skillLoadError !== null && isAccessDeniedError(skillLoadError),
+        ],
+
+        hasSkillLoadError: [
+            (s) => [s.skillLoadError, s.isSkillAccessDenied],
+            (skillLoadError: SkillLoadError | null, isSkillAccessDenied: boolean): boolean =>
+                skillLoadError !== null && skillLoadError.status !== 404 && !isSkillAccessDenied,
+        ],
+
+        // A 404 is the only failure that proves the skill isn't there. Every other failure (no access,
+        // a server error, a request that never left the browser) leaves the question open, so it gets
+        // its own state rather than telling the user a skill they may well own does not exist.
         isSkillMissing: [
-            (s) => [s.skill, s.skillLoading, s.skillFetched],
-            (skill: ResolvedLLMSkill | SkillFormValues | null, skillLoading: boolean, skillFetched: boolean) =>
-                skillFetched && !skillLoading && skill === null,
+            (s) => [s.skill, s.skillLoading, s.skillFetched, s.skillLoadError],
+            (
+                skill: ResolvedLLMSkill | SkillFormValues | null,
+                skillLoading: boolean,
+                skillFetched: boolean,
+                skillLoadError: SkillLoadError | null
+            ) =>
+                skillFetched &&
+                !skillLoading &&
+                skill === null &&
+                (skillLoadError === null || skillLoadError.status === 404),
         ],
 
         shouldDisplaySkeleton: [
@@ -720,8 +831,12 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.skill, router.selectors.searchParams],
-            (skill: LLMSkillApi | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
+            (s) => [s.skill, s.skillName, router.selectors.searchParams],
+            (
+                skill: LLMSkillApi | SkillFormValues | null,
+                skillName: string,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => [
                 {
                     name: 'Skills',
                     path: combineUrl(urls.skills(), searchParams).url,
@@ -733,7 +848,9 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             ? isSkill(skill)
                                 ? `${skill.name} v${skill.version}`
                                 : skill.name || 'New skill'
-                            : 'New skill',
+                            : skillName === 'new'
+                              ? 'New skill'
+                              : skillName,
                     key: 'Skill',
                 },
             ],
@@ -812,6 +929,20 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                         label: `v${v.version}${v.is_latest ? ' (latest)' : ''}`,
                     }))
             },
+        ],
+
+        skillOwners: [
+            (s) => [s.skill],
+            (skill: ResolvedLLMSkill | SkillFormValues | null): readonly UserBasicApi[] =>
+                isSkill(skill) ? skill.owners : [],
+        ],
+
+        ownerDraftChanged: [
+            (s) => [s.ownerDraft, s.skillOwners],
+            (ownerDraft: string[], skillOwners: readonly UserBasicApi[]): boolean =>
+                // Order is server-owned (seed-creator first), so only membership counts as a change.
+                ownerDraft.length !== skillOwners.length ||
+                ownerDraft.some((uuid) => !skillOwners.some((owner) => owner.uuid === uuid)),
         ],
     }),
 
@@ -1015,6 +1146,38 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
 
         loadCompareSkillFailure: () => {
             lemonToast.error('Failed to load comparison version')
+        },
+
+        openOwnersEditor: () => {
+            actions.setOwnerDraft(values.skillOwners.map((owner) => owner.uuid))
+        },
+
+        saveOwners: async ({ ownerUuids }) => {
+            const currentSkill = values.skill
+            if (props.skillName === 'new' || !isSkill(currentSkill)) {
+                actions.setSavingOwners(false)
+                return
+            }
+            try {
+                // Owners-only PATCH: the backend replaces ownership without publishing a version.
+                const updated = await llmSkillsNamePartialUpdate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.skillName,
+                    { owners: ownerUuids }
+                )
+                // Take only `owners` off the response: it describes the latest version, which is not
+                // necessarily the version on screen. Ownership is version-independent, so it applies
+                // to whichever version is shown.
+                actions.setSkill({ ...currentSkill, owners: updated.owners })
+                actions.closeOwnersEditor()
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                lemonToast.success('Owners updated')
+            } catch (error) {
+                console.error('Failed to update skill owners', error)
+                lemonToast.error(getApiErrorDetail(error) || "Couldn't update owners. Try again.")
+            } finally {
+                actions.setSavingOwners(false)
+            }
         },
     })),
 

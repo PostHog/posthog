@@ -53,16 +53,6 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
 )
 
 
-COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
-    "posthog_cohort_deletion_mark_failure_total",
-    "Times cohort deletion mark failed",
-)
-
-COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
-    "posthog_cohort_deletion_run_failure_total",
-    "Times cohort deletion run failed",
-)
-
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
     "posthog_task_run_stale_queued_swept_total",
     "TaskRuns marked FAILED by the stale-queued cleanup sweep",
@@ -118,6 +108,19 @@ def delete_expired_exported_assets() -> None:
     from products.exports.backend.models.exported_asset import ExportedAsset
 
     ExportedAsset.delete_expired_assets()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def fail_stuck_video_exports() -> None:
+    """Give up on video exports whose render workflow died without recording a reason.
+
+    The workflow records its own failures, but not the ones where it never got to run: its execution
+    timeout firing, a dispatch failure, a lost worker. Without this sweep those rows stay
+    indistinguishable from a render still in progress.
+    """
+    from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
@@ -190,7 +193,7 @@ def kill_stale_queued_task_runs() -> None:
     status=QUEUED handles the race where a worker picks up the run between selection
     and update.
 
-    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_resume`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
@@ -327,8 +330,13 @@ def redispatch_orphaned_queued_task_runs() -> None:
     # Cloud only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
     # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
     candidate_ids = tasks_facade.get_stale_queued_task_run_ids(
-        RECONCILE_AFTER, BATCH_SIZE, environment=tasks_facade.TaskRunEnvironment.CLOUD
+        RECONCILE_AFTER,
+        BATCH_SIZE,
+        environment=tasks_facade.TaskRunEnvironment.CLOUD,
+        exclude_covered_dispatches=True,
     )
+    saturated = len(candidate_ids) >= BATCH_SIZE
+    candidate_ids = tasks_facade.filter_uncovered_workflow_dispatch_run_ids(candidate_ids)
     outcomes: dict[str, int] = {}
     for run_id in candidate_ids:
         try:
@@ -339,7 +347,6 @@ def redispatch_orphaned_queued_task_runs() -> None:
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
         ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER.labels(outcome=outcome).inc()
 
-    saturated = len(candidate_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
     log(
         "redispatch_orphaned_queued_task_runs.sweep_done",
@@ -352,6 +359,8 @@ def redispatch_orphaned_queued_task_runs() -> None:
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
+
+    tasks_facade.maintain_workflow_dispatch_outbox()
 
 
 @shared_task(ignore_result=True)
@@ -741,21 +750,9 @@ def clickhouse_mutation_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
-    from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+    from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 
-    cohort_runner = AsyncCohortDeletion()
-
-    try:
-        cohort_runner.mark_deletions_done()
-    except Exception as e:
-        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
-        COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
-
-    try:
-        cohort_runner.run()
-    except Exception as e:
-        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
-        COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
+    sweep_cohort_deletions()
 
 
 @shared_task(ignore_result=True)

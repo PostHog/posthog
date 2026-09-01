@@ -19,7 +19,13 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { SPOKEN_NARRATION_FLAG } from "@posthog/shared";
+import {
+  BEDROCK_GATEWAY_VARIANTS,
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+  CODEX_OWN_SUBSCRIPTION_FLAG,
+  SPOKEN_NARRATION_FLAG,
+} from "@posthog/shared";
 import {
   createAuthenticatedClient,
   getAuthenticatedClient,
@@ -67,6 +73,30 @@ export function shouldEnableSpokenNarration(
   isDevelopment: boolean,
 ): boolean {
   return userOptedIn && (flagEnabled || isDevelopment);
+}
+
+/**
+ * Narrow the raw flag value to a known variant. An unmatched flag, an
+ * unresolved one, or a variant added in PostHog that this build does not know
+ * about all yield undefined, which leaves the session on the gateway's default
+ * provider rather than guessing.
+ *
+ * posthog-js resolves flags asynchronously, so a session started before the
+ * first load finishes reads undefined and runs on Anthropic. That window is
+ * effectively the first launch after install, because posthog-js restores
+ * cached flags from its persistence layer on init, and this flag matches on
+ * `email`, which only exists once `identify` runs.
+ *
+ * An unresolved variant is deliberately not treated as `control`: the session
+ * sends no `$feature/` property at all, so it drops out of both arms instead of
+ * inflating control. That keeps the comparison honest at the cost of losing a
+ * few early sessions. Waiting for flags here would put a network round trip in
+ * front of every session start and reconnect, which is a worse trade.
+ */
+function resolveBedrockGatewayVariant(
+  rawVariant: string | undefined,
+): BedrockGatewayVariant | undefined {
+  return BEDROCK_GATEWAY_VARIANTS.find((variant) => variant === rawVariant);
 }
 
 function hostClient(): HostTrpcClient {
@@ -122,16 +152,24 @@ function buildSessionServiceDeps(): SessionServiceDeps {
     },
     get settings() {
       const state = useSettingsStore.getState();
+      const featureFlags = resolveService<FeatureFlags>(FEATURE_FLAGS);
+      const codexSubscriptionEnabled =
+        featureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
+        import.meta.env.DEV;
       return {
         ...state,
         customInstructions: getEffectiveCustomInstructions(state),
         spokenNarrationEnabled: shouldEnableSpokenNarration(
           state.spokenNotifications,
-          resolveService<FeatureFlags>(FEATURE_FLAGS).isEnabled(
-            SPOKEN_NARRATION_FLAG,
-          ),
+          featureFlags.isEnabled(SPOKEN_NARRATION_FLAG),
           import.meta.env.DEV,
         ),
+        bedrockGatewayVariant: resolveBedrockGatewayVariant(
+          featureFlags.getVariant(BEDROCK_LLM_GATEWAY_FLAG),
+        ),
+        codexModelAccess: codexSubscriptionEnabled
+          ? state.codexModelAccess
+          : undefined,
       };
     },
     usageLimit: {

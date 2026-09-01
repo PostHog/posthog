@@ -12,11 +12,16 @@ export interface SettingsSearchEntry {
 // Hand-curated index of the settings each page holds. When a page gains or
 // loses a setting, update its entries here so search keeps finding it. Page
 // display names come from SETTINGS_PAGE_LABELS, not repeated per entry.
-export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
+const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
     category: "general",
     label: "Theme",
     keywords: ["appearance", "light", "dark", "system"],
+  },
+  {
+    category: "general",
+    label: "Profile picture",
+    keywords: ["gravatar", "avatar", "photo", "picture", "account"],
   },
   {
     category: "general",
@@ -143,6 +148,32 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["billing", "credits", "spend", "subscription"],
   },
   {
+    category: "cost-management",
+    label: "Cost management",
+    keywords: ["cost", "spend", "budget", "savings", "recommendations"],
+  },
+  {
+    category: "cost-management",
+    label: "Spend limits",
+    keywords: [
+      "budget",
+      "warning",
+      "stop line",
+      "daily spend",
+      "monthly spend",
+    ],
+  },
+  {
+    category: "cost-management",
+    label: "Default model",
+    keywords: ["cheaper model", "multiplier", "model cost", "switch model"],
+  },
+  {
+    category: "cost-management",
+    label: "Custom sandbox image",
+    keywords: ["image", "tools", "ripgrep", "cloud runs", "setup"],
+  },
+  {
     category: "workspaces",
     label: "Workspaces",
     keywords: ["repos", "folders", "projects", "directories"],
@@ -216,11 +247,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     category: "discord",
     label: "Discord",
     keywords: ["presence", "integration"],
-  },
-  {
-    category: "sidebar",
-    label: "Sidebar",
-    keywords: ["nav", "customize", "reorder"],
   },
 
   {

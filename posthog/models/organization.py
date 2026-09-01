@@ -279,6 +279,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
     )
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    read_only_mcp_access = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, requests through the PostHog MCP server can read but not change this organization's data.",
+    )
     default_role = models.ForeignKey(
         "ee.Role",
         on_delete=models.SET_NULL,
@@ -335,6 +341,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
+    # Managed by Billing: whether the org had an active subscription (or active trial)
+    # at last customer sync. NULL = never synced = unknown; consumers must fail open on NULL.
+    has_active_subscription = models.BooleanField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed = models.BooleanField(default=True)

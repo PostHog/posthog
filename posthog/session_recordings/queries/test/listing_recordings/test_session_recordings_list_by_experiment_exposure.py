@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -10,13 +11,16 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import RecordingsQuery
 
+from posthog.hogql.constants import HogQLGlobalSettings
+
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
@@ -28,15 +32,21 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
-from posthog.test.persons import create_person
+from posthog.test.persons import add_distinct_id, create_person
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.cohorts.backend.models.cohort import Cohort
+
+# Importing the facade at module scope also keeps its transitive pydantic.v1 import outside the
+# class's frozen time: freezegun's FakeDate breaks pydantic.v1's metaclass construction, and the
+# runner otherwise defers this import to the first test that resolves a linkage.
+from products.experiments.backend.facade.replay import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
 BASE_TIME = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)
@@ -177,6 +187,67 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-control", "session-test"],
         )
 
+    def test_test_accounts_stay_excluded_through_exposure_criteria_alone(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        experiment = self._create_experiment(exposure_criteria={"filterTestAccounts": True})
+        create_person(team=self.team, distinct_ids=["real-user"])
+        create_person(team=self.team, distinct_ids=["test-account-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("real-user", exposure_time, "test", properties={"$host": "example.com"})
+        self._create_exposure_event("test-account-user", exposure_time, "test", properties={"$host": "localhost"})
+        flush_persons_and_events()
+
+        self._produce_recording("real-user", "real-user-session", exposure_time, exposure_time + timedelta(hours=1))
+        self._produce_recording(
+            "test-account-user", "test-account-session", exposure_time, exposure_time + timedelta(hours=1)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}, "filter_test_accounts": True},
+            ["real-user-session"],
+        )
+
+    @parameterized.expand(
+        [
+            ("criteria_filter_test_accounts", True, ["exposed-user-session"]),
+            ("criteria_allow_test_accounts", False, []),
+        ]
+    )
+    def test_recordings_side_test_filter_defers_to_exposure_criteria(
+        self, _name: str, criteria_filter_test_accounts: bool, expected_sessions: list[str]
+    ) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        experiment = self._create_experiment(exposure_criteria={"filterTestAccounts": criteria_filter_test_accounts})
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("exposed-user", exposure_time, "test", properties={"$host": "example.com"})
+        # An in-session event matching the test-account filters. When the criteria filter test
+        # accounts, the person already passed at exposure and their session must stay; when the
+        # criteria allow test accounts, the query's own filter_test_accounts must still drop it.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="exposed-user",
+            timestamp=exposure_time + timedelta(minutes=10),
+            properties={"$host": "localhost", "$session_id": "exposed-user-session"},
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "exposed-user", "exposed-user-session", exposure_time, exposure_time + timedelta(hours=1)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}, "filter_test_accounts": True},
+            expected_sessions,
+        )
+
     def test_links_server_side_exposures_through_the_person(self) -> None:
         # The case the person-scoped linkage exists for: the exposure event is captured
         # server-side under a backend distinct id and without a usable $session_id, while the
@@ -195,6 +266,32 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         self._assert_query_matches_session_ids(
             {"experiment_exposure": {"experiment_id": experiment.id}},
             ["session-on-browser"],
+        )
+
+    def test_distinct_id_reassigned_away_from_an_exposed_person_stays_excluded(self) -> None:
+        # The linkage narrows its distinct-id scan to ids that ever mapped to an exposed person,
+        # then resolves each id's latest mapping over all its version rows. Resolving from only
+        # the exposed person's rows instead would resurrect the stale mapping here and leak the
+        # reassigned id's sessions into the exposed list.
+        experiment = self._create_experiment()
+        exposed = create_person(team=self.team, distinct_ids=["exposed-id", "reassigned-id"])
+        unexposed = create_person(team=self.team, distinct_ids=["unexposed-id"])
+        add_distinct_id(person=unexposed, distinct_id="reassigned-id", version=1)
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event("exposed-id", exposure_time, "test", person_uuid=str(exposed.uuid))
+        flush_persons_and_events()
+
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "exposed-id", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "reassigned-id", "session-of-reassigned", session_start, session_start + timedelta(minutes=10)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-of-exposed"],
         )
 
     def test_excludes_persons_exposed_to_multiple_variants(self) -> None:
@@ -506,7 +603,84 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 )
         self.assertIn("still being computed", str(error_context.exception.detail))
 
-    def test_rejects_activation_mode_on_precomputing_teams(self) -> None:
+    def test_activation_mode_scans_live_even_on_precomputing_teams(self) -> None:
+        # Activation exposures have no preaggregated form, so on precomputing teams they must
+        # scan live rather than refuse, and must not reach ensure_precomputed: a cache built
+        # from the flag predicate alone would ignore the activation ordering and include the
+        # session between flag exposure and activation.
+        self._enable_precomputation()
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [],
+                }
+            }
+        )
+        create_person(team=self.team, distinct_ids=["activated-user"])
+        flag_exposure_time = BASE_TIME + timedelta(minutes=30)
+        activation_time = BASE_TIME + timedelta(hours=3)
+        self._create_exposure_event("activated-user", flag_exposure_time, "test")
+        _create_event(
+            team=self.team,
+            event="task_completed",
+            distinct_id="activated-user",
+            timestamp=activation_time,
+            properties={},
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "activated-user",
+            "session-before-activation",
+            flag_exposure_time + timedelta(minutes=30),
+            flag_exposure_time + timedelta(minutes=45),
+        )
+        self._produce_recording(
+            "activated-user",
+            "session-after-activation",
+            activation_time + timedelta(minutes=30),
+            activation_time + timedelta(minutes=45),
+        )
+
+        with patch("products.experiments.backend.replay_linkage.ensure_precomputed") as ensure_mock:
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-after-activation"],
+            )
+        ensure_mock.assert_not_called()
+
+    def test_activation_mode_with_uncalculated_cohort_asks_to_retry(self) -> None:
+        # An uncalculated cohort's membership rows are only partially inserted, so a live
+        # activation scan filtered by it would silently undercount the exposed population;
+        # the linkage must refuse with the retryable cohort error instead.
+        self._enable_precomputation()
+        cohort = Cohort.objects.create(team=self.team, name="mid first calculation", is_static=False)
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                }
+            }
+        )
+
+        with self.assertRaises(ValidationError) as error_context:
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                user=self.user,
+            )
+        self.assertIn("hasn't finished calculating", str(error_context.exception.detail))
+
+    def test_activation_live_scan_is_memory_bounded_and_memory_kills_keep_their_rendering(self) -> None:
+        # Precomputing teams get no unbounded live path: the listing query must carry the
+        # activation memory ceiling. A kill under it must propagate as the platform's
+        # standard memory-limit error, never an exposure-specific translation: the ceiling
+        # bounds the whole listing query, so the runner can't attribute a kill to the
+        # exposure scan.
         self._enable_precomputation()
         experiment = self._create_experiment(
             exposure_criteria={
@@ -518,13 +692,20 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             }
         )
 
-        with self.assertRaises(ValidationError) as error_context:
-            filter_recordings_by(
-                team=self.team,
-                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
-                user=self.user,
-            )
-        self.assertIn("activation event", str(error_context.exception.detail))
+        executed_settings: list[HogQLGlobalSettings] = []
+
+        def record_settings_and_hit_the_ceiling(*args: object, **kwargs: object) -> None:
+            executed_settings.append(cast(HogQLGlobalSettings, kwargs["settings"]))
+            raise ClickHouseQueryMemoryLimitExceeded()
+
+        with patch.object(HogQLCursorPaginator, "execute_hogql_query", side_effect=record_settings_and_hit_the_ceiling):
+            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+                filter_recordings_by(
+                    team=self.team,
+                    recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                    user=self.user,
+                )
+        self.assertEqual(executed_settings[0].max_memory_usage, ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES)
 
     def test_young_experiments_scan_live_even_on_precomputing_teams(self) -> None:
         # Started 6 hours before the frozen now, under the 12-hour precompute minimum. The

@@ -529,11 +529,26 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     return True, None
 
 
+_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+
+def _has_leading_http_method(url: str) -> bool:
+    """True when a URL starts with an HTTP verb, e.g. a "POST https://..." pasted from API docs.
+    urlparse then reads no host, so the URL is rejected for a missing hostname it plainly has."""
+    head, _, rest = url.strip().partition(" ")
+    return bool(rest) and head.upper() in _HTTP_METHODS
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
     hostname = _url_hostname(url)
     if not hostname:
+        if _has_leading_http_method(url):
+            return (
+                False,
+                "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
+            )
         return False, f"URL {url!r} is missing a hostname"
     if is_cloud() and urlparse(url).scheme != "https":
         return False, f"URL {url!r} must use https:// on PostHog Cloud"
@@ -786,7 +801,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             name=SchemaExternalDataSourceType.CUSTOM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
-            releaseStatus=ReleaseStatus.ALPHA,
+            # The generic HTTP/API connector. Match the terms people search when no named
+            # connector for their API exists yet.
+            keywords=["rest", "api", "http", "https", "rest api", "http api", "custom api", "endpoint"],
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
@@ -884,6 +902,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
             # The message omits the URL, which carries the customer's hostname.
             "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
+            # A network proxy rejected the request before it reached the upstream API. On PostHog
+            # Cloud this is the egress proxy refusing a URL it isn't allowed to reach (a private or
+            # internal address); it can also be an upstream proxy in front of the customer's API
+            # demanding credentials. The manifest-driven request recurs identically on every retry,
+            # so stop and point at the manifest URLs. The message omits the URL, which carries the
+            # customer's hostname.
+            "407 Client Error": "A network proxy rejected the request before it reached the upstream API (HTTP 407). This usually means a URL in the manifest points at an address PostHog can't reach (for example a private or internal address), or the API sits behind a proxy that needs credentials. Check the URLs in the manifest, then try again.",
             # A schema points to a resource the manifest no longer defines (renamed or removed
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.

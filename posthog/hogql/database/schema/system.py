@@ -1,4 +1,6 @@
+from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -25,6 +27,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -32,15 +35,28 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
 
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
 from products.customer_analytics.backend.facade.hogql import (
+    account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_email_thread_links,
+    account_email_threads,
+    account_meetings,
     account_relationship_definitions,
     account_relationships,
     account_resource_notebooks,
     account_tagged_items,
     accounts,
     custom_property_definitions,
+    feature_request_account_links,
+    feature_request_evidence,
+    feature_request_history,
+    feature_request_product_area_links,
+    feature_request_product_areas,
+    feature_requests,
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
@@ -1086,7 +1102,7 @@ insight_variables: PostgresTable = PostgresTable(
     postgres_table_name="posthog_insightvariable",
     description="Reusable insight/dashboard template variables; one row per variable.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Variable id."),
+        "id": UUIDDatabaseField(name="id", description="Variable id (UUID)."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Display name of the variable."),
         "type": StringDatabaseField(name="type", description="Variable type, e.g. 'String', 'Number', 'List', 'Date'."),
@@ -1205,7 +1221,7 @@ surveys: PostgresTable = PostgresTable(
     access_control_creator_id_field="created_by_id",
     description="In-app surveys; one row per survey, including its questions and display configuration.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Survey id."),
+        "id": UUIDDatabaseField(name="id", description="Survey id (UUID)."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Survey name."),
         "type": StringDatabaseField(name="type", description="Survey delivery type, e.g. 'popover', 'api', 'widget'."),
@@ -1221,6 +1237,25 @@ surveys: PostgresTable = PostgresTable(
             name="created_by_id", nullable=True, description="User who created the survey."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the survey was created."),
+    },
+)
+
+survey_response_archives: PostgresTable = PostgresTable(
+    name="survey_response_archives",
+    postgres_table_name="posthog_surveyresponsearchive",
+    access_scope="survey",
+    access_control_id_field="survey_id",
+    description="Archived survey responses; one row per response hidden from survey results. Survey responses themselves are events, so join response_uuid to events.uuid.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Archive record UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "survey_id": UUIDDatabaseField(
+            name="survey_id", description="Survey the archived response belongs to; joins to surveys.id."
+        ),
+        "response_uuid": UUIDDatabaseField(
+            name="response_uuid", description="UUID of the event holding the response; joins to events.uuid."
+        ),
+        "archived_at": DateTimeDatabaseField(name="archived_at", description="When the response was archived."),
     },
 )
 
@@ -1289,12 +1324,33 @@ file_system: PostgresTable = PostgresTable(
     },
 )
 
-activity_logs: PostgresTable = PostgresTable(
+
+class _ActivityLogsTable(PostgresTable):
+    """Compiles its visibility rules on first use rather than at import: the rule list lives under
+    `posthog.models`, and this module keeps the ORM off its import path."""
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        # The Canvas rule reads `system.canvases`, which access control removes from the schema for a
+        # caller denied the canvas resource; without the table it drops Canvas rows instead.
+        canvases_readable = (
+            context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
+        )
+        return list(activity_visibility_predicates(canvases_readable))
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
+
+        return activity_log_retention_start_for_team(team, team_id)
+
+
+activity_logs: _ActivityLogsTable = _ActivityLogsTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
     # Matches `premium_feature_on_cloud` on the REST activity-log viewsets, which gate the same rows.
     required_feature_on_cloud=AvailableFeature.AUDIT_LOGS,
+    # Same lookback the REST viewsets apply, so the SQL surface can't read past the plan's window.
+    retention_field="created_at",
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),
@@ -1641,6 +1697,9 @@ error_tracking_issues: PostgresTable = PostgresTable(
         "status": StringDatabaseField(
             name="status", description="Issue status, e.g. 'active', 'resolved', 'suppressed'."
         ),
+        "severity": StringDatabaseField(
+            name="severity", nullable=True, description="Assigned issue severity, or null when unassigned."
+        ),
         "name": StringDatabaseField(name="name", description="Issue title (usually the exception type/message)."),
         "description": StringDatabaseField(name="description", description="Issue description."),
     },
@@ -1701,6 +1760,30 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
         "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON conditions an issue must match for the rule to apply."
+        ),
+        "bytecode": StringJSONDatabaseField(name="bytecode", description="Compiled Hog bytecode for the filters."),
+        "disabled_data": StringJSONDatabaseField(
+            name="disabled_data", nullable=True, description="JSON state when the rule is disabled; NULL when active."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the rule was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the rule was last updated."),
+    },
+)
+
+error_tracking_severity_rules: PostgresTable = PostgresTable(
+    name="error_tracking_severity_rules",
+    postgres_table_name="posthog_errortrackingseverityrule",
+    access_scope="error_tracking",
+    description="Ordered rules that assign severity to newly created error tracking issues; one row per rule.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Rule UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "severity": StringDatabaseField(
+            name="severity", description="Severity assigned when the rule is the first match."
+        ),
+        "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
+        "filters": StringJSONDatabaseField(
+            name="filters", description="JSON conditions a new issue's event must match for the rule to apply."
         ),
         "bytecode": StringJSONDatabaseField(name="bytecode", description="Compiled Hog bytecode for the filters."),
         "disabled_data": StringJSONDatabaseField(
@@ -2101,6 +2184,11 @@ support_tickets: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "ticket_number": IntegerDatabaseField(
             name="ticket_number", description="Human-friendly sequential ticket number."
+        ),
+        "organization_id": StringDatabaseField(
+            name="organization_id",
+            nullable=True,
+            description="Customer organization key. This matches a customer analytics account's external_id.",
         ),
         "channel_source": StringDatabaseField(
             name="channel_source", description="Channel the ticket came in on, e.g. 'email', 'widget'."
@@ -2776,6 +2864,14 @@ class SystemTables(TableNode):
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
         ),
+        "_account_meetings": TableNode(name="_account_meetings", table=account_meetings, hidden=True),
+        "_account_channel_summaries": TableNode(
+            name="_account_channel_summaries", table=account_channel_summaries, hidden=True
+        ),
+        "_account_email_threads": TableNode(name="_account_email_threads", table=account_email_threads, hidden=True),
+        "_account_email_thread_links": TableNode(
+            name="_account_email_thread_links", table=account_email_thread_links, hidden=True
+        ),
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True
         ),
@@ -2827,6 +2923,9 @@ class SystemTables(TableNode):
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_severity_rules": TableNode(
+            name="error_tracking_severity_rules", table=error_tracking_severity_rules
+        ),
         "error_tracking_symbol_sets": TableNode(name="error_tracking_symbol_sets", table=error_tracking_symbol_sets),
         "error_tracking_suppression_rules": TableNode(
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
@@ -2837,6 +2936,18 @@ class SystemTables(TableNode):
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "feature_request_account_links": TableNode(
+            name="feature_request_account_links", table=feature_request_account_links
+        ),
+        "feature_request_evidence": TableNode(name="feature_request_evidence", table=feature_request_evidence),
+        "feature_request_history": TableNode(name="feature_request_history", table=feature_request_history),
+        "feature_request_product_area_links": TableNode(
+            name="feature_request_product_area_links", table=feature_request_product_area_links
+        ),
+        "feature_request_product_areas": TableNode(
+            name="feature_request_product_areas", table=feature_request_product_areas
+        ),
+        "feature_requests": TableNode(name="feature_requests", table=feature_requests),
         "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
@@ -2870,6 +2981,7 @@ class SystemTables(TableNode):
         "_ticket_assignee_roles": TableNode(name="_ticket_assignee_roles", table=ticket_assignee_roles, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "survey_response_archives": TableNode(name="survey_response_archives", table=survey_response_archives),
         "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),

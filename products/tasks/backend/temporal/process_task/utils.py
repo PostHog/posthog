@@ -26,6 +26,8 @@ from products.tasks.backend.constants import (
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
+    is_same_run_resume_idle_state,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
@@ -40,6 +42,12 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    MINTABLE_PRODUCTS,
+    mint_scoped_token,
+    resolve_sandbox_ai_product,
+    sandbox_product_routed,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -115,6 +123,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
     # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
     "@cf/zai-org/glm-5.2": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "zai-org/glm-5.3": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "zai-org/glm-5.3-flash": (
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
@@ -379,7 +395,8 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     resume_from_run_id: str | None = None
-    handoff_resumed: bool = False
+    same_run_resume: bool = False
+    same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
@@ -425,7 +442,10 @@ class RunState(BaseModel, extra="allow"):
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
-    return RunState.model_validate(state or {})
+    normalized_state = dict(state or {})
+    normalized_state["same_run_resume"] = is_same_run_resume_state(state)
+    normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
+    return RunState.model_validate(normalized_state)
 
 
 @dataclass(frozen=True)
@@ -528,23 +548,33 @@ class McpServerConfig:
     - name: server identifier
     - url: server endpoint
     - headers: list of {name, value} pairs
+    - description: one-line summary of what the server does (pi only; the agent server
+      strips it before handing the list to claude or codex over ACP)
     """
 
     type: str
     name: str
     url: str
     headers: list[dict[str, str]] = field(default_factory=list)
+    description: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        config: dict[str, Any] = {
             "type": self.type,
             "name": self.name,
             "url": self.url,
             "headers": self.headers,
         }
+        if self.description:
+            config["description"] = self.description
+        return config
 
 
 def get_sandbox_api_url() -> str:
+    # Local Docker caveat: this URL reaches the sandbox inside MCP server configs, which
+    # (unlike the env vars in _DOCKER_URL_ENV_KEYS) are never rewritten to
+    # host.docker.internal. With the localhost default, a local sandbox can't dial the
+    # MCP Store proxy, so the agent SDK silently drops every store connector.
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
@@ -637,6 +667,7 @@ def get_user_mcp_server_configs(
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
                 headers=headers,
+                description=installation.description or None,
             )
         )
 
@@ -756,6 +787,15 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     return "posthog-code"
 
 
+# Names capabilities rather than describing the server, because the agent's tool search reads
+# this before the PostHog MCP has ever connected.
+POSTHOG_MCP_DESCRIPTION = (
+    "Query and manage a PostHog project: events, insights, dashboards, SQL queries, "
+    "feature flags, experiments, surveys, error tracking, session replay, logs, "
+    "LLM analytics, and the data warehouse."
+)
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
@@ -763,12 +803,17 @@ def get_sandbox_ph_mcp_configs(
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
     task_id: str | None = None,
+    origin_product: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
     `task_id` is baked into an `X-PostHog-Task-Id` header so the MCP server (and through it the
     PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
     handles its own task id.
+
+    `origin_product` rides along as `X-PostHog-Task-Origin`. The consumer header can't carry it
+    (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
+    `exec` from advertising gateway tools to runs that mount those servers directly.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
@@ -789,7 +834,17 @@ def get_sandbox_ph_mcp_configs(
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
-    return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
+    if origin_product:
+        headers.append({"name": "X-PostHog-Task-Origin", "value": origin_product})
+    return [
+        McpServerConfig(
+            type="http",
+            name="posthog",
+            url=url,
+            headers=headers,
+            description=POSTHOG_MCP_DESCRIPTION,
+        )
+    ]
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
@@ -1218,11 +1273,15 @@ def get_sandbox_name_for_task(task_id: str) -> str:
 def build_sandbox_environment_variables(
     github_token: str | None,
     access_token: str,
-    team_id: int,
+    ctx,
+    task,
     sandbox_environment: Optional[Any] = None,
     otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
+
+    Takes the run's ctx/task wholesale so the gateway routing/mint env is derived by
+    ``run_gateway_env_vars`` and no caller can drop part of the context.
 
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
@@ -1243,7 +1302,7 @@ def build_sandbox_environment_variables(
         {
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(team_id),
+            "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
     )
@@ -1251,7 +1310,7 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    env_vars.update(ai_gateway_env_vars())
+    env_vars.update(run_gateway_env_vars(ctx, task))
 
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
@@ -1277,18 +1336,57 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def ai_gateway_env_vars() -> dict[str, str]:
+def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+    """The gateway routing/mint env for one run, derived from its server-side context.
+
+    Every sandbox provisioning path calls this rather than spelling out the kwargs, so
+    no path can silently drop the team, origin, stage, internal, or acting-identity
+    context that scoped-token minting depends on. `ctx` is the run's
+    TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
+    """
+    return ai_gateway_env_vars(
+        team_id=ctx.team_id,
+        origin_product=ctx.origin_product,
+        ai_stage=(ctx.state or {}).get("ai_stage"),
+        internal=task.internal,
+        distinct_id=ctx.distinct_id,
+    )
+
+
+def ai_gateway_env_vars(
+    *,
+    team_id: int | None = None,
+    origin_product: str | None = None,
+    ai_stage: str | None = None,
+    internal: bool = False,
+    distinct_id: str | None = None,
+) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
     settings or nothing: a URL with no product allowlist would route every
     sandbox caller, and a product list with no URL has nowhere to go.
+
+    When the run's product is on the allowlist and a mint credential is
+    configured, a per-run `phe_` scoped token is minted and injected as
+    ``AI_GATEWAY_TOKEN``; the agent server routes to the Go gateway only when
+    the token is present, so a missing token (mint failure, or a caller that
+    cannot supply run context) degrades the run to the Python gateway.
     """
-    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
-        return {
-            "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
-            "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
-        }
-    return {}
+    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
+        return {}
+    env_vars = {
+        "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+        "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+    }
+    if team_id is not None:
+        ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
+        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
+            ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        ):
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            if token:
+                env_vars["AI_GATEWAY_TOKEN"] = token
+    return env_vars
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
@@ -1309,6 +1407,28 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
         return PrAuthorshipMode.BOT
 
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
+
+
+def is_bot_authorship_fallback(task: Task, run_id: str, state: dict[str, Any] | None = None) -> bool:
+    """Whether this run was meant to carry a human git identity but couldn't.
+
+    True exactly when the run's origin is user-authorable and it still resolved to bot
+    authorship, which happens when the creator had no usable personal GitHub installation
+    at creation time. Runs that are bot-authored by design (signal reports) and runs pinned
+    to a caller-supplied token are excluded: neither would be fixed by anyone connecting
+    their own GitHub.
+
+    Selects the same population `upgrade_run_to_user_authorship` promotes, so a surface can
+    tell someone their pull request went out under the bot's name and know that connecting
+    is what changes it.
+    """
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return False
+    if parse_run_state(state).run_source == RunSource.SIGNAL_REPORT:
+        return False
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return False
+    return not is_caller_token_run(run_id, state)
 
 
 def upgrade_run_to_user_authorship(

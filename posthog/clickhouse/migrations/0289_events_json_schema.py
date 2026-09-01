@@ -1,4 +1,3 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import (
@@ -8,14 +7,13 @@ from posthog.models.event.sql import (
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
     WRITABLE_EVENTS_JSON_TABLE_SQL,
 )
-
-_IS_CLOUD = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
+from posthog.run_mode import run_mode
 
 # Cloud clusters get this schema rolled out separately. Keep this migration empty there so
 # merging the application code does not change production ClickHouse schema.
 operations = (
     []
-    if _IS_CLOUD
+    if run_mode().is_deployed_cloud
     else [
         run_sql_with_exceptions(
             EVENTS_JSON_TABLE_SQL(),

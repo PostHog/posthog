@@ -13,7 +13,7 @@ from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext

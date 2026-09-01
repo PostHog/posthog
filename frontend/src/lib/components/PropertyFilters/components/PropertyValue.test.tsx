@@ -192,6 +192,38 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
+        propertyDefinitionsModel.actions.updatePropertyDefinitions({
+            'event/current_value': {
+                id: 'current_value',
+                name: 'current_value',
+                property_type: PropertyType.Numeric,
+                is_numerical: true,
+                is_seen_on_filtered_events: false,
+            },
+        })
+
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="current_value"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                    propertyTypeOverride={PropertyType.String}
+                    staticValues={[]}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        await userEvent.type(input, 'enterprise')
+
+        expect(input).toHaveValue('enterprise')
+        expect(loadPropertyValuesSpy).not.toHaveBeenCalled()
+    })
+
     it('keeps numeric-only input for non-regex numeric properties', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/userId': {

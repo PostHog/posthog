@@ -60,6 +60,8 @@ from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 from posthog.security.url_validation import has_ambiguous_authority
 
+from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
+
 tracer = trace.get_tracer(__name__)
 
 # Cardinality is bounded: render_template is only called with the literal template
@@ -80,7 +82,7 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-    from products.product_analytics.backend.models.insight_variable import InsightVariable
+    from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -142,6 +144,10 @@ def absolute_uri(url: Optional[str] = None) -> str:
 class DayRange:
     start: datetime.datetime
     end: datetime.datetime
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DayRange start must not be after end: start={self.start}, end={self.end}")
 
 
 def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
@@ -538,16 +544,19 @@ def _build_template_context(
 
     elif settings.SELF_CAPTURE:
         # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
-        # team those flags are synced to — the dogfood-flags team (first team by PK), the same team
-        # the server-side bootstrap evaluates against via _build_flag_provider(). Do NOT use the
-        # self-capture team here (posthoganalytics.api_key = most-recently-active user's current_team):
-        # it drifts onto demo teams that hold no internal flags, so flags load from the bootstrap and
-        # then vanish the moment posthog-js reloads them against that team.
-        dogfood_team = resolve_dogfood_flags_team()
-        if dogfood_team is not None:
-            context["js_posthog_api_key"] = dogfood_team.api_token
+        # team the server-side bootstrap evaluates against via _build_flag_provider(). Both resolve
+        # through resolve_self_flags_team() for that reason: the POSTHOG_SELF_TEAM_ID override when
+        # it is set, else the dogfood-flags team that `sync_feature_flags_from_api` writes to. Do NOT
+        # use the self-capture team here (posthoganalytics.api_key = most-recently-active user's
+        # current_team): it drifts onto demo teams that hold no internal flags, so flags load from
+        # the bootstrap and then vanish the moment posthog-js reloads them against that team.
+        self_flags_team = resolve_self_flags_team()
+        if self_flags_team is not None:
+            context["js_posthog_api_key"] = self_flags_team.api_token
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-        elif posthoganalytics.api_key:
+        elif get_explicit_self_team_id() is None and posthoganalytics.api_key:
+            # Only reachable without an override. A pinned team that does not exist leaves the token
+            # unset, because sending any other team's token is the mismatch described above.
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
@@ -559,7 +568,9 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
+            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
+        ),
         "anonymous": not request.user or not request.user.is_authenticated,
     }
 
@@ -575,9 +586,13 @@ def _build_template_context(
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
-        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
+
+        from products.access_control.backend.facade.user_access_control import (
+            ACCESS_CONTROL_RESOURCES,
+            UserAccessControl,
+        )
 
         with tracer.start_as_current_span("template.preflight"):
             preflight_payload = json.loads(preflight_check(request).getvalue())
@@ -616,7 +631,8 @@ def _build_template_context(
                 resource_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
                     with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
+                        access = user_access_control.access_level_for_resource(resource)
+                        resource_access[resource] = access.access_level if access else None
                 posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):
@@ -825,6 +841,39 @@ def get_dogfood_flags_team_id() -> Optional[int]:
     return team.id if team is not None else None
 
 
+def get_explicit_self_team_id() -> Optional[int]:
+    """The `POSTHOG_SELF_TEAM_ID` operator override, or None when it is unset.
+
+    Truthiness, not `is not None`: an empty env var means "unset" and must fall through to the
+    defaults, not crash on int("").
+    """
+    raw_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+    return int(raw_team_id) if raw_team_id else None
+
+
+def resolve_self_flags_team() -> Optional["Team"]:
+    """Resolve the team whose flag definitions represent this instance, honoring the override.
+
+    This must stay in lockstep with `_build_flag_provider()`, which pins the same team for the
+    server-side bootstrap. posthog-js evaluates PostHog's own gating flags with this team's token,
+    so when the two resolve to different teams the browser reloads flags against a team that holds
+    no definitions for them.
+
+    When the override names a team that does not exist, return None rather than another team: the
+    provider still pins definitions to that id, so substituting a different team here reintroduces
+    the mismatch above.
+    """
+    Team = apps.get_model("posthog", "Team")
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is None:
+        return resolve_dogfood_flags_team()
+    try:
+        return Team.objects.filter(pk=explicit_team_id).first()
+    except ProgrammingError:
+        # Table absent before migrations have run.
+        return None
+
+
 def _build_flag_provider() -> "HyperCacheFlagProvider":
     """Construct the HyperCache flag-definition provider for this deploy.
 
@@ -839,12 +888,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         HyperCacheFlagProvider,
     )
 
-    explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
-    if explicit_team_id:
-        # Operator override: pin the flag-definitions team explicitly.
-        # Truthiness, not `is not None`: an empty env var means "unset" and must
-        # fall through to the defaults below, not crash on int("").
-        return HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is not None:
+        # Operator override: pin the flag-definitions team explicitly. The browser token resolves
+        # through the same override in resolve_self_flags_team(), so both stay on this team.
+        return HyperCacheFlagProvider.for_static_team(explicit_team_id)
     if settings.SELF_CAPTURE and not settings.E2E_TESTING:
         # Local/self-hosted: read flag definitions from the dogfood team
         # (project.teams.first()), resolved lazily once teams/migrations exist.
@@ -1234,8 +1282,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_cache_key_prefix(team_pk: int) -> str:
+    """The query cache is a single keyspace shared by every team, so each key carries its own team."""
+    return f"cache_{team_pk}_"
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"{generate_cache_key_prefix(team_pk)}{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -1790,12 +1843,12 @@ def filters_override_requested_by_client(
 def variables_override_requested_by_client(
     request: Optional[Request],
     dashboard: Optional["Dashboard"],
-    variables: list["InsightVariable"],
+    variables: list["InsightVariableDefinition"],
     is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
-    from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+    from products.product_analytics.backend.facade.api import map_stale_to_latest
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None

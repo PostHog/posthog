@@ -1,6 +1,8 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   isDeepseekModelId,
+  isGlm53FlashModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isSelectGroup,
 } from "@posthog/shared";
@@ -11,13 +13,20 @@ const isKimiModelId = (modelId: string): boolean =>
 export interface ModelRolloutFlags {
   deepseek: boolean;
   glm: boolean;
+  glm53: boolean;
+  glm53Flash: boolean;
   kimi: boolean;
 }
 
 function isModelDisabled(modelId: string, flags: ModelRolloutFlags): boolean {
   return (
     (!flags.deepseek && isDeepseekModelId(modelId)) ||
-    (!flags.glm && isGlmModelId(modelId)) ||
+    (!flags.glm53 && isGlm53ModelId(modelId)) ||
+    (!flags.glm53Flash && isGlm53FlashModelId(modelId)) ||
+    (!flags.glm &&
+      isGlmModelId(modelId) &&
+      !isGlm53ModelId(modelId) &&
+      !isGlm53FlashModelId(modelId)) ||
     (!flags.kimi && isKimiModelId(modelId))
   );
 }
@@ -50,24 +59,6 @@ function stripModelOptions(
       ? (options[0]?.value ?? "")
       : option.currentValue,
   };
-}
-
-export function stripGlmModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isGlmModelId);
-}
-
-export function stripDeepseekModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isDeepseekModelId);
-}
-
-export function stripKimiModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isKimiModelId);
 }
 
 export function stripDisabledModelOption(

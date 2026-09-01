@@ -166,6 +166,9 @@ services:
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
             OTEL_SDK_DISABLED: 'true'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
+            # Blank sends no CSP reports. Point it at this instance's own /report/ endpoint to
+            # collect them yourself.
+            CSP_REPORT_ENDPOINT: ${CSP_REPORT_ENDPOINT:-}
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
@@ -207,13 +210,16 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            LOGS_REDIS_HOST: redis7
+            LOGS_REDIS_PORT: 6379
             LOGS_REDIS_TLS: 'false'
+            TRACES_REDIS_HOST: redis7
+            TRACES_REDIS_PORT: 6379
             TRACES_REDIS_TLS: 'false'
             # Every CDP process dual-writes to Valkey and refuses to start without a host.
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -480,22 +486,6 @@ services:
             - seaweedfs
             - temporal
             - browserless
-
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        build:
-            context: ./posthog/rust
-        logging: *default-logging
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
 
     capture:
         build:

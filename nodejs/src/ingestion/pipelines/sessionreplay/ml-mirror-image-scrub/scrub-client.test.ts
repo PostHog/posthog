@@ -1,15 +1,16 @@
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 
-import { ScrubAborted, ScrubClient, ScrubContractError, ScrubPoisoned } from './scrub-client'
+import { POISON_MAX_REJECTED_MS, ScrubAborted, ScrubClient, ScrubContractError, ScrubPoisoned } from './scrub-client'
 
-type Reply = { status: number; body?: string }
+type Reply = { status: number; body?: string; durationMs?: number }
 
 describe('ScrubClient', () => {
     let server: Server
     let replies: Reply[]
     let requests: number
     let replyFor: ((body: string) => Reply | undefined) | undefined
+    let nowMs: number
 
     // A real loopback server rather than a mocked `request`: the retry loop only matters in terms of
     // what it does with actual responses, and the 503 shed path in particular is a status the sidecar
@@ -18,6 +19,7 @@ describe('ScrubClient', () => {
         replies = []
         requests = 0
         replyFor = undefined
+        nowMs = 0
         server = createServer((req, res) => {
             requests += 1
             const chunks: Buffer[] = []
@@ -28,6 +30,7 @@ describe('ScrubClient', () => {
                 // "failing while others succeed" rule means anything.
                 const reply = replyFor?.(Buffer.concat(chunks).toString()) ??
                     replies.shift() ?? { status: 200, body: 'scrubbed' }
+                nowMs += reply.durationMs ?? 0
                 res.writeHead(reply.status).end(reply.body ?? '')
             })
         })
@@ -44,8 +47,12 @@ describe('ScrubClient', () => {
             1000,
             deadLetters,
             // Backoff is asserted separately; sleeping for real would only make this slow and flaky.
-            () => Promise.resolve(),
-            () => 1
+            (ms) => {
+                nowMs += ms
+                return Promise.resolve()
+            },
+            () => 1,
+            () => nowMs
         )
 
     it.each([
@@ -90,6 +97,33 @@ describe('ScrubClient', () => {
         expect(requests).toBe(1)
     })
 
+    it('retries until the sidecar listener accepts connections', async () => {
+        const address = server.address() as AddressInfo
+        const baseUrl = `http://127.0.0.1:${address.port}`
+        await new Promise<void>((resolve, reject) =>
+            server.close((error) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve()
+                }
+            })
+        )
+        let retries = 0
+        const failedProbesBeforeListen = 3
+        const scrubClient = new ScrubClient(baseUrl, 1000)
+
+        await scrubClient.waitUntilReachable(async () => {
+            retries += 1
+            if (retries === failedProbesBeforeListen) {
+                await new Promise<void>((resolve) => server.listen(address.port, '127.0.0.1', resolve))
+            }
+        })
+
+        expect(retries).toBe(failedProbesBeforeListen)
+        expect(requests).toBe(1)
+    })
+
     it('never dead-letters on saturation alone, however long the sidecar sheds', async () => {
         // The safety property of the whole dead-letter path. Under a backlog every image waits a
         // long time, so anything keyed on waiting or failure count alone would park the entire
@@ -111,15 +145,26 @@ describe('ScrubClient', () => {
         await expect(client(true).scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
     })
 
-    it('parks an image eventually even with no peers to prove the sidecar works', async () => {
+    it('counts rejected request time when no peers can prove the sidecar works', async () => {
         // The success test cannot pass when nothing else is succeeding, and the images in a batch are
         // chosen by whoever produced them: fill one with content the sidecar rejects and no peer is
         // left to vouch for it. Without a way out, that stalls a partition shared by every team whose
         // records hash to it, which is worse than parking for an outage — parking keeps the bytes and
         // is loud, a stall keeps nothing moving and is silent.
-        replies = Array.from({ length: 5000 }, () => ({ status: 500, body: '' }))
+        replies = Array.from({ length: 5000 }, () => ({ status: 500, body: '', durationMs: 15_000 }))
 
-        await expect(client(true).scrub(Buffer.from('image'), undefined, 'ref-1')).rejects.toThrow(ScrubPoisoned)
+        let poisoned: unknown
+        try {
+            await client(true).scrub(Buffer.from('image'), undefined, 'ref-1')
+        } catch (error) {
+            poisoned = error
+        }
+
+        expect(poisoned).toBeInstanceOf(ScrubPoisoned)
+        const detail = (poisoned as ScrubPoisoned).detail
+        expect(detail.rejectedMs).toBeGreaterThanOrEqual(POISON_MAX_REJECTED_MS)
+        expect(detail.rejectedMs).toBeLessThan(POISON_MAX_REJECTED_MS + 15_000)
+        expect(detail.elapsedMs).toBe(detail.rejectedMs)
     })
 
     /**

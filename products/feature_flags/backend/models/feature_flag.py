@@ -22,6 +22,7 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
+from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
@@ -74,11 +75,17 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
             return None
         new_variants = value.get("variants", [])
         new_payloads = value.get("payloads", {})
-        # Deep-copy before mutating: current_filters is flag.filters (a live reference), so assigning
-        # into its nested multivariate dict would mutate the flag's pre-change state in place and
-        # defeat the approval gate's old-vs-new comparison.
-        updated_multivariate = copy.deepcopy(current_filters.get("multivariate", {}))
-        updated_multivariate["variants"] = new_variants
+        if not new_variants:
+            # Clearing variants makes the flag boolean; the canonical stored shape for that is
+            # multivariate: null. {"variants": []} is an invalid shape (#50084) that migration
+            # 0007 cleaned and the filters serializer rejects.
+            updated_multivariate = None
+        else:
+            # Deep-copy before mutating: current_filters is flag.filters (a live reference), so
+            # assigning into its nested multivariate dict would mutate the flag's pre-change state
+            # in place and defeat the approval gate's old-vs-new comparison.
+            updated_multivariate = copy.deepcopy(current_filters.get("multivariate") or {})
+            updated_multivariate["variants"] = new_variants
         return {
             "filters": {
                 **current_filters,
@@ -465,8 +472,11 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
-                if total_rollout != 100:
-                    raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
+                if not variant_rollout_sum_is_100(total_rollout):
+                    raise ValueError(
+                        f"Invalid variant rollout percentages: sum is "
+                        f"{format_variant_rollout_sum(total_rollout)}, must be 100"
+                    )
 
             variant_keys = {v.get("key") for v in new_variants}
             payload_keys = set(new_payloads.keys()) if new_payloads else set()

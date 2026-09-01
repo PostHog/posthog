@@ -13,6 +13,7 @@ import {
   SignOut,
 } from "@phosphor-icons/react";
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -42,6 +43,7 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import {
@@ -56,8 +58,21 @@ import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { Avatar, Box } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 
-/** The account / project / org menu at the bottom of the sidebar. */
-export function ProjectSwitcher() {
+interface ProjectSwitcherProps {
+  appearance?: "row" | "icon";
+  /**
+   * Settings navigation owned by the embedding shell. The settings dialog on
+   * the consent screen mounts before the router, so it has to move its own
+   * state — a URL change reaches nothing there.
+   */
+  onNavigateToSettings?: (category: SettingsCategory) => void;
+}
+
+/** The account / project / org menu. */
+export function ProjectSwitcher({
+  appearance = "row",
+  onNavigateToSettings,
+}: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
 
   const holdPeek = useHoldSidebarPeek();
@@ -81,6 +96,10 @@ export function ProjectSwitcher() {
   const channelsLayout = useChannelsLayout();
   const archivedTaskIds = useArchivedTaskIds();
   const showArchived = channelsLayout && archivedTaskIds.size > 0;
+
+  const isIcon = appearance === "icon";
+  const projectName = currentProject?.name ?? "No project selected";
+  const projectInitials = projectName.slice(0, 2);
 
   const currentOrgGroup =
     groupedProjects.find((group) => group.orgId === currentOrgId) ?? null;
@@ -162,15 +181,18 @@ export function ProjectSwitcher() {
     navigateToArchived();
   };
 
-  const handleSettings = () => {
+  const goToSettings = (category: SettingsCategory) => {
     setPopoverOpen(false);
-    openSettings();
+    if (onNavigateToSettings) {
+      onNavigateToSettings(category);
+      return;
+    }
+    openSettings(category);
   };
 
-  const handleKeyboardShortcuts = () => {
-    setPopoverOpen(false);
-    openSettings("shortcuts");
-  };
+  const handleSettings = () => goToSettings("general");
+
+  const handleKeyboardShortcuts = () => goToSettings("shortcuts");
 
   const handleOpenExternal = (url: string) => {
     openExternalUrl(url);
@@ -196,27 +218,42 @@ export function ProjectSwitcher() {
     <DropdownMenu open={popoverOpen} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger
         render={
-          <Item
-            size="xs"
-            className="border-transparent bg-fill-hover py-1.5 hover:bg-fill-selected aria-expanded:bg-fill-active"
-          >
-            <ItemContent className="select-none gap-0">
-              <ItemTitle>
-                {currentProject?.name ?? "No project selected"}
-              </ItemTitle>
-              <ItemDescription className="text-[11px]">
-                {impersonationExpiry &&
-                  `Impersonating until ${impersonationExpiry}`}
-              </ItemDescription>
-            </ItemContent>
-          </Item>
+          isIcon ? (
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={projectName}
+              className="shrink-0 font-semibold text-[11px] text-muted-foreground uppercase hover:bg-fill-selected aria-expanded:bg-fill-active"
+            >
+              {projectInitials}
+            </Button>
+          ) : (
+            <Item
+              size="xs"
+              className="border-transparent bg-transparent py-1.5 hover:bg-fill-hover aria-expanded:bg-fill-selected"
+            >
+              <ItemContent className="select-none gap-0">
+                <ItemTitle>{projectName}</ItemTitle>
+                <ItemDescription className="text-[11px]">
+                  {impersonationExpiry &&
+                    `Impersonating until ${impersonationExpiry}`}
+                </ItemDescription>
+              </ItemContent>
+            </Item>
+          )
         }
       />
 
       <DropdownMenuContent
-        align="start"
-        side="bottom"
-        className="w-(--anchor-width) max-w-(--anchor-width) pt-0"
+        align={isIcon ? "end" : "start"}
+        side={isIcon ? "right" : "bottom"}
+        // The rail trigger is one icon wide, so anchor-width would squeeze the
+        // menu to nothing.
+        className={
+          isIcon
+            ? "w-64 pt-0"
+            : "w-(--anchor-width) max-w-(--anchor-width) pt-0"
+        }
         sideOffset={4}
       >
         <Box>

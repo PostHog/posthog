@@ -10,14 +10,15 @@ import {
   ActivityPanelBody,
   type ActivityTab,
 } from "@posthog/ui/features/canvas/components/ActivityPanelBody";
-import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { TaskSummaryRow } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
@@ -139,6 +140,22 @@ function ActivityConversation({
   // Not handleTabChange: a programmatic switch isn't a user tab change.
   useCommentFocusRequest(taskId, () => setTab("comments"));
 
+  // A caller can open the panel pointed at a tab (the feed's comment chip
+  // lands on Comments, its "+N files" rows on Artifacts). Applied once, then
+  // consumed in the store — a local ref would reset when the panel remounts
+  // (collapse/expand) and replay the stale request over the user's tab pick.
+  const tabRequest = useThreadPanelStore(
+    (state) => state.tabRequestByTask[taskId],
+  );
+  const consumeTabRequest = useThreadPanelStore(
+    (state) => state.consumeTabRequest,
+  );
+  useEffect(() => {
+    if (!tabRequest) return;
+    setTab(tabRequest.tab);
+    consumeTabRequest(taskId, tabRequest.nonce);
+  }, [tabRequest, consumeTabRequest, taskId]);
+
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
       <ActivityHeader
@@ -149,11 +166,7 @@ function ActivityConversation({
         onClose={onClose}
       />
 
-      {showTaskSummary && (
-        <div className="z-10 px-2">
-          <TaskCard task={task} channelId={channelId} inThread />
-        </div>
-      )}
+      {showTaskSummary && <TaskSummaryRow task={task} channelId={channelId} />}
       {/* Keyed by session: the body latches "the timeline has drawn" so it
           never blinks back to a loader, and the dock reuses one body across
           tasks, which would carry that latch onto a session still loading. */}

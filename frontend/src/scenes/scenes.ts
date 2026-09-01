@@ -73,6 +73,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Web scripts allow you to add custom tags and functionality to your website using PostHog.',
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
+        docsHref: 'https://posthog.com/docs/js-snippets',
     },
     [Scene.BatchExport]: {
         projectBased: true,
@@ -135,6 +136,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         description: 'Create and manage your dashboards',
         iconType: 'dashboard',
+        docsHref: 'https://posthog.com/docs/product-analytics/dashboards',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -146,7 +148,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
-    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
+    [Scene.ExperimentsStaffTools]: { instanceLevel: true, name: 'Experiments staff tools' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -231,6 +233,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         activityScope: ActivityScope.FEATURE_FLAG,
+        docsHref: 'https://posthog.com/docs/feature-flags',
     },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
@@ -299,6 +302,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Notebooks',
         description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
+        docsHref: 'https://posthog.com/docs/notebooks',
     },
     [Scene.OAuthAuthorize]: {
         name: 'Authorize',
@@ -409,6 +413,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'session_replay',
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',
+        docsHref: 'https://posthog.com/docs/session-replay',
     },
     [Scene.ReplayKiosk]: {
         projectBased: true,
@@ -434,6 +439,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
         iconType: 'marketing_analytics',
+        docsHref: 'https://posthog.com/docs/web-analytics/marketing-analytics',
     },
     [Scene.MarketingAnalyticsSettings]: {
         projectBased: true,
@@ -447,6 +453,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         iconType: 'product_analytics',
+        docsHref: 'https://posthog.com/docs/product-analytics',
     },
     [Scene.Health]: {
         projectBased: true,
@@ -511,11 +518,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.SURVEY,
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
+        docsHref: 'https://posthog.com/docs/surveys',
     },
     [Scene.ProductTours]: {
         projectBased: true,
         name: 'Product tours',
         description: 'Guide users through your product with interactive tours',
+        iconType: 'product_tour',
     },
     [Scene.ProductTour]: {
         projectBased: true,
@@ -568,6 +577,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
+        docsHref: 'https://posthog.com/docs/web-analytics',
     },
     [Scene.WebAnalyticsRecap]: {
         projectBased: true,
@@ -638,6 +648,9 @@ export const redirects: Record<
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
+    // New dashboards open in a modal on the list page. `/dashboard/new` is a guessed URL,
+    // so send it there with the modal open instead of matching `/dashboard/:id`.
+    '/dashboard/new': `${urls.dashboards()}#newDashboard=modal`,
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
     '/data-management/data-warehouse': urls.sources(),
@@ -679,6 +692,7 @@ export const redirects: Record<
     '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
+    '/instance/query_performance': urls.experimentsStaffTools(),
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
     '/live-debugger': urls.liveDebugger(),
@@ -703,6 +717,8 @@ export const redirects: Record<
     '/pipeline/sources': urls.sources(),
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
+    // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
+    '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
@@ -758,6 +774,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
     [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
+    [urls.webAnalyticsAgents()]: [Scene.WebAnalytics, 'webAnalyticsAgents'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
@@ -806,6 +823,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
+    // Must come before the parameterized /experiments/:id route
+    [urls.experimentsStaffTools()]: [Scene.ExperimentsStaffTools, 'experimentsStaffTools'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
@@ -824,8 +843,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlagsStaffTools()]: ['FeatureFlagsStaffTools' as Scene, 'featureFlagsStaffTools'],
     [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
-    [urls.annotations()]: [Scene.DataManagement, 'annotations'],
-    [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
+    [urls.annotations()]: [Scene.Annotations, 'annotations'],
+    [urls.annotation(':id')]: [Scene.Annotations, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
@@ -852,7 +871,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
-    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],

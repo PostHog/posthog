@@ -28,7 +28,7 @@ describe('versionChanges', () => {
                 version({ version: 2, scannerConfig: afterConfig })
             )
             expect(changes).toEqual([
-                { field: 'multi_label', label: 'Multiple tags per session', kind: 'value', before, after },
+                { field: 'multi_label', label: 'Multiple categories per session', kind: 'value', before, after },
             ])
         })
 

@@ -4,15 +4,14 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Comment, OrganizationMembership, User
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.models import Channel, TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
-
-from ee.models.rbac.access_control import AccessControl
 
 SLACK_WORKSPACE_ID = "T123"
 
@@ -270,6 +269,40 @@ class TestCommentSlackDm(CommentActivityTestCase):
             self._record_activity(self._comment(), [self.author.id])
 
         assert self._dm_channels() == expected
+
+    @parameterized.expand(
+        [
+            ("one_workspace", frozenset({SLACK_WORKSPACE_ID}), [f"U-{SLACK_WORKSPACE_ID}"]),
+            ("multiple_workspaces", frozenset({SLACK_WORKSPACE_ID, "T456"}), []),
+        ]
+    )
+    def test_unlinked_user_is_dmed_only_when_email_resolves_in_one_workspace(
+        self, _name: str, matching_workspaces: frozenset[str], expected: list[str]
+    ) -> None:
+        second_workspace = "T456"
+        Integration.objects.create(
+            team=self.team, kind="slack", integration_id=second_workspace, config={"scope": "chat:write"}
+        )
+        UserIntegration.objects.filter(user=self.author).delete()
+
+        def lookup_by_email(_slack: SlackIntegration, integration: Integration, _email: str) -> str | None:
+            return f"U-{integration.integration_id}" if integration.integration_id in matching_workspaces else None
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                side_effect=lookup_by_email,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                side_effect=lambda _client, _user_id, *, workspace: {"team_id": workspace},
+            ),
+        ):
+            self._record_activity(self._comment())
+
+        assert self._dm_channels() == expected
+        if expected:
+            assert "commented on" in self._dm_heading()
 
     def test_the_linked_account_wins_over_an_email_match(self):
         with patch(

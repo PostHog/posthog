@@ -115,6 +115,10 @@ class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
         )
 
 
+class SandboxNetworkPolicyError(ProcessTaskFatalError):
+    pass
+
+
 class SandboxNotFoundError(ProcessTaskFatalError):
     """Sandbox does not exist."""
 

@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from django.db import transaction
@@ -10,22 +9,28 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
+from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
+from .community_publish_services import (
+    DISPLAY_NAME_PATTERN,
+    MAX_DISPLAY_NAME_LENGTH,
+    MAX_GITHUB_HANDLE_LENGTH,
+    MAX_TAG_LENGTH,
+    OPTIONAL_GITHUB_HANDLE_PATTERN,
+)
 from .skill_services import (
+    MAX_SKILL_NAME_LENGTH,
+    RESERVED_SKILL_NAMES,
+    SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
+    check_allowed_tool_name,
+    normalize_skill_file_path,
     resolve_owner_users,
     resolve_skill_owners,
     seed_skill_owner,
     set_skill_owners,
 )
 
-# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
-# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
-# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
-RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog"}
-# Bundled-file paths that would collide with generated artifacts in the exported skill
-# tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
-RESERVED_SKILL_FILE_PATHS = {"skill.md"}
 DEFAULT_VERSION_PAGE_SIZE = 50
 # Body-paging metadata is meaningless without the body, so the list serializer drops it alongside body/files.
 _LIST_EXCLUDED_FIELDS = ("body", "body_total_length", "body_next_offset", "files")
@@ -43,7 +48,6 @@ MAX_SKILL_OWNERS = 25
 # null, never a guess. Sized to sit under observed transport truncation with room for the
 # response envelope (outline, file manifest, metadata).
 DEFAULT_BODY_PAGE_LENGTH = 8000
-SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 # Tools that opt a scout skill into the report channel. Local copy of
 # products/signals/backend/scout_harness/skill_loader.REPORT_CHANNEL_TOOLS — skills must not
 # import signals internals, and drift fails closed: a report tool unknown here keeps owners
@@ -57,12 +61,12 @@ def validate_skill_name_value(value: str) -> str:
             f"'{value}' is a reserved name and cannot be used.",
             code="reserved_name",
         )
-    if len(value) > 64:
+    if len(value) > MAX_SKILL_NAME_LENGTH:
         raise serializers.ValidationError(
-            "Skill name must be 64 characters or fewer.",
+            f"Skill name must be {MAX_SKILL_NAME_LENGTH} characters or fewer.",
             code="max_length",
         )
-    if not SKILL_NAME_PATTERN.match(value):
+    if not SKILL_NAME_PATTERN.fullmatch(value):
         raise serializers.ValidationError(
             "Only lowercase letters, numbers, and hyphens are allowed. "
             "Must not start or end with a hyphen or contain consecutive hyphens.",
@@ -77,26 +81,10 @@ def validate_skill_name_value(value: str) -> str:
 
 
 def validate_skill_file_path(value: str) -> str:
-    # Paths become git tree entries (and zip/marketplace paths), so anything that would
-    # produce an empty or ambiguous entry name must be rejected — otherwise a single bad
-    # path synthesizes a corrupt git tree and breaks the whole team's marketplace clone.
-    normalized = value.replace("\\", "/")
-    if not normalized or normalized != normalized.strip():
-        raise serializers.ValidationError("File path must be a non-empty, trimmed relative path.")
-    if normalized.startswith("/"):
-        raise serializers.ValidationError("File paths must be relative, not absolute.")
-    if normalized.endswith("/"):
-        raise serializers.ValidationError("File paths must not end with a slash.")
-    if any(part in ("", ".", "..") for part in normalized.split("/")):
-        raise serializers.ValidationError("File paths must not contain empty, '.', or '..' segments.")
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
-        raise serializers.ValidationError("File paths must not contain control characters.")
-    if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
-        raise serializers.ValidationError(f"'{value}' is a reserved file path and cannot be used.")
-    # Persist the normalized (forward-slash) form, not the original: backslashes mean "separator"
-    # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
-    # rather than a file under `references/`, and would let the two spellings dodge dedup.
-    return normalized
+    try:
+        return normalize_skill_file_path(value)
+    except ValueError as err:
+        raise serializers.ValidationError(str(err)) from err
 
 
 def _validate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -122,11 +110,11 @@ def validate_skill_body_size(body: str) -> str:
 
 
 def validate_allowed_tool(value: str) -> None:
-    # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
-    # name containing whitespace would silently fracture into multiple tools on export/round-trip.
     # Returns None (raise-only) so it fits a DRF `validators=[...]` list.
-    if any(ch.isspace() for ch in value):
-        raise serializers.ValidationError("Tool names cannot contain whitespace.")
+    try:
+        check_allowed_tool_name(value)
+    except ValueError as err:
+        raise serializers.ValidationError(str(err)) from err
 
 
 class LLMSkillFetchQuerySerializer(serializers.Serializer):
@@ -134,6 +122,28 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
         min_value=1,
         required=False,
         help_text="Specific skill version to fetch. If omitted, the latest version is returned.",
+    )
+
+
+class LLMSkillBundleQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_BUNDLE_SKILLS,
+        default=DEFAULT_BUNDLE_SKILLS,
+        help_text=(
+            f"Maximum number of skills in the zip, newest first; default {DEFAULT_BUNDLE_SKILLS}, at most "
+            f"{MAX_BUNDLE_SKILLS}. Every skill in the zip costs the agent prompt context on each turn, so pick "
+            "what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped."
+        ),
+    )
+    content = serializers.ChoiceField(
+        choices=["stub", "full"],
+        default="stub",
+        help_text=(
+            "What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, "
+            "description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes "
+            "the rendered SKILL.md, every bundled file and the Codex sidecar."
+        ),
     )
 
 
@@ -165,6 +175,12 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         required=False,
         help_text="Filter skills by the ID of the user who created them.",
+    )
+    owner_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter skills by the ID of a user who owns them. Ownership is keyed on the logical "
+        "skill, so this is stable across versions — unlike created_by_id, which tracks whoever "
+        "published the latest version.",
     )
     category = serializers.CharField(
         required=False,
@@ -310,7 +326,7 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         required=False,
         help_text="Updated description for the new version.",
     )
@@ -510,7 +526,13 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "name": {
                 "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
             },
-            "description": {"help_text": "What this skill does and when to use it. Max 4096 characters."},
+            # No max_length here: this base serves read responses, and legacy rows can hold up to the
+            # 4096 column limit, above the 1024 spec cap. Deriving max_length from the model keeps the
+            # read schema honest about what the server returns. The 1024 write cap lives on the write
+            # serializers (LLMSkillCreateSerializer and LLMSkillPublishSerializer).
+            "description": {
+                "help_text": "What this skill does and when to use it.",
+            },
             "body": {"help_text": "The SKILL.md instruction content (markdown)."},
             "license": {"help_text": "License name or reference to a bundled license file."},
             "compatibility": {
@@ -621,6 +643,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 class LLMSkillCreateSerializer(LLMSkillSerializer):
     """Create serializer — accepts bundled files and owners as write-only input on POST."""
 
+    # The write cap the base intentionally omits: new descriptions must clear the 1024 spec limit
+    # that community publish and export enforce.
+    description = serializers.CharField(
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        help_text="What this skill does and when to use it. Max 1024 characters.",
+    )
     files = LLMSkillFileInputSerializer(  # type: ignore[assignment]
         many=True,
         required=False,
@@ -846,3 +874,41 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
     )
     created_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was created.")
     last_rolled_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was last rotated.")
+
+
+class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    display_name = serializers.RegexField(
+        DISPLAY_NAME_PATTERN,
+        required=False,
+        allow_blank=True,
+        max_length=MAX_DISPLAY_NAME_LENGTH,
+        help_text=(
+            "Human-friendly display name for the community listing. Defaults to a title-cased skill slug. "
+            "Must be a single line: it is used as the pull request title and commit message."
+        ),
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_TAG_LENGTH),
+        required=False,
+        help_text="Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].",
+    )
+    author_handle = serializers.RegexField(
+        OPTIONAL_GITHUB_HANDLE_PATTERN,
+        required=False,
+        allow_blank=True,
+        # The pattern can't bound the total on its own: each of its repetitions may contribute a
+        # hyphen and a character, so it alone accepts 77 characters — not a username GitHub can hold.
+        max_length=MAX_GITHUB_HANDLE_LENGTH,
+        help_text=(
+            "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, "
+            "and self-reported: it is not verified against the publisher's PostHog account."
+        ),
+    )
+
+
+class CommunitySkillPublishResultSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(
+        help_text="URL of the pull request opened in the community-skills repo for maintainer review."
+    )
+    pr_number = serializers.IntegerField(help_text="Number of the opened pull request.")
+    branch = serializers.CharField(help_text="Name of the branch created in the community-skills repo.")

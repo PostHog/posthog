@@ -5,8 +5,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AccountsTableAccountFieldColumn,
+    AccountsTableAccountFieldFilter,
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableCountMetric,
     AccountsTableCountThresholdMetric,
@@ -18,6 +20,7 @@ from posthog.schema import (
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipFilter,
     AccountsTableRow,
     AccountsTableSearchFilter,
     AccountsTableTagsColumn,
@@ -30,8 +33,8 @@ from posthog.hogql.constants import get_default_limit_for_context, get_max_limit
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.facade import api, contracts
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
@@ -110,12 +113,14 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                         f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
                     )
                 filter_values = (
-                    filter_.tagNames
+                    filter_.tagNames or []
                     if isinstance(filter_, AccountsTableTagsFilter)
-                    else filter_.userIds
+                    else filter_.userIds or []
                     if isinstance(filter_, AccountsTableAssignedToFilter)
+                    else filter_.userIds or []
+                    if isinstance(filter_, AccountsTableRelationshipFilter)
                     else filter_.values or []
-                    if isinstance(filter_, AccountsTableCustomPropertyFilter)
+                    if isinstance(filter_, AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)
                     else []
                 )
                 if len(filter_values) > ACCOUNTS_TABLE_MAX_FILTER_VALUES:
@@ -134,10 +139,28 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters.append(contracts.AccountTableTagsFilter(tag_names=tuple(filter_.tagNames)))
                 elif isinstance(filter_, AccountsTableAssignedToFilter):
                     filters.append(contracts.AccountTableAssignedToFilter(user_ids=tuple(filter_.userIds)))
+                elif isinstance(filter_, AccountsTableAssignedFilter):
+                    filters.append(contracts.AccountTableAssignedFilter())
                 elif isinstance(filter_, AccountsTableUnassignedFilter):
                     filters.append(contracts.AccountTableUnassignedFilter())
+                elif isinstance(filter_, AccountsTableRelationshipFilter):
+                    filters.append(
+                        contracts.AccountTableRelationshipFilter(
+                            definition_id=UUID(filter_.definitionId),
+                            operator=contracts.AccountTableRelationshipOperator(filter_.operator.value),
+                            user_ids=tuple(filter_.userIds or ()),
+                        )
+                    )
                 elif isinstance(filter_, AccountsTableAccountIdFilter):
                     filters.append(contracts.AccountTableAccountIdFilter(account_id=UUID(filter_.accountId)))
+                elif isinstance(filter_, AccountsTableAccountFieldFilter):
+                    filters.append(
+                        contracts.AccountTableFieldFilter(
+                            field=contracts.AccountTableField(filter_.field.value),
+                            operator=contracts.AccountTableFieldOperator(filter_.operator.value),
+                            values=tuple(filter_.values or ()),
+                        )
+                    )
                 elif isinstance(filter_, AccountsTableCustomPropertyFilter):
                     filters.append(
                         contracts.AccountTableCustomPropertyFilter(
@@ -232,6 +255,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     user_access_control=user_access_control,
                     filters=filters,
                     metrics=self._metrics(),
+                    include_churned=bool(self.query.includeChurned),
+                    include_ignored=bool(self.query.includeIgnored),
                 )
                 return AccountsTableQueryResponse(
                     results=[],
@@ -248,6 +273,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                 sort=self._sort(),
                 offset=offset,
                 limit=limit,
+                include_churned=bool(self.query.includeChurned),
+                include_ignored=bool(self.query.includeIgnored),
             )
         except api.InvalidAccountTableColumn as error:
             raise ValidationError(str(error)) from error
@@ -258,6 +285,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     id=str(row.id),
                     name=row.name,
                     externalId=row.external_id,
+                    logoDomain=row.logo_domain,
                     accountFields={field.value: value for field, value in row.account_fields.items()},
                     tags=row.tags,
                     noteCount=row.note_count,

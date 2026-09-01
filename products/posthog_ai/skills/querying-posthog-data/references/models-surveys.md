@@ -69,9 +69,27 @@ Column | Type | Nullable | Description
 
 - **Feature Flags**: Multiple flag relationships via `system.feature_flags`
 - **Insight**: `linked_insight_id` -> `system.insights.id`
+- **Archived responses**: `system.survey_response_archives.survey_id` -> `system.surveys.id`
 
 ### Important Notes
 
 - Survey name must be unique per team
 - Internal flags (`targeting_flag`, `internal_targeting_flag`, `internal_response_sampling_flag`) are auto-managed
 - `linked_flag` is user-managed and optional
+
+## SurveyResponseArchive (`system.survey_response_archives`)
+
+Survey responses are stored as events, so archiving one is recorded in Postgres instead. One row per archived (hidden) response.
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key (UUID)
+`survey_id` | uuid | NOT NULL | FK to `system.surveys.id`
+`response_uuid` | uuid | NOT NULL | UUID of the event representing the response — join to `events.uuid`
+`archived_at` | timestamp with tz | NOT NULL | When the response was archived
+
+### Important Notes
+
+- To exclude archived responses from a survey's results, anti-join the survey events against this table on `events.uuid = survey_response_archives.response_uuid`
+- `(team_id, response_uuid)` is unique

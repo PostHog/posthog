@@ -18,8 +18,8 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.uuid().optional().describe('Warehouse table id to certify (XOR the other targets).'),
         saved_query_id: zod.uuid().optional().describe('Warehouse view (saved query) id to certify.'),
-        table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
-        view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
+        table_name: zod.string().optional().describe('Queryable HogQL table name; 409 with candidates if ambiguous.'),
+        view_name: zod.string().optional().describe('Queryable HogQL view name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
         proposed_status: zod
             .enum(['certified', 'deprecated'])
@@ -282,6 +282,40 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
+
+/**
+ * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.
+ */
+export const dataCatalogMetricsBulkApproveCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkApproveCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkApproveCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkApproveCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkApproveCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+    })
+    .describe('Input for the bulk metric actions: the metric names to act on.')
+
+/**
+ * Delete many metrics, freeing their names for reuse. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkDeleteCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkDeleteCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkDeleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkDeleteCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkDeleteCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+    })
+    .describe('Input for the bulk metric actions: the metric names to act on.')
 
 /**
  * Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist.

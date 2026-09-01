@@ -21,24 +21,24 @@ import {
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { isPlaceholderCanvasName } from "./canvasNaming";
-import { buildCanvasGenerationPrompt } from "./generationPrompt";
+import {
+  buildCanvasGenerationPrompt,
+  buildGridCanvasGenerationPrompt,
+  buildPlacementGenerationPrompt,
+} from "./generationPrompt";
 
 export interface GenerateCanvasInput {
-  /**
-   * The canvas being generated or edited, when the surface already knows it.
-   * Channel-composer runs omit it: the agent resolves the target itself
-   * (building on a matching existing canvas, or creating a named one), so no
-   * canvas-side effects run here.
-   */
-  dashboardId?: string;
-  /** The target's title; set whenever dashboardId is. */
-  name?: string;
+  dashboardId: string;
+  name: string;
   templateId?: string;
   instruction: string;
-  /** True when the canvas already has published source (an edit, not a first build). */
-  isEdit: boolean;
-  /** First builds only: point the agent at the known-good starter scaffold. */
-  useStarter?: boolean;
+  /** When set, the run fills ONE placement on a grid canvas instead of
+   * authoring the canvas itself (composing-grid-canvases skill routing). */
+  placement?: { placementId: string; w: number; h: number };
+  /** "grid" routes a whole-canvas run (no placement) to the grid skill:
+   * the agent edits the layout and its components instead of authoring a
+   * freeform canvas app. */
+  canvasKind?: "grid";
   /** Backend channel (task channel UUID) that owns the canvas and the task. */
   channelId: string;
   channelName: string;
@@ -68,6 +68,24 @@ export interface CanvasGenerationGateway {
   onTaskReady?(task: Task): void;
   /** The canvas was auto-named after the run started (update trackers/toasts). */
   onAutoNamed?(taskId: string, title: string): void;
+}
+
+// Unattended canvas runs default to Claude Sonnet 5 at high reasoning effort.
+// The resolver validates the id against the gateway's model list, so when it's
+// absent the run falls back to the server default instead of failing — and the
+// effort default follows the model: it only applies when the preferred model
+// actually resolved, because other models may not support that effort tier.
+const CANVAS_PREFERRED_ADAPTER = "claude" as const;
+const CANVAS_PREFERRED_MODEL = "claude-sonnet-5";
+const CANVAS_PREFERRED_REASONING = "high";
+
+const TASK_TITLE_MAX = 80;
+
+function truncateForTitle(text: string): string {
+  const flattened = text.replace(/\s+/g, " ").trim();
+  return flattened.length > TASK_TITLE_MAX
+    ? `${flattened.slice(0, TASK_TITLE_MAX - 1)}…`
+    : flattened;
 }
 
 export type GenerateCanvasResult =
@@ -116,7 +134,7 @@ export class CanvasApplicationService {
     gateway: CanvasGenerationGateway,
   ): Promise<GenerateCanvasResult> {
     const {
-      adapter = "claude",
+      adapter = CANVAS_PREFERRED_ADAPTER,
       // Defaults to a cloud run — canvas generation should never tie up (or
       // depend on) the local machine. The dev-only picker can override to
       // "local" to test a local build of these features before merging.
@@ -133,7 +151,12 @@ export class CanvasApplicationService {
         ? await this.modelResolver.resolveDefaultModel(
             getCloudUrlFromRegion(input.cloudRegion),
             adapter,
-            input.model,
+            input.model ??
+              // The preferred id only fits its own adapter; a caller-picked
+              // other adapter resolves to that adapter's server default.
+              (adapter === CANVAS_PREFERRED_ADAPTER
+                ? CANVAS_PREFERRED_MODEL
+                : null),
           )
         : undefined;
       if (!model) {
@@ -143,26 +166,66 @@ export class CanvasApplicationService {
 
     const result = await this.taskService.createTask(
       {
-        content: buildCanvasGenerationPrompt({
-          dashboardId: input.dashboardId,
-          name: input.name,
-          channelName: input.channelName,
-          channelId: input.channelId,
-          templateId: input.templateId,
-          instruction: input.instruction,
-          isEdit: input.isEdit,
-          useStarter: input.useStarter,
-        }),
-        taskDescription: input.name
-          ? `Generate canvas "${input.name}"`
-          : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
-        // Unattended generation: run in auto mode so it doesn't stall on
-        // edit-approval prompts.
-        executionMode: "auto" as const,
+        content: input.placement
+          ? buildPlacementGenerationPrompt({
+              dashboardId: input.dashboardId,
+              name: input.name,
+              channelName: input.channelName,
+              instruction: input.instruction,
+              placementId: input.placement.placementId,
+              boxWidth: input.placement.w,
+              boxHeight: input.placement.h,
+            })
+          : input.canvasKind === "grid"
+            ? buildGridCanvasGenerationPrompt({
+                dashboardId: input.dashboardId,
+                name: input.name,
+                channelName: input.channelName,
+                instruction: input.instruction,
+              })
+            : buildCanvasGenerationPrompt({
+                dashboardId: input.dashboardId,
+                name: input.name,
+                channelName: input.channelName,
+                templateId: input.templateId,
+                instruction: input.instruction,
+              }),
+        // A placement fill is named after its widget — every fill on the same
+        // canvas would otherwise share one useless "Generate canvas Home" title.
+        taskDescription: input.placement
+          ? `Generate widget: ${truncateForTitle(input.instruction)}`
+          : input.canvasKind === "grid"
+            ? `Update canvas "${input.name}": ${truncateForTitle(input.instruction)}`
+            : input.name
+              ? `Generate canvas "${input.name}"`
+              : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
+        // Unattended generation: auto mode relays every MCP approval to the
+        // desktop and blocks the run until someone answers. What still applies
+        // in bypass mode: do_not_use tools stay denied, tools on MCP servers
+        // relayed to the user's machine still need their approval, and PostHog
+        // exec sub-tools matching the run's permission regex are still relayed
+        // for one. It does NOT contain the run to the canvas API.
+        //
+        // TODO(canvas mcp scopes): bypassing is only defensible once this run's
+        // token is narrowed. A client-created run sends runSource "manual",
+        // which resolves to "full" PostHog MCP scopes in
+        // products/tasks/backend/facade/api.py (insight, dashboard and flag
+        // writes, plus SQL), while the prompt carries channel context and canvas
+        // comments other people wrote. ReviewHog's sandbox passes an explicit
+        // scope list for exactly this reason (see REVIEW_MCP_SCOPES), but the
+        // REST run-create surface exposes no scope field, so a client cannot ask
+        // for one. Both canvas surfaces CAN answer an approval today
+        // (CanvasPermissionDialog on freeform, Review request on a grid tile),
+        // so this mode also switches off a gate that works.
+        executionMode: "bypassPermissions" as const,
         workspaceMode,
         adapter,
         model,
-        reasoningLevel: input.reasoningLevel,
+        reasoningLevel:
+          input.reasoningLevel ??
+          (model === CANVAS_PREFERRED_MODEL
+            ? CANVAS_PREFERRED_REASONING
+            : undefined),
         allowNoRepo: true,
         channelContext: input.channelContext,
         channelName: input.channelName,
@@ -182,35 +245,30 @@ export class CanvasApplicationService {
       this.log.warn("Failed to file canvas generation task", { error });
     });
 
-    // Canvas-side effects only apply when the surface pre-resolved a target;
-    // target-less runs leave them to the agent, which resolves or creates the
-    // canvas itself.
     const dashboardId = input.dashboardId;
-    if (dashboardId) {
-      // The generation-task write is awaited so a caller that navigates to the
-      // canvas right after generate() lands on the generating view, not the
-      // empty hero.
-      await gateway.setGenerationTask(dashboardId, task.id).catch((error) => {
-        this.log.warn("Failed to record canvas generation task", { error });
-      });
+    // A placement fill is scoped to one tile: the placement row carries the
+    // task id, so the whole canvas must not read as "generating" (nor get
+    // auto-renamed from a single widget's prompt).
+    if (input.placement) {
+      return { ok: true, taskId: task.id };
+    }
+    await gateway.setGenerationTask(dashboardId, task.id).catch((error) => {
+      this.log.warn("Failed to record canvas generation task", { error });
+    });
 
-      // Auto-name a still-unnamed canvas from its generation prompt, using the
-      // same helper model that names tasks. Best-effort: a failure (or a user
-      // who already named the canvas) leaves the existing title untouched.
-      if (input.name && isPlaceholderCanvasName(input.name)) {
-        void this.titleGenerator
-          .generateCanvasName(input.instruction)
-          .then(async (generated) => {
-            const title = generated?.trim();
-            if (title) {
-              await gateway.renameCanvas(dashboardId, title);
-              gateway.onAutoNamed?.(task.id, title);
-            }
-          })
-          .catch((error) => {
-            this.log.warn("Failed to auto-name canvas", { error });
-          });
-      }
+    if (isPlaceholderCanvasName(input.name)) {
+      void this.titleGenerator
+        .generateCanvasName(input.instruction)
+        .then(async (generated) => {
+          const title = generated?.trim();
+          if (title) {
+            await gateway.renameCanvas(dashboardId, title);
+            gateway.onAutoNamed?.(task.id, title);
+          }
+        })
+        .catch((error) => {
+          this.log.warn("Failed to auto-name canvas", { error });
+        });
     }
 
     return { ok: true, taskId: task.id };

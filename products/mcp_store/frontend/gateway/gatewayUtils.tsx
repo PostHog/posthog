@@ -42,15 +42,15 @@ export function credentialOwnerLabel(owner: UserBasicApi, grantScope: string): s
     return grantScope === 'team' ? `via ${name}'s connection (team share)` : `via ${name}'s connection`
 }
 
-const AGENT_GRANT_SCOPE_OPTIONS: { value: MCPAgentGrantScopeEnumApi; label: string; tooltip: string }[] = [
+export const AGENT_GRANT_SCOPE_OPTIONS: { value: MCPAgentGrantScopeEnumApi; label: string; tooltip: string }[] = [
     {
         value: 'personal',
-        label: 'Just my agents',
+        label: 'Only me',
         tooltip: 'The agent uses your connection only when it runs for you.',
     },
     {
         value: 'team',
-        label: 'All team agents',
+        label: 'Everyone in this project',
         tooltip:
             "The agent uses your connection for every run in this project, including runs nobody started. Teammates can't use the connection directly, but agents act through it on their runs too.",
     },

@@ -53,6 +53,14 @@ export interface AgentRosterDefinition {
      * toggle. The card links there instead of showing a switch.
      */
     manageUrl?: string
+    /**
+     * An actionability gate runs on this source's records and reads the steering keys on
+     * `SignalSourceConfig.config` (see `sourceSteeringModalLogic`). Either the emission pipeline's
+     * gate, or, for a source that emits directly, the one listing it in the backend's
+     * `DIRECT_STEERABLE_SOURCES`. Sources without a gate must not offer the steering form: the keys
+     * would be stored but nothing would read them.
+     */
+    steerable?: boolean
     /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
     flag?: FeatureFlagKey
 }
@@ -74,6 +82,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 detail: 'Each type below is a separate trigger, so turning one off leaves the others watching.',
                 entityNoun: 'signal types',
                 entityNounSingular: 'signal type',
+                steerable: true,
                 docsUrl: 'https://posthog.com/docs/error-tracking',
                 docsLabel: 'Error tracking',
             },
@@ -83,6 +92,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Support',
                 watches: 'Problems customers raise in support',
                 detail: 'Only open tickets are read.',
+                steerable: true,
                 docsUrl: 'https://posthog.com/docs/support',
                 docsLabel: 'Support',
             },
@@ -124,6 +134,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Health checks',
                 watches: 'Missing events, proxy gaps, and outdated SDKs',
                 detail: 'Checks your setup for missing events, an outdated SDK, proxy problems, failed warehouse syncs, and missing source maps.',
+                steerable: true,
                 docsUrl: urls.health(),
                 docsLabel: 'Health checks',
             },
@@ -138,6 +149,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'GitHub issues',
                 watches: 'Issues filed in GitHub',
                 detail: 'Reads the issues from the GitHub repositories you sync to the warehouse.',
+                steerable: true,
             },
             {
                 source: 'engineering_analytics',
@@ -154,6 +166,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Linear',
                 watches: 'Issues tracked in Linear',
                 detail: 'Reads the issues from the Linear workspace you sync to the warehouse.',
+                steerable: true,
             },
             {
                 source: 'zendesk',
@@ -161,6 +174,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Zendesk',
                 watches: 'Incoming Zendesk tickets',
                 detail: 'Reads the tickets from the Zendesk account you sync to the warehouse.',
+                steerable: true,
             },
             {
                 source: 'pganalyze',
@@ -168,6 +182,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'pganalyze',
                 watches: 'Slow Postgres queries and bad indexes',
                 detail: 'Reads the issues from the pganalyze account you sync to the warehouse.',
+                steerable: true,
             },
         ],
     },

@@ -9,12 +9,15 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class ActiveInstallationInfo:
+class ActiveInstallation:
     """An MCP server installation that is active and ready to use."""
 
     id: str
     name: str
     proxy_path: str
+    # What the server does, in one line. Agents mount connectors without connecting to them,
+    # so until the first call this is all their tool search has to match on.
+    description: str = ""
     scope: str = "personal"
     # Set only for credentials delegated to a built-in agent. Kept out of reprs so the
     # short-lived bearer cannot accidentally land in logs.

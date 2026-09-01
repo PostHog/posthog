@@ -2713,3 +2713,22 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         hogql_query = query.to_hogql()
         assert "convertCurrency" in hogql_query
         assert expected_in_query in hogql_query
+
+    def test_currency_conversion_date_cannot_be_null(self):
+        # `convertCurrency` resolves its rate through `dictGetOrDefault`, which rejects a
+        # Nullable(Date) key outright rather than returning its default — and warehouse date
+        # columns read back nullable. A bare toDate() here fails the entire cost query.
+        stats_table = self._create_mock_table("google_stats", "GoogleAds")
+        stats_table.columns = {"customer_currency_code": True}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("google_campaign", "GoogleAds"),
+            stats_table=stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads",
+        )
+        query = GoogleAdsAdapter(config=config, context=self.context).build_query()
+        assert query is not None
+        hogql_query = query.to_hogql()
+
+        assert "convertCurrency" in hogql_query
+        assert "coalesce(toDate(google_stats.segments_date), today())" in hogql_query

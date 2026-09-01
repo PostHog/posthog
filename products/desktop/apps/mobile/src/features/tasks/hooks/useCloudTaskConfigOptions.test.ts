@@ -1,19 +1,23 @@
 import {
   type CloudTaskConfigOption,
   DEFAULT_GATEWAY_MODEL,
+  GLM53_FLASH_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
 } from "@posthog/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type PropsWithChildren } from "react";
 import { act, create } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetCloudTaskConfigOptions, mockUseAuthStore } = vi.hoisted(() => ({
-  mockGetCloudTaskConfigOptions: vi.fn(),
-  mockUseAuthStore: vi.fn(),
-}));
+const { mockGetCloudTaskConfigOptions, mockUseAuthStore, mockUseFeatureFlag } =
+  vi.hoisted(() => ({
+    mockGetCloudTaskConfigOptions: vi.fn(),
+    mockUseAuthStore: vi.fn(),
+    mockUseFeatureFlag: vi.fn(),
+  }));
 
 vi.mock("posthog-react-native", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: mockUseFeatureFlag,
 }));
 
 vi.mock("@/features/auth", () => ({
@@ -79,6 +83,8 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
 describe("useCloudTaskConfigOptions", () => {
   beforeEach(() => {
     mockGetCloudTaskConfigOptions.mockReset();
+    mockUseFeatureFlag.mockReset();
+    mockUseFeatureFlag.mockReturnValue(false);
     mockUseAuthStore.mockImplementation((selector) =>
       selector({ oauthAccessToken: "token" }),
     );
@@ -128,6 +134,39 @@ describe("useCloudTaskConfigOptions", () => {
       expect(modelOption.currentValue).toBe("claude-sonnet-5");
       expect(modelOption.options.map((option) => option.value)).toEqual([
         "claude-sonnet-5",
+      ]);
+    });
+  });
+
+  it.each([
+    { enabledFlag: GLM53_MODEL_FLAG, model: "zai-org/glm-5.3" },
+    { enabledFlag: GLM53_FLASH_MODEL_FLAG, model: "zai-org/glm-5.3-flash" },
+  ])("gates $model independently", async ({ enabledFlag, model }) => {
+    mockUseFeatureFlag.mockImplementation(
+      (flag: string) => flag === enabledFlag,
+    );
+    mockGetCloudTaskConfigOptions.mockResolvedValue([
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        currentValue: model,
+        options: [
+          { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
+          { value: "zai-org/glm-5.3", name: "GLM-5.3" },
+          { value: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
+        ],
+        category: "model",
+        description: "Choose a model",
+      },
+    ] satisfies CloudTaskConfigOption[]);
+
+    const result = await renderHook();
+    await waitForAssertion(() => {
+      const modelOption = getModelConfigOption(result.current.configOptions);
+      expect(modelOption.currentValue).toBe(model);
+      expect(modelOption.options.map((option) => option.value)).toEqual([
+        model,
       ]);
     });
   });

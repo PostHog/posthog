@@ -33,6 +33,7 @@ export enum Scene {
     Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
+    CustomerAnalyticsAccount = 'CustomerAnalyticsAccount',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
@@ -69,6 +70,7 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExperimentsStaffTools = 'ExperimentsStaffTools',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -137,7 +139,6 @@ export enum Scene {
     PropertyDefinition = 'PropertyDefinition',
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
-    QueryPerformance = 'QueryPerformance',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -214,6 +215,7 @@ export enum Scene {
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
+    AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
     AIObservabilityTag = 'AIObservabilityTag',
     AIObservabilityTags = 'AIObservabilityTags',
@@ -302,6 +304,8 @@ export interface SceneConfig {
     name?: string
     /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
+    /** Link to this product's page on posthog.com/docs. Shown next to the product in sidebar settings */
+    docsHref?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -440,8 +444,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityClusters]: AccessControlResourceType.AiObservabilityClusters,
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,

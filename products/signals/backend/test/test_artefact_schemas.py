@@ -11,6 +11,7 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
     TitleChange,
@@ -120,6 +121,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ),
             ("repo_selection", {"repository": None, "reason": "no candidates"}),
             ("suggested_reviewers", [{"github_login": "octocat", "github_name": None, "relevant_commits": []}]),
+            ("channel_assignment", {"channel_id": "00000000-0000-0000-0000-000000000001"}),
             ("dismissal", {"reason": "not_a_bug", "note": None, "user_id": 1, "user_uuid": None}),
             ("video_segment", {"anything": "goes"}),
             ("note", {"note": "hello"}),
@@ -152,6 +154,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("signal_finding", {"signal_id": "s1"}),
             ("repo_selection", {"reason": 5}),
             ("suggested_reviewers", [{"github_name": "no login"}]),
+            ("channel_assignment", {"channel_id": "not-a-uuid"}),
             ("note", {"note": "   "}),
             ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
@@ -160,6 +163,11 @@ class TestValidateArtefactContent(SimpleTestCase):
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
         with self.assertRaises(ArtefactContentValidationError):
             parse_artefact_content(artefact_type, content)
+
+    def test_suggested_reviewer_login_is_stripped(self):
+        # Enrichment and autostart look logins up with `login.lower()` and no strip, so a padded
+        # login that survived to storage would count as suggested but never match a user.
+        assert SuggestedReviewerEntry(github_login=" Octocat ").github_login == "Octocat"
 
     def test_parsing_normalizes_to_the_schema(self):
         # Parsing into the typed model is the boundary: unknown keys are not persisted, and

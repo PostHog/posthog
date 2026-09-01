@@ -1,5 +1,13 @@
 import { isMac } from "@posthog/ui/utils/platform";
 
+export function panelTabShortcut(macPlatform: boolean): string {
+  const modifier = macPlatform ? "ctrl" : "alt";
+  return Array.from(
+    { length: 9 },
+    (_, index) => `${modifier}+${index + 1}`,
+  ).join(",");
+}
+
 export const SHORTCUTS = {
   COMMAND_MENU: "mod+k",
   NEW_TASK: "mod+n",
@@ -19,14 +27,18 @@ export const SHORTCUTS = {
   NEXT_TASK: "mod+shift+],ctrl+tab",
   ARCHIVE_TASK: "mod+shift+a",
   CLOSE_TAB: "mod+w",
-  SWITCH_TAB: "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
+  SWITCH_TAB: panelTabShortcut(isMac),
   SWITCH_TASK: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
   // No mod+0: the Electron View menu owns CmdOrCtrl+0 for "Actual Size", and a
   // renderer preventDefault can't reliably beat a main-process accelerator. The
   // personal space takes slot 1 instead.
   SWITCH_STARRED_CHANNEL:
     "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
-  FOCUS_SPACE_SEARCH: "mod+shift+s",
+  // Same keys as SWITCH_STARRED_CHANNEL / SWITCH_TASK, claimed by the tab strip
+  // wherever it is shown; those two are disabled there so the keys have one
+  // owner at a time.
+  SWITCH_BROWSER_TAB: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
+  FOCUS_SIDEBAR_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
@@ -127,7 +139,7 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "inbox",
     keys: SHORTCUTS.INBOX,
-    description: "Open inbox",
+    description: "Open Self-driving",
     category: "navigation",
   },
   {
@@ -139,19 +151,19 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     availability: "no-channels-layout",
   },
   {
-    id: "switch-starred-channel",
+    id: "switch-browser-tab",
     keys: "mod+1-9",
-    description: "Switch to space (⌘1 = personal, ⌘2-9 = starred)",
+    description: "Switch to tab (9 = last tab)",
     category: "navigation",
-    context: "Spaces",
+    context: "Tabs",
     availability: "channels-layout",
   },
   {
-    id: "focus-space-search",
-    keys: SHORTCUTS.FOCUS_SPACE_SEARCH,
-    description: "Search spaces",
+    id: "focus-sidebar-search",
+    keys: SHORTCUTS.FOCUS_SIDEBAR_SEARCH,
+    description: "Search sidebar",
     category: "navigation",
-    context: "Spaces",
+    context: "Sidebar",
     availability: "channels-layout",
   },
   {
@@ -223,7 +235,7 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   },
   {
     id: "switch-tab",
-    keys: "ctrl+1-9",
+    keys: isMac ? "ctrl+1-9" : "alt+1-9",
     description: "Switch to tab 1-9",
     category: "panels",
     context: "Task detail",
@@ -323,8 +335,11 @@ export const CATEGORY_LABELS: Record<ShortcutCategory, string> = {
 
 export function getShortcutsByCategory({
   channelsLayout = false,
+  inboxEnabled = true,
 }: {
   channelsLayout?: boolean;
+  /** Off when channel reports replace the inbox and nothing handles its key. */
+  inboxEnabled?: boolean;
 } = {}): Record<ShortcutCategory, KeyboardShortcut[]> {
   const grouped: Record<ShortcutCategory, KeyboardShortcut[]> = {
     general: [],
@@ -337,6 +352,7 @@ export function getShortcutsByCategory({
     : "no-channels-layout";
   for (const shortcut of KEYBOARD_SHORTCUTS) {
     if (shortcut.availability && shortcut.availability !== wanted) continue;
+    if (!inboxEnabled && shortcut.id === "inbox") continue;
     grouped[shortcut.category].push(shortcut);
   }
   return grouped;
@@ -360,6 +376,7 @@ function formatKey(key: string): string {
   if (k === "=") return "+";
   if (k === "-") return "-";
   if (k === "tab") return "Tab";
+  if (k === "space") return "Space";
   return k.toUpperCase();
 }
 

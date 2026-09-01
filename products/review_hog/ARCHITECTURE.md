@@ -88,6 +88,18 @@ the PR author's resolution criteria (canonical for unmapped authors). Design + d
 Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
+**Resolution visibility & the busy-guard** (grilled 2026-08-13, DECISIONS.md "Resolution-stage visibility & cycle guard"; ADR `adr/0001`):
+a run opens with a `resolution_run` work-list artefact (queued thread ids + counts) written by `_prepare_run`,
+and `reviewer/progress.py::resolution_states` derives the run's state from artefacts alone —
+resolving (delivered verdicts — `reply_posted` — counted against the queue, fresh activity), completed (a closing run note, author `RESOLUTION_RUN_NOTE_AUTHOR`), or died-partway (no note, stale).
+The PR-comment counters likewise count only threads whose GitHub writes landed (`delivered_outcomes`); judged-but-undelivered threads join the closing tally's "couldn't handle" count instead.
+The reviews API exposes it as the row's `resolution` field ("Resolving comments · 6/10" / "Resolution didn't finish · stopped at 6/10" in the scene),
+the PR status comment carries a marker-delimited resolution section (`update_resolution_status_comment` — spliced into the review's comment, created on demand for standalone runs, failure-edited on the final attempt),
+with a patched workflow-level backstop (`fail_resolution_activity`, fired from `ResolvePRWorkflow`'s except) covering the deaths the activity handler can't see — prepare failures, timeouts, cancellation, worker death — by idling the report and writing the failed section from the persisted work-list,
+and each queued thread's opening comment gets a best-effort 👀 reaction (queue marker; never removed).
+The **busy-guard** (`temporal/client.py::workflow_running`, fail-open describe on the deterministic ids) refuses a review start while the PR's `resolve-pr` runs and a standalone resolution while `review-pr` runs —
+Temporal's same-id joining can't see across the two workflows; the chained post-publish dispatch is exempt by construction.
+
 **TODO (SOON) — react to thread replies: answer and act when a human responds to an escalated (or any settled) thread.**
 The per-thread mechanics already exist and are e2e-proven: a new human comment beats the verdict watermark and
 re-opens triage for exactly that thread, standing verdicts ("SAFE TO FIX" / "E2E REQUIRED") steer the re-judged
@@ -149,9 +161,15 @@ Check these four things before a local `run_review`; don't re-derive them from c
 2. **ngrok tunnels up** (only the user can start ngrok): `curl -s http://localhost:4040/api/tunnels`
    must list all three — `django` → :8010, `gateway` → :3308 (LLM gateway), `mcp` → :8787.
    Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
+   A tunnel can be up while its local service is down: the `llm-gateway` process can crash at stack
+   boot (exit 127), which shows as HTTP 502 on the gateway tunnel while django/mcp answer 200.
+   Probe all three from Modal's network, and on a 502 check the process in phrocs and restart it —
+   the tunnel itself is fine.
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
    reviewed and published (there is no draft gate) — warn the user before publishing on someone's
-   draft. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
+   draft. Private repos outside PostHog work: fetch, clone, and publish all resolve the team's
+   GitHub App installation token per repo server-side, so any repo the integration's installation
+   can access is reviewable. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
    chunking LLM), ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
 4. **Prior state** — check for an existing report so you know whether this is a fresh r1 or a
    re-review (same-SHA re-runs no-op at publish via the marker + `published_head_sha`):
@@ -177,6 +195,16 @@ Verify a run: `review_hog_reviewreport.run_count` bumps once per finalized turn 
 docker exec posthog-temporal-1 tctl --address temporal:7233 --ns default workflow show \
   --workflow_id "review-pr:<team>:<owner>/<repo>:<pr>"
 ```
+
+**Stall check — confirm the sandboxes are alive after the fan-out.** Within ~15–20 minutes of the
+perspective wave starting, the ngrok request log (`curl -s "http://localhost:4040/api/requests/http?limit=5"`,
+or the ngrok terminal dashboard) must show task fetches from the sandboxes. Open `issues-review`
+process-task workflows with **zero** tunnel traffic means the sandboxes never started — the worker
+can wedge before sandbox provisioning while its heartbeat signals keep flowing, so Temporal looks
+alive and artefact-count polling can't tell "slow agents" from "nothing running" (perspective units
+normally finish in ~8–15 min). A run in that state does not recover on its own: restart the
+temporal worker (via phrocs). The fresh worker retries the stuck activities, and the
+head_sha-scoped DB resume makes the redo cheap.
 
 ---
 
@@ -495,7 +523,10 @@ A separate **blind-spots** skill (`skills/review-hog-blind-spots-general/SKILL.m
 it is pull-delivered the same way. The perspective / validation / blind-spot skills are all team-owned and
 customizable — see [DECISIONS.md](./DECISIONS.md) (the customizable-perspectives / per-user-enablement sections).
 The invariant that keeps this safe: **the output schema is fixed (code), only the skill body (logic) is editable**,
-so editing a skill can never change the output format the downstream pipeline depends on.
+so editing a skill can never change the output format the downstream pipeline depends on. Customs arrive two
+ways from the Code review scene: "Create your own" (an authoring agent task guided by the `review-hog-authoring`
+skill) and "Use an existing skill" — an **adopted skill**, a verbatim copy of any team skill duplicated under the
+kind's prefix and activated in one flow (copy-not-reference; see `adr/0002`).
 
 ---
 
@@ -557,6 +588,10 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
+- **Enable inbox reviews for a whole team:** `python manage.py enable_inbox_reviews --team-id <id> [--dry-run]`
+  upserts every active org member's `ReviewUserSettings` with `review_inbox_prs` + `stamphog_review_inbox_prs` on.
+  A deliberate operator action because the per-user default stays off (the budget gate); members who join later
+  keep the default until a re-run.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** the product's `backend:test` script covers **both** `backend/tests` and `backend/reviewer/tests`
   (sandbox calls mocked, fixtures under `reviewer/tests/fixtures/`; persistence/model tests hit the test DB). Verify
@@ -640,6 +675,19 @@ refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsL
   published head, where `progress_payload` falls through to a review-stage label ("deduplicating"; the
   pre-publish window reads "finalizing"). A dedicated `resolving` stage needs the serializer enum, the
   frontend stage labels, and regenerated types — deliberately left out of the staleness fix.
+- **Accepted gap — a stopped standalone resolution on a never-reviewed PR never shows in the scene list.** Such
+  a report has no `last_run_at` (only review turns stamp it), and the list admits it only while its activity is
+  fresh — mutually exclusive with the stale-based "stopped" state, so the row drops out exactly when it would
+  say "didn't finish" (the detail endpoint excludes it too). Accepted because the PR status comment now carries
+  the failure notice reliably (the workflow-level `fail_resolution_activity` backstop) and the flow is rare
+  (`/resolve` / inbox handoffs on PRs ReviewHog never reviewed). Fixing it means a new list slice for reports
+  with a recent `resolution_run` plus an aging-out bound for stopped rows.
+- **Accepted gap — a resolution turn longer than the 30-minute staleness window shows a false "didn't finish".**
+  Resolution writes once per settled thread, so a single long turn (worst: the first, which carries sandbox boot
+  - clone) can outlast `IN_PROGRESS_STALE_AFTER` with the run healthy — the row reads "stopped" while a
+    retrigger correctly 409s. Accepted: typical turns run a few minutes, the label self-corrects on the next
+    verdict, and the busy-guard still prevents double runs. If turns ever grow, add a periodic DB liveness beat
+    inside `resolve_threads_activity` (Temporal's Heartbeater pings Temporal only, never the DB the UI reads).
 - **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users

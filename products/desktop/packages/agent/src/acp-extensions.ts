@@ -19,6 +19,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Task run has started execution */
   RUN_STARTED: "_posthog/run_started",
 
+  COMMAND_DISPATCHED: "_posthog/agent_command_dispatched",
+
   /** Task has completed (success or failure) */
   TASK_COMPLETE: "_posthog/task_complete",
 
@@ -29,6 +31,9 @@ export const POSTHOG_NOTIFICATIONS = {
    * effect as TURN_COMPLETE (closes out the current turn) without touching
    * the tracked prompt lifecycle that TURN_COMPLETE drives on the agent side. */
   BACKGROUND_TURN_COMPLETE: "_posthog/background_turn_complete",
+
+  /** Background/task-notification-triggered reply started without a prompt RPC. */
+  BACKGROUND_TURN_STARTED: "_posthog/background_turn_started",
 
   /** Error occurred during task execution */
   ERROR: "_posthog/error",
@@ -41,9 +46,6 @@ export const POSTHOG_NOTIFICATIONS = {
 
   /** Maps taskRunId to agent's sessionId and adapter type (for resumption) */
   SDK_SESSION: "_posthog/sdk_session",
-
-  /** Git checkpoint captured for handoff */
-  GIT_CHECKPOINT: "_posthog/git_checkpoint",
 
   /** Agent mode changed (interactive/background) */
   MODE_CHANGE: "_posthog/mode_change",
@@ -100,6 +102,27 @@ export const POSTHOG_NOTIFICATIONS = {
   MCP_RESPONSE: "_posthog/mcp_response",
 } as const;
 
+export type SteerDeclineCause =
+  | "cancelled"
+  | "compacting"
+  | "continuation_failed"
+  | "no_in_flight_turn"
+  | "no_owner_turn"
+  | "steer_in_flight"
+  | "turn_ended_first"
+  | "turn_failed"
+  | "turn_not_steerable";
+
+export function steerDeclined(cause: SteerDeclineCause): {
+  stopReason: "end_turn";
+  _meta: { steer: false; steerDeclineCause: SteerDeclineCause };
+} {
+  return {
+    stopReason: "end_turn",
+    _meta: { steer: false, steerDeclineCause: cause },
+  };
+}
+
 export type NativeGoalState = {
   objective: string;
   status:
@@ -125,6 +148,13 @@ export const POSTHOG_METHODS = {
    * completed so the caller can safely send the next prompt.
    */
   REFRESH_SESSION: "_posthog/refresh_session",
+
+  /**
+   * One-shot side question ("/btw"): forks the live session's transcript into
+   * a single-turn, tool-less query and returns `{ answer }` without touching
+   * the main conversation. Payload: `{ question: string }`.
+   */
+  SIDE_QUESTION: "_posthog/side_question",
 } as const;
 
 type PosthogNotification =

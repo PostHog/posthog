@@ -4,6 +4,7 @@ from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
 
+import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
@@ -50,6 +51,8 @@ from products.signals.backend.temporal.emit_eval_signal import (
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
 )
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "BooleanEvalResult",
@@ -218,7 +221,7 @@ async def handle_terminal_user_error_result(
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
         except Exception:
-            temporalio.workflow.logger.exception(
+            logger.exception(
                 "Failed to send evaluation disabled email",
                 evaluation_id=evaluation["id"],
                 team_id=evaluation["team_id"],
@@ -365,7 +368,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         execution_timeout=timedelta(minutes=5),
                     )
                 except Exception:
-                    temporalio.workflow.logger.exception(
+                    logger.exception(
                         "Failed to start eval signal workflow",
                         evaluation_id=evaluation["id"],
                         team_id=evaluation["team_id"],
@@ -379,7 +382,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                 except Exception:
-                    temporalio.workflow.logger.exception(
+                    logger.exception(
                         "Failed to emit eval signal",
                         evaluation_id=evaluation["id"],
                         team_id=evaluation["team_id"],

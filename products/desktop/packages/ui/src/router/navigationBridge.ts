@@ -1,7 +1,5 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
-import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
-import { track } from "@posthog/ui/shell/analytics";
 import { getRouterOrNull } from "./routerRef";
 
 // This bridge isolates imperative router calls behind a stable API and, by
@@ -15,52 +13,74 @@ import { getRouterOrNull } from "./routerRef";
 // (early boot, unit tests). These are renderer conveniences — they must never
 // throw just because the router singleton hasn't been created.
 
-export function navigateToCode(): void {
-  void getRouterOrNull()?.navigate({ to: "/code" });
+export function navigateToNewTask(): void {
+  void getRouterOrNull()?.navigate({ to: "/new" });
 }
 
 export function navigateToTaskDetail(taskId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/tasks/$taskId",
+    to: "/tasks/$taskId",
     params: { taskId },
   });
 }
 
 export function navigateToPullRequestView(prUrl: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/pr",
+    to: "/pr",
     search: { prUrl },
   });
 }
 
 export function navigateToTaskPending(key: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/tasks/pending/$key",
+    to: "/tasks/pending/$key",
     params: { key },
   });
 }
 
 export function navigateToActivity(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/activity" });
+  void getRouterOrNull()?.navigate({ to: "/activity" });
+}
+
+export function navigateToCanvases(canvasId?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/canvases",
+    search: { canvas: canvasId },
+  });
+}
+
+export function navigateToHome(): void {
+  void getRouterOrNull()?.navigate({ to: "/" });
+}
+
+export function navigateToFeed(feedId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/feeds/$feedId",
+    params: { feedId },
+  });
+}
+
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
 }
 
 export function navigateToChannel(channelId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId",
+    to: "/spaces/$channelId",
     params: { channelId },
   });
 }
 
 export function navigateToChannelTask(channelId: string, taskId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/tasks/$taskId",
+    to: "/spaces/$channelId/tasks/$taskId",
     params: { channelId, taskId },
   });
 }
 
 export function navigateToChannelNewTask(channelId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/new",
+    to: "/spaces/$channelId/new",
     params: { channelId },
   });
 }
@@ -70,7 +90,7 @@ export function navigateToChannelDashboard(
   dashboardId: string,
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/dashboards/$dashboardId",
+    to: "/spaces/$channelId/dashboards/$dashboardId",
     params: { channelId, dashboardId },
   });
 }
@@ -86,7 +106,7 @@ export function navigateToFolderSettings(folderId: string): void {
 // useOpenTargetDeepLink (the native-click consumer). Held here so imperative,
 // non-React callers — the in-app notification toast's action — open a target
 // through the SAME path as a native notification click. Crucially, a task filed
-// to a channel resolves to /website/$channelId/tasks/$taskId; direct
+// to a channel resolves to /spaces/$channelId/tasks/$taskId; direct
 // navigateToTaskDetail can't, since it doesn't know the channel.
 let openTargetHandler: ((target: NotificationTarget) => void) | null = null;
 
@@ -102,7 +122,7 @@ export function openNotificationTarget(target: NotificationTarget): void {
     return;
   }
   // Fallback when the deep-link handler isn't mounted yet (early boot, tests).
-  // Channel context is unavailable here, so a channel task opens under /code —
+  // Channel context is unavailable here, so a channel task opens unscoped —
   // acceptable for this rare gap; the registered handler covers the live app.
   if (target.kind === "task") {
     navigateToTaskDetail(target.taskId);
@@ -112,27 +132,59 @@ export function openNotificationTarget(target: NotificationTarget): void {
 }
 
 export function navigateToInbox(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/inbox" });
+  void getRouterOrNull()?.navigate({ to: "/inbox" });
+}
+
+export function navigateToInboxReports(): void {
+  void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
 }
 
 export function navigateToInboxPullRequestDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/inbox/pulls/$reportId",
+    to: "/inbox/pulls/$reportId",
     params: { reportId },
   });
 }
 
-export function navigateToInboxReportDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/code/inbox/reports/$reportId",
+export function navigateToInboxReportDetail(
+  reportId: string,
+  options?: { returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+
+  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
+  if (inboxTriageOrigin) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin,
+    });
+  }
+
+  void router.navigate({
+    to: "/inbox/reports/$reportId",
     params: { reportId },
+    state: inboxTriageOrigin
+      ? (previous) => ({ ...previous, inboxTriageOrigin })
+      : undefined,
   });
 }
 
 export function navigateToInboxDismissedDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/inbox/dismissed/$reportId",
+    to: "/inbox/dismissed/$reportId",
     params: { reportId },
+  });
+}
+
+export function navigateToChannelReportDetail(
+  channelId: string,
+  reportId: string,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/reports/$reportId",
+    params: { channelId, reportId },
   });
 }
 
@@ -141,25 +193,25 @@ export function navigateToScoutDetail(
   findingId?: string,
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/agents/scouts/$skillName",
+    to: "/agents/scouts/$skillName",
     params: { skillName: skillSlug },
     search: findingId ? { finding: findingId } : {},
   });
 }
 
 export function navigateToScoutFindings(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/agents/scouts/findings" });
+  void getRouterOrNull()?.navigate({ to: "/agents/scouts/findings" });
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/loops",
+    to: "/loops",
     ignoreBlocker: options?.ignoreBlocker,
   });
 }
 
 export function navigateToNewLoop(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/loops/new" });
+  void getRouterOrNull()?.navigate({ to: "/loops/new" });
 }
 
 export function navigateToLoopDetail(
@@ -167,7 +219,7 @@ export function navigateToLoopDetail(
   options?: { ignoreBlocker?: boolean; edit?: boolean },
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/loops/$loopId",
+    to: "/loops/$loopId",
     params: { loopId },
     search: options?.edit ? { edit: true } : {},
     ignoreBlocker: options?.ignoreBlocker,
@@ -175,61 +227,34 @@ export function navigateToLoopDetail(
 }
 
 export function navigateToAgents(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/agents" });
-}
-
-export function navigateToApproval(requestId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/code/agents/applications/approvals",
-    search: { request: requestId },
-  });
+  void getRouterOrNull()?.navigate({ to: "/agents" });
 }
 
 export function navigateToArchived(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/archived" });
+  void getRouterOrNull()?.navigate({ to: "/archived" });
 }
 
 export function navigateToCommandCenter(): void {
   void getRouterOrNull()?.navigate({ to: "/command-center" });
-  // Parity with the pre-router navigationStore.navigateToCommandCenter action,
-  // which emitted this event; the route component does not track it.
-  track(ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED);
 }
 
-export function navigateToSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/skills" });
+export function navigateToContext(path?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/context",
+    search: { path },
+  });
 }
 
-export function navigateToMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/mcp-servers" });
+// The spaces index, where the project's spaces are listed.
+export function navigateToSpaces(): void {
+  void getRouterOrNull()?.navigate({ to: "/spaces" });
 }
 
-// Channels-space mirrors. These render the same shared views as their /code (or
-// top-level) counterparts but under /website, so navigating from the channels
-// sidebar keeps the channels chrome instead of switching back to Code. The
-// SidebarNavSection picks the right variant based on the active space.
-
-export function navigateToWebsiteNew(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/new" });
-}
-
-// The Canvas workspace landing (the channels index, where canvases live).
-export function navigateToCanvas(): void {
-  void getRouterOrNull()?.navigate({ to: "/website" });
-}
-
-export function navigateToWebsiteSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/skills" });
-}
-
-export function navigateToWebsiteMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/mcp-servers" });
-}
-
-export function navigateToWebsiteCommandCenter(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/command-center" });
-  // Parity with navigateToCommandCenter's analytics tracking.
-  track(ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED);
+export function navigateToSpacesContext(path?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/context",
+    search: { path },
+  });
 }
 
 export function navigateToSettings(
@@ -246,10 +271,17 @@ export function navigateToSettings(
   });
 }
 
+// Settings sits under the pathless `_shell` layout, so its route IDs read
+// `/_shell/settings/…` rather than `/settings/…`. Match on the substring so a
+// later move between layouts does not silently switch this off.
+export function isSettingsRouteId(routeId: string): boolean {
+  return routeId.includes("/settings/");
+}
+
 export function isOnSettingsRoute(): boolean {
   return (
     getRouterOrNull()?.state.matches.some((m) =>
-      m.routeId.startsWith("/settings"),
+      isSettingsRouteId(m.routeId),
     ) ?? false
   );
 }
@@ -274,10 +306,6 @@ export function goForwardInHistory(): void {
 // `useRouterState` hook from `@tanstack/react-router`.
 export function getCurrentMatches() {
   return getRouterOrNull()?.state.matches ?? [];
-}
-
-export function getCurrentLocation() {
-  return getRouterOrNull()?.state.location ?? null;
 }
 
 export function subscribeToRouterResolved(handler: () => void): () => void {

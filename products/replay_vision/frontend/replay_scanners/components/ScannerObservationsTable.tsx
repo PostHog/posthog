@@ -302,7 +302,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 )}
                                 {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
                                     <FilterPill<string>
-                                        label="Tag"
+                                        label="Category"
+                                        searchPlaceholder="Search categories"
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}

@@ -10,7 +10,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { HideWeekendsDeprecationNotice } from 'scenes/insights/EditorFilters/HideWeekendsDeprecationNotice'
 import {
     BoxPlotMissingPropertyState,
     FunnelDataWarehouseStepIncompleteState,
@@ -28,6 +27,7 @@ import {
 } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_DATA_ATTR } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -172,10 +172,10 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
-    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
@@ -404,7 +404,6 @@ export function InsightVizDisplay({
             hasFunnelResults &&
             !disableTable
         ) {
-            const funnelVizType = funnelsFilter?.funnelVizType
             const funnelTable =
                 funnelVizType === FunnelVizType.TimeToConvert ? (
                     <FunnelTimeToConvertTable />
@@ -510,10 +509,9 @@ export function InsightVizDisplay({
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
                     !embedded && 'border rounded bg-surface-primary'
                 )}
-                data-attr="insights-graph"
+                data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
                 {disableHeader ? null : <InsightDisplayConfig />}
-                {!embedded && <HideWeekendsDeprecationNotice insightProps={insightProps} />}
                 {showingResults && (
                     <>
                         {!embedded &&

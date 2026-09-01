@@ -40,6 +40,7 @@ import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
+import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
 
 /**
  * Where a user started an integration connect flow. Reported as the `surface` property on
@@ -60,9 +61,12 @@ export type IntegrationConnectSurface =
     | 'missing_scopes_reconnect'
     | 'warehouse_source_reconnect'
     | 'onboarding_wizard'
+    | 'inbox_welcome'
     | 'signals_agent_setup'
     | 'task_composer'
     | 'visual_review_settings'
+    | 'install_approved_banner'
+    | 'unavailable_banner_reconnect'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -106,6 +110,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'aws-s3': IconAwsS3,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    'youtube-analytics': IconYouTubeAnalytics,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -154,6 +159,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'AWS S3'
         case 's3-compatible':
             return 'S3-compatible storage'
+        case 'youtube-analytics':
+            return 'YouTube Analytics'
         default:
             return capitalizeFirstLetter(kind)
     }

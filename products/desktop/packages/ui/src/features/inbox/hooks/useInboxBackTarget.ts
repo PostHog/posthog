@@ -1,10 +1,10 @@
 import { useLocation } from "@tanstack/react-router";
 
 const INBOX_LIST_ROUTE_VALUES = [
-  "/code/inbox/pulls",
-  "/code/inbox/reports",
-  "/code/inbox/runs",
-  "/code/inbox/dismissed",
+  "/inbox/pulls",
+  "/inbox/reports",
+  "/inbox/runs",
+  "/inbox/dismissed",
 ] as const;
 
 /** List routes an inbox detail screen's back link can return to. */
@@ -22,11 +22,16 @@ export interface InboxBackTarget {
   label: string;
 }
 
+export interface InboxTriageOrigin {
+  reportId: string;
+}
+
 // Carried in history state across the status↔route redirect; declared here so
 // `navigate({ state })` and `useLocation().state` stay typed.
 declare module "@tanstack/react-router" {
   interface HistoryState {
     inboxBackOrigin?: InboxBackTarget;
+    inboxTriageOrigin?: InboxTriageOrigin;
   }
 }
 
@@ -44,6 +49,21 @@ export function asInboxBackTarget(value: unknown): InboxBackTarget | null {
     return null;
   }
   return { to: to as InboxListRoute, label };
+}
+
+export function asInboxTriageOrigin(value: unknown): InboxTriageOrigin | null {
+  if (!value || typeof value !== "object") return null;
+  const { reportId } = value as Record<string, unknown>;
+  return typeof reportId === "string" && reportId.length > 0
+    ? { reportId }
+    : null;
+}
+
+export function useInboxTriageOrigin(): InboxTriageOrigin | null {
+  const origin = useLocation({
+    select: (location) => location.state.inboxTriageOrigin,
+  });
+  return asInboxTriageOrigin(origin);
 }
 
 /**

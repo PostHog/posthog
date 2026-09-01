@@ -30,28 +30,27 @@
         "experiment_targeting": {
             "anyOf": [
                 {
-                    "description": "The experiment a scanner's targeting watches. Metadata only; scanning never reads it.",
+                    "description": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
                     "properties": {
                         "experiment_id": {
                             "description": "The experiment the scanner watches.",
                             "minimum": 1,
                             "type": "number"
                         },
-                        "use_exposure_fallback": {
-                            "description": "True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead.",
-                            "type": "boolean"
-                        },
-                        "variant_keys": {
-                            "description": "Targeted experiment variants. Empty means every variant.",
-                            "items": {
-                                "maxLength": 400,
-                                "type": "string"
-                            },
-                            "maxItems": 50,
-                            "type": "array"
+                        "variant": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 400,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Narrow to sessions of people exposed to this variant. Null means every variant."
                         }
                     },
-                    "required": ["experiment_id", "variant_keys", "use_exposure_fallback"],
+                    "required": ["experiment_id"],
                     "type": "object"
                 },
                 {
@@ -105,7 +104,7 @@
             "type": "string"
         },
         "tags": {
-            "description": "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.",
+            "description": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
             "items": {
                 "maxLength": 255,
                 "type": "string"

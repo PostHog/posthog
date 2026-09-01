@@ -17,6 +17,10 @@ from posthoganalytics import Posthog
 
 from posthog.ph_client import get_client
 
+from products.tasks.backend.constants import (
+    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+)
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
 from ..engines.base import EvalEngine
@@ -50,6 +54,22 @@ from .temporal_env import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Exceptions to the blanket "every flag is on" stub the run installs below. These two hand a
+# task run to `run_task_workflow_dispatcher` instead of starting its Temporal workflow inline,
+# and the harness never starts that command — so a forced-on flag leaves every case parked in
+# QUEUED, with nothing to fail it, until the case's poll budget runs out.
+FORCED_OFF_FEATURE_FLAGS = frozenset(
+    {
+        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+        WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+    }
+)
+
+
+def eval_feature_enabled(key: str, *_args: object, **_kwargs: object) -> bool:
+    """Stands in for `posthoganalytics.feature_enabled` so evals exercise flagged code paths."""
+    return key not in FORCED_OFF_FEATURE_FLAGS
 
 
 class SandboxedEvalHarness:
@@ -195,7 +215,7 @@ class SandboxedEvalHarness:
 
         if Infra.LLM_GATEWAY in required:
             assert self._live_server is not None
-            self._stack.callback(start_llm_gateway(self._live_server.url))
+            self._stack.callback(start_llm_gateway(self._live_server.url, self.options.agent_model))
         if Infra.MCP_SERVER in required:
             assert self._live_server is not None
             self._stack.callback(start_mcp_server(self._live_server.url))
@@ -264,7 +284,7 @@ class SandboxedEvalHarness:
 
             if overrides:
                 stack.enter_context(override_settings(**overrides))
-            stack.enter_context(patch.object(posthoganalytics, "feature_enabled", return_value=True))
+            stack.enter_context(patch.object(posthoganalytics, "feature_enabled", eval_feature_enabled))
 
             if Infra.SANDBOX in required:
                 # Stale workflows from a prior run make the worker provision sandboxes for

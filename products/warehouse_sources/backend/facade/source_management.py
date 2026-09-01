@@ -23,6 +23,7 @@ _LAZY = {
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
     "purge_buffer_prefix": "cdc.buffer",
+    "ClickHouseConnectionError": "sources.clickhouse.clickhouse",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",
     "ExternalWebhookInfo": "sources.common.base",
@@ -79,6 +80,8 @@ _LAZY = {
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
+    "connect_trino": "sources.trino.trino",
+    "trino_error_to_message": "sources.trino.trino",
 }
 
 __all__ = sorted(_LAZY)

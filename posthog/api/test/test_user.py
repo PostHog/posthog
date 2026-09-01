@@ -25,10 +25,11 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.email_verification import email_verification_code_verifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
+from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
@@ -40,12 +41,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -344,6 +341,51 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
 
+    def test_requires_credential_review_skipped_when_impersonating_via_session(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_impersonated"),
+            scopes=["*"],
+        )
+        with patch("posthog.helpers.impersonation.is_impersonated_session", return_value=True):
+            response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is False
+
+    def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_impersonated_oauth"),
+            scopes=["*"],
+        )
+        staff = User.objects.create_user(email="staff@example.com", password="x", first_name="Staff", is_staff=True)
+        app = OAuthApplication.objects.create(
+            name="MCP client",
+            client_id="test_impersonation_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_impersonated_access_token",
+            scope="user:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            impersonated_by=staff,
+        )
+        self.client.logout()
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is False
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
@@ -361,6 +403,54 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is True
+
+    @parameterized.expand(
+        [
+            ("live_access_token", 1, False, False, True),
+            ("live_refresh_token_only", -1, True, False, True),
+            ("expired_access_token_only", -1, False, False, False),
+            ("live_access_token_first_party", 1, False, True, False),
+            ("live_refresh_token_only_first_party", -1, True, True, False),
+        ]
+    )
+    def test_requires_credential_review_for_oauth_access(
+        self,
+        _name: str,
+        expires_hours: int,
+        with_refresh_token: bool,
+        is_first_party: bool,
+        expected: bool,
+    ):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        app = OAuthApplication.objects.create(
+            name="Provisioning partner",
+            client_id="test_credential_review_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+            is_first_party=is_first_party,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="test_credential_review_access_token",
+            scope="openid",
+            expires=timezone.now() + timedelta(hours=expires_hours),
+        )
+        if with_refresh_token:
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_credential_review_refresh_token",
+                access_token=access_token,
+            )
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
@@ -2890,22 +2980,28 @@ class TestEmailVerificationAPI(APIBaseTest):
                 },
             )
 
-    def test_can_only_validate_email_token_one_time(self):
+    def test_reused_token_reports_already_verified_without_a_session(self):
         token = email_verification_token_generator.make_token(self.user)
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # A second use (double click, or the link prefetched by an email scanner) reports success
+        # for the already-verified address, but must not hand out a session: the spent token no
+        # longer proves anything.
+        self.client.logout()
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This verification token is invalid or has expired.",
-                "attr": "token",
-            },
-        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "requires_login": True})
+        assert self.client.session.get("_auth_user_id") is None
+
+    def test_already_verified_user_gets_success_even_with_a_bad_token(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": "garbage"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "requires_login": True})
+        assert self.client.session.get("_auth_user_id") is None
 
     def test_email_verification_logs_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
@@ -3026,6 +3122,242 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
+
+
+@pytest.mark.disable_mock_email_code_verification
+class TestEmailVerificationCodeAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        cache.clear()
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        email_verification_code_verifier.invalidate(self.user)
+
+    def _request_code(self) -> str:
+        """Trigger a resend and capture the emailed code at the send boundary."""
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        assert response.status_code == status.HTTP_200_OK
+        mock_send.assert_called_once()
+        return mock_send.call_args[0][1]
+
+    def test_code_verifies_email_and_logs_in(self):
+        code = self._request_code()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.client.session.get("_auth_user_id") == str(self.user.id)
+
+    def test_code_with_pasted_noise_verifies(self):
+        code = self._request_code()
+        noisy = f"  {code[:3]}-{code[3:]} "
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": noisy})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+
+    def test_wrong_code_is_rejected_but_correct_code_still_works_within_budget(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+
+        for _ in range(4):
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "invalid_code")
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_attempt_cap_refuses_checks_but_keeps_the_code_alive(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+
+        for _ in range(5):
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+
+        # A stranger who knows the uuid can exhaust the budget, but must not be able to destroy
+        # the real user's code: once the budget expires, the same code still verifies.
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "too_many_attempts")
+
+        email_verification_code_verifier._clear_attempts_for_test(self.user)
+        cache.clear()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_resend_does_not_restore_guesses(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+        for _ in range(4):
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+
+        # A public resend must not hand the guesser a fresh budget.
+        new_code = self._request_code()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+        self.assertEqual(response.json()["code"], "invalid_code")
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": new_code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "too_many_attempts")
+
+    @parameterized.expand([("letters", "aaaaaa"), ("short", "12345"), ("list", ["1"]), ("object", {"a": 1})])
+    def test_malformed_code_is_rejected_without_spending_an_attempt(self, _name, bad_code):
+        code = self._request_code()
+
+        for _ in range(6):
+            response = self.client.post(
+                "/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": bad_code}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Six junk submissions later, the budget is untouched and the real code still works.
+        cache.clear()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_guesses_are_capped_per_source_across_target_accounts(self):
+        # Rotating target uuids must not multiply the guess budget: the per-source cap holds.
+        self._request_code()
+        for _ in range(30):
+            self.client.post("/api/users/verify_email/", {"uuid": uuid.uuid4(), "code": "000000"})
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_numeric_json_code_is_a_normal_guess(self):
+        # A client that sends the six digits as a JSON number must get a 400, not a 500, and the
+        # coerced string counts as an ordinary attempt.
+        code = self._request_code()
+        if code.startswith("0"):
+            # A JSON number cannot carry a leading zero; the real client sends a string in that case.
+            self.skipTest("code has a leading zero")
+        response = self.client.post(
+            "/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": int(code)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_expired_code_is_rejected(self):
+        code = self._request_code()
+
+        with freeze_time(timezone.now() + datetime.timedelta(minutes=31)):
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+
+    def test_code_is_single_use(self):
+        code = self._request_code()
+
+        assert (
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code}).status_code
+            == status.HTTP_200_OK
+        )
+
+        # The user is now verified, so a replay reports already-verified instead of consuming anything.
+        self.client.logout()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "requires_login": True})
+        assert self.client.session.get("_auth_user_id") is None
+
+    def test_code_send_failure_falls_back_to_link_email(self):
+        with patch(
+            "posthog.api.email_verification.send_email_verification_code",
+            side_effect=Exception("template missing"),
+        ):
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert len(mail.outbox) == 1
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        assert f"https://my.posthog.net/verify_email/{self.user.uuid}/" in html_message
+
+    @parameterized.expand([("verified", True), ("legacy_never_verified", None)])
+    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self, _name, is_email_verified):
+        self.user.is_email_verified = is_email_verified
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = mock_send.call_args[0][1]
+        assert mock_send.call_args[0][2] == "new-address@posthog.com"
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.email == "new-address@posthog.com"
+        assert self.user.pending_email is None
+
+    def test_signup_code_does_not_authorize_an_email_change(self):
+        code = self._request_code()
+        self.user.is_email_verified = True
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "new-address@posthog.com"
+
+    def test_unverified_user_with_staged_change_verifies_only_the_account_address(self):
+        # A signup code for an unverified user must go to the account address and prove that one,
+        # even if a change to another address is staged: the staged address is itself unproven.
+        # False means an unverified signup; None (a legacy account) is trusted as verified.
+        self.user.is_email_verified = False
+        self.user.pending_email = "staged@posthog.com"
+        self.user.save()
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        assert mock_send.call_args[0][2] is None
+        code = mock_send.call_args[0][1]
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.user.email != "staged@posthog.com"
+
+    def test_codes_for_different_addresses_in_the_same_second_do_not_collide(self):
+        # Two email changes in the same second must not derive the same code. The code binds to the
+        # address it authorizes. So a code mailed to an address the user owns cannot verify a
+        # different staged address.
+        issued_at = 1_700_000_000
+        code_owned = code_based_verification_token_generator.make_code(self.user, issued_at, "attacker@owns.example")
+        code_victim = code_based_verification_token_generator.make_code(self.user, issued_at, "victim@corp.example")
+        assert code_owned != code_victim
+        assert not code_based_verification_token_generator.check_code(
+            self.user, code_owned, issued_at, "victim@corp.example"
+        )
+
+    def test_code_dies_when_a_different_pending_address_is_staged(self):
+        self.user.is_email_verified = True
+        self.user.pending_email = "first@posthog.com"
+        self.user.save()
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        code_for_first = mock_send.call_args[0][1]
+
+        self.user.pending_email = "second@posthog.com"
+        self.user.save()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code_for_first})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.user.refresh_from_db()
+        assert self.user.email != "first@posthog.com"
+        assert self.user.pending_email == "second@posthog.com"
 
 
 class TestUserTwoFactor(APIBaseTest):

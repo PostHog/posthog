@@ -28,7 +28,7 @@ use simd_json::prelude::Writable;
 
 use crate::allow_lists::AllowLists;
 use crate::collect::{CollectedImage, ImageCollection};
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSourceCount};
 use crate::event::{
     route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
     SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
@@ -172,6 +172,9 @@ pub struct SnapshotMeta {
     /// Collected remote image URLs (hash-sorted); non-empty only on the URL-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<UrlEntry>,
+    /// Collected ref occurrences by bounded replay location, property, and inline or URL lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub image_sources: Vec<ImageSourceCount>,
     /// Counts by reason for the URLs the collector refused. Every decline is otherwise invisible,
     /// and the phase that measures this lane would report a smaller URL set than the traffic holds
     /// with nothing to say why.
@@ -291,9 +294,9 @@ pub fn anonymize_kafka_payload_timed(
 
 /// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well.
 ///
-/// A remote image's `src` becomes a ref, and its original URL comes back in `meta.urls`. The
-/// caller passes those to the fetch lane. `None` leaves a remote image on the media placeholder,
-/// which is what every other entry point here does.
+/// A remote image keeps its placeholder while a namespaced sibling attribute carries its ref. Its
+/// original URL comes back in `meta.urls`, which the caller passes to the fetch lane. `None` omits
+/// the sibling ref and leaves the placeholder unchanged.
 pub fn anonymize_kafka_payload_collecting(
     allow: &AllowLists,
     payload: &mut [u8],
@@ -547,6 +550,7 @@ fn anonymize_snapshot_data_inner(
             domain: u.domain,
         })
         .collect();
+    msg.meta.image_sources = ctx.take_image_source_counts();
     let (entries, image_bytes) = pack_images(ctx.into_collected_images());
     msg.meta.images = entries;
     msg.image_bytes = image_bytes;
@@ -984,6 +988,7 @@ fn finish(
             // The collector lives on the Ctx, not the Sink; the entry point packs it in.
             images: Vec::new(),
             urls: Vec::new(),
+            image_sources: Vec::new(),
             url_declines: Vec::new(),
         },
         image_bytes: Vec::new(),

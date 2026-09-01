@@ -1,16 +1,19 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
-import type { ReactNode } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import * as alertsApi from 'products/alerts/frontend/generated/api'
 
@@ -34,13 +37,28 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
 }))
 
-jest.mock('products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton', () => ({
-    ScoutCreateButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
-}))
+const EVAL_REPORTS_SOURCE_CONFIG = {
+    id: 'source-config-eval-reports',
+    source_product: 'llm_analytics',
+    source_type: 'evaluation_report',
+    enabled: true,
+    config: {},
+}
+
+const ANOMALY_INVESTIGATION_SOURCE_CONFIG = {
+    id: 'source-config-anomaly-investigation',
+    source_product: 'analytics',
+    source_type: 'anomaly_investigation',
+    enabled: false,
+    config: {},
+}
 
 describe('AIObservabilitySelfDriving', () => {
+    let patchedSourceConfigs: { id: string; enabled: boolean }[]
+
     beforeEach(() => {
         localStorage.clear()
+        patchedSourceConfigs = []
         useMocks({
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
@@ -49,8 +67,35 @@ describe('AIObservabilitySelfDriving', () => {
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
+                '/api/projects/:team_id/signals/source_configs/': () => [
+                    200,
+                    {
+                        results: [EVAL_REPORTS_SOURCE_CONFIG, ANOMALY_INVESTIGATION_SOURCE_CONFIG],
+                        count: 2,
+                        next: null,
+                        previous: null,
+                    },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/signals/source_configs/:id/': async ({ request, params }) => {
+                    const body = (await request.json()) as { enabled: boolean }
+                    patchedSourceConfigs.push({ id: params.id as string, enabled: body.enabled })
+                    const sourceConfig =
+                        params.id === ANOMALY_INVESTIGATION_SOURCE_CONFIG.id
+                            ? ANOMALY_INVESTIGATION_SOURCE_CONFIG
+                            : EVAL_REPORTS_SOURCE_CONFIG
+                    return [200, { ...sourceConfig, enabled: body.enabled }]
+                },
             },
         })
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.LlmSkill]: AccessControlLevel.Editor,
+            },
+        } as AppContext
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI], {
@@ -82,6 +127,7 @@ describe('AIObservabilitySelfDriving', () => {
                     updated_at: '2024-01-01T00:00:00Z',
                     created_by: null,
                     deleted: false,
+                    user_access_level: 'editor',
                 },
                 {
                     id: 'evaluation-disabled',
@@ -102,6 +148,7 @@ describe('AIObservabilitySelfDriving', () => {
                     updated_at: '2024-01-02T00:00:00Z',
                     created_by: null,
                     deleted: false,
+                    user_access_level: 'editor',
                 },
             ],
         })
@@ -217,6 +264,11 @@ describe('AIObservabilitySelfDriving', () => {
 
         expect(screen.getAllByText('Use template')).toHaveLength(3)
 
+        // Counting the labels alone passes even when every button is disabled, which is what
+        // happens if the scene stops granting scout-creation access. Prove one actually opens.
+        await userEvent.click(screen.getByTestId('create-costly-users-scout'))
+        expect(await screen.findByText('Create a scout')).toBeInTheDocument()
+
         const tooltipTrigger = screen.getByText('What is this?')
         await userEvent.hover(tooltipTrigger)
 
@@ -317,6 +369,91 @@ describe('AIObservabilitySelfDriving', () => {
 
         await userEvent.click(anomalyTableQueries.getByText('Unexpected AI cost'))
         expect(newInternalTab).toHaveBeenLastCalledWith('/alerts?alert_type=insights&alert_id=alert-investigated')
+    })
+
+    // Both sections render the same switch, so a section wired to the other section's signal
+    // source would still look right. This pins each switch to the config it reads and writes.
+    it('reads and writes each section signal source', async () => {
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('signal-source-toggle')
+
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const evalReportsSwitch = await screen.findByTestId('self-driving-eval-reports-signal-source')
+        const anomalySwitch = screen.getByTestId('self-driving-anomaly-investigation-signal-source')
+        expect(evalReportsSwitch).toHaveAttribute('aria-checked', 'true')
+        expect(anomalySwitch).toHaveAttribute('aria-checked', 'false')
+
+        await userEvent.click(screen.getByText('AI observability signal source'))
+        expect(patchedSourceConfigs).toEqual([])
+        expect(evalReportsSwitch).toHaveAttribute('aria-checked', 'true')
+
+        await userEvent.click(anomalySwitch)
+        await waitFor(() =>
+            expect(patchedSourceConfigs).toEqual([{ id: 'source-config-anomaly-investigation', enabled: true }])
+        )
+        expect(successToast).toHaveBeenCalledWith('Product analytics signal source enabled')
+        await waitFor(() => expect(anomalySwitch).not.toBeDisabled())
+
+        await userEvent.click(evalReportsSwitch)
+        await waitFor(() =>
+            expect(patchedSourceConfigs).toEqual([
+                { id: 'source-config-anomaly-investigation', enabled: true },
+                { id: 'source-config-eval-reports', enabled: false },
+            ])
+        )
+        expect(successToast).toHaveBeenCalledWith('AI observability signal source disabled')
+        successToast.mockRestore()
+    })
+
+    it('offers a retry when signal source configs fail to load', async () => {
+        let sourceConfigRequests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': () => {
+                    sourceConfigRequests += 1
+                    if (sourceConfigRequests === 1) {
+                        return [500, { detail: 'Failed to load signal source settings' }]
+                    }
+                    return [
+                        200,
+                        {
+                            results: [EVAL_REPORTS_SOURCE_CONFIG, ANOMALY_INVESTIGATION_SOURCE_CONFIG],
+                            count: 2,
+                            next: null,
+                            previous: null,
+                        },
+                    ]
+                },
+            },
+        })
+        silenceKeaLoadersErrors()
+
+        try {
+            render(
+                <Provider>
+                    <AIObservabilitySelfDriving />
+                </Provider>
+            )
+
+            const loadErrors = await screen.findAllByText(
+                "We couldn't load signal source settings. Try again in a moment."
+            )
+            expect(loadErrors).toHaveLength(2)
+
+            await userEvent.click(screen.getAllByText('Try again')[0])
+
+            expect(await screen.findByTestId('self-driving-eval-reports-signal-source')).toHaveAttribute(
+                'aria-checked',
+                'true'
+            )
+            expect(sourceConfigRequests).toBe(2)
+        } finally {
+            resumeKeaLoadersErrors()
+        }
     })
 
     it('sorts eval and anomaly alert columns', async () => {

@@ -7,11 +7,14 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 """
 
 import hashlib
+import datetime
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -28,6 +31,12 @@ logger = structlog.get_logger(__name__)
 
 ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
+
+# An upload rewrites `last_used` only when the stored value is older than this. `last_used` is part
+# of `et_symset_bucket_cleanup_idx`, so every write churns that index, and a monorepo that uploads
+# thousands of chunks per merge would rewrite all of them on each run. Cymbal throttles its own
+# `last_used` writes over the same window for the same reason.
+LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
 
 
 class SymbolSetNotFoundError(Exception):
@@ -71,14 +80,19 @@ def generate_symbol_set_file_key() -> str:
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_url(file_key: str):
-    # get_accelerated_presigned_post transparently falls back to a standard presigned POST
-    # when S3 Transfer Acceleration is not configured.
-    return object_storage.get_accelerated_presigned_post(
+def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
+    pair = object_storage.get_presigned_post_pair(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
         expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
     )
+    urls: dict[str, Any] = {"presigned_url": pair.primary}
+    if pair.fallback is not None:
+        # Some networks (firewalls, egress allowlists) reset connections to the
+        # transfer-acceleration domain while regular S3 works, so the CLI needs a
+        # standard-endpoint presigned POST to retry against.
+        urls["fallback_presigned_url"] = pair.fallback
+    return urls
 
 
 def upload_content(content: bytearray) -> tuple[str, str]:
@@ -137,13 +151,30 @@ def create_symbol_set(
         return symbol_set
 
 
+def refresh_last_used(team: Team, chunk_ids: list[str]) -> None:
+    """Mark every symbol set the upload referenced as still in use.
+
+    Retention deletes a symbol set once `last_used` falls outside its window. In event release
+    mode the chunk id is derived from the chunk content, so one row serves every release that
+    ships that chunk, and re-uploading an unchanged chunk writes nothing. Without this call the
+    row ages out while the chunk is still deployed, and the next exception from it cannot be
+    symbolicated until a later deploy recreates the row.
+    """
+    now = timezone.now()
+    ErrorTrackingSymbolSet.objects.filter(
+        Q(last_used__isnull=True) | Q(last_used__lt=now - LAST_USED_UPLOAD_REFRESH_INTERVAL),
+        team=team,
+        ref__in=chunk_ids,
+    ).update(last_used=now)
+
+
 @posthoganalytics.scoped()
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
     force: bool = False,
     skip_on_conflict: bool = False,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, Any]]:
     chunk_ids = [x.chunk_id for x in new_symbol_sets]
 
     # Check for dupes
@@ -164,8 +195,16 @@ def bulk_create_symbol_sets(
                 detail=f"Unknown release ID provided: {release_id}",
             )
 
-    id_url_map: dict[str, dict[str, str]] = {}
+    id_url_map: dict[str, dict[str, Any]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
+
+    def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
+        storage_ptr = generate_symbol_set_file_key()
+        id_url_map[existing.ref] = {
+            **generate_symbol_set_upload_presigned_urls(storage_ptr),
+            "symbol_set_id": str(existing.id),
+        }
+        existing.storage_ptr = storage_ptr
 
     with transaction.atomic():
         existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
@@ -175,8 +214,7 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-            id_url_map[chunk_id] = {"presigned_url": presigned_url}
+            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(storage_ptr)
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
             # get upload confirmation, during `bulk_finish_upload`, not before
@@ -223,24 +261,12 @@ def bulk_create_symbol_sets(
                     )
                 # Both sides have no hash: this is a pending upload being restarted.
                 # Issue a fresh presigned URL so the client can retry.
-                storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-                id_url_map[existing.ref] = {
-                    "presigned_url": presigned_url,
-                    "symbol_set_id": str(existing.id),
-                }
-                existing.storage_ptr = storage_ptr
+                reissue_upload(existing)
                 dirty = True
             elif existing.content_hash is None:
                 # Existing record has no hash (pending upload or uploaded by old CLI
                 # without hash support). Allow the new upload to supply one.
-                storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-                id_url_map[existing.ref] = {
-                    "presigned_url": presigned_url,
-                    "symbol_set_id": str(existing.id),
-                }
-                existing.storage_ptr = storage_ptr
+                reissue_upload(existing)
                 dirty = True
             elif existing.content_hash == upload.content_hash:
                 # Content is identical — no upload needed.
@@ -250,13 +276,7 @@ def bulk_create_symbol_sets(
                 # force=True: content has changed and the caller explicitly
                 # requested an overwrite. Issue a new presigned URL and clear
                 # the old content hash so bulk_finish_upload stores the new one.
-                storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-                id_url_map[existing.ref] = {
-                    "presigned_url": presigned_url,
-                    "symbol_set_id": str(existing.id),
-                }
-                existing.storage_ptr = storage_ptr
+                reissue_upload(existing)
                 existing.content_hash = None  # will be set by bulk_finish_upload
                 dirty = True
             elif skip_on_conflict:
@@ -279,6 +299,8 @@ def bulk_create_symbol_sets(
         # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
         # during a prior attempt or something).
         ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
+
+        refresh_last_used(team, chunk_ids)
 
     return id_url_map
 
@@ -420,7 +442,7 @@ def bulk_start_upload(
     release_id: str | None,
     force: bool,
     skip_on_conflict: bool,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, Any]]:
     uploads = [SymbolSetUpload(**data) for data in symbol_sets]
     uploads.extend([SymbolSetUpload(chunk_id, release_id, None) for chunk_id in chunk_ids])
 

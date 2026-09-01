@@ -22,6 +22,7 @@ import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
+import { ViewDataQualityChecks } from './ViewDataQualityChecks'
 
 interface QueryInfoProps {
     tabId: string
@@ -68,7 +69,10 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
         <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
             <div className="flex flex-col flex-1 gap-4">
                 {targetView ? (
-                    <MaterializationStatusPanel viewId={targetView.id} />
+                    <>
+                        <MaterializationStatusPanel viewId={targetView.id} />
+                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && <ViewDataQualityChecks view={targetView} />}
+                    </>
                 ) : (
                     <div>
                         <div className="flex flex-row items-center gap-2">

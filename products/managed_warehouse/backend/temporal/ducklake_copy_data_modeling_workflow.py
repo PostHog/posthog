@@ -489,10 +489,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                 except Exception:
-                    workflow.logger.warning(
-                        "Failed to clean up staging files",
-                        staging_uri=staging_uri,
-                    )
+                    workflow.logger.warning("Failed to clean up staging files", extra={"staging_uri": staging_uri})
 
         if not failed:
             get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
@@ -524,7 +521,7 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
     schema = inputs.model.schema_name
     table = f"{schema}.{inputs.model.table_name}"
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-copy-modeling") as conn:
         setup_duckgres_session(conn)
         create_staging_read_secret(conn, bucket)
         logger.info(

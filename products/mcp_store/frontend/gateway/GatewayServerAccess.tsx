@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentToolPolicyState, gatewayServerLogic } from './gatewayServerLogic'
-import { AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
+import { AGENT_GRANT_SCOPE_OPTIONS, AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic, memberServerAccessKey } from './mcpGatewayLogic'
 
 const AGENT_POLICY_OPTIONS = [
@@ -54,17 +54,17 @@ export function GatewayAccessSection(): JSX.Element | null {
                 <>
                     <div className="border rounded p-3 flex items-center justify-between gap-3 bg-surface-secondary">
                         <div>
-                            <div className="font-semibold">Available to team members</div>
+                            <div className="font-semibold">Enabled for your organization</div>
                             <div className="text-sm text-secondary">
                                 {server.is_team_enabled
-                                    ? `Members can connect their own ${server.name} account.`
-                                    : `Members cannot see or call ${server.name} while it is off.`}
+                                    ? `Anyone in your organization can find and use ${server.name}. Each person connects with their own account.`
+                                    : `${server.name} is turned off for everyone in your organization.`}
                             </div>
                         </div>
                         <LemonSwitch
                             checked={server.is_team_enabled}
                             loading={allServersEnabledLoading || serverEnabledLoadingIds.has(server.id)}
-                            aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for the team`}
+                            aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for your organization`}
                             onChange={(checked) => toggleServerEnabled(server.id, checked)}
                         />
                     </div>
@@ -80,7 +80,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                             No one has connected yet.
                         </div>
                     ) : (
-                        <div className="border rounded divide-y">
+                        <div className="border rounded divide-y bg-surface-primary">
                             {connections.map((connection) => {
                                 const isYou = connection.installation_id === yourInstallationId
                                 const accessRevoked = server.revoked_user_ids.includes(connection.user.id)
@@ -136,7 +136,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </>
             )}
 
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2">
                 <span className="text-xs uppercase text-secondary font-semibold">Agents</span>
                 <LemonTag type="muted" size="small">
                     {server.agents.length}
@@ -163,7 +163,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                     No agents have access. Share your connection and choose which tools the agent may call.
                 </div>
             ) : (
-                <div className="border rounded divide-y">
+                <div className="border rounded divide-y bg-surface-primary">
                     {server.agents.map((agent) => {
                         const sharedByYou = agent.user.id === currentUserId
                         const agentShareCount = server.agents.filter(
@@ -258,6 +258,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         agentAccessModalOpen,
         agentAccessPolicyMap,
+        agentAccessScope,
         agentAccessSelectedId,
         agentShareDisabledReason,
         agentServerAccessLoadingKeys,
@@ -270,6 +271,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         closeAgentAccessModal,
         loadTeamToolPolicies,
+        setAgentAccessScope,
         setAgentAccessSelectedId,
         setAgentAccessToolPolicy,
         setAllAgentAccessTools,
@@ -340,6 +342,21 @@ function GatewayAgentAccessModal(): JSX.Element | null {
 
                 {agentAccessSelectedId && (
                     <>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="font-semibold">Share with</div>
+                                <div className="text-sm text-secondary">
+                                    A team share lets the agent use your connection for every run in this project.
+                                </div>
+                            </div>
+                            <LemonSegmentedButton
+                                size="small"
+                                value={agentAccessScope}
+                                options={AGENT_GRANT_SCOPE_OPTIONS}
+                                onChange={setAgentAccessScope}
+                            />
+                        </div>
+
                         <div className="flex items-center justify-between gap-3">
                             <div>
                                 <div className="font-semibold">Tool access</div>

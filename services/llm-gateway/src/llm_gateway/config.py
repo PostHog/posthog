@@ -34,6 +34,10 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "custom_image_scans": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
+    # Signals runs a customer started by hand (Inbox "Create PR" / "Discuss", scout chat).
+    # Held apart from the scheduled pipeline's pool so a customer burning this budget can't
+    # stall scouts and report research for every other customer.
+    "signals_interactive": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
     # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
@@ -61,6 +65,15 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_limit_usd=10000.0,
         sustained_window_seconds=2592000,
     ),
+    # The Inbox CTAs and scout chat. Sized for one person's hands-on use, not for the
+    # scheduled pipeline: the `signals` limit above has to cover fleet-wide scout and research
+    # work for a whole team, so a surface a person drives one run at a time needs far less.
+    "signals_interactive": UserCostLimit(
+        burst_limit_usd=250.0,
+        burst_window_seconds=604800,
+        sustained_limit_usd=750.0,
+        sustained_window_seconds=2592000,
+    ),
     # Nobody is billed for onboarding (credit_bucket=None), so this bounds blast radius rather than
     # spend: the route's server-credential marker proves a token was minted server-side, not that it
     # belongs to a wizard run, and INTERNAL_SCOPES in posthog/temporal/oauth.py grants that marker to
@@ -74,6 +87,14 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_limit_usd=500.0,
         sustained_window_seconds=2592000,
     ),
+}
+
+# Per-sandbox-run ceilings, keyed the same way as the cost limits above. Opt-in: a key with no
+# entry has no per-run ceiling, so adding one here is the only way a product gains one. The
+# window is a floor on how long a single run's spend is remembered, not a refill schedule —
+# runs are far shorter than this, so in practice each task gets one budget for its lifetime.
+DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+    "signals_interactive": ProductCostLimit(limit_usd=50.0, window_seconds=604800),
 }
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
@@ -201,6 +222,11 @@ class Settings(BaseSettings):
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
+    # Per-sandbox-run ceiling, keyed on the task the token was minted for. Product and user
+    # budgets are windowed, so neither bounds one runaway conversation inside its window.
+    sandbox_task_cost_limits: dict[str, ProductCostLimit] = DEFAULT_SANDBOX_TASK_COST_LIMITS
+    sandbox_task_cost_limits_disabled: bool = False
+
     posthog_code_free_tier_models: list[str] = [
         "@cf/zai-org/glm-5.2",
         "deepseek-ai/deepseek-v4-flash-0731",
@@ -211,6 +237,13 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+
+    desktop_access_gate_enabled: bool = True
+    desktop_access_cache_ttl: int = 60
+    desktop_access_denied_cache_ttl: int = 30
+    desktop_access_request_timeout: float = 6.0
+    desktop_access_max_connections: int = 10
+
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.
     quota_cache_ttl: int = 300  # 5 minutes
@@ -229,6 +262,11 @@ class Settings(BaseSettings):
     @classmethod
     def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
         return _parse_model_dict(v, ProductCostLimit, DEFAULT_PRODUCT_COST_LIMITS, "product_cost_limits")
+
+    @field_validator("sandbox_task_cost_limits", mode="before")
+    @classmethod
+    def parse_sandbox_task_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
+        return _parse_model_dict(v, ProductCostLimit, DEFAULT_SANDBOX_TASK_COST_LIMITS, "sandbox_task_cost_limits")
 
     @field_validator("user_cost_limits", mode="before")
     @classmethod

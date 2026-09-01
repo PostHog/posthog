@@ -40,6 +40,11 @@ GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_S
 GOOGLE_CALENDAR_APP_CLIENT_ID = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_ID", "")
 GOOGLE_CALENDAR_APP_CLIENT_SECRET = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_SECRET", "")
 
+# Registered in the Google Cloud console with the YouTube Analytics API and the YouTube Data API
+# enabled. Empty defaults keep the app importable and the connector dormant until the client exists.
+YOUTUBE_ANALYTICS_APP_CLIENT_ID = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_ID", "")
+YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_SECRET", "")
+
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 
@@ -74,6 +79,21 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+# The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
+# PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
+# which is installed across the whole PostHog org: a dedicated App cannot reach another repository
+# whatever the publish path asks it for. One App serves every region, so the client id and the
+# installation id below hold the same value everywhere, and only the private key is per-region.
+COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID", "")
+COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY = get_from_env("COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY", "")
+# Installation id of that App on the PostHog/community-skills repo. Empty (the default) disables
+# publishing → the endpoint returns 503 and the UI falls back to the manual-PR path.
+COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID", "")
+# Bare repo name (no owner prefix) — the owner is the App installation's account. Defaults to the
+# PostHog/community-skills repo. Publish-only: the hourly catalog sync reads its registry from the
+# repo pinned in community_skill_sync.py, so pointing this elsewhere sends pull requests to a repo the
+# sync does not read back.
+COMMUNITY_SKILLS_GITHUB_REPO = get_from_env("COMMUNITY_SKILLS_GITHUB_REPO", "community-skills")
 
 META_ADS_APP_CLIENT_ID = get_from_env("META_ADS_APP_CLIENT_ID", "")
 META_ADS_APP_CLIENT_SECRET = get_from_env("META_ADS_APP_CLIENT_SECRET", "")
@@ -110,12 +130,20 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 # - STRIPE_APP_CLIENT_ID: The app's public client ID, used in the OAuth authorize redirect URL
 # - STRIPE_APP_OVERRIDE_AUTHORIZE_URL: Optional override for testing (e.g., with a channel link URL)
 # - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during live token exchange/refresh
-# - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication for Stripe to authenticate with PostHog APIs
+# - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication the provisioning
+#   orchestrator authenticates as. Tokens on this application may mint deep-link login sessions.
+# - STRIPE_MARKETPLACE_OAUTH_CLIENT_ID: Client ID of a separate PostHog OAuthApplication for the
+#   marketplace app's own token. That token is written into the customer's Stripe Secret Store at
+#   account scope, so every member of their Stripe account can read it. It must not share an
+#   application with the orchestrator, because the provisioning namespace authorizes on application
+#   identity alone. Until this is set the two share one application and marketplace tokens can reach
+#   the provisioning endpoints.
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
+STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = get_from_env("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 
 # WorkOS Radar (bot/fraud detection for auth flows)

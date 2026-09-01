@@ -57,8 +57,9 @@ describe('config', () => {
         })
 
         it.each([
-            { field: 'playback_speed', value: 0, error: 'playback_speed must be positive' },
-            { field: 'playback_speed', value: -1, error: 'playback_speed must be positive' },
+            { field: 'playback_speed', value: 0, error: 'playback_speed must be >= 1' },
+            { field: 'playback_speed', value: 0.5, error: 'playback_speed must be >= 1' },
+            { field: 'playback_speed', value: -1, error: 'playback_speed must be >= 1' },
             { field: 'max_virtual_time', value: 0, error: 'max_virtual_time must be positive' },
             { field: 'max_virtual_time', value: -5, error: 'max_virtual_time must be positive' },
             { field: 'recording_fps', value: 0, error: 'recording_fps must be positive' },
@@ -168,6 +169,15 @@ describe('config', () => {
                 expect(config.ffmpegOutputOpts).toContain('-crf 23')
                 expect(config.ffmpegOutputOpts).toContain('-pix_fmt yuv420p')
                 expect(config.ffmpegOutputOpts).toContain('-movflags +faststart')
+                expect(config.ffmpegOutputOpts).toContain('-threads 2')
+            })
+
+            // puppeteer-capture pins the container rate to captureFps; without a later -r override
+            // the fps-filtered stream is duplicated back up by the playback-speed factor.
+            it('pins the output rate to outputFps, not captureFps', () => {
+                const config = buildCaptureConfig(baseInput({ playback_speed: 8, recording_fps: 3 }))
+                expect(config.ffmpegOutputOpts).toContain('-r 3')
+                expect(config.ffmpegOutputOpts).not.toContain('-r 24')
             })
 
             it('uses VP9 output opts for WebM format', () => {
@@ -177,7 +187,21 @@ describe('config', () => {
                 expect(config.ffmpegOutputOpts).toContain('-c:v libvpx-vp9')
                 expect(config.ffmpegOutputOpts).toContain('-crf 30')
                 expect(config.ffmpegOutputOpts).toContain('-b:v 0')
+                // Default libvpx settings encode at single-digit fps and would blow the render timeout.
+                expect(config.ffmpegOutputOpts).toContain('-deadline realtime')
+                expect(config.ffmpegOutputOpts).toContain('-cpu-used 5')
+                expect(config.ffmpegOutputOpts).toContain('-row-mt 1')
                 expect(config.ffmpegOutputOpts).not.toContain('-movflags +faststart')
+            })
+
+            // Frames the fps filter would drop still cost a full CDP screenshot round-trip each.
+            it('clamps gif capture to 12fps instead of discarding frames in the filter', () => {
+                const config = buildCaptureConfig(
+                    baseInput({ output_format: 'gif', playback_speed: 4, recording_fps: 24 })
+                )
+                expect(config.outputFps).toBe(12)
+                expect(config.captureFps).toBe(48)
+                expect(config.ffmpegVideoFilters).toContain('fps=12')
             })
 
             it('adds trim to WebM output opts', () => {
@@ -253,7 +277,7 @@ describe('config', () => {
 
             it('emits the -t value as a single numeric token (no embedded flags)', () => {
                 const config = buildCaptureConfig(baseInput({ trim: 60 }))
-                const tOpt = config.ffmpegOutputOpts.find((o) => o.startsWith('-t'))
+                const tOpt = config.ffmpegOutputOpts.find((o) => o.startsWith('-t '))
                 // Exactly two space-separated tokens → fluent-ffmpeg passes ['-t', '60'],
                 // so an attacker can never split the value into extra ffmpeg arguments.
                 expect(tOpt!.split(' ')).toEqual(['-t', '60'])

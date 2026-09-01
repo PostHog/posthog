@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from redis import exceptions as redis_exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -18,12 +19,15 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
+    _get_redis,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
+    reset_rows_synced_if_needed,
     resolve_primary_keys,
+    trim_source_job_inputs,
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -67,19 +71,24 @@ class TestResolvePrimaryKeys:
 class TestPersistPrimaryKeys:
     @parameterized.expand(
         [
-            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            # name, is_incremental, is_cdc, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
             # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
-            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            ("skips_when_not_incremental", False, False, None, ["id"], {}, None),
+            # A CDC schema snapshots as full_refresh but streams incrementally, so its key must be
+            # persisted during that first run — otherwise the streaming phase has no merge key and
+            # trips the keyless-table guardrail.
+            ("backfills_for_cdc_snapshot", False, True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
             # A stored PK is already the source of truth — nothing to backfill.
-            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            ("skips_when_already_persisted", True, False, ["existing"], ["id"], {}, None),
             # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
-            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            ("skips_when_no_resolved_pk", True, False, None, None, {}, None),
             # The fix: an incremental schema with no stored PK backfills the resolved one.
-            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            ("backfills_when_incremental_and_empty", True, False, None, ["id"], {}, {"primary_key_columns": ["id"]}),
             # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
             (
                 "does_not_clobber_concurrent_write",
                 True,
+                False,
                 None,
                 ["id"],
                 {"primary_key_columns": ["already"]},
@@ -92,12 +101,13 @@ class TestPersistPrimaryKeys:
         self,
         _name: str,
         is_incremental: bool,
+        is_cdc: bool,
         persisted: list[str] | None,
         resource_pks: list[str] | None,
         db_config_before: dict,
         expected_written: dict | None,
     ):
-        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted)
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted, is_cdc=is_cdc)
         resource = MagicMock(primary_keys=resource_pks)
 
         captured: dict = {}
@@ -134,6 +144,42 @@ class TestPersistPrimaryKeys:
             await persist_primary_keys(schema, resource, True, logger)
 
         logger.aexception.assert_awaited_once()
+
+
+class TestTrimSourceJobInputs:
+    @parameterized.expand(
+        [
+            # A non-empty string decoded out of the EncryptedJSONField used to reach `.items()` and
+            # raise AttributeError — it must be skipped, not crash the whole import activity.
+            ("bare_string_is_skipped", "not-a-dict"),
+            ("list_is_skipped", ["a", "b"]),
+            ("none_is_skipped", None),
+            ("empty_dict_is_skipped", {}),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_non_dict_job_inputs_is_a_noop(self, _name: str, job_inputs) -> None:
+        source = MagicMock(job_inputs=job_inputs, save=MagicMock())
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+            await trim_source_job_inputs(source)
+        pool.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:
+        source = MagicMock(job_inputs={"host": " example.com ", "port": "5432"}, save=MagicMock())
+        saved = AsyncMock()
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+            await trim_source_job_inputs(source)
+        assert source.job_inputs["host"] == "example.com"
+        assert source.job_inputs["port"] == "5432"
+        saved.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_dict_job_inputs_without_padding_does_not_save(self) -> None:
+        source = MagicMock(job_inputs={"host": "example.com"}, save=MagicMock())
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+            await trim_source_job_inputs(source)
+        pool.assert_not_called()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
@@ -460,6 +506,63 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
 
 
+# transaction=True: the helper saves the job via the async thread pool, which can't see an
+# atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestResetRowsSyncedIfNeeded:
+    def _job_with_leftover_count(self, team) -> ExternalDataJob:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source, sync_type_config={})
+        return ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=1234,
+            billable=True,
+        )
+
+    @pytest.mark.parametrize(
+        "_name,is_incremental,reset_pipeline,should_resume,incremental_cursor_staged,expect_reset",
+        [
+            # Staged-cursor (v3) incremental retry re-extracts the whole window from batch 0, so a
+            # leftover count from the previous attempt would double-count every re-read row — and
+            # rows_synced feeds billed usage. This is the regression case.
+            ("staged_cursor_incremental_retry_resets", True, False, False, True, True),
+            # A resumable source picks up the previous attempt's staged batches, so its rows stay counted.
+            ("resumable_source_keeps_count", True, False, True, True, False),
+            # Durable-cursor (v2) incremental retry resumes past the rows already counted.
+            ("durable_cursor_incremental_retry_keeps_count", True, False, False, False, False),
+            ("full_refresh_restart_resets", False, False, False, False, True),
+            ("reset_pipeline_resets", True, True, False, False, True),
+        ],
+    )
+    def test_reset_conditions(
+        self,
+        _name: str,
+        is_incremental: bool,
+        reset_pipeline: bool,
+        should_resume: bool,
+        incremental_cursor_staged: bool,
+        expect_reset: bool,
+        team,
+    ) -> None:
+        job = self._job_with_leftover_count(team)
+
+        async_to_sync(reset_rows_synced_if_needed)(
+            job,
+            is_incremental,
+            reset_pipeline,
+            should_resume,
+            incremental_cursor_staged=incremental_cursor_staged,
+        )
+
+        job.refresh_from_db()
+        assert job.rows_synced == (0 if expect_reset else 1234)
+
+
 # transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,
 # which writes from the async thread pool and can't see an atomic TestCase's uncommitted rows.
 @pytest.mark.django_db(transaction=True)
@@ -580,6 +683,30 @@ class TestValidateIncrementalSync:
         assert [key for key in Any_Source_Errors if key in message]
 
 
+class TestGetRedis:
+    @pytest.mark.asyncio
+    async def test_yields_none_when_ping_fails(self):
+        # `handle_non_retryable_error` only takes its Redis-unreachable fast-fail path when the
+        # yielded client is None; otherwise it calls `.incr()` on the broken client, which raises
+        # the same connection error uncaught instead of failing fast as NonRetryableException.
+        # `get_async_client` only builds a lazy client, so a failed ping is the only signal that
+        # the client is unusable - it must reset the client to None rather than yield it as-is.
+        broken_client = AsyncMock(ping=AsyncMock(side_effect=ConnectionError("Connect call failed")))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.settings") as mock_settings,
+            patch(f"{_EXTRACT_MODULE}.get_async_client", return_value=broken_client),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_settings.DATA_WAREHOUSE_REDIS_HOST = "localhost"
+            mock_settings.DATA_WAREHOUSE_REDIS_PORT = 6379
+
+            async with _get_redis() as redis_client:
+                assert redis_client is None
+
+        mock_capture.assert_called_once()
+
+
 class TestHandleNonRetryableError:
     def _fake_get_redis(self, incr_return: int):
         redis_client = MagicMock(incr=AsyncMock(return_value=incr_return), expire=AsyncMock())
@@ -622,3 +749,30 @@ class TestHandleNonRetryableError:
 
         assert isinstance(exc_info.value, NonReportableError)
         assert exc_info.value.__cause__ is original_error
+
+    def test_redis_error_after_successful_ping_fails_fast(self):
+        # A successful ping doesn't guarantee `.incr()` still reaches Redis - if it raises, this
+        # must take the same fast-fail path as a `None` client instead of surfacing unwrapped and
+        # masking the already-classified `error` behind an ordinary retryable activity failure.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+        redis_client = MagicMock(
+            incr=AsyncMock(side_effect=redis_exceptions.ConnectionError("Connect call failed")),
+            expire=AsyncMock(),
+        )
+
+        @asynccontextmanager
+        async def fake_get_redis():
+            yield redis_client
+
+        with (
+            patch(f"{_EXTRACT_MODULE}._get_redis", fake_get_redis),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+        mock_capture.assert_called_once()

@@ -23,8 +23,10 @@ The work splits in two, because recordings queries build their AST separately fr
 The exposure scan window is deliberately the full experiment window, unbounded. Narrowing it
 would change who counts as exposed relative to the analysis. The expensive cases are handled
 instead: precomputing teams read the preaggregated table (converging in TTL-capped chunks for
-long-running experiments), and where neither the preaggregated read nor an affordable live
-scan is available the query is refused with a ValidationError rather than left to time out.
+long-running experiments), activation-mode exposures always resolve with a live scan because
+they have no preaggregated form (carrying an explicit memory budget on precomputing teams),
+and where neither the preaggregated read nor an affordable live scan is available the query
+is refused with a ValidationError rather than left to time out.
 """
 
 from dataclasses import dataclass
@@ -45,9 +47,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     ensure_precomputed,
@@ -71,14 +73,15 @@ logger = structlog.get_logger(__name__)
 EXPOSURES_STILL_COMPUTING_MESSAGE = (
     "Exposed users for this experiment are still being computed. Try again in a few minutes."
 )
-ACTIVATION_NOT_PRECOMPUTABLE_MESSAGE = (
-    "This experiment counts exposure from an activation event, which can't be precomputed, "
-    "and this project is too large to resolve its exposed users live."
-)
 COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
     "Try again when the cohort is ready."
 )
+# Sized an order of magnitude above the peak observed on the largest precompute-enabled team
+# (#83514), so it fires only for a scan far outside anything measured, and below the cluster's
+# default per-query limit, so the kill renders as the standard memory-limit error before the
+# scan becomes cluster-level pressure.
+ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES = 4 * 1024**3
 
 
 def validate_experiment_exposure_access(
@@ -127,6 +130,17 @@ class ExperimentExposureLinkage:
     requested_variants: list[str]
     # Set = read the preaggregated exposures written by these jobs. None = live events scan.
     preaggregation_job_ids: list[str] | None
+    # max_memory_usage ceiling the synchronous recordings-list run must apply when the live
+    # scan needs explicit bounding instead of relying on cluster defaults. It bounds the whole
+    # embedding query, so a kill renders as the platform's generic memory-limit error rather
+    # than anything exposure-specific. Composition callers that execute the linkage's AST
+    # through their own async or batch pipelines run under those pipelines' limits and may
+    # ignore it.
+    live_scan_max_memory_bytes: int | None = None
+    # True when the exposure criteria apply the team's test-account filters, so the exposed
+    # population is already test-filtered at the person level. Queries that restrict their rows
+    # to this population can skip re-applying the same filters to their own rows.
+    population_filters_test_accounts: bool = False
 
 
 def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
@@ -192,25 +206,36 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         cuped_config=CupedQueryConfig(),
         activation_config=exposure_params.activation_config,
     )
+    read = _resolve_exposure_read(team, experiment, context)
     return ExperimentExposureLinkage(
         context=context,
         requested_variants=requested_variants,
-        preaggregation_job_ids=_resolve_preaggregation_job_ids(team, experiment, context),
+        preaggregation_job_ids=read.preaggregation_job_ids,
+        live_scan_max_memory_bytes=read.live_scan_max_memory_bytes,
+        population_filters_test_accounts=exposure_params.filter_test_accounts,
     )
 
 
-def _resolve_preaggregation_job_ids(
-    team: Team, experiment: Experiment, context: ExperimentQueryContext
-) -> list[str] | None:
-    """Preaggregation job ids covering the experiment window, or None for a live scan.
+@dataclass(frozen=True, kw_only=True)
+class _ExposureRead:
+    preaggregation_job_ids: list[str] | None
+    live_scan_max_memory_bytes: int | None
+
+
+def _resolve_exposure_read(team: Team, experiment: Experiment, context: ExperimentQueryContext) -> _ExposureRead:
+    """How the exposed population will be read: preaggregation job ids, or a live scan.
 
     The eligibility gates mirror the exposures-chart runner's, but the fallback posture
     inverts: the analysis can always fall back to a direct scan, because it runs through
-    the async query pipeline with generous limits. This linkage runs inside a synchronous
-    recordings-list GET, where the production assessment showed the live scan cannot
-    complete on the largest teams. Precomputation being enabled is the team-level marker
-    for exactly those teams, so on them an unavailable preaggregated read is refused
-    instead of silently attempting the scan that precomputation exists to avoid.
+    the async query pipeline with generous limits, while this linkage runs inside a
+    synchronous recordings-list GET. Precomputation being enabled is the team-level
+    marker for the teams where the full-window live scan is a real cost, so on them a
+    transiently unavailable preaggregated read (still computing, cohort mid-calculation)
+    is refused instead of silently attempting the scan that precomputation exists to
+    avoid. Activation mode is the exception: it has no preaggregated form at all, and
+    its live scan stays affordable because its memory is bounded by the exposed
+    population, so it scans live under an explicit memory budget rather than being
+    permanently refused.
     """
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
@@ -220,17 +245,27 @@ def _resolve_preaggregation_job_ids(
         experiment.start_date, experiment.end_date
     ):
         tag_queries(experiment_exposures_path="direct_scan")
-        return None
+        return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)
+
+    if has_uncalculated_cohorts(team, experiment.exposure_criteria):
+        # Both reads below see the cohort's partially-inserted membership: a precompute build
+        # would freeze the torn snapshot for the frozen-band TTL, and the activation live scan
+        # would silently undercount. Transient, so the error says to retry.
+        raise ValidationError(COHORT_NOT_CALCULATED_MESSAGE)
 
     if has_activation_config(experiment.exposure_criteria):
         # The flag-to-activation ordering crosses the per-day cache buckets, so activation
-        # exposures can't be precomputed. A per-experiment live path for them is deliberately
-        # not built: activation mode is a negligible slice of running experiments.
-        raise ValidationError(ACTIVATION_NOT_PRECOMPUTABLE_MESSAGE)
-    if has_uncalculated_cohorts(team, experiment.exposure_criteria):
-        # A build during the cohort's first materialization would freeze a torn membership
-        # snapshot for the frozen-band TTL; transient, so the error says to retry.
-        raise ValidationError(COHORT_NOT_CALCULATED_MESSAGE)
+        # exposures have no preaggregated form. Their live scan stays affordable even on the
+        # largest teams, because it is bounded by the experiment window's activation events
+        # and the distinct-id expansion's memory scales with the exposed population, so they
+        # scan live instead of being refused. The ceiling keeps the scan explicitly bounded:
+        # one that outgrows it is killed with the standard memory-limit error instead of
+        # pressuring the cluster.
+        tag_queries(experiment_exposures_path="direct_scan_activation")
+        return _ExposureRead(
+            preaggregation_job_ids=None,
+            live_scan_max_memory_bytes=ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
+        )
 
     query_string, placeholders = ExposureQueryBuilder(context=context).precomputation_query()
     assert experiment.start_date is not None
@@ -257,7 +292,10 @@ def _resolve_preaggregation_job_ids(
         raise ValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE)
 
     tag_queries(experiment_exposures_path="precomputed")
-    return [str(job_id) for job_id in result.job_ids]
+    return _ExposureRead(
+        preaggregation_job_ids=[str(job_id) for job_id in result.job_ids],
+        live_scan_max_memory_bytes=None,
+    )
 
 
 def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
@@ -271,6 +309,17 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
         preaggregation_job_ids=linkage.preaggregation_job_ids,
     ).select_query()
 
+    # The distinct-id expansion must not aggregate the team's whole mapping table: its memory
+    # scales with the team's total distinct ids rather than with the exposed population, which
+    # OOMs the recordings request on the largest teams. So a prefilter first nominates the
+    # distinct ids that ever mapped to an exposed person (a row-level scan, no aggregation
+    # state), and argMax then resolves the latest mapping over every version row of those
+    # candidates only. Filtering rows by person_id directly instead would resurrect stale
+    # mappings: a distinct id reassigned away from an exposed person keeps its old rows, and
+    # argMax over just those would report the old person as current. The prefilter is a
+    # superset (it ignores variant and reassignment), and the join keeps only candidates whose
+    # latest person really is exposed.
+    #
     # The WHERE on variant also drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
     # handling, matching who the analysis counts. Both join sides are pre-grouped, so each
     # distinct id carries exactly one exposure row and min() merely satisfies the GROUP BY.
@@ -286,18 +335,29 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
                 argMax(is_deleted, version) AS is_deleted
             FROM raw_person_distinct_ids
             WHERE team_id = {team_id}
+                AND distinct_id IN (
+                    SELECT distinct_id
+                    FROM raw_person_distinct_ids
+                    WHERE team_id = {prefilter_team_id}
+                        AND person_id IN (SELECT entity_id FROM exposures)
+                )
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi
-        INNER JOIN ({exposure_select}) AS exposures ON exposures.entity_id = pdi.person_id
+        INNER JOIN exposures ON exposures.entity_id = pdi.person_id
         WHERE exposures.variant IN {requested_variants}
         GROUP BY pdi.distinct_id
         """,
         placeholders={
             "team_id": ast.Constant(value=linkage.context.team.pk),
-            "exposure_select": exposure_select,
+            "prefilter_team_id": ast.Constant(value=linkage.context.team.pk),
             "requested_variants": ast.Constant(value=linkage.requested_variants),
         },
     )
     assert isinstance(query, ast.SelectQuery)
+    # Both the prefilter and the join read the exposed population, and ClickHouse substitutes a
+    # plain CTE at each reference rather than computing it once, so a bare `WITH` would scan the
+    # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the
+    # live path to a single events scan and holds only the exposed rows in memory.
+    query.ctes = {"exposures": ast.CTE(name="exposures", expr=exposure_select, cte_type="subquery", materialized=True)}
     return query

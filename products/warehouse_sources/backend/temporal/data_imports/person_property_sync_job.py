@@ -63,32 +63,31 @@ PERSON_PROPERTY_SYNC_DURATION_SECONDS = Histogram(
 
 @activity.defn
 async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncActivityInputs) -> dict[str, Any]:
-    """Read the rows a sync staged and upsert them onto person properties via Kafka."""
+    """Read the rows a warehouse run staged and upsert them onto person properties via Kafka."""
     log = logger.bind(**inputs.properties_to_log)
     log.info(f"Starting person-property sync for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
     started_at = datetime.now(UTC).isoformat()
+    binding = inputs.binding
     await record_started_runs(
         team_id=inputs.team_id,
-        schema_id=str(inputs.schema_id),
+        binding=binding,
         job_id=inputs.job_id,
         trigger="scheduled",
         started_at=started_at,
     )
     try:
         async with Heartbeater():
-            result = await run_person_property_sync(
-                team_id=inputs.team_id, schema_id=str(inputs.schema_id), job_id=inputs.job_id
-            )
+            result = await run_person_property_sync(team_id=inputs.team_id, binding=binding, job_id=inputs.job_id)
     except Exception as e:
         # Re-raised so Temporal retries; captured so a terminal failure is visible in error
         # tracking rather than dying silently in an abandoned child workflow.
         PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         log.exception("Person-property sync failed")
-        capture_exception(e)
+        capture_exception(e, inputs.properties_to_log)
         await record_failed_runs(
             team_id=inputs.team_id,
-            schema_id=str(inputs.schema_id),
+            binding=binding,
             job_id=inputs.job_id,
             trigger="scheduled",
             started_at=started_at,
@@ -99,7 +98,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
 
     await record_completed_runs(
         team_id=inputs.team_id,
-        schema_id=str(inputs.schema_id),
+        binding=binding,
         job_id=inputs.job_id,
         trigger="scheduled",
         started_at=started_at,

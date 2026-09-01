@@ -33,12 +33,25 @@ packages/              # Libraries shared across more than one product/service (
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser
 
-tools/                 # Developer/CI tooling, not imported by runtime code
+tools/                 # Developer/CI tooling, with one exception noted below
   hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
+  owners/              # owners.yaml resolver (posthog_owners) — also a RUNTIME dependency
 
 devenv/                # Developer environment config (intent map, process model)
 ```
+
+`tools/` is developer and CI tooling by default, and one directory in it is not. `tools/owners` is
+installed into the production venv, because stamphog's digest resolves a team's Slack channel through
+`posthog_owners` rather than reparsing `owners.yaml` itself. It is also copied into the production
+image as source, alongside stamphog's review engine at
+`products/stamphog/packages/pr-approval-agent/`, because stamphog ships both into its review sandbox
+at runtime.
+
+Inside that sandbox the engine is written to `<checkout>/tools/pr-approval-agent` with `tools/owners`
+beside it, and that placement is a contract rather than a leftover: the engine finds its repo root by
+walking up from its own file, so the path decides which policy it reads, and downstream repos vendor
+the two directories in exactly that arrangement.
 
 ### Products
 

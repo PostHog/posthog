@@ -33,10 +33,13 @@ export type FacetColumn = 'service_name' | 'status_code'
  *   selection lives in the dedicated `serviceNames` filter field; `status_code`'s in a span property filter.
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), queried with
  *   breakdownType `span_resource_attribute`. Selection is a span_resource_attribute property filter.
+ * - `attribute`: a plain (non-resource) span attribute key, queried with breakdownType `span_attribute`.
+ *   Only used by user-added custom facets today — no curated `FACETS` entry uses it.
  */
 export type FacetSource =
     | { type: 'column'; column: FacetColumn }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
+    | { type: 'attribute'; key: string }
 
 /**
  * The sources whose selection lives in the filterGroup. `service_name` is deliberately excluded:
@@ -46,6 +49,7 @@ export type FacetSource =
 export type FilterGroupFacetSource =
     | { type: 'column'; column: Exclude<FacetColumn, 'service_name'> }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
+    | { type: 'attribute'; key: string }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -64,11 +68,13 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
+    /** The (key, sourceType) a user-added custom facet was built from; curated facets never set it. */
+    custom?: { key: string; sourceType: CustomFacetSourceType }
 }
 
 interface SpanFacetFilter {
     key: string
-    type: PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute
+    type: PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute | PropertyFilterType.SpanAttribute
     operator: PropertyOperator
     value?: PropertyFilterValue
 }
@@ -81,11 +87,18 @@ export function innerFilters(group: UniversalFiltersGroup | undefined): SpanFace
     return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as SpanFacetFilter[]
 }
 
-/** The property filter home for a facet's selection: span filters for status_code, resource-attribute filters otherwise. */
+/** The property filter home for a facet's selection: span filters for status_code, attribute/resource-attribute filters otherwise. */
 function facetFilterType(
-    source: FilterGroupFacetSource
-): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute {
-    return source.type === 'column' ? PropertyFilterType.Span : PropertyFilterType.SpanResourceAttribute
+    source: FacetSource
+): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute | PropertyFilterType.SpanAttribute {
+    switch (source.type) {
+        case 'column':
+            return PropertyFilterType.Span
+        case 'attribute':
+            return PropertyFilterType.SpanAttribute
+        case 'resourceAttribute':
+            return PropertyFilterType.SpanResourceAttribute
+    }
 }
 
 function facetFilterKey(source: FilterGroupFacetSource): string {
@@ -143,6 +156,8 @@ export function facetFilterSelection(
 /**
  * Selection for any facet — routes the service facet to the dedicated serviceNames field
  * (include-only, so nothing is ever excluded there) and everything else to its filterGroup filters.
+ * Column selections are reported against the rows the rail renders, so a folded-away value
+ * (status_code "0") shows up as its group's row instead of as a selection with no row to click.
  */
 export function facetSelection(
     group: UniversalFiltersGroup | undefined,
@@ -154,7 +169,7 @@ export function facetSelection(
             // Empty strings from external state (URL, saved view) would select a value with no visible row.
             return { included: (serviceNames ?? []).filter((v) => v !== ''), excluded: [] }
         }
-        return facetFilterSelection(group, { type: 'column', column: source.column })
+        return facetRowSelection(source, facetFilterSelection(group, { type: 'column', column: source.column }))
     }
     return facetFilterSelection(group, source)
 }
@@ -163,50 +178,154 @@ export function facetSelection(
  * Advance `value` one step through the facet cycle — unchecked → included → excluded → unchecked —
  * returning a new filterGroup. Selection is stored as up to two property filters per key with
  * array values, `exact` and `is_not`; a filter is dropped when its side of the selection empties.
+ * Both sides are written as whole value groups, so no click can leave half of a folded group behind.
  */
 export function cycleFacetFilter(
     group: UniversalFiltersGroup | undefined,
     source: FilterGroupFacetSource,
     value: string
 ): UniversalFiltersGroup {
+    const valueGroup = facetValueGroup(source, value)
     const { included, excluded } = facetFilterSelection(group, source)
     let nextIncluded = included
     let nextExcluded = excluded
-    if (included.includes(value)) {
-        nextIncluded = included.filter((v) => v !== value)
-        nextExcluded = excluded.includes(value) ? excluded : [...excluded, value]
-    } else if (excluded.includes(value)) {
-        nextExcluded = excluded.filter((v) => v !== value)
+    if (valueGroup.some((v) => included.includes(v))) {
+        nextIncluded = included.filter((v) => !valueGroup.includes(v))
+        nextExcluded = [...excluded, ...valueGroup.filter((v) => !excluded.includes(v))]
+    } else if (valueGroup.some((v) => excluded.includes(v))) {
+        nextExcluded = excluded.filter((v) => !valueGroup.includes(v))
     } else {
-        nextIncluded = [...included, value]
+        nextIncluded = [...included, ...valueGroup.filter((v) => !included.includes(v))]
     }
 
     const values = innerFilters(group).filter((f) => !isRailFacetFilter(f, source))
-    if (nextIncluded.length > 0) {
+    const nextIncludedValues = expandToValueGroups(source, nextIncluded)
+    const nextExcludedValues = expandToValueGroups(source, nextExcluded)
+    if (nextIncludedValues.length > 0) {
         values.push({
             key: facetFilterKey(source),
             type: facetFilterType(source),
             operator: PropertyOperator.Exact,
-            value: nextIncluded,
+            value: nextIncludedValues,
         })
     }
-    if (nextExcluded.length > 0) {
+    if (nextExcludedValues.length > 0) {
         values.push({
             key: facetFilterKey(source),
             type: facetFilterType(source),
             operator: PropertyOperator.IsNot,
-            value: nextExcluded,
+            value: nextExcludedValues,
         })
     }
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
-// OTel span status. Values must stay the digit strings "0"/"1"/"2": breakdown rows arrive
+/** The data key a facet is broken down by: its column, or the attribute/resource-attribute key resolution picked. */
+export function facetSourceKey(facet: FacetConfig): string {
+    return facet.source.type === 'column' ? facet.source.column : facet.source.key
+}
+
+/** Everything a facet's own values can depend on, before its own selection is stripped out. */
+export interface FacetScope {
+    currentTeamId: number | null
+    utcDateRange: { date_from?: string | null; date_to?: string | null }
+    serviceNames: string[] | undefined
+    /** filterGroup with any pinned scope folded in — what the breakdown request actually carries. */
+    queryFilterGroup: UniversalFiltersGroup | undefined
+}
+
+/**
+ * A stable string identifying everything that can change this facet's values: the breakdown scope
+ * minus the facet's own contributions, mirroring what the backend strips when excludeBreakdownFilter
+ * is set (see _extract_filters in products/tracing/backend/attribute_breakdown_query_runner.py,
+ * pinned from the other side by test_attribute_breakdown.py::test_exclude_breakdown_filter_*).
+ * Selecting a value in this facet leaves the signature untouched, so the facet doesn't refetch
+ * itself; selecting in any other facet changes it.
+ *
+ * A string, not an object: `queryFilterGroup` gets a fresh identity on every edit, so an object
+ * couldn't tell "nothing I care about changed". Presentation state (view mode, sort, compare) is
+ * deliberately absent — the breakdown request doesn't read it.
+ */
+export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
+    const { source } = facet
+    const selfKey = facetSourceKey(facet)
+    const selfType = facetFilterType(source)
+    // Any operator: the backend drops every filter under the breakdown key, not just the rail's own.
+    const groupSignature = innerFilters(scope.queryFilterGroup)
+        .filter((filter) => !(filter.type === selfType && filter.key === selfKey))
+        .map((filter) => [filter.type, filter.key, filter.operator, JSON.stringify(filter.value ?? null)])
+
+    return JSON.stringify([
+        // A facet mounted before the team resolved fetches nothing; keeping the id in the signature
+        // makes it fetch once the team arrives.
+        scope.currentTeamId ?? null,
+        [source.type, selfKey],
+        scope.utcDateRange.date_from ?? null,
+        scope.utcDateRange.date_to ?? null,
+        // The service facet breaks down the same column the dedicated field filters.
+        source.type === 'column' && source.column === 'service_name' ? null : (scope.serviceNames ?? []),
+        groupSignature,
+    ])
+}
+
+// A span that never had its status explicitly set carries no distinct meaning from one marked
+// OK, so the rail folds status_code 0 (Unset) into the OK row: selecting, excluding, and counting
+// "1" also reads and writes "0". Keyed on the digit strings the breakdown rows and filter values
+// already use.
+const STATUS_CODE_VALUE_GROUPS: Record<string, string[]> = {
+    '1': ['0', '1'],
+}
+
+/**
+ * The full set of underlying column values a facet click or count should read/write for `value`.
+ * Only status_code's "OK" (folding in "Unset") expands to more than itself; every other facet
+ * value, including status_code's "Error", is its own singleton group.
+ */
+export function facetValueGroup(source: FacetSource, value: string): string[] {
+    if (source.type === 'column' && source.column === 'status_code') {
+        return STATUS_CODE_VALUE_GROUPS[value] ?? [value]
+    }
+    return [value]
+}
+
+// Reverse of STATUS_CODE_VALUE_GROUPS: which row each underlying value is rendered under.
+const STATUS_CODE_ROW_BY_VALUE: Record<string, string> = Object.fromEntries(
+    Object.entries(STATUS_CODE_VALUE_GROUPS).flatMap(([row, values]) => values.map((value) => [value, row]))
+)
+
+/**
+ * The rail row `value` is rendered under: itself for every value except one that was folded away,
+ * which reports the row it folded into. Filters written before the fold (or by hand outside the
+ * rail) can carry status_code "0" on its own, so the OK row has to read as active for it; otherwise
+ * the first click would cycle that already-active group to excluded instead of selecting it.
+ */
+function facetRowValue(source: FacetSource, value: string): string {
+    if (source.type === 'column' && source.column === 'status_code') {
+        return STATUS_CODE_ROW_BY_VALUE[value] ?? value
+    }
+    return value
+}
+
+/** Map a raw filter selection onto the rows the rail renders, deduping values that share a row. */
+function facetRowSelection(source: FacetSource, selection: FacetSelection): FacetSelection {
+    const toRows = (values: string[]): string[] => [...new Set(values.map((v) => facetRowValue(source, v)))]
+    return { included: toRows(selection.included), excluded: toRows(selection.excluded) }
+}
+
+/**
+ * Expand a set of filter values onto whole value groups, so a write always covers every value behind
+ * the rows it touches. Legacy state carrying part of a group (status_code "0" without "1") would
+ * otherwise survive a click on a different row, leaving the rail showing OK while the query drops
+ * explicitly-OK spans.
+ */
+function expandToValueGroups(source: FacetSource, values: string[]): string[] {
+    return [...new Set(values.flatMap((v) => facetValueGroup(source, facetRowValue(source, v))))]
+}
+
+// OTel span status. Values must stay the digit strings "1"/"2": breakdown rows arrive
 // stringified (the backend toString()s the Int16 column), so these are what counts key on.
-// Don't switch to the label strings — the server-side filter normaliser treats "OK" as
-// {Unset, OK}, which would silently widen a selection.
+// "Unset" (0) has no separate row; see STATUS_CODE_VALUE_GROUPS above.
 const STATUS_OPTIONS: FacetOption[] = [
-    { value: '0', label: 'Unset', count: 0 },
     { value: '1', label: 'OK', count: 0 },
     { value: '2', label: 'Error', count: 0 },
 ]
@@ -298,7 +417,7 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
     const present = new Set(presentResourceKeys)
     const resolved: FacetConfig[] = []
     for (const facet of facets) {
-        if (facet.source.type === 'column') {
+        if (facet.source.type !== 'resourceAttribute') {
             resolved.push(facet)
             continue
         }
@@ -361,4 +480,27 @@ export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] 
         }
     }
     return groups
+}
+
+/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
+export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
+
+/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
+export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
+    return {
+        key: `custom:${sourceType}:${key}`,
+        title: key,
+        group: 'Custom',
+        kind: 'dynamic',
+        source: sourceType === 'attribute' ? { type: 'attribute', key } : { type: 'resourceAttribute', key },
+        searchable: true,
+        emptyLabel: `No ${key} values`,
+        maxHeight: 300,
+        custom: { key, sourceType },
+    }
+}
+
+/** The (key, sourceType) a custom facet was built from — `null` for a curated facet. */
+export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
+    return facet.custom ?? null
 }

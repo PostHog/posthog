@@ -2,8 +2,9 @@
 name: posthog-desktop
 description: >
   Scopes work to the desktop app at products/desktop — a nested standalone pnpm/turbo/Biome
-  workspace imported from PostHog/code, not part of the root frontend or Django build. Use when
-  the user says /posthog-desktop, or works on the Electron desktop app, apps/code, apps/web,
+  workspace imported from the now-archived PostHog/code repo, with posthog/posthog the only
+  source of truth for PRs, CI and publishing, and not part of the root frontend or Django build.
+  Use when the user says /posthog-desktop, or works on the Electron desktop app, apps/code, apps/web,
   apps/mobile, packages/core, packages/ui, packages/workspace-server, @posthog/api-client,
   @posthog/agent, or the agent framework. Pins the working directory to products/desktop, swaps
   in that tree's toolchain and conventions in place of the monorepo's, and defines the few paths
@@ -12,10 +13,12 @@ description: >
 
 # Working in products/desktop
 
-`products/desktop/` is the PostHog desktop app (Electron + agent framework), imported from
-PostHog/code and kept as a **nested standalone workspace**: own `pnpm-workspace.yaml`, own
-lockfile, own Biome config, Node 22. It is excluded from the root `pnpm-workspace.yaml`, from
-ruff/mypy, from root Jest, from oxlint/oxfmt, from stylelint and from pytest.
+`products/desktop/` is the PostHog desktop app (Electron + agent framework), imported from the
+now-archived PostHog/code repo and kept as a **nested standalone workspace**: own
+`pnpm-workspace.yaml`, own lockfile, own Biome config, Node 22. It is excluded from the root
+`pnpm-workspace.yaml`, from ruff/mypy, from root Jest, from oxlint/oxfmt, from stylelint and
+from pytest. posthog/posthog is the only source of truth: PRs, CI and publishing all happen
+here, never in PostHog/code.
 
 **Read [`products/desktop/AGENTS.md`](../../../products/desktop/AGENTS.md) before writing code
 in this tree.** It is the source of truth for architecture, layer boundaries, DI, and style.
@@ -62,15 +65,6 @@ Commands (from `products/desktop/`): `pnpm install`, `pnpm dev`, `pnpm build`, `
 Never run root-level `pnpm install` expecting it to cover desktop, and never let a desktop
 dependency change alter the root lockfile — the root install must stay byte-identical.
 
-## What still applies from the root
-
-- Conventional commits and PR titles; `scope` of `desktop` (e.g. `fix(desktop/$feature): ...`).
-- `.github/pull_request_template.md` structure, including the Agent context section.
-- Public-repo copy safety: no customer names, internal incidents, or Slack quotes.
-- Merging: desktop PRs merge like any other monorepo PR, through the Trunk merge queue (use
-  `/merging-prs`). Never `gh pr merge`; the branch ruleset blocks it.
-- `hogli ci:preflight` on push (pre-push hook) still runs repo-wide.
-
 ## Cross-boundary: the Django API
 
 `packages/api-client/` calls monorepo endpoints — tasks (`/api/projects/:id/tasks/...`),
@@ -94,7 +88,7 @@ auto-assignment and Slack routing; do not delete it.
 ## Desktop-local skills
 
 `products/desktop/.claude/skills/` ships its own: `test-electron-app` (drive the running app
-over CDP `:9222`), `quill-code`, `storybook-stories`, `canvas-templates`, `onboarding-videos`.
+over CDP `:9222`), `quill-code`, `storybook-stories`, `onboarding-videos`.
 Prefer these over monorepo equivalents while in this tree.
 
 ## Before reporting done

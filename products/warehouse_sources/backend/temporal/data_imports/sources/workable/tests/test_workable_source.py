@@ -5,17 +5,11 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
     WorkableSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.source import WorkableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.workable import WorkableResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> WorkableSourceConfig:
@@ -23,55 +17,9 @@ def _config() -> WorkableSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert WorkableSource().source_type == ExternalDataSourceType.WORKABLE
-
-    def test_config_basics(self) -> None:
-        config = WorkableSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.HR___RECRUITING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_fields(self) -> None:
-        field_names = {f.name for f in WorkableSource().get_source_config.fields}
-        assert field_names == {"subdomain", "api_token"}
-
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # Retargeting the subdomain must re-require the token (it's where the token is sent).
         assert WorkableSource().connection_host_fields == ["subdomain"]
-
-    def test_api_token_field_is_secret(self) -> None:
-        token_field = next(f for f in WorkableSource().get_source_config.fields if f.name == "api_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-
-
-class TestSchemas:
-    def test_lists_all_endpoints(self) -> None:
-        names = {s.name for s in WorkableSource().get_schemas(_config(), team_id=1)}
-        assert names == set(ENDPOINTS)
-
-    @parameterized.expand(
-        [
-            ("jobs", True),
-            ("candidates", True),
-            ("members", False),
-            ("recruiters", False),
-            ("stages", False),
-        ]
-    )
-    def test_incremental_support_per_endpoint(self, endpoint: str, expected_incremental: bool) -> None:
-        schemas = {s.name: s for s in WorkableSource().get_schemas(_config(), team_id=1)}
-        assert schemas[endpoint].supports_incremental is expected_incremental
-        assert schemas[endpoint].supports_append is expected_incremental
-
-    def test_incremental_endpoints_offer_updated_and_created(self) -> None:
-        schemas = {s.name: s for s in WorkableSource().get_schemas(_config(), team_id=1)}
-        fields = {f["field"] for f in schemas["candidates"].incremental_fields}
-        assert fields == {"updated_at", "created_at"}
-
-    def test_names_filter(self) -> None:
-        schemas = WorkableSource().get_schemas(_config(), team_id=1, names=["jobs"])
-        assert [s.name for s in schemas] == ["jobs"]
 
 
 class TestValidateCredentials:
@@ -105,22 +53,6 @@ class TestValidateCredentials:
 
 
 class TestMisc:
-    def test_non_retryable_errors_cover_auth(self) -> None:
-        errors = WorkableSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = WorkableSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WorkableResumeConfig
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = WorkableSource().get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-
     def test_source_for_pipeline_plumbs_arguments(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 

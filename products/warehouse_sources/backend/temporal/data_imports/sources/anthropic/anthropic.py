@@ -8,8 +8,11 @@ from typing import Any, Optional
 from requests import Request, Response
 from requests.exceptions import HTTPError
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
     ANTHROPIC_ENDPOINTS,
+    ENDPOINT_RETIRED_ERROR,
     USAGE_GROUP_BY_FALLBACKS,
     PaginationType,
 )
@@ -342,25 +345,34 @@ def _claude_code_start_day(db_incremental_field_last_value: Any) -> date:
     return _parse_iso_date(str(value))
 
 
-def _claude_code_actor_dims(item: dict[str, Any]) -> tuple[Any, str | None, str | None, str | None, str | None]:
+@frozen
+class ClaudeCodeActor:
+    date: Any
+    actor_type: str | None
+    email: str | None
+    api_key_name: str | None
+    terminal_type: str | None
+
+
+def _claude_code_actor_dims(item: dict[str, Any]) -> ClaudeCodeActor:
     """Pull the shared (date, actor, terminal) dimensions every Claude Code row carries.
 
     `actor` is either a user (`email_address`) or an API actor (`api_key_name`); surface both as flat
     columns so the grain is queryable without unpacking a nested object.
     """
     actor = item.get("actor") or {}
-    return (
-        item.get("date"),
-        actor.get("type"),
-        actor.get("email_address"),
-        actor.get("api_key_name"),
-        item.get("terminal_type"),
+    return ClaudeCodeActor(
+        date=item.get("date"),
+        actor_type=actor.get("type"),
+        email=actor.get("email_address"),
+        api_key_name=actor.get("api_key_name"),
+        terminal_type=item.get("terminal_type"),
     )
 
 
 def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     """One row per (day, actor): Claude Code core productivity metrics and tool-action counts."""
-    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    dims = _claude_code_actor_dims(item)
     core = item.get("core_metrics") or {}
     lines_of_code = core.get("lines_of_code") or {}
     tool_actions = item.get("tool_actions") or {}
@@ -375,14 +387,14 @@ def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     notebook_edit_accepted, notebook_edit_rejected = _tool("notebook_edit_tool")
 
     return {
-        "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type),
-        "date": date_value,
+        "id": _row_id(dims.date, dims.actor_type, dims.email, dims.api_key_name, dims.terminal_type),
+        "date": dims.date,
         "organization_id": item.get("organization_id"),
-        "actor_type": actor_type,
-        "actor_email_address": actor_email,
-        "actor_api_key_name": actor_api_key_name,
+        "actor_type": dims.actor_type,
+        "actor_email_address": dims.email,
+        "actor_api_key_name": dims.api_key_name,
         "customer_type": item.get("customer_type"),
-        "terminal_type": terminal_type,
+        "terminal_type": dims.terminal_type,
         "num_sessions": core.get("num_sessions"),
         "lines_of_code_added": lines_of_code.get("added"),
         "lines_of_code_removed": lines_of_code.get("removed"),
@@ -406,7 +418,7 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
     and commits (per day) — keeping them in one table would either duplicate the core metrics across a
     day's models or bury the per-model cost in a nested column.
     """
-    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    dims = _claude_code_actor_dims(item)
     rows: list[dict[str, Any]] = []
     for entry in item.get("model_breakdown") or []:
         model = entry.get("model")
@@ -414,14 +426,14 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
         estimated_cost = entry.get("estimated_cost") or {}
         rows.append(
             {
-                "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type, model),
-                "date": date_value,
+                "id": _row_id(dims.date, dims.actor_type, dims.email, dims.api_key_name, dims.terminal_type, model),
+                "date": dims.date,
                 "organization_id": item.get("organization_id"),
-                "actor_type": actor_type,
-                "actor_email_address": actor_email,
-                "actor_api_key_name": actor_api_key_name,
+                "actor_type": dims.actor_type,
+                "actor_email_address": dims.email,
+                "actor_api_key_name": dims.api_key_name,
                 "customer_type": item.get("customer_type"),
-                "terminal_type": terminal_type,
+                "terminal_type": dims.terminal_type,
                 "model": model,
                 "input_tokens": tokens.get("input"),
                 "output_tokens": tokens.get("output"),
@@ -487,7 +499,12 @@ def anthropic_source(
     resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = ANTHROPIC_ENDPOINTS[endpoint]
+    config = ANTHROPIC_ENDPOINTS.get(endpoint)
+    if config is None:
+        # A schema row outlives the catalog entry it was discovered from when an endpoint is
+        # dropped. Raise the message `get_non_retryable_errors` keys on, so the run disables the
+        # schema and pauses its schedule instead of retrying a KeyError forever.
+        raise ValueError(f"{ENDPOINT_RETIRED_ERROR}: {endpoint}")
     # Set only where the rows come from something other than iterating `resource` once.
     items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
 

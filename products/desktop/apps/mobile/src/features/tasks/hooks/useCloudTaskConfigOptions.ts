@@ -4,7 +4,11 @@ import {
   type CloudTaskConfigOption,
   DEEPSEEK_MODEL_FLAG,
   GLM_MODEL_FLAG,
+  GLM53_FLASH_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
   isDeepseekModelId,
+  isGlm53FlashModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isRestrictedModelOption,
 } from "@posthog/shared";
@@ -27,6 +31,8 @@ const fallbackOptionsByAdapter: Record<Adapter, CloudTaskConfigOption[]> = {
 export function useCloudTaskConfigOptions(adapter: Adapter = "claude") {
   const oauthAccessToken = useAuthStore((state) => state.oauthAccessToken);
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
+  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
+  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
   const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const query = useQuery({
     queryKey: cloudTaskConfigOptionKeys.adapter(adapter),
@@ -36,10 +42,15 @@ export function useCloudTaskConfigOptions(adapter: Adapter = "claude") {
   });
   const configOptions = query.data ?? fallbackOptionsByAdapter[adapter];
   const isHiddenModel = (value: string) =>
-    (!glmEnabled && isGlmModelId(value)) ||
+    (!glm53Enabled && isGlm53ModelId(value)) ||
+    (!glm53FlashEnabled && isGlm53FlashModelId(value)) ||
+    (!glmEnabled &&
+      isGlmModelId(value) &&
+      !isGlm53ModelId(value) &&
+      !isGlm53FlashModelId(value)) ||
     (!deepseekEnabled && isDeepseekModelId(value));
   const visibleConfigOptions =
-    glmEnabled && deepseekEnabled
+    glmEnabled && glm53Enabled && glm53FlashEnabled && deepseekEnabled
       ? configOptions
       : configOptions.map((option) =>
           option.category === "model"

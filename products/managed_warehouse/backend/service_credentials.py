@@ -4,8 +4,8 @@ This is the PostHog-side half of the duckgres "Service Credentials" contract
 (see duckgres/CLAUDE.md). A background job (dagster today) calls
 ``mint_service_credential`` once per run to get a credential scoped to the
 org's warehouse access — minted as its own server-side grant ROW (not a
-rewrite of a shared team login's hash) — instead of reading the org-wide
-root credential out of a ``DuckgresServer`` row.
+rewrite of a shared team login's hash) instead of reading the stored login
+out of a ``DuckgresServer`` row.
 
 Contract essentials mirrored here (read the CP side for the authoritative
 wording):
@@ -96,6 +96,7 @@ def mint_service_credential(
     *,
     principal: str,
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
+    timeout_seconds: int | None = None,
 ) -> ServiceCredential:
     """Mint a new org-scoped service credential for a short-lived job.
 
@@ -116,17 +117,23 @@ def mint_service_credential(
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 
+    request_kwargs: dict[str, Any] = {
+        "json_body": {
+            "principal": principal,
+            "ttl_seconds": ttl_seconds,
+        },
+        "require_enabled": False,
+    }
+    if timeout_seconds is not None:
+        request_kwargs["timeout"] = timeout_seconds
+
     response = _request(
         "POST",
         organization_id,
         "/service-credentials",
-        json_body={
-            "principal": principal,
-            "ttl_seconds": ttl_seconds,
-        },
         # Backend caller: never gate on the user-facing data-warehouse feature
         # flag (a dagster worker may not have the flag definition loaded).
-        require_enabled=False,
+        **request_kwargs,
     )
     if not status.is_success(response.status_code):
         raise ServiceCredentialUnavailable(
@@ -236,8 +243,7 @@ def _parse_connect(data: dict[str, Any], *, action: str = "mint") -> ServiceCred
     connect-bundle change. A 2xx without it means the CP is older than the
     contract; the service-credential conninfo builder no longer reads the
     ``DuckgresServer`` row, so there is nothing to fall back to here and we
-    raise ``ServiceCredentialUnavailable`` (the caller's broad fallback to
-    root engages — the established transitional degradation).
+    raise ``ServiceCredentialUnavailable`` so the caller can apply its configured fallback.
     """
     raw = data.get("connect")
     if not isinstance(raw, dict):

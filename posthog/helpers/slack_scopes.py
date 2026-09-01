@@ -16,8 +16,7 @@ logger = structlog.get_logger(__name__)
 # canvases:write/files:write are also excluded: they were approved only recently, so every install
 # authorized before then lacks them and gating mentions on them would hard-block those workspaces
 # until they reconnect. The artifact delivery path
-# (products/tasks/backend/logic/services/living_artifacts.py) checks them at point of use instead,
-# behind the slack-app-canvas-file-artifacts feature flag.
+# (products/tasks/backend/logic/services/living_artifacts.py) checks them at point of use instead.
 REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
     {
         "app_mentions:read",
