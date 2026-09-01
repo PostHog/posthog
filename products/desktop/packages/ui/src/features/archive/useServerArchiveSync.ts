@@ -1,12 +1,16 @@
+import {
+  ARCHIVE_CLIENT,
+  type ArchiveClient,
+} from "@posthog/core/archive/identifiers";
 import { pendingServerArchiveIds } from "@posthog/core/archive/serverArchiveSync";
-import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
+import { useService } from "@posthog/di/react";
 import { useServerArchiveSyncStore } from "@posthog/ui/features/archive/serverArchiveSyncStore";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const log = logger.scope("server-archive-sync");
 
@@ -30,18 +34,9 @@ export function forgetServerArchive(taskId: string): void {
 /** Keep the local archive and the shared server archive aligned across devices. */
 export function useServerArchiveSync(): void {
   const client = useOptionalAuthenticatedClient();
-  const trpc = useHostTRPC();
-  const hostClient = useHostTRPCClient();
+  const archiveClient = useService<ArchiveClient>(ARCHIVE_CLIENT);
   const archivedTaskIds = useArchivedTaskIds();
   const queryClient = useQueryClient();
-  const archiveCacheKeys = useMemo(
-    () => ({
-      ids: trpc.archive.archivedTaskIds.queryKey(),
-      list: trpc.archive.list.queryKey(),
-      pathFilter: trpc.archive.pathFilter().queryKey,
-    }),
-    [trpc],
-  );
   // Queued restores re-fire the effect. Mirrored-id progress deliberately
   // doesn't: this hook lives at the root, and subscribing to a record that
   // grows once per PATCH would re-render the tree hundreds of times per drain.
@@ -53,14 +48,14 @@ export function useServerArchiveSync(): void {
   const rerunRequested = useRef(false);
   const archivedRef = useRef(archivedTaskIds);
   const clientRef = useRef(client);
-  const hostClientRef = useRef(hostClient);
+  const archiveClientRef = useRef(archiveClient);
 
   // The drain loop re-reads these between passes. If a trigger lands too late
   // for the running drain to see it, rerunRequested starts another pass.
   useEffect(() => {
     archivedRef.current = archivedTaskIds;
     clientRef.current = client;
-    hostClientRef.current = hostClient;
+    archiveClientRef.current = archiveClient;
   });
 
   useEffect(() => {
@@ -131,17 +126,13 @@ export function useServerArchiveSync(): void {
         if (api) {
           const serverArchive = await api.getTasksWithStatus(
             { archived: true, limit: 100 },
-            { maxPages: 50 },
+            { fetchAll: true },
           );
-          if (!serverArchive.isComplete) {
-            log.warn("Server archive sync reached its task limit");
-          }
+          const pendingUnarchiveIds = new Set(
+            useServerArchiveSyncStore.getState().pendingUnarchiveTaskIds,
+          );
           for (const task of serverArchive.tasks) {
-            if (
-              useServerArchiveSyncStore
-                .getState()
-                .pendingUnarchiveTaskIds.includes(task.id)
-            ) {
+            if (pendingUnarchiveIds.has(task.id)) {
               continue;
             }
             if (archivedRef.current.has(task.id)) {
@@ -149,7 +140,7 @@ export function useServerArchiveSync(): void {
               continue;
             }
             try {
-              await hostClientRef.current.archive.archive.mutate({
+              await archiveClientRef.current.archive({
                 taskId: task.id,
                 title: task.title,
                 taskCreatedAt: task.created_at,
@@ -177,13 +168,7 @@ export function useServerArchiveSync(): void {
         await queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
       }
       if (imported > 0) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: archiveCacheKeys.ids }),
-          queryClient.invalidateQueries({ queryKey: archiveCacheKeys.list }),
-          queryClient.invalidateQueries({
-            queryKey: archiveCacheKeys.pathFilter,
-          }),
-        ]);
+        await archiveClientRef.current.refreshArchiveState();
       }
     })().finally(() => {
       running.current = false;
@@ -192,12 +177,5 @@ export function useServerArchiveSync(): void {
         setDrainGeneration((value) => value + 1);
       }
     });
-  }, [
-    archiveCacheKeys,
-    archivedTaskIds,
-    client,
-    pendingUnarchive,
-    queryClient,
-    drainGeneration,
-  ]);
+  }, [archivedTaskIds, client, pendingUnarchive, queryClient, drainGeneration]);
 }

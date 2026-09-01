@@ -416,6 +416,28 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  it("fetches every task page when requested", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-3" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { fetchAll: true }),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }, { id: "task-3" }],
+    });
+    expect(getTasksPage).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     ["pinned", { pinned: true }, "pinned", "true"],
     ["commented-by", { commentedBy: 17 }, "commented_by", "17"],

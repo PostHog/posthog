@@ -7,6 +7,13 @@ export const ARCHIVE_CLIENT = Symbol.for("posthog.core.archiveClient");
 export type ArchivedTaskContextMenuAction = "restore" | "delete";
 
 export interface ArchiveClient {
+  archive(input: {
+    taskId: string;
+    title?: string;
+    taskCreatedAt?: string;
+    repository?: string | null;
+  }): Promise<unknown>;
+  refreshArchiveState(): Promise<void>;
   unarchive(input: {
     taskId: string;
     recreateBranch?: boolean;

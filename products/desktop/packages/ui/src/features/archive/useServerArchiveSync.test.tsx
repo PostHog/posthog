@@ -8,21 +8,16 @@ const apiClient = vi.hoisted(() => ({
   setTaskArchived: vi.fn(),
 }));
 const archiveLocally = vi.hoisted(() => vi.fn());
+const refreshArchiveState = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => apiClient,
 }));
 
-vi.mock("@posthog/host-router/react", () => ({
-  useHostTRPC: () => ({
-    archive: {
-      archivedTaskIds: { queryKey: () => ["archive", "ids"] },
-      list: { queryKey: () => ["archive", "list"] },
-      pathFilter: () => ({ queryKey: ["archive", "path-filter"] }),
-    },
-  }),
-  useHostTRPCClient: () => ({
-    archive: { archive: { mutate: archiveLocally } },
+vi.mock("@posthog/di/react", () => ({
+  useService: () => ({
+    archive: archiveLocally,
+    refreshArchiveState,
   }),
 }));
 
@@ -50,6 +45,7 @@ describe("useServerArchiveSync", () => {
       isComplete: true,
     });
     archiveLocally.mockResolvedValue(undefined);
+    refreshArchiveState.mockResolvedValue(undefined);
     archivedIds.current = new Set();
     useServerArchiveSyncStore.setState({
       syncedTaskIds: [],
@@ -159,6 +155,11 @@ describe("useServerArchiveSync", () => {
       }),
     );
     expect(useServerArchiveSyncStore.getState().syncedTaskIds).toContain("t1");
+    expect(apiClient.getTasksWithStatus).toHaveBeenCalledWith(
+      { archived: true, limit: 100 },
+      { fetchAll: true },
+    );
+    expect(refreshArchiveState).toHaveBeenCalledOnce();
   });
 
   it("does not rearchive a local restore while its server update is pending", async () => {

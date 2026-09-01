@@ -2597,9 +2597,11 @@ export class PostHogAPIClient {
 
   async getTasksWithStatus(
     options?: TaskListOptions,
-    pagination?: { maxPages?: number },
+    pagination?: { maxPages?: number; fetchAll?: boolean },
   ): Promise<{ tasks: Task[]; isComplete: boolean }> {
-    const maxPages = pagination?.maxPages ?? 1;
+    const maxPages = pagination?.fetchAll
+      ? Number.POSITIVE_INFINITY
+      : (pagination?.maxPages ?? 1);
     const pageSize = Math.min(options?.limit ?? 100, 100);
     const tasks: Task[] = [];
     let count = 0;
