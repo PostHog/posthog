@@ -2,11 +2,12 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
+import { ConversionRateInputType, Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { runningTimeLogic } from './runningTimeLogic'
@@ -166,6 +167,59 @@ describe('runningTimeLogic', () => {
             // just resync so the tab stops being stale and the estimate recomputes from fresh state.
             expect(lemonToast.error).not.toHaveBeenCalled()
             expect(experimentLogicInstance.values.unmodifiedExperiment?.version).toEqual(9)
+        })
+
+        it('retries a request that never reached the server, so one blip does not blank the estimate', async () => {
+            calculateRunningTimeMock
+                .mockRejectedValueOnce(new NetworkError('offline'))
+                .mockResolvedValue({ recommended_sample_size: 2000, recommended_running_time_days: 20 })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['persistRunningTimeEstimate']).toFinishAllListeners()
+
+            expect(calculateRunningTimeMock).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('remainingDays', () => {
+        // A draft has no metric results, so automatic mode can never produce a live value for it.
+        // Drafts saved without the manual marker used to render "Not calculated" while the
+        // experiments list showed the saved estimate for the same experiment.
+        it.each([
+            [
+                'an automatic exposure estimate config',
+                { exposure_estimate_config: { conversionRateInputType: ConversionRateInputType.AUTOMATIC } },
+            ],
+            [
+                'a manual exposure estimate config',
+                {
+                    exposure_estimate_config: {
+                        conversionRateInputType: ConversionRateInputType.MANUAL,
+                        manualExposureRate: 0,
+                    },
+                },
+            ],
+        ])('reads the saved estimate for a draft with %s', async (_name, extraCalculation) => {
+            const draft = {
+                ...experiment,
+                start_date: null,
+                running_time_calculation: {
+                    recommended_running_time: 14,
+                    recommended_sample_size: 3000,
+                    ...extraCalculation,
+                },
+            } as unknown as Experiment
+            experimentLogicInstance.actions.setExperiment(draft)
+            experimentLogicInstance.actions.setUnmodifiedExperiment(draft)
+
+            logic = runningTimeLogic({ experiment: draft })
+            logic.mount()
+
+            expect(logic.values.remainingDays).toEqual(14)
+            expect(logic.values.targetSampleSize).toEqual(3000)
         })
     })
 })

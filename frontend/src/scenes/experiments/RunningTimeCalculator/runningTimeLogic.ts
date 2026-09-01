@@ -3,9 +3,11 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { retryWithBackoff } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
@@ -334,7 +336,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             null as RunningTimeCalculationResultApi | null,
             {
                 loadAutomaticCalculation: async (input: RunningTimeCalculationInputApi, breakpoint) => {
-                    const result = await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                    // The input subscription does not re-fire on an unchanged input, so a failure here
+                    // leaves the estimate empty for the rest of the page session. Retry a request that
+                    // never reached the server; a real HTTP status would fail the same way again.
+                    const result = await retryWithBackoff(
+                        () => experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input),
+                        { maxAttempts: 2, initialDelayMs: 300, shouldRetry: (error) => error instanceof NetworkError }
+                    )
                     breakpoint()
                     return result
                 },
@@ -512,7 +520,9 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 automaticInput: RunningTimeCalculationInputApi | null,
                 automaticCalculation: RunningTimeCalculationResultApi | null
             ): number | null => {
-                if (isManualMode) {
+                // A draft has no metric results, so automatic mode can never produce a live value for it.
+                // Read the estimate the calculator saved instead of showing nothing.
+                if (isManualMode || !isLaunched(experiment)) {
                     // Persisted by the save listener from the same backend calculation.
                     return experiment?.running_time_calculation?.recommended_sample_size ?? null
                 }
@@ -545,6 +555,14 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 rate: number | null,
                 experiment: Experiment
             ): number | null => {
+                // A draft has no exposures to measure against, so the saved estimate is the only real
+                // number. Read it rather than recomputing, so the header, the calculator modal and the
+                // experiments list all show the same duration. A negative value is not a duration.
+                const savedRunningTime = experiment?.running_time_calculation?.recommended_running_time
+                if (!isLaunched(experiment) && savedRunningTime != null && savedRunningTime >= 0) {
+                    return savedRunningTime
+                }
+
                 if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
