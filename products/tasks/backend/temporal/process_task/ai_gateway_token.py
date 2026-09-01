@@ -102,6 +102,8 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
     # review_hog was API-settable before its reservation, so a stored forged row
     # must not reach the mintable product; `internal` is server-stamped only.
     if gateway_product == "review_hog" and not internal:
+        # A firing means a stored forged row reached run time; keep it visible.
+        logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
