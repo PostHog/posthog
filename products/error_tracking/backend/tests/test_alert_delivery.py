@@ -10,7 +10,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
-from products.error_tracking.backend.temporal.alerts.delivery import plan_alert_deliveries
+from products.error_tracking.backend.temporal.alerts.delivery import deliver_alert_notifications, plan_alert_deliveries
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
@@ -158,6 +158,14 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert reply[0].destination.id == second_destination.id
         assert reply[0].thread is not None
         assert reply[0].thread.id == thread.id
+
+    def test_planned_delivery_is_reported_through_the_real_logger(self):
+        # The planning log runs structlog with the real processor chain: a kwarg
+        # that collides with structlog's positional `event` raises on every
+        # planned destination and fails the whole activity.
+        self._create_alert(triggers=["issue_created"])
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
 
 
 class TestAlertDeliveryDispatch(AlertTestMixin):
