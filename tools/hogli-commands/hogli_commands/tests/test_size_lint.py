@@ -4,10 +4,11 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli_commands import size_lint
+from hogli_commands import ci_preflight, size_lint
 from hogli_commands.size_lint import CROSSED_AT, NOTE_AT, _findings, _merge_base
 
 runner = CliRunner()
@@ -153,3 +154,45 @@ class TestSizeLint:
 
         assert result.exit_code == 0
         assert "0 file(s) checked" in result.output
+
+
+class TestPreflightForwardsDiffScope:
+    @pytest.mark.parametrize(
+        ("against", "strict", "expected"),
+        [
+            # No explicit base: the child repeats change detection's own origin/master
+            # then master fallback. Forwarding a default would pin it to a ref a clone
+            # may not have, and the check would silently find nothing.
+            pytest.param(None, False, [], id="default_base_stays_with_the_child"),
+            pytest.param(None, True, ["--committed"], id="strict_measures_commits"),
+            pytest.param("abc123", True, ["--against", "abc123", "--committed"], id="explicit_base_forwarded"),
+        ],
+    )
+    def test_only_an_explicit_base_is_forwarded(self, against: str | None, strict: bool, expected: list[str]) -> None:
+        check = ci_preflight.DiffCheck(
+            key="size",
+            label="file size",
+            triggers=["posthog/*.py"],
+            verify=["hogli", "lint:size"],
+            takes_files=True,
+            takes_diff_scope=True,
+            soft=True,
+        )
+        check.matched = ["posthog/api/team.py"]
+
+        with (
+            patch.object(ci_preflight.shutil, "which", return_value="/usr/bin/hogli"),
+            patch.object(
+                ci_preflight.subprocess, "run", return_value=MagicMock(returncode=0, stdout="", stderr="")
+            ) as run,
+        ):
+            ci_preflight._run_diff_check(check, False, against, strict)
+
+        command = run.call_args[0][0]
+        assert command[:2] == ["hogli", "lint:size"]
+        assert command[2:-1] == expected
+        assert command[-1] == "posthog/api/team.py"
+
+    def test_the_registered_size_check_opts_into_diff_scope(self) -> None:
+        registered = next(check for check in ci_preflight.DIFF_CHECKS if check.key == "size")
+        assert registered.takes_diff_scope

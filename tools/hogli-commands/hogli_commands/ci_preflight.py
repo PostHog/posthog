@@ -391,7 +391,7 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool, base: str, strict: bool) -> tuple[Status, str]:
+def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: bool) -> tuple[Status, str]:
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -413,11 +413,13 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool, base: str, strict: bool) -> tu
     else:
         cmd = list(chk.verify)
     if chk.takes_diff_scope:
-        # Without the base the child resolves its own, so `--against` on a stacked branch
-        # would leave the two disagreeing about which layer a change belongs to. Strict runs
-        # also pass `--committed`, because only commits are about to be pushed; advisory runs
-        # keep the working tree in scope and so must be measured from it.
-        cmd += ["--against", base]
+        # Forward only an explicit base. Passing a default would pin the child to
+        # `origin/master` while `changed_files` falls back to local `master`, and the two
+        # would then disagree in a clone that has no remote ref. Strict runs also pass
+        # `--committed`, because only commits are about to be pushed; advisory runs keep
+        # the working tree in scope and so must be measured from it.
+        if against is not None:
+            cmd += ["--against", against]
         if strict:
             cmd.append("--committed")
     if chk.takes_files:
@@ -726,7 +728,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix, base, strict)
+        status, detail = _run_diff_check(chk, do_fix, against, strict)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
