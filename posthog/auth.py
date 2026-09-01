@@ -33,7 +33,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
-from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
@@ -693,6 +693,24 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+EXPORT_RENDERER_SCOPES = frozenset({"heatmap:read", "session_recording:read"})
+
+
+def mint_export_renderer_token(*, user_id: int, team_id: int, exported_asset_id: int, scope: str) -> str:
+    if scope not in EXPORT_RENDERER_SCOPES:
+        raise ValueError(f"Unsupported export renderer scope: {scope}")
+    return encode_jwt(
+        {
+            "id": user_id,
+            "team_id": team_id,
+            "exported_asset_id": exported_asset_id,
+            "scopes": [scope],
+        },
+        timedelta(minutes=5),
+        PosthogJwtAudience.EXPORT_RENDERER,
+    )
+
+
 class ExportRendererAuthentication(authentication.BaseAuthentication):
     """
     Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
@@ -711,7 +729,36 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         try:
             token = authorization_match.group(1).strip()
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
-            user = User.objects.get(pk=info["id"])
+            user_id = info["id"]
+            team_id = info["team_id"]
+            exported_asset_id = info["exported_asset_id"]
+            scopes = info["scopes"]
+            if not isinstance(scopes, list) or len(scopes) != 1 or scopes[0] not in EXPORT_RENDERER_SCOPES:
+                raise AuthenticationFailed(detail="Token scope invalid.")
+
+            url_team_id = _team_id_from_request_path(request)
+            if url_team_id is not None and str(team_id) != url_team_id:
+                raise AuthenticationFailed(detail="Token project does not match the requested project.")
+
+            ExportedAsset = apps.get_model(app_label="exports", model_name="ExportedAsset")
+            asset = (
+                ExportedAsset.objects.only("id", "team_id", "created_by_id", "export_context")
+                .filter(id=exported_asset_id, team_id=team_id, created_by_id=user_id)
+                .first()
+            )
+            if asset is None:
+                raise AuthenticationFailed(detail="Token export asset invalid.")
+
+            export_context = asset.export_context or {}
+            if scopes[0] == "heatmap:read" and not export_context.get("heatmap_url"):
+                raise AuthenticationFailed(detail="Token scope does not match its export asset.")
+            if scopes[0] == "session_recording:read" and not export_context.get("session_recording_id"):
+                raise AuthenticationFailed(detail="Token scope does not match its export asset.")
+
+            self.scopes = scopes
+            self.team_id = team_id
+            self.exported_asset_id = exported_asset_id
+            user = User.objects.get(pk=user_id)
             return user, None
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
@@ -1251,7 +1298,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
 _TEAM_ID_URL_KWARGS = ("parent_lookup_team_id", "team_id", "parent_lookup_project_id", "project_id")
 
 
-def _team_id_from_request_path(request: Request) -> Optional[str]:
+def _team_id_from_request_path(request: Union[HttpRequest, Request]) -> Optional[str]:
     parser_context = getattr(request, "parser_context", None)
     if isinstance(parser_context, dict):
         kwargs = parser_context.get("kwargs")

@@ -85,6 +85,35 @@ class TestExports(APIBaseTest):
             export_context={"heatmap_url": "https://example.com/page"},
         ) == ["export:write", "heatmap:read"]
 
+    @parameterized.expand(
+        [
+            ("same_origin", "https://us.posthog.com/api/environments/1/heatmap_screenshots/2/content/", 201),
+            ("cross_origin", "https://example.com/collect", 400),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_screenshot_heatmap_export_requires_same_origin_url(
+        self, _name: str, heatmap_url: str, expected_status: int, mock_exporter_task
+    ) -> None:
+        with self.settings(SITE_URL="https://us.posthog.com"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports/",
+                {
+                    "export_format": ExportedAsset.ExportFormat.PNG,
+                    "export_context": {
+                        "heatmap_url": heatmap_url,
+                        "heatmap_data_url": "https://example.com/page",
+                        "heatmap_type": "screenshot",
+                    },
+                },
+            )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
+
     insight_filter_dict = {
         "events": [{"id": "$pageview"}],
         "properties": [{"key": "$browser", "value": "Mac OS X"}],
