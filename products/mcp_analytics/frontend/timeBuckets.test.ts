@@ -144,6 +144,14 @@ describe('timeBuckets', () => {
     })
 
     describe('resolveInterval', () => {
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
         // A pin outlives the window it was set on, so it has to give way once the window outgrows it:
         // charting a year hour by hour also runs past the query's row limit, which drops the newest
         // buckets. A pin that still fits has to beat the auto-choice — that's the point of pinning.
@@ -159,6 +167,14 @@ describe('timeBuckets', () => {
     })
 
     describe('intervalOptionsForWindow', () => {
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
         it('disables the intervals that would smear or collapse the window', () => {
             expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
                 { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
