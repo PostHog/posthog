@@ -1650,9 +1650,6 @@ class TestIsTransientVitessReparent:
 
 class TestIsTransientTiproxyUnavailable:
     def test_matches_tiproxy_unavailable(self):
-        # TiProxy accepts the TCP connection but can't reach a TiDB backend and sends back
-        # ER_UNKNOWN_ERROR (1105) with this fixed message during the MySQL auth handshake —
-        # a failover, restart, or momentary network blip that a fresh attempt recovers from.
         assert _is_transient_tiproxy_unavailable(
             pymysql.err.OperationalError(1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available")
         )

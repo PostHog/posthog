@@ -660,17 +660,17 @@ def _is_transient_vitess_reparent(e: BaseException) -> bool:
     return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
-# TiProxy (TiDB's connection proxy) surfaces this 1105 error when it can't reach a TiDB
-# node — a failover, a restart, or a momentary network blip. It arrives during the MySQL
-# auth handshake: TiProxy accepts the TCP connection but then can't route to a backend
-# TiDB node and sends back ER_UNKNOWN_ERROR (1105) with this fixed message. Like the
-# Vitess `code = Unavailable` case above (same error code, same proxy-layer pattern),
+# TiProxy (TiDB's connection proxy) surfaces this 1105 error when it cannot reach a TiDB
+# node due to a failover, a restart, or a momentary network blip. It arrives during the
+# MySQL auth handshake: TiProxy accepts the TCP connection but then cannot route to a
+# backend TiDB node and sends back ER_UNKNOWN_ERROR (1105) with this fixed message. Like
+# the Vitess `code = Unavailable` case above (same error code, same proxy-layer pattern),
 # a fresh attempt recovers once a healthy TiDB node is available.
 _TIPROXY_UNAVAILABLE_TOKEN = "TiProxy fails to connect to TiDB"
 
 
 def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
-    """Return True if TiProxy could not reach a TiDB backend — a transient blip."""
+    """Return True if TiProxy could not reach a TiDB backend due to a transient failure."""
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
