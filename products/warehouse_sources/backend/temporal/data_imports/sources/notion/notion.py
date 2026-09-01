@@ -712,6 +712,12 @@ def _iter_data_source_rows(
             # table.
             raise
         for page in data.get("results", []):
+            # A wiki data source returns a polymorphic result set: its child pages and its child data
+            # sources (nested databases). Only pages are rows in this table; the child data sources
+            # already sync through the `databases` stream, so skip them here. Emitting one would land a
+            # malformed row (object="data_source", a stray title column, empty property columns).
+            if page.get("object") == "data_source":
+                continue
             yield _flatten_database_row(page, data_source_id)
         if not data.get("has_more") or not data.get("next_cursor"):
             break

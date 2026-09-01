@@ -686,6 +686,43 @@ class TestNotion:
         assert session.calls[1]["url"].endswith("/v1/data_sources/ds-1/query")
         assert session.calls[2]["url"].endswith("/v1/data_sources/ds-2/query")
 
+    def test_database_rows_stream_skips_wiki_child_data_sources(self) -> None:
+        # A wiki data source returns both pages and child data sources (nested databases). This table
+        # is one row per page, and the child data sources already sync through the `databases` stream,
+        # so a data_source object must be skipped rather than emitted as a malformed row.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "ds-1"}], has_more=False, next_cursor=None)
+            return _list_response(
+                [
+                    {
+                        "object": "page",
+                        "id": "page-1",
+                        "properties": {"Name": {"type": "title", "title": [{"plain_text": "Task"}]}},
+                    },
+                    {"object": "data_source", "id": "child-db", "title": [{"plain_text": "Nested DB"}], "properties": {}},
+                ],
+                has_more=False,
+                next_cursor=None,
+            )
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        tables = list(
+            _database_rows_stream(
+                cast(requests.Session, session),
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+        )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["page-1"]
+
     def test_database_rows_stream_passes_incremental_watermark_to_query(self) -> None:
         # An incremental run must send the last_edited_time filter so Notion returns only changed
         # rows; a regression that drops it silently re-reads the whole database every sync. The
