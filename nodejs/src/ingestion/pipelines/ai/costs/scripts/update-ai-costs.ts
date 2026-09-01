@@ -3,7 +3,8 @@ import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
-import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
+import committedOpenRouterCostsRaw from '~/ingestion/pipelines/ai/costs/providers/llm-costs.json'
+import type { ModelCost, ModelCostRow } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 interface ModelRow {
     model: string
@@ -12,6 +13,9 @@ interface ModelRow {
 
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 const OPENROUTER_COSTS_FILENAME = 'llm-costs.json'
+const COMMITTED_DEFAULT_COSTS = new Map<string, ModelCost>(
+    (committedOpenRouterCostsRaw as ModelCostRow[]).map((row) => [row.model.toLowerCase(), row.cost.default])
+)
 
 const parsePricingNumber = (value: unknown): number | undefined => {
     if (value === null || value === undefined) {
@@ -432,9 +436,31 @@ interface ListedModel {
     pricing?: Record<string, unknown>
 }
 
+const preservePreviousDefaultModalityRates = (
+    pricing: Record<string, unknown> | undefined,
+    previousDefault: ModelCost | undefined
+): Record<string, unknown> | undefined => {
+    if (!previousDefault) {
+        return pricing
+    }
+
+    const preserved = { ...pricing }
+    for (const field of MODALITY_OUTPUT_FIELDS) {
+        const currentRate = parsePricingNumber(pricing?.[field])
+        if ((currentRate === undefined || currentRate === 0) && previousDefault[field] !== undefined) {
+            preserved[field] = previousDefault[field]
+        }
+    }
+    return preserved
+}
+
 /** Takes the endpoint reader as an argument so this loop is reachable without a
  * network. */
-export const collectModelRows = async (models: ListedModel[], readEndpoints: EndpointFetcher): Promise<RunTotals> => {
+export const collectModelRows = async (
+    models: ListedModel[],
+    readEndpoints: EndpointFetcher,
+    previousDefaults: ReadonlyMap<string, ModelCost> = new Map()
+): Promise<RunTotals> => {
     let totals: RunTotals = { models: [], discounts: [], uncheckedModels: 0 }
 
     for (const [modelIndex, model] of models.entries()) {
@@ -444,7 +470,15 @@ export const collectModelRows = async (models: ListedModel[], readEndpoints: End
         }
 
         console.log(`Fetching endpoint pricing for ${modelIndex + 1}/${models.length} ${model.id}...`)
-        totals = foldModelIntoTotals(model.id, model.pricing, await readEndpoints(model.id), totals)
+        let endpoints: unknown[]
+        let pricing = model.pricing
+        try {
+            endpoints = await readEndpoints(model.id)
+        } catch {
+            endpoints = []
+            pricing = preservePreviousDefaultModalityRates(pricing, previousDefaults.get(model.id.toLowerCase()))
+        }
+        totals = foldModelIntoTotals(model.id, pricing, endpoints, totals)
     }
 
     if (totals.uncheckedModels > 0) {
@@ -506,7 +540,7 @@ export const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     }
 
     console.log('OpenRouter models:', data.data.length)
-    return collectModelRows(data.data, readEndpointsFromOpenRouter)
+    return collectModelRows(data.data, readEndpointsFromOpenRouter, COMMITTED_DEFAULT_COSTS)
 }
 
 const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {
