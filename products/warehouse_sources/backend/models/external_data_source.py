@@ -89,6 +89,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+        indexes = [
+            # Scheduled sweeps filter by source_type (and prefix) with no team predicate; without
+            # this the whole table is scanned. See migration 0157.
+            models.Index(fields=["source_type", "prefix"], name="idx_extdatasource_type_prefix"),
+        ]
 
     @property
     def is_direct_query(self) -> bool:
