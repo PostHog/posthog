@@ -186,6 +186,8 @@ BLOCK_FETCH_RETRY_COUNTER = Counter(
 
 # The user waits for these retries, so keep the extra latency small. The budget also stops
 # a slow Recording API from multiplying the 30 second per-request timeout by the attempts.
+# The budget is checked between attempts, not during one. So a read already in flight can
+# outlast it, and the worst case is the budget plus one 30 second request timeout.
 BLOCK_FETCH_MAX_ATTEMPTS = 3
 BLOCK_FETCH_RETRY_BUDGET_SECONDS = 10
 
