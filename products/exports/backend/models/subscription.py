@@ -624,6 +624,8 @@ class SubscriptionDelivery(UUIDModel):
             models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
             # Serves the per-run "last successful delivery" anchor lookup.
             models.Index(fields=["subscription", "status", "-finished_at"], name="posthog_subdel_sub_fin"),
+            # Serves status-filtered reads that keep the default -created_at order.
+            models.Index(fields=["subscription", "status", "-created_at"], name="posthog_subdel_sub_st_crtd"),
         ]
         ordering = ["-created_at"]
 
