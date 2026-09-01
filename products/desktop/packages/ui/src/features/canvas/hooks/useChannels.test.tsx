@@ -164,11 +164,14 @@ describe("useChannelMutations", () => {
 
   it("updates the shared channel cache after changing automatic archiving", async () => {
     const existing = taskChannel("1", "alpha");
-    mockClient.getTaskChannels.mockResolvedValue([existing]);
-    mockClient.updateTaskChannelAutoArchive.mockResolvedValue({
+    const updated = {
       ...existing,
       auto_archive_after_days: 7,
-    });
+    };
+    mockClient.getTaskChannels
+      .mockResolvedValueOnce([existing])
+      .mockResolvedValue([updated]);
+    mockClient.updateTaskChannelAutoArchive.mockResolvedValue(updated);
 
     const list = renderHook(() => useChannels(), { wrapper });
     await waitFor(() => expect(list.result.current.isLoading).toBe(false));
