@@ -71,6 +71,19 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
                 "advertiser campaigns, if the time zone or currency code setting is unrecognised, or if the account "
                 "is not fully configured in One Platform. Check your account settings, or contact Rokt support."
             ),
+            # Raised by build_report_body when the account lacks a dimension that sets the row grain.
+            # Dropping the dimension would silently collapse rows, so the only safe options are to
+            # deselect the table or ask Rokt to enable the dimension — both require user action.
+            "Deselect this table or ask Rokt to enable those dimensions": (
+                "This Rokt account cannot report on one or more dimensions this table needs to identify rows. "
+                "Deselect this table in the sync settings, or contact Rokt to enable the missing dimensions "
+                "for your account, then re-enable the sync."
+            ),
+            # Raised when the account grants none of the metrics the endpoint declares.
+            "Rokt account grants none of the metrics": (
+                "This Rokt account has no metrics enabled for this table. Deselect this table in the sync "
+                "settings, or contact Rokt to enable metrics for your account, then re-enable the sync."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
