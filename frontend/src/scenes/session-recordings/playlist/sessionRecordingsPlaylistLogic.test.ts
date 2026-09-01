@@ -1640,6 +1640,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('getDefaultFilters', () => {
         beforeEach(() => {
+            // clearMocks resets calls but keeps implementations, so a spy set in
+            // one case would otherwise leak into the next
+            jest.restoreAllMocks()
             localStorage.clear()
         })
 
@@ -1658,6 +1661,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
             localStorage.setItem('default_filter_test_accounts', 'false')
             const result = getDefaultFilters()
             expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('still returns defaults when reading localStorage throws', () => {
+            // Firefox raises a bare NS_ERROR_FAILURE when its storage backend is
+            // unavailable. This read runs while the recordings playlist mounts,
+            // so a throw here reached React and blanked the whole scene
+            jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+                throw new Error('NS_ERROR_FAILURE')
+            })
+
+            expect(() => getDefaultFilters()).not.toThrow()
+            expect(getDefaultFilters().filter_test_accounts).toBe(false)
         })
 
         it('returns date_from as -30d for person recordings', () => {
