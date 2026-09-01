@@ -85768,9 +85768,9 @@ export namespace Schemas {
     }
 
     export interface UserBlastRadiusResponse {
-      /** Number of entities matching the condition (users or groups depending on group_type_index) */
+      /** Number of entities matching the condition. For person-based flags this counts persons active in the last 30 days; for group-based flags it counts all groups of this type. */
       affected: number;
-      /** Total number of entities of this type in the project */
+      /** Denominator the affected count is shown against. For person-based flags this is the number of persons active in the last 30 days; for group-based flags it is the all-time number of groups of this type in the project. */
       total: number;
     }
 
