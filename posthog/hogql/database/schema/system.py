@@ -2540,7 +2540,7 @@ usage_metrics: PostgresTable = PostgresTable(
         ),
         "filters": StringJSONDatabaseField(
             name="filters",
-            description='JSON event filters defining what the metric counts: {"events": [...], "properties": [...]}.',
+            description='JSON event/action filters ({"events": [...], "actions": [...], "properties": [...]}) or data warehouse filters ({"source": "data_warehouse", "table_name": "...", "timestamp_field": "...", "key_field": "..."}).',
         ),
         "math": StringDatabaseField(
             name="math", description="Aggregation: 'count' or 'sum'; 'sum' aggregates math_property."
