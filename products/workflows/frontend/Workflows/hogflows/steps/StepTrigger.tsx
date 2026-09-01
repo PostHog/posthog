@@ -58,6 +58,7 @@ import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/Hog
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -372,7 +373,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                         users, use a batch trigger instead.
                     </p>
                     <LemonField.Pure error={validationResult?.errors?.schedule}>
-                        <RecurringSchedulePicker />
+                        <WorkflowRecurringSchedulePicker />
                     </LemonField.Pure>
                 </div>
             ) : node.data.config.type === 'batch' ? (
@@ -515,6 +516,25 @@ function StepTriggerConfigurationManual(): JSX.Element {
     )
 }
 
+function WorkflowRecurringSchedulePicker(): JSX.Element {
+    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
+
+    return (
+        <RecurringSchedulePicker
+            state={scheduleState}
+            startsAt={scheduleStartsAt}
+            timezone={scheduleTimezone}
+            repeating={isScheduleRepeating}
+            onStateChange={setScheduleState}
+            onStartsAtChange={setScheduleStartsAtFromPicker}
+            onTimezoneChange={setScheduleTimezone}
+            onRepeatingChange={setScheduleRepeating}
+        />
+    )
+}
+
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
     const isAccountAudience = filters?.audience_type === 'accounts'
@@ -580,7 +600,7 @@ function BatchScheduleSection(): JSX.Element {
         <>
             <LemonDivider />
             <LemonLabel showOptional>Schedule</LemonLabel>
-            <RecurringSchedulePicker />
+            <WorkflowRecurringSchedulePicker />
         </>
     )
 }
@@ -927,8 +947,6 @@ function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
 
-    const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
-
     return (
         <div className="flex flex-col py-2 w-full">
             <span className="flex gap-1 items-center">
@@ -943,41 +961,11 @@ function ConversionGoalSection(): JSX.Element {
                 considered converted.
             </p>
 
-            <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1 items-start">
-                    <LemonLabel>Detect conversion from property changes</LemonLabel>
-                    <PropertyFilters
-                        buttonText="Add property conversion"
-                        buttonClassName="grow-0"
-                        propertyFilters={workflow.conversion?.filters ?? []}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
-                        pageKey="workflow-conversion-properties"
-                        hideBehavioralCohorts
-                        operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
-                        logicalRowDivider
-                    />
-                </div>
-
-                <div className="flex flex-col gap-1 items-start w-full">
-                    <LemonLabel>Detect conversion from events</LemonLabel>
-                    <HogFlowEventFilters
-                        filtersKey="workflow-conversion-events"
-                        filters={conversionEventFilters}
-                        setFilters={(newFilters) =>
-                            setWorkflowValue('conversion', {
-                                ...workflow.conversion,
-                                events: newFilters ? [{ filters: newFilters }] : undefined,
-                            })
-                        }
-                        typeKey="workflow-conversion-event"
-                        buttonCopy="Add event"
-                    />
-                </div>
-            </div>
+            <ConversionGoalEditor
+                conversion={workflow.conversion}
+                onChange={(conversion) => setWorkflowValue('conversion', conversion)}
+                pageKey="workflow-conversion"
+            />
         </div>
     )
 }
