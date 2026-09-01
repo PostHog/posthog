@@ -150,6 +150,15 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="firetiger.com",
     ),
     CatalogEntry(
+        name="Folklore",
+        url="https://api.helena.bio/folklore/v1/mcp",
+        description="Interpret supported GRCh38 germline variants with structured ACMG/AMP evidence and literature.",
+        auth_type="api_key",
+        category="data",
+        icon_domain="helena.bio",
+        docs_url="https://folklore.helena.bio",
+    ),
+    CatalogEntry(
         name="GitLab",
         url="https://gitlab.com/api/v4/mcp",
         description="Manage GitLab issues, merge requests, pipelines, and repos.",
