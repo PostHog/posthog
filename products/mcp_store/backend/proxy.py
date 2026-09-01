@@ -19,7 +19,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext
-from .url_policy import allow_internal_mcp_url, trust_environment_proxy
+from .url_policy import check_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -458,7 +458,7 @@ def proxy_mcp_request(
     rides, so the audit trail answers whose connection an agent used. Both are
     empty for member calls, where the actor already is the credential owner.
     """
-    allowed, error = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
+    allowed, error = check_mcp_url_policy(installation.url, installation.team_id)
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
         return HttpResponse(

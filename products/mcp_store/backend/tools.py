@@ -13,13 +13,12 @@ from django.utils import timezone
 import httpx
 import structlog
 
-from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
-from .url_policy import allow_internal_mcp_url, trust_environment_proxy
+from .url_policy import check_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -79,7 +78,7 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     Shares the proxy's SSRF guard + timeout + auth-header builder so behavior stays
     consistent between proxy traffic and sync traffic.
     """
-    allowed, reason = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
+    allowed, reason = check_mcp_url_policy(installation.url, installation.team_id)
     if not allowed:
         raise ToolsFetchError(f"URL not allowed: {reason}")
 
@@ -131,7 +130,7 @@ def call_upstream_tool(
     the gateway's policy engine first (see ``enforce_tool_approval``), so this stays
     a transport concern.
     """
-    allowed, reason = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
+    allowed, reason = check_mcp_url_policy(installation.url, installation.team_id)
     if not allowed:
         raise ToolCallError(f"URL not allowed: {reason}")
 

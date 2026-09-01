@@ -35,9 +35,9 @@ from products.mcp_store.backend.models import (
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
 
 # Re-exported for the presentation layer ("presentation must use facade"
-# import-linter contract): the operator-configured internal-endpoint escape
-# hatch that overrides a failed public SSRF check for exact-match URLs.
-from products.mcp_store.backend.url_policy import allow_internal_mcp_url as allow_internal_mcp_url
+# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# validation, overridden only by the exact team-scoped internal allowlist.
+from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
 
 logger = structlog.get_logger(__name__)
 

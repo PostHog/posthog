@@ -9,12 +9,25 @@ sibling paths or grant another team access.
 
 from django.conf import settings
 
+from posthog.security.url_validation import is_url_allowed
+
 
 def is_internal_mcp_url(url: str, team_id: int | None) -> bool:
     if team_id is None:
         return False
     urls = settings.MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM.get(str(team_id), [])
     return isinstance(urls, list) and url in urls
+
+
+def check_mcp_url_policy(url: str, team_id: int | None) -> tuple[bool, str | None]:
+    """The single entry point for MCP URL policy: shared SSRF validation,
+    overridden only by an exact team-scoped internal-allowlist match.
+
+    Call sites must use this rather than composing ``is_url_allowed`` with
+    ``allow_internal_mcp_url`` themselves — a caller that forgets one half (or
+    reorders the splatted positional results) silently drops the policy.
+    """
+    return allow_internal_mcp_url(url, team_id, *is_url_allowed(url))
 
 
 def allow_internal_mcp_url(url: str, team_id: int | None, allowed: bool, reason: str | None) -> tuple[bool, str | None]:
