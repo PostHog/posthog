@@ -393,18 +393,18 @@ describe('buildModelRow()', () => {
         expect(built!.cost.openai.prompt_token).toBe(0.000001)
     })
 
-    it('backfills a modality-output rate onto `default` from a provider variant', () => {
-        // OpenRouter omits image_output from the model-level pricing but serves it
-        // per endpoint. Without the backfill `default` bills image tokens at the
-        // ~10x-lower completion rate (issue in google/gemini-3-pro-image-preview).
+    it.each([
+        { field: 'image_output' as const, rate: 0.00012 },
+        { field: 'audio_output' as const, rate: 0.00006 },
+    ])('backfills $field onto `default` from a provider variant', ({ field, rate }) => {
         const built = buildModelRow('google/gemini-3-pro-image-preview', listPricing, [
             {
                 tag: 'google-vertex',
                 provider_name: 'google-vertex',
-                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00012' },
+                pricing: { prompt: '0.0000005', completion: '0.0000005', [field]: String(rate) },
             },
         ])
-        expect(built!.cost.default.image_output).toBe(0.00012)
+        expect(built!.cost.default[field]).toBe(rate)
     })
 
     it('leaves an existing `default` modality rate untouched', () => {
@@ -419,8 +419,6 @@ describe('buildModelRow()', () => {
     })
 
     it('prefers an undiscounted variant when backfilling a modality rate', () => {
-        // With both a discounted and an undiscounted variant carrying the rate,
-        // `default` takes the undiscounted one, whose served rate is its list price.
         const built = buildModelRow('x/y', listPricing, [
             {
                 tag: 'discounted',
@@ -436,10 +434,47 @@ describe('buildModelRow()', () => {
         expect(built!.cost.default.image_output).toBe(0.00012)
     })
 
+    it('prefers the endpoint tier that matches the default prompt rate regardless of response order', () => {
+        const standard = {
+            tag: 'google-standard',
+            provider_name: 'google-standard',
+            pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00012' },
+        }
+        const flex = {
+            tag: 'google-flex',
+            provider_name: 'google-flex',
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006' },
+        }
+
+        const rates = [
+            buildModelRow('x/y', listPricing, [flex, standard])!.cost.default.image_output,
+            buildModelRow('x/y', listPricing, [standard, flex])!.cost.default.image_output,
+        ]
+
+        expect(rates).toEqual([0.00012, 0.00012])
+    })
+
+    it('uses the provider key as a deterministic fallback when no endpoint matches the default prompt rate', () => {
+        const firstByKey = {
+            tag: 'a-provider',
+            provider_name: 'a-provider',
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006' },
+        }
+        const lastByKey = {
+            tag: 'z-provider',
+            provider_name: 'z-provider',
+            pricing: { prompt: '0.00000075', completion: '0.00000075', image_output: '0.00009' },
+        }
+
+        const rates = [
+            buildModelRow('x/y', listPricing, [lastByKey, firstByKey])!.cost.default.image_output,
+            buildModelRow('x/y', listPricing, [firstByKey, lastByKey])!.cost.default.image_output,
+        ]
+
+        expect(rates).toEqual([0.00006, 0.00006])
+    })
+
     it('backfills the served rate, not the list rate, when every variant is discounted', () => {
-        // The fallback branch: no undiscounted variant carries the rate. `default`
-        // must get what OpenRouter serves (0.00005), not the de-discounted list
-        // price the provider key holds (0.00005 / (1 - 0.5) = 0.0001).
         const built = buildModelRow('x/y', listPricing, [
             {
                 tag: 'discounted',

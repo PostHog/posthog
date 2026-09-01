@@ -146,25 +146,24 @@ export interface EndpointCandidate {
     discount: number
 }
 
-/** output-costs.ts bills these output-modality rates at the text completion rate
- * when `default` lacks them, which underbills image tokens by about 10x. OpenRouter
- * sometimes omits the rate from the model-level pricing that builds `default`, yet
- * still serves it per endpoint. */
 export const MODALITY_OUTPUT_FIELDS: ReadonlyArray<keyof ModelCost> = ['image_output', 'audio_output']
 
-/** Copies a modality-output rate onto `default` from a provider variant when the
- * model-level pricing omits it. Reads the variant's served rate, not its
- * de-discounted list rate, because `default` holds what OpenRouter bills. Prefers
- * an undiscounted variant for a stable rate, then falls back to any variant's
- * served rate, which still beats the completion fallback. */
 export const backfillDefaultModalityRates = (defaultCost: ModelCost, candidates: EndpointCandidate[]): void => {
     for (const field of MODALITY_OUTPUT_FIELDS) {
         if (defaultCost[field] !== undefined) {
             continue
         }
+
+        const sources = candidates
+            .filter((candidate) => candidate.servedCost[field] !== undefined)
+            .sort((left, right) => left.key.localeCompare(right.key))
+        const matchesDefaultPromptRate = (candidate: EndpointCandidate): boolean =>
+            candidate.servedCost.prompt_token === defaultCost.prompt_token
         const source =
-            candidates.find((candidate) => candidate.discount === 0 && candidate.servedCost[field] !== undefined) ??
-            candidates.find((candidate) => candidate.servedCost[field] !== undefined)
+            sources.find((candidate) => matchesDefaultPromptRate(candidate) && candidate.discount === 0) ??
+            sources.find(matchesDefaultPromptRate) ??
+            sources.find((candidate) => candidate.discount === 0) ??
+            sources[0]
         const rate = source?.servedCost[field]
         if (rate !== undefined) {
             defaultCost[field] = rate
