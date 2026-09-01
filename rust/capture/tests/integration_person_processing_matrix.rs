@@ -41,6 +41,7 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::OutputRegistry;
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::kafka::KafkaSinkBase;
@@ -238,7 +239,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         },
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         Some(Arc::new(limiter)),
         quota_limiter,
