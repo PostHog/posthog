@@ -136,9 +136,9 @@ export const NoPerformanceObserverCapturedData: Story = {
     },
 }
 
-// A fetch that was blocked (firewall, CORS, or network error) has a method but no status,
-// and the browser cannot measure its size. It should read as "failed", not as a success.
-export const BlockedRequest: Story = {
+// A fetch that recorded no response (blocked, network error, or cancelled) has a method but no
+// status, and the browser cannot measure its size. It should read as "no response", not a success.
+export const NoResponseRecorded: Story = {
     args: {
         item: {
             entry_type: 'resource',

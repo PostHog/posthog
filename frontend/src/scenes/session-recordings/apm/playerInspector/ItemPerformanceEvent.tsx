@@ -10,7 +10,12 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { isKeyOf } from 'lib/utils/guards'
 import { isURL } from 'lib/utils/url'
-import { PerformanceEventSizeInfo, itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
+import {
+    isAutoRedactedBody,
+    itemSizeInfo,
+    PerformanceEventSizeInfo,
+    unreadableBodyExplanation,
+} from 'scenes/session-recordings/apm/performance-event-utils'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
@@ -110,13 +115,15 @@ function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
     ) : null
 }
 
-export function isFailedNetworkRequest(item: PerformanceEvent): boolean {
-    // A captured fetch/XHR (method present) that did not complete: blocked by a firewall,
-    // rejected by CORS, or a network error. Skip navigations and requests captured before
-    // PostHog started. A fetch that throws records no status, while a successful opaque
-    // cross-origin fetch records 0, so for fetch only an absent status means failure. An
-    // XHR cannot be opaque, so it reports status 0 for its CORS, network, abort, and
-    // timeout failures.
+export function hasNoRecordedResponse(item: PerformanceEvent): boolean {
+    // A captured fetch/XHR (method present) that recorded no response. Skip navigations and
+    // requests captured before PostHog started. A fetch that throws records no status, while a
+    // successful opaque cross-origin fetch records 0, so for fetch only an absent status means
+    // no response. An XHR cannot be opaque, so it reports status 0 when it recorded none.
+    //
+    // The cause is not knowable from here: a firewall block, CORS, and a network error look the
+    // same as an abort, and aborts are routine in an app that cancels in-flight requests. So this
+    // reports only that no response was recorded, and never calls the request failed.
     return (
         item.entry_type !== 'navigation' &&
         !item.is_initial &&
@@ -217,8 +224,8 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                     <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
                         <MethodTag item={item} />
                         <PerformanceEventLabel name={item.name} expanded={false} />
-                        {/* Highlight the request when it returned an error status, or when it broke
-                            without a status at all (blocked by a firewall, CORS, or a network error) */}
+                        {/* Highlight the request when it returned an error status, or when no
+                            response was recorded for it at all */}
                         {otherProps.response_status && otherProps.response_status >= 400 ? (
                             <span
                                 className={clsx(
@@ -228,8 +235,8 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                             >
                                 {otherProps.response_status}
                             </span>
-                        ) : isFailedNetworkRequest(item) ? (
-                            <span className="font-semibold text-danger-dark">failed</span>
+                        ) : hasNoRecordedResponse(item) ? (
+                            <span className="font-semibold text-warning-dark">no response</span>
                         ) : null}
                         {renderTimeBenchmark(duration)}
                         <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes || 'size not available'}</span>
@@ -379,32 +386,6 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
     )
 }
 
-// The SDK stores a diagnostic string as the body when it cannot record the real one.
-// Translate the known messages so the reader sees why the body is missing, not raw SDK output.
-function networkBodyDiagnostic(content: string): string | null {
-    const prefix = '[SessionReplay] '
-    if (!content.startsWith(prefix)) {
-        return null
-    }
-    const message = content.slice(prefix.length)
-    if (message.startsWith('Timeout')) {
-        return 'PostHog stopped reading this body because it took too long.'
-    }
-    if (message.startsWith('Body too large')) {
-        return "PostHog didn't record this body because it was too large."
-    }
-    if (message.startsWith('Cannot read body of type')) {
-        return "PostHog couldn't record this body because its type isn't supported."
-    }
-    if (message.startsWith('Failed to stringify')) {
-        return "PostHog couldn't record this body because it couldn't be converted to text."
-    }
-    if (message.startsWith('Failed to read body')) {
-        return "PostHog couldn't read this body."
-    }
-    return "PostHog couldn't record this body."
-}
-
 export function BodyDisplay({
     content,
     headers,
@@ -430,7 +411,7 @@ export function BodyDisplay({
         language = Language.JSON
     }
 
-    const bodyDiagnostic = networkBodyDiagnostic(displayContent)
+    const bodyDiagnostic = unreadableBodyExplanation(displayContent)
     if (bodyDiagnostic) {
         return (
             <>
@@ -440,9 +421,7 @@ export function BodyDisplay({
         )
     }
 
-    const isAutoRedaction = /(\[SessionRecording].*redacted)/.test(displayContent)
-
-    return isAutoRedaction ? (
+    return isAutoRedactedBody(displayContent) ? (
         <>
             <p>
                 This content was redacted by PostHog to protect sensitive data.{' '}
@@ -504,16 +483,17 @@ export function HeadersDisplay({
 export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed: boolean }): JSX.Element | null {
     const { response_status: responseStatus, transfer_size: transferSize, response_body: responseBody } = item
 
-    if (isFailedNetworkRequest(item)) {
-        // A captured request that did not complete: a blocked fetch with no status, or a
-        // failed XHR that reports status 0. Render the failure here so every renderer that
-        // shares StatusTag marks it, including the network waterfall, not just the inspector list.
+    if (hasNoRecordedResponse(item)) {
+        // Render this here so every renderer that shares StatusTag marks it, including the
+        // network waterfall, not just the inspector list.
         return (
             <div className="flex gap-4 items-center justify-between overflow-hidden">
                 {detailed ? <div className="font-semibold">Status code</div> : null}
                 <div>
-                    <LemonTag type="danger">Failed</LemonTag>
-                    {detailed ? <span className="text-secondary"> no response received</span> : null}
+                    <LemonTag type="warning">No response</LemonTag>
+                    {detailed ? (
+                        <span className="text-secondary"> the request was blocked, failed, or cancelled</span>
+                    ) : null}
                 </div>
             </div>
         )
@@ -564,7 +544,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let statusRow = null
     let methodRow = null
 
-    if (item.response_status || isFailedNetworkRequest(item)) {
+    if (item.response_status || hasNoRecordedResponse(item)) {
         statusRow = <StatusTag item={item} detailed={true} />
     }
 

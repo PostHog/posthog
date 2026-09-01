@@ -315,11 +315,58 @@ function hasMeasuredSize(value: any): value is number {
     return typeof value === 'number' && value > 0
 }
 
-function isUnreadableBodyPlaceholder(body: PerformanceEvent['response_body']): boolean {
-    // The SDK writes a diagnostic string into the body when it cannot read the real one,
-    // for example a read timeout or a body over the record limit. Such a string is not a
-    // body, so measuring it would report the diagnostic length as the response size.
-    return typeof body === 'string' && body.startsWith('[SessionReplay] ')
+// The SDK writes a diagnostic string into the body when it cannot record the real one,
+// for example a read timeout or a body over the record limit. Some of those messages carry a
+// "[SessionReplay] " prefix and some do not, so match both shapes here. Returns a reader-facing
+// explanation, or null when the body is a real one.
+export function unreadableBodyExplanation(body: unknown): string | null {
+    if (typeof body !== 'string') {
+        return null
+    }
+
+    const prefix = '[SessionReplay] '
+    if (body.startsWith(prefix)) {
+        const message = body.slice(prefix.length)
+        if (message.startsWith('Timeout')) {
+            return 'PostHog stopped reading this body because it took too long.'
+        }
+        if (message.startsWith('Body too large')) {
+            return "PostHog didn't record this body because it was too large."
+        }
+        if (message.startsWith('Cannot read body of type')) {
+            return "PostHog couldn't record this body because its type isn't supported."
+        }
+        if (message.startsWith('Failed to stringify')) {
+            return "PostHog couldn't record this body because it couldn't be converted to text."
+        }
+        if (message.startsWith('Failed to read body')) {
+            return "PostHog couldn't read this body."
+        }
+        return "PostHog couldn't record this body."
+    }
+
+    // these three are written without the prefix
+    if (body === 'Chunked Transfer-Encoding is not supported') {
+        return "PostHog doesn't record bodies sent with chunked transfer encoding."
+    }
+    if (/^Content-Type \S.* is not supported$/.test(body)) {
+        return "PostHog doesn't record bodies of this content type."
+    }
+    if (/^\S+ is in deny list$/.test(body)) {
+        return "PostHog didn't record this body because its host is on your deny list."
+    }
+
+    return null
+}
+
+export function isAutoRedactedBody(body: unknown): boolean {
+    return typeof body === 'string' && /(\[SessionRecording].*redacted)/.test(body)
+}
+
+// A placeholder is not a body, so measuring it would report the placeholder's length as the
+// response size: a "too large to record" body would invert into a few dozen bytes.
+export function isBodyPlaceholder(body: unknown): boolean {
+    return unreadableBodyExplanation(body) !== null || isAutoRedactedBody(body)
 }
 
 function bytesFrom(item: PerformanceEvent): number | null {
@@ -340,11 +387,7 @@ function bytesFrom(item: PerformanceEvent): number | null {
         return item.decoded_body_size
     }
 
-    if (
-        item.response_body &&
-        typeof item.response_body === 'string' &&
-        !isUnreadableBodyPlaceholder(item.response_body)
-    ) {
+    if (item.response_body && typeof item.response_body === 'string' && !isBodyPlaceholder(item.response_body)) {
         const bodySize = new Blob([item.response_body]).size
         const headerSize = new Blob([JSON.stringify(item.response_headers)]).size
         return bodySize + headerSize

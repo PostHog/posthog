@@ -320,6 +320,22 @@ describe('performance-event-utils', () => {
             { transfer_size: 0, response_body: '[SessionReplay] Timeout while trying to read body' },
             null,
         ],
+        // the SDK writes these without the "[SessionReplay] " prefix
+        [
+            'unprefixed content-type diagnostic is not measured',
+            { transfer_size: 0, response_body: 'Content-Type video/mp4 is not supported' },
+            null,
+        ],
+        [
+            'deny list diagnostic is not measured',
+            { transfer_size: 0, response_body: 'api.company.com is in deny list' },
+            null,
+        ],
+        [
+            'a redacted body is not measured',
+            { transfer_size: 0, response_body: '[SessionRecording] content redacted' },
+            null,
+        ],
         // a real captured body is still estimated when no measured size is available
         [
             'real body falls back to its estimated size',
