@@ -5,6 +5,7 @@
 // that — permission errors, known error-code mappings, missing/invalid token responses —
 // is identical and lives here.
 
+import type { McpAuthMethod } from '@/lib/auth-method'
 import type { CloudRegion } from '@/tools/types'
 
 import {
@@ -19,10 +20,10 @@ import { getPublicUrl } from './routing'
 
 // Map a thrown error to the appropriate auth response, or null if not auth-related.
 // Callers handle the null case (typically by emitting observability + returning 500).
-export function mapErrorToAuthResponse(error: unknown): Response | null {
+export function mapErrorToAuthResponse(error: unknown, authMethod?: McpAuthMethod): Response | null {
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
-        return new Response(formatPermissionErrorMessage(permissionError), {
+        return new Response(formatPermissionErrorMessage(permissionError, authMethod), {
             status: 403,
             headers: {
                 'Content-Type': 'text/plain; charset=utf-8',

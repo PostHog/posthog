@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
+import type { McpAuthMethod } from '@/lib/auth-method'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -305,17 +306,41 @@ export function wrapError(message: string, cause: unknown): Error {
 
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
-export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
+function missingScopeGuidance(missingScope: string, authMethod: McpAuthMethod | undefined): string[] {
+    if (authMethod === 'oauth') {
+        return [
+            `Your connection is missing the '${missingScope}' scope.`,
+            '',
+            `To fix: reconnect PostHog in your MCP client and leave '${missingScope}' selected on the permissions screen. If the connection still appears in PostHog under Settings → Connected applications, revoke it there first so you are prompted again.`,
+        ]
+    }
+    if (authMethod === 'personal_api_key') {
+        return [
+            `Your personal API key is missing the '${missingScope}' scope.`,
+            '',
+            `To fix: edit the key in PostHog (Settings → Personal API keys) and add the '${missingScope}' scope. Alternatively, select the "MCP Server" scope preset, which includes every scope the MCP needs.`,
+            '',
+            `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+        ]
+    }
+    return [
+        `Your credential is missing the '${missingScope}' scope.`,
+        '',
+        `To fix: if you are using a personal API key, edit it in PostHog (Settings → Personal API keys) and add the '${missingScope}' scope, or select the "MCP Server" scope preset. If you connected with OAuth, reconnect and leave '${missingScope}' selected on the permissions screen.`,
+        '',
+        `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+    ]
+}
+
+export function formatPermissionErrorMessage(error: PostHogPermissionError, authMethod?: McpAuthMethod): string {
     const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
             '',
-            `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
+            `The call to ${callTarget} was rejected.`,
             '',
-            `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
-            '',
-            `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+            ...missingScopeGuidance(error.missingScope, authMethod),
         ].join('\n')
     }
 

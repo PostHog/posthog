@@ -16,6 +16,7 @@ vi.mock('@/api/client', () => ({
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
+import { PostHogPermissionError } from '@/lib/errors'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -162,6 +163,23 @@ describe('RequestContext', () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
 
             await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
+        })
+
+        it('falls back to the token hash when the user lookup is refused for a missing scope', async () => {
+            mockMe.mockResolvedValue({
+                success: false,
+                error: new PostHogPermissionError({
+                    detail: "API key missing required scope 'user:read'",
+                    missingScope: 'user:read',
+                    url: 'https://us.posthog.com/api/users/@me/',
+                    method: 'GET',
+                }),
+            })
+            const redis = fakeRedis()
+            const ctx = new RequestContext(redis, env, makeProps())
+
+            await expect(ctx.getDistinctId()).resolves.toBe('test-user')
+            await expect(redis.get('mcp:token:test-user:distinctId')).resolves.toBeNull()
         })
     })
 
