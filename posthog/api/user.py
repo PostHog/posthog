@@ -1130,6 +1130,17 @@ class UserViewSet(
         "role_at_organization",
         "ui_configuration",
     ]
+    # Fields that only describe how this user's own UI is drawn, so a risk step-up does not need to gate
+    # them. Context switching (`set_current_organization`, `set_current_team`) and profile data
+    # (`role_at_organization`) stay gated.
+    time_sensitive_step_up_allow_if_only_fields = [
+        "theme_mode",
+        "allow_sidebar_suggestions",
+        "shortcut_position",
+        "has_seen_product_intro_for",
+        "events_column_config",
+        "ui_configuration",
+    ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",
         "scene_personalisation",

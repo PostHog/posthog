@@ -524,6 +524,20 @@ class TimeSensitiveActionPermission(BasePermission):
     message = "This action requires you to be recently authenticated."
     code = "sensitive_action_required_reauth"
 
+    @staticmethod
+    def _writes_only_fields(request, allowed: Optional[list[str]]) -> bool:
+        """Whether this write touches nothing outside `allowed`. An empty or unreadable body counts as
+        outside, so an unknown payload is never treated as allow-listed."""
+        if not allowed or request.method in SAFE_METHODS:
+            return False
+
+        data = getattr(request, "data", None)
+        if data is None or not hasattr(data, "keys"):
+            return False
+
+        data_keys = {str(key) for key in data.keys()}
+        return bool(data_keys) and data_keys.issubset(set(allowed))
+
     def has_permission(self, request, view) -> bool:
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
@@ -536,21 +550,15 @@ class TimeSensitiveActionPermission(BasePermission):
         if getattr(view, "time_sensitive_allow_safe_methods", True) and request.method in SAFE_METHODS:
             return True
 
-        # A risk-driven step-up blocks every non-safe action until the user re-authenticates,
-        # including the field/action allow-lists below — those only relax the time-based freshness
-        # window for a normally-aged session, not an anomalous one.
+        # A risk-driven step-up blocks every non-safe action until the user re-authenticates. The only
+        # writes that survive it touch nothing outside `time_sensitive_step_up_allow_if_only_fields`:
+        # presentation state that grants no account, organization, or profile change. Gating those just
+        # puts a re-auth modal on top of ordinary UI work, like marking a product tour as seen.
         if step_up_required(request.session):
-            return False
+            return self._writes_only_fields(request, getattr(view, "time_sensitive_step_up_allow_if_only_fields", None))
 
-        allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
-        if allow_if_only_fields and request.method not in SAFE_METHODS:
-            data = getattr(request, "data", None)
-            data_keys: set[str] = set()
-            if data is not None and hasattr(data, "keys"):
-                data_keys = {str(key) for key in data.keys()}
-
-            if data_keys and data_keys.issubset(set(allow_if_only_fields)):
-                return True
+        if self._writes_only_fields(request, getattr(view, "time_sensitive_allow_if_only_fields", None)):
+            return True
 
         allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_actions and view.action in allow_actions:
