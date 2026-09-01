@@ -818,6 +818,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"({unsaved_no_dashboard.short_id}) must be excluded."
         )
 
+    def test_list_filter_by_events_matches_query_metadata(self) -> None:
+        pageview = Insight.objects.create(
+            short_id="ev-pv",
+            team=self.team,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        Insight.objects.create(
+            short_id="ev-si",
+            team=self.team,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "sign up"}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?events={json.dumps(['$pageview'])}")
+
+        assert response.status_code == status.HTTP_200_OK
+        returned = [r["short_id"] for r in response.json()["results"]]
+        assert returned == [pageview.short_id]
+
     def test_search_filter_does_not_duplicate_insights_with_multiple_matching_tags(self) -> None:
         from posthog.models.tag import Tag
         from posthog.models.tagged_item import TaggedItem
