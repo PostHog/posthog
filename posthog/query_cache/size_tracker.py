@@ -89,8 +89,7 @@ if old_size then
     redis.call('INCRBY', total_key, -tonumber(old_size))
 end
 
--- Update tracking. The score is the entry's expiry time, so eviction pops the entries
--- most likely to be already dead first.
+-- The score is the entry's expiry time, so eviction pops the entries closest to expiry first.
 redis.call('ZADD', entries_key, expires_at, cache_key)
 redis.call('HSET', sizes_key, cache_key, size_bytes)
 redis.call('INCRBY', total_key, size_bytes)
@@ -298,12 +297,7 @@ class TeamCacheSizeTracker:
         return True
 
     def track_cache_write(self, cache_key: str, size_bytes: int, applied_ttl: int) -> "TeamCacheTotals":
-        """Track a cache write with its size, returning the team's totals after it. Atomic via Lua script.
-
-        The zset score is the entry's expiry time. With mixed retention TTLs, write order and
-        expiry order differ, and eviction must pop the most-likely-dead entries first, not the
-        oldest-written ones.
-        """
+        """Track a cache write with its size, returning the team's totals after it. Atomic via Lua script."""
         tracking_ttl = settings.CACHED_RESULTS_TTL + 86400
         total_bytes, entry_count = self._track_write_script(
             keys=[self.entries_key, self.sizes_key, self.total_key],
@@ -353,8 +347,8 @@ class TeamCacheSizeTracker:
 
             CACHE_EVICTION_COUNTER.inc()
             CACHE_EVICTION_BYTES_COUNTER.inc(removed_size)
-            # Members tracked before expiry scoring hold write-time scores; clamp their
-            # negative remainder to zero instead of reporting garbage.
+            # The score can be in the past for a live entry (a legacy write-time score, or expiry
+            # racing this eviction), so clamp instead of observing a negative TTL.
             remaining_ttl = max(0.0, float(expires_at) - time.time())
             CACHE_EVICTION_REMAINING_TTL_HISTOGRAM.observe(remaining_ttl)
 

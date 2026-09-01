@@ -40,10 +40,8 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
-# Retention for results written by programmatic callers (API keys, OAuth apps) outside any
-# insight or dashboard. Most of these results are written once and never read again, and no
-# read path treats an entry older than a day as fresh, so keeping them for CACHED_RESULTS_TTL
-# only holds Redis memory. Attached and UI-initiated results keep CACHED_RESULTS_TTL.
+# TTL for cache entries written by API keys or OAuth clients outside any insight or dashboard.
+# retention_ttl in posthog/query_cache/cache.py decides which writes get it.
 CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL", 24 * 60 * 60, type_cast=int)
 
 # Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)

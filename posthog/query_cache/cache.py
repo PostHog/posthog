@@ -44,8 +44,8 @@ def retention_ttl(*, insight_id: Optional[int], dashboard_id: Optional[int], acc
 
     Entries that belong to an insight or dashboard keep the full TTL whoever wrote them: every
     insight surface defaults to cache-only reads (posthog/hogql_queries/refresh_policy.py), so
-    those entries are served at any age. Other programmatic writes get a short TTL, because they
-    are almost never read again and no read path treats a result older than a day as fresh.
+    those entries are served at any age. Other programmatic writes get a short TTL, because no
+    read path treats a result older than a day as fresh.
     """
     if insight_id is not None or dashboard_id is not None:
         return settings.CACHED_RESULTS_TTL
