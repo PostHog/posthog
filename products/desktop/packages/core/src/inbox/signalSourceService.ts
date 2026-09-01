@@ -36,7 +36,6 @@ type SourceType = SignalSourceConfig["source_type"];
 const SOURCE_TYPE_MAP: Partial<Record<SignalSourceProduct, SourceType>> = {
   conversations: "ticket",
   health_checks: "health_issue",
-  session_replay: "session_analysis_cluster",
   // AI observability signals are always emitted per evaluation report.
   llm_analytics: "evaluation_report",
   ...Object.fromEntries(
@@ -68,7 +67,6 @@ const ALL_SOURCE_PRODUCTS: SignalSourceProduct[] = [
   "conversations",
   "error_tracking",
   "health_checks",
-  "session_replay",
   "llm_analytics",
   ...EXTERNAL_INBOX_SOURCES.map((s) => s.product),
 ];
