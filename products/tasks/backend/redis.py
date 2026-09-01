@@ -148,7 +148,11 @@ def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
     degrades to a per-process guard with the same key and timeout, so an outage throttles per
     process instead of not at all."""
     try:
-        return bool(get_tasks_cache().add(key, value, timeout=timeout))
+        redis_added = bool(get_tasks_cache().add(key, value, timeout=timeout))
     except _REDIS_ERRORS as e:
         _note_cache_failure("add", e)
         return _local_guard_add(key, timeout)
+    # Record the redis admission in the local guard too, so the fallback still suppresses a
+    # repeat of this key if redis drops before the window ends. The guard write only runs on an
+    # admission (redis_added is True), not on the repeated cooldown checks that return False.
+    return redis_added and _local_guard_add(key, timeout)

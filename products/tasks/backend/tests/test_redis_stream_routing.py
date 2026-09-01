@@ -82,6 +82,30 @@ class TestTasksCacheAddRedisFallback(SimpleTestCase):
             mock_time.monotonic.return_value = 1061.0
             self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
 
+    @parameterized.expand(
+        [
+            ("redis_admit_then_outage", [True, redis.exceptions.ConnectionError()]),
+            ("outage_admit_then_redis_recovered", [redis.exceptions.ConnectionError(), True]),
+        ]
+    )
+    def test_boundary_admission_is_not_duplicated(self, _name, add_results):
+        # At each redis/fallback boundary the same key must admit once. If a redis admission is
+        # not recorded locally, the second call across the boundary returns True again and
+        # delivers a duplicate push for the same cooldown key.
+        cache = MagicMock()
+        cache.add.side_effect = add_results
+
+        with (
+            patch.object(tasks_redis, "get_tasks_cache", return_value=cache),
+            patch.object(tasks_redis, "capture_exception"),
+            patch.object(tasks_redis, "_next_capture_at", 0.0),
+            patch.dict(tasks_redis._local_guard_expiry, clear=True),
+            patch("products.tasks.backend.redis.time") as mock_time,
+        ):
+            mock_time.monotonic.return_value = 1000.0
+            self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+            self.assertFalse(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+
 
 class _ThreadHungryAsyncClient:
     """Async Redis stand-in whose ops need a default-executor thread to finish.
