@@ -2185,6 +2185,31 @@ def _isp_breakdown_enabled(team: Team) -> bool:
         return False
 
 
+def _domains_shared_with_other_projects(team_id: int) -> list[str]:
+    """This project's verified sending domains that another project also sends from.
+
+    VDM keys its metrics on the domain, so the breakdown counts every send from that identity, not
+    only this project's. Cross-organization reuse is blocked when the domain is added, so a sharer
+    is always a sibling project — but the numbers still describe more email than this project sent,
+    and the reader deserves to be told exactly when that is true rather than on every project.
+    """
+    domains = [
+        domain
+        for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
+        .order_by("id")
+        .values_list("config__domain", flat=True)
+        if domain
+    ]
+    if not domains:
+        return []
+    shared = (
+        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=domains)
+        .exclude(team_id=team_id)
+        .values_list("config__domain", flat=True)
+    )
+    return sorted(set(shared))
+
+
 def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
     """
     Per-mailbox-provider sending health for the project's verified domains, cached like the tenant
@@ -2464,6 +2489,14 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         help_text=(
             "Sending health per mailbox provider, busiest first. Empty when the caller lacks "
             "project-wide workflow access, no sending domain is verified, or AWS has no data yet."
+        ),
+    )
+    isp_shared_domains = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Sending domains behind the breakdown that another project also sends from, so its "
+            "counts include that project's email. Empty when every domain is this project's alone."
         ),
     )
     email_sending_suspended = serializers.BooleanField(
@@ -5053,6 +5086,11 @@ class HogFlowViewSet(
                     # email for a sending domain, so object-level grants alone don't earn it.
                     "isps": (
                         _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS)
+                        if can_read_all_workflows and _isp_breakdown_enabled(self.team)
+                        else []
+                    ),
+                    "isp_shared_domains": (
+                        _domains_shared_with_other_projects(self.team_id)
                         if can_read_all_workflows and _isp_breakdown_enabled(self.team)
                         else []
                     ),

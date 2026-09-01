@@ -18,6 +18,7 @@ export interface workflowsReputationLogicValues {
     currentProjectId: number | null // projectLogic
     awsReputation: AwsTenantReputationApi | null
     ispSendingHealth: readonly IspSendingHealthApi[]
+    ispSharedDomains: readonly string[]
     reputationResponse: TeamEmailReputationResponseApi | null
     reputationResponseLoading: boolean
     search: string
@@ -61,6 +62,7 @@ export interface workflowsReputationLogicMeta {
         sendingAllowance: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingAllowanceApi | null
         teamReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingRatesApi | null
         ispSendingHealth: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly IspSendingHealthApi[]
+        ispSharedDomains: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly string[]
         workflowSnapshots: (
             reputationResponse: TeamEmailReputationResponseApi | null
         ) => readonly WorkflowEmailSendingRatesApi[]
@@ -138,6 +140,10 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         ispSendingHealth: [
             (s) => [s.reputationResponse],
             (response: TeamEmailReputationResponseApi | null): readonly IspSendingHealthApi[] => response?.isps ?? [],
+        ],
+        ispSharedDomains: [
+            (s) => [s.reputationResponse],
+            (response: TeamEmailReputationResponseApi | null): readonly string[] => response?.isp_shared_domains ?? [],
         ],
         workflowSnapshots: [
             (s) => [s.reputationResponse],

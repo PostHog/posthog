@@ -84,6 +84,7 @@ class TestEmailReputationAPI(APIBaseTest):
             "reputation": None,
             "workflows": [],
             "isps": [],
+            "isp_shared_domains": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
@@ -309,6 +310,7 @@ class TestEmailReputationAPI(APIBaseTest):
                 # Null rather than 0 — Gmail runs no feedback loop, so a complaint rate would be
                 # a number we can't actually measure.
                 "complaint_rate": None,
+                "unavailable": [],
                 "daily": [
                     {
                         "date": "2026-08-01",
@@ -324,9 +326,47 @@ class TestEmailReputationAPI(APIBaseTest):
                 "delivery_rate": 0.99,
                 "bounce_rate": 0.0,
                 "complaint_rate": 0.002,
+                "unavailable": [],
                 "daily": [],
             },
         ]
+
+    @parameterized.expand(
+        [
+            ("sibling verified on the same domain", True, ["mail.example.com"]),
+            ("sibling not verified yet", False, []),
+        ]
+    )
+    def test_reputation_endpoint_names_domains_a_sibling_project_also_sends_from(
+        self, _name: str, sibling_verified: bool, expected: list[str]
+    ):
+        self._verify_sending_domain()
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Integration.objects.create(
+            team=sibling,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": sibling_verified},
+        )
+
+        body = self._get_reputation({}, isp_metrics=[])
+
+        assert body["isp_shared_domains"] == expected
+
+    def test_reputation_endpoint_omits_domains_only_this_project_sends_from(self):
+        self._verify_sending_domain()
+        self._verify_sending_domain("solo.example.com")
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Integration.objects.create(
+            team=sibling,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+
+        body = self._get_reputation({}, isp_metrics=[])
+
+        assert body["isp_shared_domains"] == ["mail.example.com"]
 
     def test_reputation_endpoint_still_loads_when_the_provider_breakdown_fails(self):
         # The breakdown is an addition to the rates display; SES being unreachable must not take

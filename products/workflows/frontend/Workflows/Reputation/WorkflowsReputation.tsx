@@ -121,13 +121,30 @@ const FINDING_TYPE_LABELS: Record<string, string> = {
 const WINDOW_TOOLTIP = 'Calculated over your workflow email from the last 30 days.'
 const WORKFLOW_LIMIT = 50
 
-function MetricLabel({ label, tooltip }: { label: string; tooltip: string }): JSX.Element {
-    return (
+function MetricLabel({
+    label,
+    tooltip,
+    description,
+}: {
+    label: string
+    tooltip: string
+    description?: string
+}): JSX.Element {
+    const labelNode = (
         <Tooltip title={tooltip}>
             <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
                 {label}
             </div>
         </Tooltip>
+    )
+    if (!description) {
+        return labelNode
+    }
+    return (
+        <div>
+            {labelNode}
+            <div className="text-secondary text-xs mt-1">{description}</div>
+        </div>
     )
 }
 
@@ -196,7 +213,13 @@ function DeliveryTrend({ isp, dates }: { isp: IspSendingHealthApi; dates: string
     )
 }
 
-function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.Element | null {
+function IspBreakdown({
+    isps,
+    sharedDomains,
+}: {
+    isps: readonly IspSendingHealthApi[]
+    sharedDomains: readonly string[]
+}): JSX.Element | null {
     // The API returns [] unless the flag and access checks pass on its side, so gating on isps alone
     // keeps one decision. A second client flag check can bucket differently and hide returned rows.
     if (isps.length === 0) {
@@ -207,6 +230,11 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
         <div className="mt-4 space-y-2" data-attr="workflows-reputation-isp-breakdown">
             <MetricLabel
                 label="By mailbox provider"
+                description={
+                    sharedDomains.length > 0
+                        ? `Counts every email sent from ${sharedDomains.join(', ')}, including email from other projects using ${sharedDomains.length > 1 ? 'those domains' : 'that domain'}.`
+                        : undefined
+                }
                 tooltip={`The project-wide rates above pool every provider together, so a struggling provider can be hidden by the others. This table splits the rates out per provider. A provider that accepts your mail and then files it as spam still reads as healthy here. ${WINDOW_TOOLTIP}`}
             />
             <LemonTable
@@ -277,10 +305,12 @@ function TeamRatesCard({
     reputation,
     aws,
     isps,
+    sharedDomains,
 }: {
     reputation: EmailSendingRatesApi | null
     aws: AwsTenantReputationApi | null
     isps: readonly IspSendingHealthApi[]
+    sharedDomains: readonly string[]
 }): JSX.Element {
     return (
         <div className="border rounded p-4 bg-surface-primary">
@@ -321,7 +351,7 @@ function TeamRatesCard({
                 </div>
             )}
             {aws && <AwsFindings aws={aws} />}
-            <IspBreakdown isps={isps} />
+            <IspBreakdown isps={isps} sharedDomains={sharedDomains} />
         </div>
     )
 }
@@ -384,6 +414,7 @@ export function WorkflowsReputation(): JSX.Element {
         sendingAllowance,
         teamReputation,
         ispSendingHealth,
+        ispSharedDomains,
         workflowSnapshots,
         reputationResponseLoading,
         search,
@@ -405,7 +436,12 @@ export function WorkflowsReputation(): JSX.Element {
             </LemonBanner>
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation ? (
-                <TeamRatesCard reputation={teamReputation} aws={awsReputation} isps={ispSendingHealth} />
+                <TeamRatesCard
+                    reputation={teamReputation}
+                    aws={awsReputation}
+                    isps={ispSendingHealth}
+                    sharedDomains={ispSharedDomains}
+                />
             ) : (
                 !reputationResponseLoading && (
                     <div className="border rounded p-4 text-secondary">

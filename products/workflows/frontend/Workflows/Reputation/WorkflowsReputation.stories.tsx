@@ -45,6 +45,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             bounce_rate: 0.008,
             // Gmail runs no feedback loop, so a complaint rate here would be unmeasurable.
             complaint_rate: null,
+            unavailable: [],
             daily: gmailSeries(),
         },
         {
@@ -53,6 +54,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             delivery_rate: 0.98,
             bounce_rate: 0.004,
             complaint_rate: 0.0004,
+            unavailable: [],
             daily: steadySeries(0.98),
         },
         {
@@ -63,6 +65,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             delivery_rate: 0.45,
             bounce_rate: 0.012,
             complaint_rate: null,
+            unavailable: [],
             daily: steadySeries(0.45),
         },
         {
@@ -71,9 +74,21 @@ const baseResponse: TeamEmailReputationResponseApi = {
             delivery_rate: 0.96,
             bounce_rate: 0.006,
             complaint_rate: 0.0011,
+            unavailable: [],
             daily: steadySeries(0.96),
         },
     ],
+    isp_shared_domains: [],
+    sending_allowance: {
+        tier: 2,
+        max_tier: 4,
+        emails_per_hour: 5000,
+        emails_per_day: 50000,
+        max_batch_audience: 25000,
+        emails_sent_last_hour: 1200,
+        emails_sent_last_day: 18400,
+        enforced: true,
+    },
     email_sending_suspended: false,
     email_sending_suspended_at: null,
     email_sending_suspension_reason: '',
