@@ -1780,6 +1780,10 @@ snapshots:
         hash: v1.k794b7964.b3a148d96ca0b54ca8929084054b91f4e52ae02160039f3a47ee04db7aeb62cc.SH8xd4Ro7F3Zuetn_B_qgVFVbWtT__aDzaW2YOr-Eac
     components-product-empty-state--dashboards-needs-setup--light:
         hash: v1.k794b7964.2782384906e9b2efb6153b3bf4b8135fc541639245f74f0abd3456a35023e641.vaJwGqX3KJ-_XLxP_slQ1vIyHx0QZ4fCXnrMtPJHnjg
+    components-product-empty-state--data-warehouse-needs-setup--dark:
+        hash: v1.k794b7964.3d7df6ce8c56af7c0c5200d0a381d5f28c885ad380cb370ea0e250266882d608.vwwreN_qibegkh3R21znmwi-Sp9TfdStRZyRxa-g69A
+    components-product-empty-state--data-warehouse-needs-setup--light:
+        hash: v1.k794b7964.5bdb2d34c7084ea2351b074cd03275e3558be2b79d0e8a7769d57bdb38e87faa.xNdrkZ0mjoEiJ5DAwDJn1W2x8biEG3DKPcO9wAzRM8c
     components-product-empty-state--early-access-features-needs-setup--dark:
         hash: v1.k794b7964.ce612c03290780c1098886d9e2e0f9d920bfa899c591fadfecabf969b1897fe6.RlwNrGim39bhZH0hO39-bt6bWPUPJU-5XgIq2smDxSk
     components-product-empty-state--early-access-features-needs-setup--light:
