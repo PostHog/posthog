@@ -70,11 +70,15 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
 
     recheck = _events(pha_client, "signup_enrichment_recheck")
     assert len(recheck) == 1
-    assert recheck[0].kwargs["properties"] == {
+    properties = dict(recheck[0].kwargs["properties"])
+    evaluated_at = properties.pop("icp_fit_evaluated_at")
+    assert evaluated_at
+    assert properties == {
         "upgraded": True,
         "fields_filled": 3,
         "organization_id": "org-1",
         "icp_fit_status": "scored",
+        "icp_fit_evaluation_kind": "recheck",
     }
     # The launch signal fires exactly once — on the first attempt, unchanged.
     completed = _events(pha_client, "signup_enrichment_completed")

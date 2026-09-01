@@ -29,7 +29,12 @@ from products.growth.backend.enrichment.harmonic_adapter import normalize_graphq
 from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.providers import EnrichmentProvider
 from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
-from products.growth.backend.enrichment.writer import archive_provider_fetch, write_organization_enrichment
+from products.growth.backend.enrichment.writer import (
+    FIT_EVALUATION_KIND_INITIAL,
+    FIT_EVALUATION_KIND_RECHECK,
+    archive_provider_fetch,
+    write_organization_enrichment,
+)
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 # Placeholder archived for a not-found when the provider hands back no response body — records
@@ -246,6 +251,7 @@ async def enrich_organization(
     role_at_organization: Optional[str] = None,
     geoip_country_code: Optional[str] = None,
     distinct_id: Optional[str] = None,
+    fit_evaluation_kind: Optional[str] = None,
 ) -> EnrichmentOutcome:
     """Look up enrichment for a domain, archive the raw response, and persist the live stores.
 
@@ -259,6 +265,11 @@ async def enrich_organization(
     selects on. Either score failing degrades to writing what the rest produced, rather
     than a silently-wrong value; the delayed recheck gets a second chance, and the fetch
     archive backstops a later batch recompute.
+
+    The fit evaluation's provenance stamp defaults to initial/recheck from `is_recheck`;
+    `fit_evaluation_kind` overrides it for a caller that also runs with is_recheck=True
+    for its other effects (mirror gating, archive labeling) but needs a different label —
+    the re-enrichment sweep passes "sweep" for exactly that reason.
 
     On a miss, a prior `OrganizationEnrichment` record (if any) is reconstructed into fields
     and clay-scored anyway — first attempt or recheck alike — so an org can't end up
@@ -320,6 +331,8 @@ async def enrich_organization(
         icp_score=icp_score,
         mirror_distinct_id=mirror_distinct_id,
         fit=fit,
+        fit_evaluation_kind=fit_evaluation_kind
+        or (FIT_EVALUATION_KIND_RECHECK if is_recheck else FIT_EVALUATION_KIND_INITIAL),
         fit_mirror_distinct_id=fit_mirror_distinct_id,
     )
     return EnrichmentOutcome(provider_fields=lookup.fields, fit=fit)

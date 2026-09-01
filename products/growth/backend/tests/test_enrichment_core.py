@@ -450,11 +450,45 @@ class TestEnrichmentCore(BaseTest):
 
         assert outcome.provider_fields is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data == {
+        # Score-less evaluations still stamp when and how they ran.
+        assert record.data["icp_fit_evaluation_kind"] == "initial"
+        assert record.data["icp_fit_evaluated_at"]
+        data = {k: v for k, v in record.data.items() if not k.startswith("icp_fit_eval")}
+        assert data == {
             "icp_fit_status": "not_found",
             "icp_fit_version": "v0.5",
             "icp_fit_lists_version": "test-lists-1",
         }
+
+    @parameterized.expand(
+        [
+            ("first_attempt", False, "initial"),
+            ("delayed_recheck", True, "recheck"),
+        ]
+    )
+    def test_fit_evaluation_kind_derives_from_is_recheck(self, _name, is_recheck, expected_kind):
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        self._enrich(ProviderLookup(fields=fields, raw_payload=_company()), is_recheck=is_recheck, domain="acme.ai")
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_evaluation_kind"] == expected_kind
+
+    def test_fit_evaluation_kind_override_wins_over_is_recheck_derivation(self):
+        # The re-enrichment sweep runs with is_recheck=True for its other effects (mirror
+        # gating, archive labeling) but must not be mislabeled as the +4h recheck.
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        with patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()):
+            async_to_sync(enrich_organization)(
+                organization_id=str(self.organization.id),
+                domain="acme.ai",
+                provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
+                pha_client=MagicMock(),
+                is_recheck=True,
+                fit_evaluation_kind="sweep",
+            )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_evaluation_kind"] == "sweep"
 
     def test_no_active_lists_degrades_to_clay_and_fields_only(self):
         IcpScoringConfig.objects.update(is_active=False)

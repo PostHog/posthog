@@ -23,6 +23,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
 from products.growth.backend.enrichment.snapshot import SignupEnrichmentSnapshot, capture_signup_enrichment_snapshot
+from products.growth.backend.enrichment.writer import FIT_EVALUATION_KIND_RECHECK
 from products.growth.backend.models import OrganizationEnrichment
 
 LOGGER = get_logger(__name__)
@@ -160,6 +161,8 @@ async def enrich_signup_organization_activity(
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
                         "icp_fit_status": fit.status if fit else None,
+                        "icp_fit_evaluated_at": dt.datetime.now(dt.UTC).isoformat() if fit else None,
+                        "icp_fit_evaluation_kind": FIT_EVALUATION_KIND_RECHECK if fit else None,
                     },
                     groups={"organization": inputs.organization_id},
                 )

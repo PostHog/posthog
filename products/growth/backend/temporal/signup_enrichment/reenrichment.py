@@ -223,7 +223,7 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
 
     from products.growth.backend.enrichment.core import enrich_organization  # noqa: PLC0415
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
-    from products.growth.backend.enrichment.writer import merge_into_record  # noqa: PLC0415
+    from products.growth.backend.enrichment.writer import FIT_EVALUATION_KIND_SWEEP, merge_into_record  # noqa: PLC0415
     from products.growth.backend.models import OrganizationEnrichmentFetch  # noqa: PLC0415
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
@@ -285,6 +285,7 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
             is_recheck=True,
             role_at_organization=inputs.role_at_organization,
             distinct_id=inputs.distinct_id,
+            fit_evaluation_kind=FIT_EVALUATION_KIND_SWEEP,
         )
         matched = outcome.provider_fields is not None
         status = outcome.fit.status if outcome.fit else None
@@ -295,6 +296,8 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
                 "organization_id": inputs.organization_id,
                 "matched": matched,
                 "icp_fit_status": status,
+                "icp_fit_evaluated_at": attempted_at,
+                "icp_fit_evaluation_kind": FIT_EVALUATION_KIND_SWEEP,
                 **observed,
             },
             groups={"organization": inputs.organization_id},

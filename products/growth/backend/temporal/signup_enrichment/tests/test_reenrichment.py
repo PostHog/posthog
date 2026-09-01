@@ -231,10 +231,15 @@ class TestReenrichOrganizationActivity(BaseTest):
         assert enrich.await_args is not None
         assert enrich.await_args.kwargs["is_recheck"] is True
         assert enrich.await_args.kwargs["role_at_organization"] == "engineering"
+        # The sweep must label its own writes "sweep", not the workflow's is_recheck=True
+        # default of "recheck" — see enrich_organization's fit_evaluation_kind override.
+        assert enrich.await_args.kwargs["fit_evaluation_kind"] == "sweep"
         event = pha_client.capture.call_args
         assert event.kwargs["event"] == "icp_reenrichment_completed"
         assert event.kwargs["properties"]["icp_fit_status"] == "scored"
         assert event.kwargs["properties"]["matched"] is True
+        assert event.kwargs["properties"]["icp_fit_evaluation_kind"] == "sweep"
+        assert event.kwargs["properties"]["icp_fit_evaluated_at"]
         pha_client.shutdown.assert_called_once()
 
     def test_still_unmatched_reports_honestly(self):
