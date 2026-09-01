@@ -10,7 +10,7 @@ from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team, realtime_allowlist_matches_every_team
 
@@ -39,6 +39,16 @@ class CohortResaveStats:
     errors: int
     validation_errors: int
     prospective_realtime: int
+
+
+@frozen
+class CohortResaveOutcome:
+    changed: bool
+    validation_failed: bool
+    prospective_realtime: bool
+
+
+UNTOUCHED_COHORT = CohortResaveOutcome(changed=False, validation_failed=False, prospective_realtime=False)
 
 
 @frozen
@@ -266,41 +276,19 @@ class Command(BaseCommand):
 
     def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> CohortResaveStats:
         """Process all cohorts for a single team."""
-        # Initialize stats for this team
+        all_cohorts = self._load_team_cohorts(team, batch_size)
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {c.id: c for c in all_cohorts}
+        cohort_dependencies = self._build_dependency_map(all_cohorts, seen_cohorts_cache)
+
+        # Sort cohorts topologically - dependencies first, then dependents
+        sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
+
         total = 0
         changed = 0
         errors = 0
         validation_errors = 0
         prospective_realtime = 0
 
-        # Get all cohorts for this team using pagination
-        base_qs = Cohort.objects.filter(team=team).order_by("id")
-        all_cohorts = []
-        last_id = 0
-
-        while True:
-            batch = list(base_qs.filter(id__gt=last_id)[:batch_size])
-            if not batch:
-                break
-            all_cohorts.extend(batch)
-            last_id = batch[-1].id
-
-        # Build dependency information for all cohorts
-        seen_cohorts_cache = {c.id: c for c in all_cohorts}
-        cohort_dependencies = {}  # cohort_id -> set of all cohort ids it depends on
-
-        for cohort in all_cohorts:
-            if not cohort.filters:
-                continue
-            # Get ALL dependencies recursively (A->B->C means A depends on both B and C)
-            dependencies = get_all_cohort_dependencies(cohort, seen_cohorts_cache=seen_cohorts_cache)
-            dependency_ids = {dep.id for dep in dependencies}
-            cohort_dependencies[cohort.id] = dependency_ids
-
-        # Sort cohorts topologically - dependencies first, then dependents
-        sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
-
-        # Process cohorts in dependency order
         for cohort_id in sorted_cohort_ids:
             cohort = seen_cohorts_cache.get(cohort_id)
             if not cohort:
@@ -308,76 +296,7 @@ class Command(BaseCommand):
 
             total += 1
             try:
-                # Skip cohorts without filters (nothing to recompute)
-                if not cohort.filters:
-                    continue
-
-                # Compute the new filters with inline bytecode and cohort_type
-                # Use defensive validation with detailed error reporting
-                clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
-                    cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
-                )
-
-                # If validation failed but we got the original filters back, log the issue and skip
-                if validation_error_list:
-                    validation_errors += 1
-                    logger.warning(
-                        "cohort_validation_skipped",
-                        cohort_id=cohort.id,
-                        team_id=team.pk,
-                        reason="Invalid filter structure - keeping original filters",
-                    )
-                    continue
-
-                # Check if any directly referenced cohorts have dependencies
-                if computed_type == "realtime" and cohort.filters:
-                    direct_refs = self._get_direct_cohort_references(cohort.filters)
-                    for ref_id in direct_refs:
-                        ref_cohort = seen_cohorts_cache.get(ref_id)
-                        if ref_cohort:
-                            # Static cohorts cannot be realtime, so any cohort referencing them can't be realtime
-                            if ref_cohort.is_static:
-                                computed_type = None
-                                break
-                            # Cohorts without filters (empty cohorts) can be considered realtime-compatible
-                            # since they match no one (always false)
-                            if not ref_cohort.filters:
-                                continue
-                            # If any directly referenced cohort has dependencies, this cannot be realtime
-                            if ref_id in cohort_dependencies and len(cohort_dependencies[ref_id]) > 0:
-                                computed_type = None
-                                break
-                            # Also check if the referenced cohort is not realtime
-                            if ref_cohort.cohort_type != "realtime":
-                                computed_type = None
-                                break
-
-                computed_condition_type = Cohort.compute_condition_type(clean_filters)
-
-                # Decide if there is any change worth persisting/reporting
-                will_change = (
-                    clean_filters != cohort.filters
-                    or computed_type != cohort.cohort_type
-                    or computed_condition_type != cohort.condition_type
-                )
-
-                # ALWAYS update in-memory for dependency checking
-                cohort.filters = clean_filters
-                cohort.cohort_type = computed_type
-                cohort.condition_type = computed_condition_type
-
-                # Track summary stats
-                if computed_type == "realtime":
-                    prospective_realtime += 1
-                if dry_run:
-                    if will_change:
-                        changed += 1
-                    continue
-
-                # Persist changes to database if needed
-                if will_change:
-                    cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
-                    changed += 1
+                outcome = self._resave_cohort(cohort, seen_cohorts_cache, cohort_dependencies, dry_run)
             except Exception as err:
                 errors += 1
                 logger.error(
@@ -387,6 +306,14 @@ class Command(BaseCommand):
                     error=str(err),
                     exc_info=True,
                 )
+                continue
+
+            if outcome.changed:
+                changed += 1
+            if outcome.validation_failed:
+                validation_errors += 1
+            if outcome.prospective_realtime:
+                prospective_realtime += 1
 
         return CohortResaveStats(
             total=total,
@@ -395,6 +322,115 @@ class Command(BaseCommand):
             validation_errors=validation_errors,
             prospective_realtime=prospective_realtime,
         )
+
+    def _load_team_cohorts(self, team: Team, batch_size: int) -> list[Cohort]:
+        """Read every cohort on the team, one page at a time."""
+        base_qs = Cohort.objects.filter(team=team).order_by("id")
+        all_cohorts: list[Cohort] = []
+        last_id = 0
+
+        while True:
+            batch = list(base_qs.filter(id__gt=last_id)[:batch_size])
+            if not batch:
+                return all_cohorts
+            all_cohorts.extend(batch)
+            last_id = batch[-1].id
+
+    def _build_dependency_map(
+        self, all_cohorts: list[Cohort], seen_cohorts_cache: dict[int, CohortOrEmpty]
+    ) -> dict[int, set[int]]:
+        """Map each cohort id to every cohort id it depends on, recursively: A->B->C makes A depend on
+        both B and C."""
+        cohort_dependencies: dict[int, set[int]] = {}
+        for cohort in all_cohorts:
+            if not cohort.filters:
+                continue
+            dependencies = get_all_cohort_dependencies(cohort, seen_cohorts_cache=seen_cohorts_cache)
+            cohort_dependencies[cohort.id] = {dep.id for dep in dependencies}
+        return cohort_dependencies
+
+    def _resave_cohort(
+        self,
+        cohort: Cohort,
+        seen_cohorts_cache: dict[int, CohortOrEmpty],
+        cohort_dependencies: dict[int, set[int]],
+        dry_run: bool,
+    ) -> CohortResaveOutcome:
+        """Recompute one cohort's filters, cohort_type, and condition_type, and persist any change."""
+        filters = cohort.filters
+        # Nothing to recompute without filters.
+        if not filters:
+            return UNTOUCHED_COHORT
+
+        # Compute the new filters with inline bytecode and cohort_type
+        # Use defensive validation with detailed error reporting
+        clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
+            filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
+        )
+
+        # If validation failed but we got the original filters back, log the issue and skip
+        if validation_error_list:
+            logger.warning(
+                "cohort_validation_skipped",
+                cohort_id=cohort.id,
+                team_id=cohort.team_id,
+                reason="Invalid filter structure - keeping original filters",
+            )
+            return CohortResaveOutcome(changed=False, validation_failed=True, prospective_realtime=False)
+
+        if computed_type == "realtime" and self._references_block_realtime(
+            filters, seen_cohorts_cache, cohort_dependencies
+        ):
+            computed_type = None
+
+        computed_condition_type = Cohort.compute_condition_type(clean_filters)
+
+        # Decide if there is any change worth persisting/reporting
+        will_change = (
+            clean_filters != filters
+            or computed_type != cohort.cohort_type
+            or computed_condition_type != cohort.condition_type
+        )
+
+        # ALWAYS update in-memory for dependency checking
+        cohort.filters = clean_filters
+        cohort.cohort_type = computed_type
+        cohort.condition_type = computed_condition_type
+
+        if will_change and not dry_run:
+            cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
+
+        return CohortResaveOutcome(
+            changed=will_change,
+            validation_failed=False,
+            prospective_realtime=computed_type == "realtime",
+        )
+
+    def _references_block_realtime(
+        self,
+        filters: dict[str, Any],
+        seen_cohorts_cache: dict[int, CohortOrEmpty],
+        cohort_dependencies: dict[int, set[int]],
+    ) -> bool:
+        """Whether a directly referenced cohort stops this one from evaluating in realtime."""
+        for ref_id in self._get_direct_cohort_references(filters):
+            ref_cohort = seen_cohorts_cache.get(ref_id)
+            if not ref_cohort:
+                continue
+            # Static cohorts cannot be realtime, so any cohort referencing them can't be realtime
+            if ref_cohort.is_static:
+                return True
+            # Cohorts without filters (empty cohorts) can be considered realtime-compatible
+            # since they match no one (always false)
+            if not ref_cohort.filters:
+                continue
+            # If any directly referenced cohort has dependencies, this cannot be realtime
+            if cohort_dependencies.get(ref_id):
+                return True
+            # Also check if the referenced cohort is not realtime
+            if ref_cohort.cohort_type != "realtime":
+                return True
+        return False
 
     def _get_direct_cohort_references(self, filters: dict[str, Any]) -> set[int]:
         """Get only the direct cohort references from filters (not transitive)."""
