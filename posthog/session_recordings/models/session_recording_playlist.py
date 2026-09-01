@@ -54,7 +54,6 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
     class Meta:
         unique_together = ("team", "short_id")
         indexes = [
-            Index(fields=["deleted", "last_counted_at"], name="deleted_n_last_count_idx"),
             Index(fields=["deleted", "-last_modified_at"], name="deleted_n_last_mod_desc_idx"),
         ]
 
