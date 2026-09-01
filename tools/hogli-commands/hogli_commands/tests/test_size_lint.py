@@ -67,19 +67,37 @@ class TestSizeLint:
 
         assert [(finding.file, finding.crossed) for finding in findings] == expected
 
-    def test_a_moved_file_is_not_a_new_one(self, repo: Path) -> None:
+    @pytest.mark.parametrize("commit_the_move", [True, False], ids=["committed", "staged"])
+    def test_a_moved_file_is_not_a_new_one(self, repo: Path, commit_the_move: bool) -> None:
         # Nearly half of all crossings are moves. Reading the destination path at the
         # base gives nothing, so without rename detection a relocated file reads as
-        # newly created and every product migration gets nudged.
+        # newly created and every product migration gets nudged. The staged case needs
+        # the index as a second rename source, because there is no committed rename yet.
         _write(repo, "posthog/big.py", CROSSED_AT + 100)
         _commit_on_branch(repo)
         _git(repo, "checkout", "-qb", "feature")
         _git(repo, "mv", "posthog/big.py", "posthog/moved.py")
-        _commit_on_branch(repo)
+        if commit_the_move:
+            _commit_on_branch(repo)
 
         findings = _findings(["posthog/moved.py"], _merge_base(None))
 
         assert findings == []
+
+    def test_a_named_base_measures_committed_content(self, repo: Path) -> None:
+        # Strict preflight scopes to the committed diff because a push carries only
+        # commits, so an uncommitted edit must not move the reported size away from
+        # what is about to be pushed.
+        _git(repo, "checkout", "-qb", "feature")
+        _write(repo, "posthog/big.py", CROSSED_AT + 100)
+        _commit_on_branch(repo)
+        _write(repo, "posthog/big.py", 10)
+
+        from_worktree = _findings(["posthog/big.py"], _merge_base(None))
+        from_head = _findings(["posthog/big.py"], _merge_base(None), rev="HEAD")
+
+        assert from_worktree == []
+        assert [finding.crossed for finding in from_head] == [True]
 
     def test_at_most_one_note_for_files_that_were_already_huge(self, repo: Path) -> None:
         # Reporting every oversized file fires on most commits. One note keeps the

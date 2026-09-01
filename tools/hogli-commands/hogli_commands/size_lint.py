@@ -86,14 +86,8 @@ def _merge_base(against: str | None) -> str | None:
     return None
 
 
-def _renamed_from(base: str) -> dict[str, str]:
-    """Map each renamed path to the path it came from.
-
-    Nearly half of all threshold crossings are file moves. Without this, relocating a
-    large file reads as creating one, and every product migration gets nudged for
-    tidying up.
-    """
-    result = _git("diff", "-M", "--name-status", "-z", f"{base}...HEAD")
+def _rename_map(*diff_args: str) -> dict[str, str]:
+    result = _git("diff", "-M", "--name-status", "-z", *diff_args)
     if result.returncode != 0:
         return {}
     fields = [field for field in result.stdout.split("\0") if field]
@@ -109,22 +103,49 @@ def _renamed_from(base: str) -> dict[str, str]:
     return sources
 
 
+def _renamed_from(base: str) -> dict[str, str]:
+    """Map each renamed path to the path it came from.
+
+    Nearly half of all threshold crossings are file moves. Without this, relocating a
+    large file reads as creating one, and every product migration gets nudged for
+    tidying up.
+
+    The index is read as well as the committed range, because the standalone command
+    also reports on uncommitted work, where a staged `git mv` has no committed rename
+    to find yet. A move that is neither committed nor staged stays undetectable,
+    because git has no rename to report until one side is recorded.
+    """
+    return _rename_map(f"{base}...HEAD") | _rename_map("--cached", "HEAD")
+
+
 def _lines_at(rev: str, path: str) -> int:
     result = _git("show", f"{rev}:{path}")
     return 0 if result.returncode != 0 else len(result.stdout.splitlines())
 
 
-def _line_count(path: str) -> int:
+def _line_count(path: str, rev: str | None) -> int:
+    """Size of *path*, read from *rev* when one is named and the file exists there.
+
+    Naming a base is a question about committed history, so the answer must not be
+    read from the working tree: under a pre-push run the diff carries only commits,
+    and an uncommitted edit would otherwise move the number away from what gets
+    pushed. A file that is new and not yet committed still falls back to disk, which
+    is the only place it exists.
+    """
+    if rev is not None:
+        result = _git("show", f"{rev}:{path}")
+        if result.returncode == 0:
+            return len(result.stdout.splitlines())
     return len((REPO_ROOT / path).read_text(errors="replace").splitlines())
 
 
-def _findings(files: list[str], base: str | None) -> list[Finding]:
+def _findings(files: list[str], base: str | None, rev: str | None = None) -> list[Finding]:
     """Every crossing, plus at most one note for the largest already-oversized file."""
     sources = _renamed_from(base) if base is not None else {}
     crossings: list[Finding] = []
     already_large: list[Finding] = []
     for path in files:
-        lines = _line_count(path)
+        lines = _line_count(path, rev)
         # CROSSED_AT is the lower of the two thresholds, so nothing under it is reportable.
         if lines <= CROSSED_AT:
             continue
@@ -185,9 +206,9 @@ def cmd_lint_size(files: tuple[str, ...], against: str | None, report_path: str 
     if in_scope and base is None:
         # Printed to stdout so a soft preflight check reports a degraded run as a
         # warning rather than a silent pass.
-        click.echo("size: no base ref, so only files that are already oversized are reported")
+        click.echo(f"size: no base ref, so only files over {NOTE_AT} lines are reported")
 
-    findings = _findings(in_scope, base)
+    findings = _findings(in_scope, base, rev="HEAD" if against is not None else None)
     for finding in findings:
         _report(finding)
     click.echo(f"size: {len(in_scope)} file(s) checked, {len(findings)} finding(s)", err=True)
