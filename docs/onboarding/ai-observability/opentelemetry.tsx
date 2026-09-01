@@ -167,8 +167,8 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                     <Markdown>
                         {dedent`
-                            In Go, if your app already has a \`TracerProvider\`, register the processor on it with
-                            \`sdktrace.WithSpanProcessor\` instead of creating a new provider. Call
+                            In Go, if your app already has a \`TracerProvider\`, attach the processor to it with
+                            \`provider.RegisterSpanProcessor(processor)\` instead of creating a new provider. Call
                             \`provider.Shutdown\` (or \`provider.ForceFlush\`) before exit so buffered spans are sent.
                         `}
                     </Markdown>
@@ -237,23 +237,28 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 code: dedent`
                                     tracer := otel.Tracer("my-app")
                                     _, span := tracer.Start(ctx, "chat gpt-5-mini")
-
-                                    resp, err := client.Chat.Completions.New(ctx, params) // your existing LLM call
-                                    if err != nil {
-                                        span.End()
-                                        return err
-                                    }
-
+                                    // Set the request attributes before the call so a failed call still
+                                    // carries the gen_ai.* keys the PostHog span filter looks for
                                     span.SetAttributes(
                                         attribute.String("gen_ai.operation.name", "chat"),
                                         attribute.String("gen_ai.provider.name", "openai"),
                                         attribute.String("gen_ai.request.model", "gpt-5-mini"),
                                         // JSON-serialized chat messages
                                         attribute.String("gen_ai.input.messages", \`[{"role":"user","content":"Tell me a fun fact about hedgehogs"}]\`),
+                                        attribute.String("server.address", "api.openai.com"),
+                                    )
+
+                                    resp, err := client.Chat.Completions.New(ctx, params) // your existing LLM call
+                                    if err != nil {
+                                        span.RecordError(err)
+                                        span.End()
+                                        return err
+                                    }
+
+                                    span.SetAttributes(
                                         attribute.String("gen_ai.output.messages", \`[{"role":"assistant","content":"Hedgehogs have around 5,000 spines."}]\`),
                                         attribute.Int("gen_ai.usage.input_tokens", int(resp.Usage.PromptTokens)),
                                         attribute.Int("gen_ai.usage.output_tokens", int(resp.Usage.CompletionTokens)),
-                                        attribute.String("server.address", "api.openai.com"),
                                     )
                                     span.End()
                                 `,
