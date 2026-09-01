@@ -316,6 +316,11 @@ ACTIONS_COLUMNS = (
 # `create_pr` click does not cover. The `*_click*` names keep it apart from the status stream's
 # `first_resolved_at`, which conflates every path a report reaches `resolved`. `restore`
 # (un-dismissing a report) shares this aggregation shape and is a follow-up.
+#
+# Blind spot: a bulk-bar resolve fires one report_id-less event and drops here like every bulk
+# action. Bulk dismissals are recovered from the status stream; bulk resolves are not, because the
+# same `first_resolved_at` conflation rules it out as a substitute. So a head must read
+# `resolve_click_count` = 0 as unknown, not as "the report was never resolved".
 ACTIONS_SQL = """
 SELECT
     toString(properties.report_id) AS report_id,
