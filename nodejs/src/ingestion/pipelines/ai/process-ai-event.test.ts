@@ -470,22 +470,121 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
         })
 
-        it('handles missing token counts', () => {
+        // Absent and zero token counts describe different calls, so they must not
+        // price the same. Zero is a usage report of nothing; absent is no report.
+        it.each([
+            { counts: 'absent', tokens: {}, expected: undefined },
+            { counts: 'zero', tokens: { $ai_input_tokens: 0, $ai_output_tokens: 0 }, expected: 0 },
+        ])('records $expected cost when token counts are $counts', ({ tokens, expected }) => {
             delete event.properties!.$ai_input_tokens
             delete event.properties!.$ai_output_tokens
+            Object.assign(event.properties!, tokens)
+
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBe(0)
-            expect(result.properties!.$ai_input_cost_usd).toBe(0)
-            expect(result.properties!.$ai_output_cost_usd).toBe(0)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(expected)
+            expect(result.properties!.$ai_input_cost_usd).toBe(expected)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expected)
         })
 
-        it('handles zero token counts', () => {
-            event.properties!.$ai_input_tokens = 0
-            event.properties!.$ai_output_tokens = 0
+        // The properties are named here rather than read from the token count
+        // lists, so narrowing either list to the plain input/output counts fails
+        // these. Iterating the lists themselves would only drop the case. Neither
+        // catches the opposite drift: a calculator that starts reading a token
+        // property nobody added to its list.
+        it.each(['$ai_cache_read_input_tokens', '$ai_audio_input_tokens', '$ai_reasoning_tokens'])(
+            'treats %s on its own as a usage report',
+            (property) => {
+                delete event.properties!.$ai_input_tokens
+                delete event.properties!.$ai_output_tokens
+                event.properties![property] = 100
+
+                const result = processAiEvent(event)
+
+                expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+            }
+        )
+
+        // Each side is a rate times its own counts, so one reported side must
+        // not fabricate a $0 for the other. Interrupted streams commonly report
+        // input only: Anthropic sends input tokens on message_start and the
+        // output count in the final delta.
+        it.each([
+            {
+                reported: 'input',
+                tokens: { $ai_input_tokens: 100 },
+                pricedProperty: '$ai_input_cost_usd',
+                absentProperty: '$ai_output_cost_usd',
+            },
+            {
+                reported: 'output',
+                tokens: { $ai_output_tokens: 50 },
+                pricedProperty: '$ai_output_cost_usd',
+                absentProperty: '$ai_input_cost_usd',
+            },
+        ])(
+            'prices only the $reported side when only it reported usage',
+            ({ tokens, pricedProperty, absentProperty }) => {
+                delete event.properties!.$ai_input_tokens
+                delete event.properties!.$ai_output_tokens
+                Object.assign(event.properties!, tokens)
+
+                const result = processAiEvent(event)
+
+                expect(result.properties![pricedProperty]).toBeGreaterThan(0)
+                expect(result.properties![absentProperty]).toBeUndefined()
+                expect(result.properties!.$ai_total_cost_usd).toBe(result.properties![pricedProperty])
+            }
+        )
+
+        // Request and web search charges are computed without reading a token
+        // count, so absent token counts must not discard a cost we do know.
+        it.each([
+            {
+                charge: 'per-request',
+                model: 'model-with-request-only',
+                provider: 'custom',
+                extra: {},
+                costProperty: '$ai_request_cost_usd',
+            },
+            {
+                charge: 'web search',
+                model: 'perplexity/sonar-pro',
+                provider: 'perplexity',
+                extra: { $ai_web_search_count: 3 },
+                costProperty: '$ai_web_search_cost_usd',
+            },
+        ])('prices a $charge charge when token counts are absent', ({ model, provider, extra, costProperty }) => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            Object.assign(event.properties!, { $ai_model: model, $ai_provider: provider }, extra)
+
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBe(0)
-            expect(result.properties!.$ai_input_cost_usd).toBe(0)
-            expect(result.properties!.$ai_output_cost_usd).toBe(0)
+
+            expect(result.properties![costProperty]).toBeGreaterThan(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
+            // Input and output are token costs, so without token counts they are
+            // unknown. Writing them as 0 would show "Input $0.00" in the cost
+            // breakdown for the same class of event this distinction exists for.
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+
+        // A cost the client computed themselves is a cost we know, so absent
+        // token counts must not discard it. One-sided costs never reach the
+        // passthrough early return, which needs both input and output present.
+        it.each([
+            { component: 'input', property: '$ai_input_cost_usd', value: 0.5 },
+            { component: 'per-request', property: '$ai_request_cost_usd', value: 0.25 },
+        ])('keeps a client-supplied $component cost when token counts are absent', ({ property, value }) => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            event.properties![property] = value
+
+            const result = processAiEvent(event)
+
+            expect(result.properties![property]).toBe(value)
+            expect(result.properties!.$ai_total_cost_usd).toBe(value)
         })
     })
 
