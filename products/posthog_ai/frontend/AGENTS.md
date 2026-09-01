@@ -117,7 +117,16 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 The heart of the surface:
 
 - **SSE connection** — a `fetch` body reader pumped through `eventsource-parser`; a reconnect resumes after
-  the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap).
+  the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap). Connection
+  state (the `stream-end` sentinel, the resume cursor, the proxy token budget) belongs to one connection:
+  every `openSseForRun` starts it fresh, and the cursor is dropped when the run being opened differs from
+  the one it came from. A send never revives a dead stream, and three things make that harder than it
+  looks: after the `stream-end` sentinel the run's Redis stream holds a completion entry the server stops
+  at and refuses to write past, so only a successor run can carry the next turn; `sseStatus: 'error'`
+  covers a failed history bootstrap as well as an exhausted reconnect budget, and the bootstrap case has
+  already dropped buffered frames whose ids advanced the resume cursor; and a reopen inherits the spent
+  reconnect budgets, so its first drop gives up at once. A user-initiated recovery needs its own action,
+  its own budgets, and a log-completeness precondition.
 - **Ordered, append-only `log` is the single source of truth** — every wire frame (plus a few synthetic
   client entries) is appended, never keyed or per-entry deduped — with one exception: superseded
   `tool_call_update` frames are field-wise merged per `toolCallId` (`appendToRunLog`). Each update carries

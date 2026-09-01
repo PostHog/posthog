@@ -43,6 +43,7 @@ export const AccountsEvents = {
     RoleAssigned: 'customer analytics account role assigned',
     RelationshipDeleted: 'customer analytics accounts relationship deleted',
     TagsUpdated: 'customer analytics account tags updated',
+    CustomPropertyUpdated: 'customer analytics account custom property updated',
     LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',

@@ -25,6 +25,7 @@ import {
   getObjectKind,
   POSTHOG_OBJECT_ICON_COLOR,
 } from "@posthog/ui/utils/objectKinds";
+import { ExperimentResultsSummary } from "./ExperimentResultsSummary";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
 function StatStrip({
@@ -240,7 +241,16 @@ export function PostHogObjectPageView({
         </header>
 
         <div className="mt-6">
-          {usesChartRenderer ? (
+          {objectKind === "experiment" ? (
+            <div className="flex flex-col gap-3">
+              <ExperimentResultsSummary
+                display="full"
+                loadState={state}
+                results={preview?.experimentResults}
+              />
+              {preview && <PostHogObjectDetails preview={preview} />}
+            </div>
+          ) : usesChartRenderer ? (
             <MessageChartCard
               spec={
                 objectKind === "insight"

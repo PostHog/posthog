@@ -16,6 +16,7 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
+  type CodexModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
@@ -28,6 +29,10 @@ import {
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  effectiveCodexModelAccess,
+  useCodexSubscription,
+} from "@posthog/ui/features/settings/useCodexSubscription";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
@@ -135,6 +140,7 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
+  codexModelAccess?: CodexModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -175,6 +181,7 @@ async function trackTaskCreated(
       uses_worktree_link: usesWorktreeLink,
       uses_worktree_include: usesWorktreeInclude,
       adapter: input.adapter,
+      codex_model_access: codexModelAccess,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -216,6 +223,7 @@ export function useTaskCreation({
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
+  const codexSubscription = useCodexSubscription();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -401,6 +409,15 @@ export function useTaskCreation({
             localMcpServers,
             adapter,
           );
+          const codexModelAccess =
+            runtime !== "pi" && adapter === "codex"
+              ? effectiveCodexModelAccess({
+                  flagEnabled: codexSubscription.flagEnabled,
+                  subscriptionOn: codexSubscription.subscriptionOn,
+                  loggedIn: codexSubscription.loggedIn,
+                  workspaceMode,
+                })
+              : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
             // repository selection; otherwise creation falls back to scratch.
@@ -415,6 +432,7 @@ export function useTaskCreation({
             reuseExistingWorktree,
             executionMode,
             adapter,
+            codexModelAccess,
             runtime,
             model,
             reasoningLevel,
@@ -547,7 +565,12 @@ export function useTaskCreation({
             if (allowNoRepo && channelId) {
               useTaskRepositoryDraftStore.getState().clearDraft(channelId);
             }
-            void trackTaskCreated(input, selectedDirectory, hostClient);
+            void trackTaskCreated(
+              input,
+              selectedDirectory,
+              hostClient,
+              input.codexModelAccess,
+            );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal
             // workspace.create invalidation never fires. Refresh the workspace
@@ -682,6 +705,9 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
+      codexSubscription.flagEnabled,
+      codexSubscription.loggedIn,
+      codexSubscription.subscriptionOn,
     ],
   );
 

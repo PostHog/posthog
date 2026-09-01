@@ -35,7 +35,10 @@ The gateway experience has these pages and workflows:
 
 - **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
   Users with permission can add a hosted custom server and choose OAuth or API key authentication.
-  Admins can set its team availability, and eligible users can grant initial agent access.
+  Admins can set its team availability.
+  Every connection is shared with the built-in PostHog agents automatically when the connecting user may manage agent access (admins always, members while team settings allow it).
+  The add-server form picks how far that share reaches: only the user's own runs (the default), or every agent run in the project.
+  Connecting a catalog server shares it for the user's own runs; the server page widens it to the team or revokes it.
   Connecting starts the appropriate authorization flow, while an existing connection opens its configuration.
 - **Server details**: Manage a personal connection by enabling, reconnecting, disconnecting, or removing it.
   Admins can also manage team and member access.

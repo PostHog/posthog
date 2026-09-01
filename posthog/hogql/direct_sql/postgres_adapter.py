@@ -6,7 +6,7 @@ from opentelemetry import trace
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.pgwire import (
     MANAGED_WAREHOUSE_CONNECTION_ERROR,
@@ -134,7 +134,7 @@ class PostgresAdapter:
 
                 postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
             with timings.measure("postgres_source_parse_config"):
-                config = postgres_source.parse_config(source.job_inputs or {})
+                config = parse_direct_source_config(postgres_source, source)
 
         with timings.measure("postgres_ssh_validation"):
             is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)

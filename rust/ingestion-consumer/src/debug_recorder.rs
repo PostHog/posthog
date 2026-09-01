@@ -93,30 +93,6 @@ pub enum DebugEventKind {
         batch_id: Option<String>,
         error: String,
     },
-    /// A send to a worker was retried (`reason`: busy/error).
-    SendRetry {
-        worker: String,
-        batch_id: String,
-        attempt: u32,
-        reason: &'static str,
-    },
-    /// A sub-batch was split into size-bounded chunks before sending
-    /// (`reason`: size_estimate — the pre-send estimate exceeded the body cap —
-    /// or http_413 — the worker rejected a chunk and it was halved).
-    SendSplit {
-        worker: String,
-        batch_id: String,
-        reason: &'static str,
-        chunks: usize,
-        messages: usize,
-    },
-    /// A send exhausted its retries; the messages are deferred for replay.
-    SendExhausted {
-        worker: String,
-        batch_id: String,
-        messages: usize,
-        error: String,
-    },
     /// A worker moved between health states.
     WorkerStateChanged {
         worker: String,

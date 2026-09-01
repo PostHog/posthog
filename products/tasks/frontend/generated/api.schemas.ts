@@ -1103,6 +1103,8 @@ export interface ChannelDTOApi {
     /** @nullable */
     github_integration: number | null
     repositories: string[]
+    /** @nullable */
+    auto_archive_after_days: number | null
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
@@ -1203,6 +1205,13 @@ export interface PatchedChannelUpdateApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+    /**
+     * Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_archive_after_days?: number | null
 }
 
 export interface ChannelDeleteConflictApi {
@@ -1723,6 +1732,11 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -2621,6 +2635,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -2742,6 +2761,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3108,6 +3132,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -3426,7 +3455,7 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 64
      */
     source?: string
-    /** Artifact contents encoded according to content_encoding */
+    /** Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead. */
     content: string
     /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
      *
@@ -4677,7 +4706,7 @@ export interface WarmTaskRequestApi {
      */
     repositories?: string[]
     /**
-     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it.
      * @nullable
      */
     github_integration?: number | null
@@ -4914,6 +4943,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
+    /**
+     * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
+     */
+    hog_flow_id?: string
     /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *

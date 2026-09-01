@@ -1,6 +1,6 @@
 ---
 name: context-layer-dreaming
-description: Nightly synthesis of the organization's activity into its context wiki
+description: Synthesizes recent organizational activity into a durable context wiki. Use when running a nightly or incremental context-layer dream, or when updating sourced organizational context from completed work.
 ---
 
 # Context layer dreaming

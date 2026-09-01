@@ -18,6 +18,7 @@ export const SurveysListParams = /* @__PURE__ */ zod.object({
 
 export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional(),
+    created_by: zod.number().optional().describe('Filter surveys by the ID of the user who created them.'),
     ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -26,6 +27,12 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`."
+        ),
+    status: zod
+        .enum(['complete', 'draft', 'running'])
+        .optional()
+        .describe(
+            'Filter surveys by their current status.\n\n\* `draft` - Draft\n\* `running` - Running\n\* `complete` - Complete'
         ),
     type: zod
         .enum(['api', 'external_survey', 'popover', 'widget'])

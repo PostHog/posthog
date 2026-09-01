@@ -1,8 +1,7 @@
 import {
   ArrowSquareOutIcon,
-  ClockIcon,
-  CopyIcon,
   DotsThreeIcon,
+  LinkIcon,
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
@@ -28,13 +27,12 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
-import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 interface ReportDetailActionsProps {
   report: SignalReport;
@@ -97,16 +95,6 @@ export function ReportDetailActions({
   const safePrUrl = prUrl && parsePrUrl(prUrl) ? prUrl : null;
   const refund = useRefundReport(report);
   const [refundOpen, setRefundOpen] = useState(false);
-  const reportsForBulk = useMemo(() => [report], [report]);
-  const bulkActions = useInboxBulkActions(
-    reportsForBulk,
-    report.id,
-    "detail_pane",
-  );
-  const canDefer =
-    report.status === "ready" ||
-    report.status === "failed" ||
-    report.status === "pending_input";
 
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [canvasDirection, setCanvasDirection] = useState("");
@@ -137,20 +125,8 @@ export function ReportDetailActions({
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-        {canDefer && (
-          <DropdownMenuItem
-            disabled={
-              bulkActions.snoozeDisabledReason !== null ||
-              bulkActions.isSnoozing
-            }
-            onClick={() => void bulkActions.snoozeSelected()}
-          >
-            <ClockIcon size={13} />
-            Defer
-          </DropdownMenuItem>
-        )}
         <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
-          <CopyIcon size={13} />
+          <LinkIcon size={13} />
           Copy link
         </DropdownMenuItem>
         {refund.canRefund && !isResolved && (
@@ -196,29 +172,6 @@ export function ReportDetailActions({
       <>
         {githubButton}
         <ReportChatToggle report={report} />
-        {canDefer && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-xs"
-                  className="h-7 w-7"
-                  aria-label="Defer"
-                  loading={bulkActions.isSnoozing}
-                  disabled={bulkActions.snoozeDisabledReason !== null}
-                  onClick={() => void bulkActions.snoozeSelected()}
-                />
-              }
-            >
-              <ClockIcon size={13} />
-            </TooltipTrigger>
-            <TooltipContent>
-              {bulkActions.snoozeDisabledReason ?? "Defer"}
-            </TooltipContent>
-          </Tooltip>
-        )}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -232,41 +185,31 @@ export function ReportDetailActions({
               />
             }
           >
-            <CopyIcon size={13} />
+            <LinkIcon size={13} />
           </TooltipTrigger>
           <TooltipContent>Copy link</TooltipContent>
         </Tooltip>
         {refund.canRefund && (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-xs"
-                        aria-label="More report actions"
-                      >
-                        <DotsThreeIcon size={13} weight="bold" />
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent>More report actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-              <DropdownMenuItem
-                disabled={refund.disabledReason !== null}
-                onClick={() => setRefundOpen(true)}
-              >
-                <ReceiptIcon size={13} />
-                Refund…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-xs"
+                  className="h-7 w-7"
+                  aria-label="Refund"
+                  disabled={refund.disabledReason !== null}
+                  onClick={() => setRefundOpen(true)}
+                />
+              }
+            >
+              <ReceiptIcon />
+            </TooltipTrigger>
+            <TooltipContent>
+              {refund.disabledReason ?? "Refund this PR and archive the report"}
+            </TooltipContent>
+          </Tooltip>
         )}
         {refund.canRefund && (
           <RefundReportDialog

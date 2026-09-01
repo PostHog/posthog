@@ -31,7 +31,7 @@ import { useCallback } from "react";
 
 type TaskFeedResults = { tasks: Task[]; isComplete: boolean };
 
-export function useUpdateTask() {
+function useUpdateTask() {
   const queryClient = useQueryClient();
 
   return useAuthenticatedMutation(

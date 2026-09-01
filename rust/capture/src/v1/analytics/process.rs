@@ -163,8 +163,9 @@ pub async fn process_batch(
     //      `crate::overflow_parity` pins that across the whole matrix.
     //   2. Lane assignment is assign-then-reroute in v1 versus a single
     //      `DataType::from_event_name` match in legacy.
-    // Both paths consult the same shared limiter for every non-dropped event, so
-    // per-key counts are identical regardless of which pipeline serves the key.
+    // Both paths charge the same shared limiter for every non-dropped event,
+    // including events whose person processing is already off, so per-key counts
+    // are identical regardless of which pipeline serves the key.
     // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
@@ -917,11 +918,9 @@ async fn apply_ai_byte_limits(
 }
 
 /// Per-batch tally of how the shared global rate limiter classified each
-/// evaluated event. All three fields count events (not distinct_ids), so
-/// `allowed + limited + already_disabled` equals the number of non-Drop events
-/// reaching this stage. Only `allowed + limited` were consulted against the
-/// limiter: an `already_disabled` event is skipped before the call, so it does
-/// not appear in the limiter's own per-key counts.
+/// evaluated event. All three fields count events (not distinct_ids) and all
+/// three charge the limiter, so `allowed + limited + already_disabled` equals
+/// the non-Drop events reaching this stage.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct TokenDistinctIdTally {
     allowed: u64,
@@ -944,25 +943,21 @@ async fn apply_token_distinct_id_limits(
         if event.result != EventResult::Ok {
             continue;
         }
-        // Person processing is already off for this event (illegal distinct_id,
-        // an ops restriction, or a force-limited key upstream). The limiter has
-        // nothing left to take away, so it is not consulted at all: the stamps
-        // below would be redundant, and the call itself would cost a local cache
-        // miss and a Redis round trip for a decision that cannot be acted on.
-        // The event's volume therefore does not count toward the shared window.
-        //
-        // A merely rate-limited burst does NOT land here: it sets
-        // `spread_partitions` without touching person processing, so such an
-        // event still gets its warning stamped below, as it does on the v0 path.
+        let cache_key =
+            GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
+                .to_cache_key();
+        // Charge every event, even one whose person processing is already off:
+        // its volume belongs in the key's fleet count, and the v0 path charges
+        // it too. The check reads only the local cache.
+        let limited = limiter.is_limited(&cache_key, 1).await.is_some();
+
+        // Nothing left to take away, so stamp nothing. A merely rate-limited
+        // burst does NOT land here: it sets `spread_partitions` without touching
+        // person processing, so it still gets its warning stamped below.
         if event.force_disable_person_processing {
             already_disabled_count += 1;
             continue;
         }
-
-        let cache_key =
-            GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
-                .to_cache_key();
-        let limited = limiter.is_limited(&cache_key, 1).await.is_some();
 
         if limited {
             event.result = EventResult::Warning;
@@ -2744,10 +2739,10 @@ mod tests {
     #[tokio::test]
     async fn td_limits_skips_events_with_person_processing_already_off() {
         // An event that already has person processing disabled (illegal
-        // distinct_id, ops restriction, or burst overflow) is not consulted
-        // against the shared limiter at all: the limiter has nothing left to take
-        // away, so the call would cost a Redis round trip for a decision that
-        // cannot be acted on. Its stamping is left untouched.
+        // distinct_id, ops restriction, or burst overflow) is still charged
+        // against the shared limiter, because its volume belongs in the key's
+        // fleet count. Its stamping is left untouched, because the limiter has
+        // nothing left to take away.
         let (limiter, calls) = mock_limiter_with_log(vec!["phc_tok:user-1"]);
         let ctx = td_context();
         let mut events = vec![
@@ -2760,13 +2755,12 @@ mod tests {
 
         apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
-        // The already-flagged event was never consulted, so it costs no Redis work.
         assert!(
-            !calls
+            calls
                 .lock()
                 .unwrap()
                 .contains(&"phc_tok:user-1".to_string()),
-            "already-disabled event must not be consulted"
+            "already-disabled event must still charge the key's fleet count"
         );
         // Its stamping is untouched: result stays Ok, no overflow reroute.
         let flagged = find_by_did(&events, "user-1");
@@ -2783,12 +2777,11 @@ mod tests {
 
     #[tokio::test]
     async fn td_limits_evaluates_only_events_it_can_act_on() {
-        // Parity with legacy (`events::analytics`): the shared limiter is
-        // consulted for every event whose fate it can still change, so per-key
-        // counts are identical regardless of which pipeline serves the key. A
-        // dropped event and one whose person processing is already off are both
-        // excluded, for opposite reasons: one is gone, the other is already at
-        // the outcome the limiter would impose.
+        // Parity with legacy (`events::analytics`): the shared limiter is charged
+        // for every event that reaches this stage, including one whose person
+        // processing is already off, so per-key counts are identical regardless
+        // of which pipeline serves the key. Only a dropped event is excluded,
+        // because its bytes never reach a topic.
         let (limiter, calls) = mock_limiter_with_log(vec![]);
         let ctx = td_context();
         let mut events = vec![
@@ -2808,8 +2801,8 @@ mod tests {
         seen.sort();
         assert_eq!(
             seen,
-            vec!["phc_tok:user-1".to_string()],
-            "limiter must be consulted only for events it can still act on"
+            vec!["phc_tok:user-1".to_string(), "phc_tok:user-2".to_string()],
+            "every event reaching this stage charges the limiter; only drops are excluded"
         );
         assert_eq!(
             tally,
@@ -2819,9 +2812,13 @@ mod tests {
                 already_disabled: 1,
             }
         );
-        // Invariant: `allowed + limited` accounts for exactly the consulted events,
-        // so the emitted counters stay commensurable with the limiter's own counts.
-        assert_eq!(tally.allowed + tally.limited, seen.len() as u64);
+        // Invariant: the three tally fields account for exactly the charged
+        // events, so the emitted counters stay commensurable with the limiter's
+        // own per-key counts.
+        assert_eq!(
+            tally.allowed + tally.limited + tally.already_disabled,
+            seen.len() as u64
+        );
     }
 
     #[tokio::test]
