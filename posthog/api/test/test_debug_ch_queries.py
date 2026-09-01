@@ -224,8 +224,9 @@ class TestWAPrecomputeHealth(APIBaseTest):
         self.assertEqual(data["top_missing_teams"][0], {"team_id": 2, "misses": 120})
 
     def test_team_filter_narrows_all_sections_and_skips_team_ranking(self) -> None:
-        # A per-team read must inject the tenant filter into every section's SQL
-        # and not spend a fourth fleet-wide scan on the team ranking.
+        # A per-team read must inject the tenant filter into every section's SQL,
+        # swap the fleet-wide team ranking for the per-strategy triage detail, and
+        # never run an unfiltered scan.
         self.user.is_staff = True
         self.user.save()
 
@@ -239,12 +240,13 @@ class TestWAPrecomputeHealth(APIBaseTest):
             resp = self.client.get("/api/debug_ch_queries/wa_precompute_health/?team_id=42")
 
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
-        self.assertEqual(len(executed), 3)
+        self.assertEqual(len(executed), 4)  # hourly, warming, miss_breakdown, query_detail
         for query, params in executed:
             self.assertIn("JSONExtractInt(log_comment, 'team_id') = %(team_id)s", query)
             self.assertEqual(params["team_id"], 42)
         self.assertEqual(resp.json()["team_id"], 42)
         self.assertEqual(resp.json()["top_missing_teams"], [])
+        self.assertEqual(resp.json()["query_detail"], [])
 
 
 class TestCacheTableStats(SimpleTestCase):

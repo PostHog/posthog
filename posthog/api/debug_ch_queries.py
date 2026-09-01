@@ -1253,6 +1253,40 @@ class DebugCHQueries(viewsets.ViewSet):
             settings=_WA_HEALTH_QUERY_SETTINGS,
         )
 
+        # Per-strategy execution detail for one tenant: latency percentiles, volume,
+        # and error codes per query_type tag. This is the triage layer — a latency
+        # finding names a team; this section says which strategy regressed and
+        # whether it failed by timeout, memory, or contention. Fleet-wide it would
+        # be an unbounded scan for numbers the hourly sections already summarize.
+        detail_rows: list = []
+        if team_id_filter is not None:
+            detail_rows = sync_execute(
+                f"""
+                SELECT
+                    JSONExtractString(log_comment, 'query_type') AS query_type,
+                    count() AS reads,
+                    round(quantile(0.5)(query_duration_ms)) AS p50_ms,
+                    round(quantile(0.95)(query_duration_ms)) AS p95_ms,
+                    round(quantile(0.99)(query_duration_ms)) AS p99_ms,
+                    max(read_bytes) AS max_read_bytes,
+                    max(memory_usage) AS max_memory_bytes,
+                    countIf(exception_code != 0) AS errored,
+                    arrayDistinct(groupArrayIf(exception_code, exception_code != 0)) AS error_codes
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE event_time > now() - toIntervalHour(%(hours)s)
+                    AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
+                    AND is_initial_query
+                    AND (
+                        endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
+                        OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                    ){team_filter_sql}
+                GROUP BY query_type
+                ORDER BY reads DESC
+                """,
+                params,
+                settings=_WA_HEALTH_QUERY_SETTINGS,
+            )
+
         # Which tenants eat the most live (missed) reads — the scout's raw material
         # for enrollment/coverage suggestions. Redundant under a team filter.
         top_team_rows: list = []
@@ -1307,6 +1341,20 @@ class DebugCHQueries(viewsets.ViewSet):
                 ],
                 "miss_breakdown": [{"query_type": query_type, "misses": misses} for query_type, misses in miss_rows],
                 "top_missing_teams": [{"team_id": team_id, "misses": misses} for team_id, misses in top_team_rows],
+                "query_detail": [
+                    {
+                        "query_type": query_type,
+                        "reads": reads,
+                        "p50_ms": p50,
+                        "p95_ms": p95,
+                        "p99_ms": p99,
+                        "max_read_bytes": max_read_bytes,
+                        "max_memory_bytes": max_memory_bytes,
+                        "errored": errored,
+                        "error_codes": error_codes,
+                    }
+                    for query_type, reads, p50, p95, p99, max_read_bytes, max_memory_bytes, errored, error_codes in detail_rows
+                ],
             }
         )
 
