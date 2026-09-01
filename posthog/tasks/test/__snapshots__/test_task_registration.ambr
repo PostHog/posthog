@@ -151,6 +151,7 @@
     'posthog.tasks.team_metadata.refresh_expiring_team_metadata_cache_entries',
     'posthog.tasks.team_metadata.update_related_teams_metadata_cache_task',
     'posthog.tasks.team_metadata.update_team_metadata_cache_task',
+    'posthog.tasks.uploaded_media.sweep_abandoned_media_uploads_task',
     'posthog.tasks.usage_report.capture_report',
     'posthog.tasks.usage_report.send_all_org_usage_reports',
     'posthog.tasks.usage_report.send_report_to_billing_service',
