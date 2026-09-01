@@ -29,7 +29,7 @@ export function bootApp(): void {
     // notebooks (toolbar, exporter) don't ship them; the app opts in here
     registerNotebookLinkDrag()
     // Same seam for the error toast's "Get help" button: the app opens support in place, the
-    // toolbar and exporter keep sending people to posthog.com/support
+    // toolbar and exporter keep linking out to the support options docs
     registerToastGetHelp()
 
     const idle =

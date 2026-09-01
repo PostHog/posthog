@@ -42,6 +42,9 @@ describe('registerToastGetHelp', () => {
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Support)
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
         expect(windowOpen).not.toHaveBeenCalled()
+        // The panel replaces the URL rather than pushing it. A pushed entry would leave Back stripping
+        // the hash while the panel stayed open, so Back would do nothing a person can see.
+        await expectLogic(router).toNotHaveDispatchedActions(['push'])
     })
 
     // Self-hosted has no Support tab, and a scene without a panel falls through to the support modal,
