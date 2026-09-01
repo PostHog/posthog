@@ -1,39 +1,29 @@
 {% extends "email/base.html" %}
-
 {% block preheader %}Failing batch exports are automatically paused{% endblock %}
 {% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
 {% block section %}
-<p>
-  Your batch export {{ name }} failed with a fatal error at {{ time }}. We really tried to handle this by ourselves but, due to the nature of the error, we could not automatically recover from it and it requires your manual intervention.
-
-  Please review the batch export for error details:
-</p>
-
-<div class="mb mt text-center">
-  <a href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
-     target="_blank"><b>Go to the batch export</b></a>
-</div>
-
-<p>
-  In the logs you may find errors that need to be addressed by you, like invalid credentials, or an unreachable destination.
-
-  If you can't diagnose the issue or if you think this issue could have been automatically resolved, please contact us.
-</p>
-
-<p class="mt">
-  Failing batch exports are <b>automatically paused</b> by PostHog
-</p>
-
+    <p>
+        Your batch export {{ name }} failed with a fatal error at {{ time }}. We really tried to handle this by ourselves but, due to the nature of the error, we could not automatically recover from it and it requires your manual intervention.
+        Please review the batch export for error details:
+    </p>
+    <div class="mb mt text-center">
+        <a href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
+           target="_blank"><b>Go to the batch export</b></a>
+    </div>
+    <p>
+        In the logs you may find errors that need to be addressed by you, like invalid credentials, or an unreachable destination.
+        If you can't diagnose the issue or if you think this issue could have been automatically resolved, please contact us.
+    </p>
+    <p class="mt">
+        Failing batch exports are <b>automatically paused</b> by PostHog
+    </p>
 {% endblock %}
-
 {% block footer %}
-Need help?
-<a href="https://posthog.com/questions?{{ utm_tags }}"
-    target="_blank"><b>Visit support</b></a>
-or
-<a href="https://posthog.com/docs?{{ utm_tags }}"
-    target="_blank"><b>read our documentation</b></a>.<br /><br />
-
-<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
-
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.
+    <br />
+    <br />
+    <a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
 {% endblock %}

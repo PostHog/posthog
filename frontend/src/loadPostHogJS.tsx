@@ -160,6 +160,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             },
             session_recording: {
                 blockSelector: '.ph-replay-block',
+                streamNetworkBody: true,
                 ...options.sessionRecording,
             },
             person_profiles: 'always',
