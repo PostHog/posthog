@@ -95,8 +95,9 @@ class TestCloudUtilsRunMode(SimpleTestCase):
             ("ipv4_loopback_trailing_dot", "http://127.0.0.1./project/1", False),
             ("missing", None, False),
             ("malformed", "https://[", False),
-            # Chrome reports `about` as the document URL for a violation inside an `about:blank`
-            # frame. The report is valid but names no origin, so it must not be treated as hobby.
+            # The replay player renders a recording into an `about:blank` iframe that inherits the
+            # page's CSP, so its violations report `about` as the document URL. The report is
+            # valid and comes from PostHog's own app, so it must not be treated as hobby.
             ("about_blank_frame", "about", False),
         ]
     )
