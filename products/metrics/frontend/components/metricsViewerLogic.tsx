@@ -222,6 +222,7 @@ export interface metricsViewerLogicValues {
     queryAbortController: AbortController | null
     queryError: string | null
     queryFilters: _MetricFilterApi[]
+    queryLoading: boolean
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     savedInsight: QueryBasedInsightModel | null
@@ -591,6 +592,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 fetchQueryResultsSuccess: () => null,
                 fetchQueryResultsFailure: (state, { error }) =>
                     isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
+            },
+        ],
+        // kea-loaders' auto `queryResultsLoading` drops to false when a superseded query's
+        // abort lands as a failure, flashing the empty state while the replacement query is
+        // still in flight. This flag only clears on success or a real failure, so the UI
+        // must read it instead of `queryResultsLoading`.
+        queryLoading: [
+            false as boolean,
+            {
+                fetchQueryResults: () => true,
+                fetchQueryResultsSuccess: () => false,
+                fetchQueryResultsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
             },
         ],
     }),

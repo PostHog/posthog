@@ -2,8 +2,8 @@
 
 A half-configured artifact origin used to fail silently: every build would
 succeed and then serve ``artifact_url: null``. These system checks make a
-misconfiguration fail the deploy instead. An entirely unset configuration is
-legal — it means artifact delivery is off (DEBUG/TEST fall back to SITE_URL).
+misconfiguration fail the deploy instead. An entirely unset origin is legal —
+it means artifact delivery is off (DEBUG/TEST fall back to SITE_URL).
 """
 
 from typing import Any
@@ -17,18 +17,22 @@ def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[Er
     if settings.DEBUG or settings.TEST:
         return []
     origin = settings.CANVAS_ARTIFACT_ORIGIN
-    keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
-    if not origin and not keys:
+    dedicated_keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
+    if not origin and not dedicated_keys:
         return []
 
-    from products.canvas.backend.artifacts import _configured_artifact_host  # noqa: PLC0415
+    from products.canvas.backend.artifacts import (  # noqa: PLC0415 — Django app registry must be ready
+        _artifact_signing_keys,
+        _configured_artifact_host,
+    )
 
     errors: list[Error] = []
+    keys = _artifact_signing_keys()
     if not origin or not keys:
         errors.append(
             Error(
-                "CANVAS_ARTIFACT_ORIGIN and CANVAS_ARTIFACT_SIGNING_KEYS must be set together — "
-                "half-configured artifact delivery serves no artifacts.",
+                "Canvas artifact delivery needs CANVAS_ARTIFACT_ORIGIN and a signing key from "
+                "CANVAS_ARTIFACT_SIGNING_KEYS or SECRET_KEY.",
                 id="canvas.E001",
             )
         )
@@ -44,7 +48,7 @@ def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[Er
     if invalid_key_positions:
         errors.append(
             Error(
-                "Every CANVAS_ARTIFACT_SIGNING_KEY must be at least 32 characters; invalid position(s): "
+                "Every Canvas artifact signing key must be at least 32 characters; invalid position(s): "
                 + ", ".join(invalid_key_positions),
                 id="canvas.E003",
             )
