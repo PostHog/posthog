@@ -2,7 +2,10 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
-import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
+import {
+  isValidConfigValue,
+  resolvePiModelPick,
+} from "@posthog/core/task-detail/configOptions";
 import { type AgentRuntime, adapterForModelId } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -384,9 +387,30 @@ export const ChannelHomeComposer = forwardRef<
   const handleHarnessModelChange = useCallback(
     (harness: AgentAdapter, model: string) => {
       setLastUsedModel(model);
-      handleHarnessChange(harness);
+      if (runtime !== "pi") {
+        handleHarnessChange(harness);
+        return;
+      }
+      handleRuntimeChange("acp");
+      if (harness === adapter) {
+        // Same adapter means no config refetch, so apply the pick directly.
+        if (isValidConfigValue(modelOption, model)) {
+          setConfigOption(modelOption.id, model);
+        }
+        return;
+      }
+      setAdapter(harness);
     },
-    [handleHarnessChange, setLastUsedModel],
+    [
+      adapter,
+      handleHarnessChange,
+      handleRuntimeChange,
+      modelOption,
+      runtime,
+      setAdapter,
+      setConfigOption,
+      setLastUsedModel,
+    ],
   );
   const handlePiModelChange = useCallback(
     (model: PiModelSelection) => {
@@ -394,6 +418,33 @@ export const ChannelHomeComposer = forwardRef<
       setLastUsedPiModel(model.id);
     },
     [setLastUsedPiModel],
+  );
+  // The Pi menu offers the same full catalog; a pick stays on Pi when its
+  // catalog runs the model, otherwise it falls to the model's own harness.
+  const handlePiGatewayModelSelect = useCallback(
+    (model: string) => {
+      const target = resolvePiModelPick(
+        piModelCatalog.map((entry) => entry.id),
+        modelOption,
+        model,
+      );
+      if (target === "pi") {
+        const entry = piModelCatalog.find(
+          (candidate) => candidate.id === model,
+        );
+        if (entry) {
+          handlePiModelChange(entry);
+        }
+        return;
+      }
+      handleHarnessModelChange(target, model);
+    },
+    [
+      handleHarnessModelChange,
+      handlePiModelChange,
+      modelOption,
+      piModelCatalog,
+    ],
   );
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
     setSelectedPiThinkingLevel(level);
@@ -512,6 +563,8 @@ export const ChannelHomeComposer = forwardRef<
               onChange={handlePiModelChange}
               onThinkingLevelChange={handlePiThinkingLevelChange}
               onHarnessChange={handleHarnessChange}
+              modelOption={modelOption}
+              onGatewayModelSelect={handlePiGatewayModelSelect}
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
             />

@@ -5,6 +5,7 @@ import {
   flattenConfigValues,
   harnessForModelValue,
   modelOptionForHarness,
+  resolvePiModelPick,
 } from "./configOptions";
 
 const groupedModelOption = {
@@ -16,8 +17,8 @@ const groupedModelOption = {
   description: "",
   options: [
     {
-      group: "claude",
-      name: "Claude Code",
+      group: "anthropic",
+      name: "Anthropic",
       options: [
         {
           value: "claude-opus-5",
@@ -27,8 +28,8 @@ const groupedModelOption = {
       ],
     },
     {
-      group: "codex",
-      name: "Codex",
+      group: "openai",
+      name: "OpenAI",
       options: [
         { value: "gpt-5.5", name: "GPT-5.5", _meta: modelHarnessMeta("codex") },
       ],
@@ -75,6 +76,32 @@ describe("harnessForModelValue", () => {
 
   it("returns undefined without an option", () => {
     expect(harnessForModelValue(undefined, "gpt-5.5")).toBeUndefined();
+  });
+});
+
+describe("resolvePiModelPick", () => {
+  const piModelIds = ["claude-opus-5", "gpt-5.6-terra"];
+
+  it.each([
+    {
+      label: "keeps Pi for a model in its catalog",
+      value: "claude-opus-5",
+      expected: "pi",
+    },
+    {
+      label: "falls to the stamped harness for a model Pi cannot run",
+      value: "gpt-5.5",
+      expected: "codex",
+    },
+    {
+      label: "falls back to the id shape for a model the option lacks",
+      value: "gpt-4o",
+      expected: "codex",
+    },
+  ])("$label", ({ value, expected }) => {
+    expect(resolvePiModelPick(piModelIds, groupedModelOption, value)).toBe(
+      expected,
+    );
   });
 });
 

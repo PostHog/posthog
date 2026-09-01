@@ -15,28 +15,37 @@ const harnessOption = (
   _meta: { "posthog.code/modelHarness": harness },
 });
 
-const CLAUDE_MODELS = [
+const ANTHROPIC_MODELS = [
   harnessOption("claude", "claude-fable-5", "Claude Fable 5"),
   harnessOption("claude", "claude-opus-5", "Claude Opus 5"),
   harnessOption("claude", "claude-opus-4-8", "Claude Opus 4.8"),
   harnessOption("claude", "claude-opus-4-7", "Claude Opus 4.7"),
   harnessOption("claude", "claude-sonnet-5", "Claude Sonnet 5"),
   harnessOption("claude", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
-  harnessOption("claude", "moonshotai/kimi-k3", "Kimi K3"),
-  harnessOption(
-    "claude",
-    "deepseek-ai/deepseek-v4-flash-0731",
-    "DeepSeek V4 Flash",
-  ),
+];
+
+const OPENAI_MODELS = [
+  harnessOption("codex", "gpt-5.6-sol", "GPT-5.6 Sol"),
+  harnessOption("codex", "gpt-5.6-terra", "GPT-5.6 Terra"),
+  harnessOption("codex", "gpt-5.5", "GPT-5.5"),
+];
+
+const ZAI_MODELS = [
   harnessOption("claude", "zai-org/glm-5.3-flash", "GLM-5.3 Flash"),
   harnessOption("claude", "zai-org/glm-5.3", "GLM-5.3"),
   harnessOption("claude", "@cf/zai-org/glm-5.2", "GLM-5.2"),
 ];
 
-const CODEX_MODELS = [
-  harnessOption("codex", "gpt-5.6-sol", "GPT-5.6 Sol"),
-  harnessOption("codex", "gpt-5.6-terra", "GPT-5.6 Terra"),
-  harnessOption("codex", "gpt-5.5", "GPT-5.5"),
+const MOONSHOT_MODELS = [
+  harnessOption("claude", "moonshotai/kimi-k3", "Kimi K3"),
+];
+
+const DEEPSEEK_MODELS = [
+  harnessOption(
+    "claude",
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "DeepSeek V4 Flash",
+  ),
 ];
 
 function groupedModelOption(currentValue: string): SessionConfigOption {
@@ -47,8 +56,11 @@ function groupedModelOption(currentValue: string): SessionConfigOption {
     category: "model",
     currentValue,
     options: [
-      { group: "claude", name: "Claude Code", options: CLAUDE_MODELS },
-      { group: "codex", name: "Codex", options: CODEX_MODELS },
+      { group: "anthropic", name: "Anthropic", options: ANTHROPIC_MODELS },
+      { group: "openai", name: "OpenAI", options: OPENAI_MODELS },
+      { group: "zai-org", name: "Z.ai", options: ZAI_MODELS },
+      { group: "moonshotai", name: "Moonshot AI", options: MOONSHOT_MODELS },
+      { group: "deepseek-ai", name: "DeepSeek", options: DEEPSEEK_MODELS },
     ],
   } as unknown as SessionConfigOption;
 }

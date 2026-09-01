@@ -5,7 +5,7 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import {
-  buildHarnessModelGroups,
+  buildProviderModelGroups,
   DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
   fetchGatewayModels,
@@ -96,7 +96,7 @@ export async function getWebPreviewConfigOptions(
       type: "select",
       currentValue: resolvedModelId,
       options: allHarnessModels
-        ? buildHarnessModelGroups(gatewayModels, adapter, resolvedModelId)
+        ? buildProviderModelGroups(gatewayModels, adapter, resolvedModelId)
         : modelOptions,
       category: "model",
       description: "Choose which model Claude should use",

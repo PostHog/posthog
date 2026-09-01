@@ -81,7 +81,7 @@ import {
   type Adapter,
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
-  buildHarnessModelGroups,
+  buildProviderModelGroups,
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
@@ -2596,7 +2596,7 @@ For git operations while detached:
       modelOption?.type === "select" ? modelOption.currentValue : "";
 
     if (allHarnessModels && modelOption?.type === "select") {
-      modelOption.options = buildHarnessModelGroups(
+      modelOption.options = buildProviderModelGroups(
         gatewayModels,
         adapter,
         resolvedModelId,

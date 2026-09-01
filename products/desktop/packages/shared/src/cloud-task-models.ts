@@ -26,7 +26,7 @@ export interface CloudTaskConfigSelectOption {
 }
 
 export interface CloudTaskConfigSelectGroup {
-  group: Adapter;
+  group: string;
   name: string;
   options: CloudTaskConfigSelectOption[];
 }
@@ -362,53 +362,86 @@ function buildModelSelectOptions(
   return options;
 }
 
+const MODEL_VENDOR_NAMES: Record<string, string> = {
+  "zai-org": "Z.ai",
+  moonshotai: "Moonshot AI",
+  "deepseek-ai": "DeepSeek",
+  "google-vertex": "Gemini",
+  meta: "Meta",
+};
+
+const VENDOR_GROUP_ORDER = ["anthropic", "openai"];
+
+function modelVendor(modelId: string): { key: string; name: string } {
+  const normalized = modelId.toLowerCase().replace(/^@cf\//, "");
+  if (normalized.startsWith("claude-") || normalized.startsWith("anthropic/")) {
+    return { key: "anthropic", name: "Anthropic" };
+  }
+  if (normalized.startsWith("gpt-") || normalized.startsWith("openai/")) {
+    return { key: "openai", name: "OpenAI" };
+  }
+  const org = normalized.split("/")[0];
+  const name = MODEL_VENDOR_NAMES[org];
+  if (name) return { key: org, name };
+  return { key: "other", name: "Other" };
+}
+
 /**
- * Model options for every harness, the current harness's group first, so a
- * picker can offer the full catalog and switch harness on a cross-harness
- * pick. A currentValue missing from the catalog is kept as a custom entry.
+ * Model options for every harness, grouped by the model's vendor, so every
+ * picker offers one identical catalog and the harness is derived from the
+ * pick. Each option keeps its harness stamp in _meta; a currentValue missing
+ * from the catalog is kept as a custom entry under its own vendor.
  */
-export function buildHarnessModelGroups(
+export function buildProviderModelGroups(
   models: readonly GatewayModel[],
   adapter: Adapter,
   currentValue?: string,
 ): CloudTaskConfigSelectGroup[] {
-  const harnesses: Adapter[] =
-    adapter === "codex" ? ["codex", "claude"] : ["claude", "codex"];
-  const groups = harnesses
-    .map((harness) => ({
-      group: harness,
-      name: HARNESS_DISPLAY_NAMES[harness],
-      options: buildModelSelectOptions(models, harness),
-    }))
-    .filter((group) => group.options.length > 0);
+  const groups: CloudTaskConfigSelectGroup[] = [];
+  const groupsByVendor = new Map<string, CloudTaskConfigSelectGroup>();
+  const groupFor = (modelId: string): CloudTaskConfigSelectGroup => {
+    const vendor = modelVendor(modelId);
+    let group = groupsByVendor.get(vendor.key);
+    if (!group) {
+      group = { group: vendor.key, name: vendor.name, options: [] };
+      groupsByVendor.set(vendor.key, group);
+      groups.push(group);
+    }
+    return group;
+  };
+
+  const harnesses: Adapter[] = ["claude", "codex"];
+  for (const option of harnesses.flatMap((harness) =>
+    buildModelSelectOptions(models, harness),
+  )) {
+    groupFor(option.value).options.push(option);
+  }
+  for (const group of groups) {
+    group.options.sort((a, b) => compareModelsForPicker(a.value, b.value));
+  }
+
   const hasCurrent =
     !currentValue ||
     groups.some((group) =>
       group.options.some((option) => option.value === currentValue),
     );
   if (!hasCurrent && currentValue) {
-    const custom = {
+    // The current selection has to stay offered even when a gateway blip
+    // answers with an empty or partial catalog, so keep it as a custom entry
+    // stamped with the harness it is running on.
+    groupFor(currentValue).options.unshift({
       value: currentValue,
       name: currentValue,
       description: "Custom model",
       _meta: modelHarnessMeta(adapter),
-    };
-    // The model belongs to the current harness, so it goes in that harness's
-    // group. An empty or one-sided catalog (a gateway blip returns no models)
-    // leaves no group to put it in, so open one — otherwise the picker offers
-    // nothing at all, or files the model under the other harness's heading.
-    const own = groups.find((group) => group.group === adapter);
-    if (own) {
-      own.options.unshift(custom);
-    } else {
-      groups.unshift({
-        group: adapter,
-        name: HARNESS_DISPLAY_NAMES[adapter],
-        options: [custom],
-      });
-    }
+    });
   }
-  return groups;
+
+  const vendorRank = (key: string): number => {
+    const index = VENDOR_GROUP_ORDER.indexOf(key);
+    return index === -1 ? VENDOR_GROUP_ORDER.length : index;
+  };
+  return groups.sort((a, b) => vendorRank(a.group) - vendorRank(b.group));
 }
 
 function getModeOptions(

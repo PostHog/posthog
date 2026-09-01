@@ -489,7 +489,7 @@ describe("AgentService", () => {
     });
   });
 
-  it("groups models by harness when allHarnessModels is set", async () => {
+  it("groups models by provider when allHarnessModels is set", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
       {
         id: "claude-opus-4-8",
@@ -520,11 +520,11 @@ describe("AgentService", () => {
       type: "select",
       options: [
         {
-          group: "claude",
+          group: "anthropic",
           options: [expect.objectContaining({ value: "claude-opus-4-8" })],
         },
         {
-          group: "codex",
+          group: "openai",
           options: [expect.objectContaining({ value: "gpt-5.6-sol" })],
         },
       ],

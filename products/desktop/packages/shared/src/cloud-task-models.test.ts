@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   adapterForModelId,
   buildCloudTaskConfigOptions,
-  buildHarnessModelGroups,
+  buildProviderModelGroups,
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
@@ -292,7 +292,7 @@ describe("adapterForModelId", () => {
   });
 });
 
-describe("buildHarnessModelGroups", () => {
+describe("buildProviderModelGroups", () => {
   const catalog = [
     model("gpt-5.6-sol", "openai"),
     model("claude-opus-5", "anthropic"),
@@ -300,22 +300,27 @@ describe("buildHarnessModelGroups", () => {
     model("moonshotai/kimi-k3", "modal"),
   ];
 
-  it.each([
-    ["claude", ["claude", "codex"]],
-    ["codex", ["codex", "claude"]],
-  ] as const)("puts the %s harness's group first", (adapter, expectedOrder) => {
-    const groups = buildHarnessModelGroups(catalog, adapter);
-    expect(groups.map((group) => group.group)).toEqual(expectedOrder);
-  });
+  it.each(["claude", "codex"] as const)(
+    "keeps the same groups in the same order on the %s harness",
+    (adapter) => {
+      const groups = buildProviderModelGroups(catalog, adapter);
+      expect(groups.map((group) => group.group)).toEqual([
+        "anthropic",
+        "openai",
+        "moonshotai",
+      ]);
+    },
+  );
 
-  it("splits models by harness and stamps each option with its harness", () => {
-    const groups = buildHarnessModelGroups(catalog, "claude");
+  it("groups models by vendor and stamps each option with its harness", () => {
+    const groups = buildProviderModelGroups(catalog, "claude");
 
     expect(groups).toMatchObject([
       {
-        group: "claude",
-        name: "Claude Code",
+        group: "anthropic",
+        name: "Anthropic",
         options: [
+          { value: "claude-opus-5" },
           {
             value: "claude-opus-4-8",
             _meta: {
@@ -323,13 +328,11 @@ describe("buildHarnessModelGroups", () => {
               "posthog.code/restrictedModel": true,
             },
           },
-          { value: "claude-opus-5" },
-          { value: "moonshotai/kimi-k3" },
         ],
       },
       {
-        group: "codex",
-        name: "Codex",
+        group: "openai",
+        name: "OpenAI",
         options: [
           {
             value: "gpt-5.6-sol",
@@ -337,34 +340,53 @@ describe("buildHarnessModelGroups", () => {
           },
         ],
       },
+      {
+        group: "moonshotai",
+        name: "Moonshot AI",
+        options: [
+          {
+            value: "moonshotai/kimi-k3",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
     ]);
   });
 
   it("keeps a current model missing from the catalog as a custom entry", () => {
-    const groups = buildHarnessModelGroups(catalog, "claude", "my-custom");
-    expect(groups[0].options[0]).toMatchObject({
-      value: "my-custom",
-      description: "Custom model",
+    const groups = buildProviderModelGroups(catalog, "claude", "my-custom");
+    expect(groups.at(-1)).toMatchObject({
+      options: [{ value: "my-custom", description: "Custom model" }],
     });
   });
 
   // A gateway blip answers with an empty or one-sided catalog. The picker must
-  // still offer the model the task will run on, under its own harness.
+  // still offer the model the task will run on, under its own vendor.
   it.each([
     { label: "an empty catalog", models: [] },
     {
-      label: "a catalog holding only the other harness",
+      label: "a catalog holding only another vendor",
       models: [model("gpt-5.6-sol", "openai")],
     },
   ])(
-    "keeps the current model under its own harness with $label",
+    "keeps the current model under its own vendor with $label",
     ({ models }) => {
-      const groups = buildHarnessModelGroups(models, "claude", "claude-opus-5");
+      const groups = buildProviderModelGroups(
+        models,
+        "claude",
+        "claude-opus-5",
+      );
 
       expect(groups[0]).toMatchObject({
-        group: "claude",
-        name: "Claude Code",
-        options: [{ value: "claude-opus-5", description: "Custom model" }],
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          {
+            value: "claude-opus-5",
+            description: "Custom model",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
       });
     },
   );

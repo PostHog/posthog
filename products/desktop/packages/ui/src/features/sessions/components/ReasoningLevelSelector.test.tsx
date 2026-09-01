@@ -90,8 +90,8 @@ function groupedModelOption(
     currentValue,
     options: [
       {
-        group: "claude",
-        name: "Claude Code",
+        group: "anthropic",
+        name: "Anthropic",
         options: [
           {
             name: "Claude Sonnet 5",
@@ -106,8 +106,8 @@ function groupedModelOption(
         ],
       },
       {
-        group: "codex",
-        name: "Codex",
+        group: "openai",
+        name: "OpenAI",
         options: [
           {
             name: "GPT-5.6 Sol",
@@ -527,7 +527,7 @@ describe("ReasoningLevelSelector", () => {
     ).toBeInTheDocument();
   });
 
-  it("switches the harness when picking a model from the other harness's group", async () => {
+  it("switches the harness when picking a model the current harness cannot run", async () => {
     const onModelChange = vi.fn();
     const onHarnessModelChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });

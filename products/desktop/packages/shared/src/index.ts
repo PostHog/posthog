@@ -63,7 +63,7 @@ export {
   adapterForModelId,
   BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
-  buildHarnessModelGroups,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
   type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,

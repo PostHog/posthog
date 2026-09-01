@@ -13,6 +13,7 @@ import {
   harnessForModelValue,
   isValidConfigValue,
   modelOptionForHarness,
+  resolvePiModelPick,
 } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
@@ -1225,9 +1226,30 @@ export function TaskInput({
   const handleHarnessModelChange = useCallback(
     (harness: AgentAdapter, model: string) => {
       setLastUsedModel(model);
-      handleHarnessChange(harness);
+      if (runtime !== "pi") {
+        handleHarnessChange(harness);
+        return;
+      }
+      handleRuntimeChange("acp");
+      if (harness === adapter) {
+        // Same adapter means no config refetch, so apply the pick directly.
+        if (isValidConfigValue(modelOption, model)) {
+          setConfigOption(modelOption.id, model);
+        }
+        return;
+      }
+      setAdapter(harness);
     },
-    [handleHarnessChange, setLastUsedModel],
+    [
+      adapter,
+      handleHarnessChange,
+      handleRuntimeChange,
+      modelOption,
+      runtime,
+      setAdapter,
+      setConfigOption,
+      setLastUsedModel,
+    ],
   );
 
   const handlePiModelChange = useCallback(
@@ -1236,6 +1258,34 @@ export function TaskInput({
       setLastUsedPiModel(model.id);
     },
     [setLastUsedPiModel],
+  );
+
+  // The Pi menu offers the same full catalog; a pick stays on Pi when its
+  // catalog runs the model, otherwise it falls to the model's own harness.
+  const handlePiGatewayModelSelect = useCallback(
+    (model: string) => {
+      const target = resolvePiModelPick(
+        piModelCatalog.map((entry) => entry.id),
+        modelOption,
+        model,
+      );
+      if (target === "pi") {
+        const entry = piModelCatalog.find(
+          (candidate) => candidate.id === model,
+        );
+        if (entry) {
+          handlePiModelChange(entry);
+        }
+        return;
+      }
+      handleHarnessModelChange(target, model);
+    },
+    [
+      handleHarnessModelChange,
+      handlePiModelChange,
+      modelOption,
+      piModelCatalog,
+    ],
   );
 
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
@@ -1618,6 +1668,8 @@ export function TaskInput({
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}
+                        modelOption={modelOption}
+                        onGatewayModelSelect={handlePiGatewayModelSelect}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                       />
