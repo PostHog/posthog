@@ -391,9 +391,11 @@ inbox-reports-set-state
   scout that filed the report, which every scout run reads at cold start, so what you write there is
   what stops the same report being filed again. Write it for that reader: name the evidence that
   settles it, not just the verdict. A resolve is not forwarded, since it says the report did its job
-  rather than that filing it was wrong; that note stays on the report. Forwarding needs the same
-  skill-editing access as leaving a scout note by hand, so on a project where you lack it the note
-  still lands on the report but does not reach the scout.
+  rather than that filing it was wrong; that note stays on the report. A `wrong_repo` dismissal is
+  forwarded even with no note: the steering note names the repository the report wrongly targeted
+  and, when you passed one, the `corrected_repository`. Forwarding needs the same skill-editing
+  access as leaving a scout note by hand, so on a project where you lack it the note still lands on
+  the report but does not reach the scout.
 - It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
   report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
   the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is

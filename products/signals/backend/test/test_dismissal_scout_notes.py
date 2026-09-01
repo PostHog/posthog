@@ -31,6 +31,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
 )
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.test.test_billing import _make_pr_run
 from products.skills.backend.models.skills import LLMSkill
 
@@ -162,6 +163,36 @@ class TestDismissalScoutNotes(APIBaseTest):
         self._dismiss(report, **body)
 
         assert self._notes() == []
+
+    @parameterized.expand(
+        [
+            ("with_correction", {"corrected_repository": "acme/right"}, True),
+            ("without_correction", {}, False),
+        ]
+    )
+    def test_wrong_repo_dismissal_forwards_the_repositories_without_prose(
+        self, _name: str, body: dict, expects_correction: bool
+    ) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=RepoSelectionResult(repository="acme/wrong", reason="test").model_dump_json(),
+        )
+
+        self._dismiss(report, dismissal_reason="wrong_repo", **body)
+
+        # The repositories are the feedback here, so the note forwards with no prose at all: the
+        # scout learns which repository to avoid, and the right one when the reviewer named it.
+        note = self._notes()[0]
+        assert note.skill_name == SCOUT_SKILL
+        assert "wrong_repo" in note.content
+        assert "acme/wrong" in note.content
+        assert ("acme/right" in note.content) is expects_correction
+        assert "The note left with it" not in note.content
 
     @parameterized.expand(
         [
