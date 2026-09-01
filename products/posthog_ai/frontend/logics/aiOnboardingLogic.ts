@@ -61,12 +61,12 @@ export interface aiOnboardingLogicActions {
     setSeed: (seed: ComposerSeed) => {
         seed: ComposerSeed
     } // composerSeedLogic
-    updateUser: (
-        user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+    updateHasSeenProductIntroFor: (
+        productKey: string,
+        value?: boolean
     ) => {
-        successCallback: (() => void) | undefined
-        user: Partial<UserType>
+        productKey: string
+        value: boolean
     } // userLogic
     clickGithubCta: () => {
         value: true
@@ -148,7 +148,12 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             aiConsentLogic,
             ['dataProcessingAccepted'],
         ],
-        actions: [userLogic, ['updateUser'], composerSeedLogic({ panelId: props.panelId }), ['setSeed']],
+        actions: [
+            userLogic,
+            ['updateHasSeenProductIntroFor'],
+            composerSeedLogic({ panelId: props.panelId }),
+            ['setSeed'],
+        ],
     })),
 
     actions({
@@ -305,12 +310,7 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             if (values.user?.is_impersonated) {
                 return
             }
-            actions.updateUser({
-                has_seen_product_intro_for: {
-                    ...values.user?.has_seen_product_intro_for,
-                    [POSTHOG_AI_ONBOARDING_SEEN_KEY]: true,
-                },
-            })
+            actions.updateHasSeenProductIntroFor(POSTHOG_AI_ONBOARDING_SEEN_KEY)
         },
     })),
 ])

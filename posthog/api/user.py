@@ -165,6 +165,10 @@ NUM_2FA_BACKUP_CODES = 10
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
 
+# Far above what a real account reaches: one key per product, plus a handful composed per team.
+# `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own.
+MAX_PRODUCT_INTROS_SEEN = 1000
+
 
 def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
     """Stop a member changing a setting their organization enforces.
@@ -1016,6 +1020,23 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+class ProductIntroSeenSerializer(serializers.Serializer):
+    """Request body for PATCH /api/users/@me/product_intro_seen."""
+
+    product_key = serializers.CharField(
+        max_length=128,
+        help_text=(
+            "Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the "
+            "product keys, the map holds keys composed per team and keys for surfaces that are not "
+            "products."
+        ),
+    )
+    seen = serializers.BooleanField(
+        default=True,
+        help_text="Whether the intro counts as seen. Send false to show it again.",
+    )
+
+
 class UserAuthSessionSerializer(serializers.ModelSerializer):
     """A cookie-auth login session shown on the user's 'Web sessions' screen."""
 
@@ -1130,20 +1151,10 @@ class UserViewSet(
         "role_at_organization",
         "ui_configuration",
     ]
-    # Fields that only describe how this user's own UI is drawn, so a risk step-up does not need to gate
-    # them. Context switching (`set_current_organization`, `set_current_team`) and profile data
-    # (`role_at_organization`) stay gated.
-    time_sensitive_step_up_allow_if_only_fields = [
-        "theme_mode",
-        "allow_sidebar_suggestions",
-        "shortcut_position",
-        "has_seen_product_intro_for",
-        "events_column_config",
-        "ui_configuration",
-    ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",
         "scene_personalisation",
+        "product_intro_seen",
     ]
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
@@ -1515,6 +1526,45 @@ class UserViewSet(
         instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @extend_schema(
+        request=ProductIntroSeenSerializer,
+        responses={
+            200: OpenApiResponse(
+                response={"type": "object", "additionalProperties": {"type": "boolean"}},
+                description="The user's whole `has_seen_product_intro_for` map, after the merge.",
+            )
+        },
+    )
+    @action(methods=["PATCH"], detail=True)
+    def product_intro_seen(self, request, **kwargs):
+        """Record that this user has seen one product intro.
+
+        Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+        recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+        would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+        here changes an account, an organization, or a profile.
+
+        Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+        other's key, which a read-modify-write of the whole map cannot avoid.
+        """
+        serializer = ProductIntroSeenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product_key = serializer.validated_data["product_key"]
+
+        instance = self.get_object()
+        seen_for = instance.has_seen_product_intro_for or {}
+
+        if product_key not in seen_for and len(seen_for) >= MAX_PRODUCT_INTROS_SEEN:
+            raise serializers.ValidationError(
+                f"Cannot track more than {MAX_PRODUCT_INTROS_SEEN} product intros",
+                code="invalid_input",
+            )
+
+        instance.has_seen_product_intro_for = {**seen_for, product_key: serializer.validated_data["seen"]}
+        instance.save(update_fields=["has_seen_product_intro_for"])
+
+        return Response(instance.has_seen_product_intro_for)
 
     @action(
         methods=["GET", "PATCH"],

@@ -268,12 +268,12 @@ export interface webAnalyticsLogicActions {
         value: true
     } // authorizedUrlListLogic
     cancelAllLoading: () => {} // dataNodeCollectionLogic
-    updateUser: (
-        user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+    updateHasSeenProductIntroFor: (
+        productKey: string,
+        value?: boolean
     ) => {
-        successCallback: (() => void) | undefined
-        user: Partial<UserType>
+        productKey: string
+        value: boolean
     } // userLogic
     loadPreset: (filters: WebAnalyticsFiltersConfig) => {
         filters: WebAnalyticsFiltersConfig
@@ -749,7 +749,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['cancelAllLoading'],
             userLogic,
-            ['updateUser'],
+            ['updateHasSeenProductIntroFor'],
         ],
     })),
     actions({
@@ -3707,12 +3707,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (!teamId) {
                     return
                 }
-                actions.updateUser({
-                    has_seen_product_intro_for: {
-                        ...values.user?.has_seen_product_intro_for,
-                        [getFocusModeOnboardingSeenKey(teamId)]: true,
-                    },
-                })
+                actions.updateHasSeenProductIntroFor(getFocusModeOnboardingSeenKey(teamId))
             },
             startFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()

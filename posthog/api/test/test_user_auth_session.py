@@ -17,8 +17,6 @@ from django.test import (
 from django.urls import reverse
 from django.utils import timezone
 
-from parameterized import parameterized
-
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import User
@@ -219,27 +217,34 @@ class TestUserAuthSessionAPI(APIBaseTest):
 
         self.assertEqual(self.client.get("/api/users/@me/login_sessions/").status_code, 200)
 
-    @parameterized.expand(
-        [
-            ("presentation_only", {"theme_mode": "dark"}, 200),
-            ("seen_state", {"has_seen_product_intro_for": {"posthog_ai_onboarding": True}}, 200),
-            ("context_switch", {"set_current_team": 1}, 403),
-            ("mixed_with_gated_field", {"theme_mode": "dark", "first_name": "Nobody"}, 403),
-        ]
-    )
-    def test_step_up_gates_writes_by_field(self, _name: str, payload: dict, expected_status: int):
-        # A step-up keeps blocking anything with account, organization, or profile meaning. It lets the
-        # presentation-state fields through, so an ordinary UI write like marking a product tour as seen
-        # no longer opens the re-auth modal.
+    def test_step_up_blocks_allowlisted_field_write(self):
+        # The low-risk field allow-list (theme_mode etc.) must not bypass a step-up: the anomaly gate
+        # sits above allow_if_only_fields, so even a whitelisted write requires re-auth.
         session = self.client.session
         session["step_up_required"] = True
         session.save()
 
-        response = self.client.patch("/api/users/@me/", payload, content_type="application/json")
+        response = self.client.patch("/api/users/@me/", {"theme_mode": "dark"})
 
-        self.assertEqual(response.status_code, expected_status, response.content)
-        if expected_status == 403:
-            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+
+    def test_step_up_does_not_block_marking_a_product_intro_seen(self):
+        # Dismissing a product intro is why this action is exempt: gated, it answers the dismissal with
+        # the re-auth modal drawn over the intro, and the dismissal never persists.
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        response = self.client.patch(
+            "/api/users/@me/product_intro_seen",
+            {"product_key": "posthog_ai_onboarding"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.has_seen_product_intro_for["posthog_ai_onboarding"])
 
     def test_stale_session_still_allows_allowlisted_field_write(self):
         # Without a step-up, the allow-list still relaxes the time-based freshness window — guards that

@@ -267,10 +267,10 @@ export interface userLogicActions {
         teamId: number
     }
     updateHasSeenProductIntroFor: (
-        productKey: ProductKey,
+        productKey: ProductKey | (string & {}),
         value?: boolean
     ) => {
-        productKey: ProductKey
+        productKey: ProductKey | (string & {})
         value: boolean
     }
     updateMemberJoinEmailForAllOrganizations: (
@@ -428,7 +428,12 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
+        // `string & {}` keeps autocomplete on ProductKey while accepting the keys that aren't products:
+        // web analytics composes one per team, and PostHog AI has one for its onboarding takeover.
+        updateHasSeenProductIntroFor: (productKey: ProductKey | (string & {}), value: boolean = true) => ({
+            productKey,
+            value,
+        }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
@@ -760,16 +765,12 @@ export const userLogic = kea<userLogicType>([
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
             await breakpoint(10)
-            await api
-                .update('api/users/@me/', {
-                    has_seen_product_intro_for: {
-                        ...values.user?.has_seen_product_intro_for,
-                        [productKey]: value,
-                    },
-                })
-                .then(() => {
-                    actions.loadUser()
-                })
+            // Its own endpoint rather than a field on the user PATCH: that one needs a recently
+            // authenticated session, so a risk step-up would answer a dismissal with the re-auth modal.
+            // It also merges the key server-side, so two tabs can't drop each other's write.
+            await api.update('api/users/@me/product_intro_seen', { product_key: productKey, seen: value }).then(() => {
+                actions.loadUser()
+            })
         },
         switchTeam: ({ teamId, destination }) => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()

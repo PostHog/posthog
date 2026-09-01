@@ -16,16 +16,16 @@ import { composerSeedLogic } from './composerSeedLogic'
 describe('aiOnboardingLogic', () => {
     let logic: ReturnType<typeof aiOnboardingLogic.build>
     let seedLogic: ReturnType<typeof composerSeedLogic.build>
-    let userUpdates: Record<string, any>[]
+    let seenWrites: Record<string, any>[]
 
     beforeEach(() => {
-        userUpdates = []
+        seenWrites = []
         useMocks({
             patch: {
-                '/api/users/@me/': async ({ request }) => {
+                '/api/users/@me/product_intro_seen': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-                    userUpdates.push(body)
-                    return { ...MOCK_DEFAULT_USER, ...body }
+                    seenWrites.push(body)
+                    return { [body.product_key]: body.seen }
                 },
             },
         })
@@ -79,9 +79,9 @@ describe('aiOnboardingLogic', () => {
         })
     })
 
-    // `has_seen_product_intro_for` is one shared map across every product intro. Writing the onboarding key
-    // without spreading the existing entries would silently re-trigger every other product's intro.
-    it('records the seen flag without dropping other product intros', async () => {
+    // The takeover reopens forever if the dismissal names a key the open check doesn't read. It also has to
+    // stay a single-key write: sending the whole map back is what let two tabs drop each other's intro.
+    it('records the seen flag against the onboarding key alone', async () => {
         mountLogic()
         userLogic
             .findMounted()
@@ -91,11 +91,7 @@ describe('aiOnboardingLogic', () => {
             logic.actions.closeOnboarding()
         }).toFinishAllListeners()
 
-        expect(userUpdates).toHaveLength(1)
-        expect(userUpdates[0].has_seen_product_intro_for).toEqual({
-            session_replay: true,
-            [POSTHOG_AI_ONBOARDING_SEEN_KEY]: true,
-        })
+        expect(seenWrites).toEqual([{ product_key: POSTHOG_AI_ONBOARDING_SEEN_KEY, seen: true }])
     })
 
     // `/api/users/` rejects writes from an impersonated session, so persisting the flag can only
@@ -108,7 +104,7 @@ describe('aiOnboardingLogic', () => {
             logic.actions.closeOnboarding()
         }).toFinishAllListeners()
 
-        expect(userUpdates).toHaveLength(0)
+        expect(seenWrites).toHaveLength(0)
         expect(logic.values.hasSeenOnboarding).toBe(true)
         expect(logic.values.isOpen).toBe(false)
     })

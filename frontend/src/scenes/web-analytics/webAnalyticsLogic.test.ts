@@ -229,20 +229,18 @@ describe('webAnalyticsLogic focus mode', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.startFocusModeOnboarding()
-            }).toDispatchActions(['markFocusModeOnboardingSeen'])
+            })
+                .toDispatchActions(['markFocusModeOnboardingSeen'])
+                .toFinishAllListeners()
 
             expect(logic.values.focusModeOnboardingModalOpen).toBe(false)
             expect(logic.values.focusModeModalOpen).toBe(true)
             expect(logic.values.focusModeModalIsOnboarding).toBe(true)
 
-            expect(api.update).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    has_seen_product_intro_for: expect.objectContaining({
-                        [getFocusModeOnboardingSeenKey(MOCK_TEAM_ID)]: true,
-                    }),
-                })
-            )
+            expect(api.update).toHaveBeenCalledWith('api/users/@me/product_intro_seen', {
+                product_key: getFocusModeOnboardingSeenKey(MOCK_TEAM_ID),
+                seen: true,
+            })
         })
 
         it('dismissFocusModeOnboarding closes it and marks it seen', async () => {
@@ -256,15 +254,12 @@ describe('webAnalyticsLogic focus mode', () => {
             })
                 .toDispatchActions(['markFocusModeOnboardingSeen'])
                 .toMatchValues({ focusModeOnboardingModalOpen: false })
+                .toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    has_seen_product_intro_for: expect.objectContaining({
-                        [getFocusModeOnboardingSeenKey(MOCK_TEAM_ID)]: true,
-                    }),
-                })
-            )
+            expect(api.update).toHaveBeenCalledWith('api/users/@me/product_intro_seen', {
+                product_key: getFocusModeOnboardingSeenKey(MOCK_TEAM_ID),
+                seen: true,
+            })
         })
 
         it('manual openFocusModeModal() is not onboarding mode', async () => {
