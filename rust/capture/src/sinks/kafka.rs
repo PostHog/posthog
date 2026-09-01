@@ -548,9 +548,23 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
     /// Prep + enqueue for the one-event fast path, returning the raw ack
     /// future so a single send can await it inline.
+    ///
+    /// Records the same two phase histograms as the batch path, on the error
+    /// exits as well, so a publish of one event stays in the same population
+    /// as a publish of many. Without this, the cheapest publishes leave the
+    /// distribution and the in-process quantiles step up on their own.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let payload = self.prepare_record(event)?;
-        self.enqueue_record(payload)
+        let prep_start = Instant::now();
+        let payload = self.prepare_record(event);
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+
+        let enqueue_start = Instant::now();
+        let ack_future = self.enqueue_record(payload?);
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        ack_future
     }
 }
 
@@ -3036,6 +3050,72 @@ mod tests {
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "expected exactly one record");
             assert_eq!(records[0].topic, MAIN_TOPIC);
+        }
+
+        #[tokio::test]
+        async fn publish_events_two_events_take_the_batch_path() {
+            // Two events is the smallest batch that still reaches
+            // prepare_batch. A one-event guard that grew an off-by-one would
+            // swallow the second event here and nowhere else.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            sink.publish_events(build_batch(2))
+                .await
+                .expect("publish_events failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2, "both events must reach the producer");
+        }
+
+        /// Runs `f` under a local metrics recorder and counts the samples that
+        /// landed on `name`. The recorder is thread-scoped, so `f` has to drive
+        /// its own futures on this thread.
+        fn histogram_sample_count(name: &str, f: impl FnOnce()) -> usize {
+            use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+            let recorder = DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            let _guard = metrics::set_default_local_recorder(&recorder);
+            f();
+
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .filter_map(|(key, _, _, value)| match value {
+                    DebugValue::Histogram(samples) if key.key().name() == name => {
+                        Some(samples.len())
+                    }
+                    _ => None,
+                })
+                .sum()
+        }
+
+        #[test]
+        fn publish_events_one_event_feeds_the_phase_histograms() {
+            // The one-event path skips prepare_batch and Sink::publish, which
+            // own these two histograms, so it has to record them itself.
+            // Otherwise every single-event endpoint drops out of the
+            // distribution and the in-process quantiles step up unprompted.
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            for name in [
+                "capture_kafka_batch_prep_duration_seconds",
+                "capture_kafka_batch_enqueue_duration_seconds",
+            ] {
+                let samples = histogram_sample_count(name, || {
+                    let producer = MockKafkaProducer::new();
+                    let sink = KafkaSinkBase::with_producer(producer, test_topics());
+                    runtime
+                        .block_on(sink.publish_events(build_batch(1)))
+                        .expect("publish_events failed");
+                });
+                assert_eq!(samples, 1, "{name} must see the one-event publish");
+            }
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
