@@ -485,22 +485,30 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 // Type the prompt at a human pace (parity with the topic panels in the Max
                 // sidebar), then submit it, or hand a fill-in prompt's hint cue to the input.
                 // Re-adding under the same key cancels a still-running animation when the user
-                // clicks another suggestion.
+                // clicks another suggestion; the setQuery listener cancels it when the user
+                // types over it.
                 cache.disposables.add(() => {
                     let timer: ReturnType<typeof setTimeout> | undefined
+                    const typeQuery = (text: string): void => {
+                        // Remember what the animation wrote, so the setQuery listener can tell
+                        // an animation tick from the user typing over it
+                        cache.suggestionTypingText = text
+                        actions.setQuery(text)
+                    }
                     const finish = (): void => {
                         if (fillInHint) {
                             // A fill-in prompt is a prefix: leave it in the input with the hint
                             // cue and let the user complete it instead of submitting.
-                            actions.setQuery(`${content} `)
+                            typeQuery(`${content} `)
                             actions.setFillInHint(fillInHint)
                             document.querySelector<HTMLElement>('#homepage-input')?.focus()
                         } else {
                             actions.submitQuery('ai')
                         }
+                        cache.disposables.dispose('suggestionTyping')
                     }
                     const typeTo = (i: number): void => {
-                        actions.setQuery(content.slice(0, i))
+                        typeQuery(content.slice(0, i))
                         timer =
                             i >= content.length
                                 ? setTimeout(finish, 250)
@@ -511,6 +519,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     }
                     typeTo(1)
                     return () => {
+                        cache.suggestionTypingText = null
                         if (timer) {
                             clearTimeout(timer)
                         }
@@ -521,14 +530,24 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             }
         },
         setQuery: ({ query }) => {
+            // A query that isn't what the typewriter just wrote means the user typed or cleared
+            // the input mid-animation: their input wins, so stop the animation and its submit
+            if (cache.suggestionTypingText != null && query !== cache.suggestionTypingText) {
+                cache.disposables.dispose('suggestionTyping')
+            }
             if (values.mode === 'idle') {
                 actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
             }
         },
         returnToIdle: () => {
+            cache.disposables.dispose('suggestionTyping')
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
         },
         submitQuery: async ({ mode }, breakpoint) => {
+            // A manual submit mid-animation sends what's in the input; the typewriter must not
+            // keep typing into the started thread (no-op when the animation already finished)
+            cache.disposables.dispose('suggestionTyping')
+
             // Once the draft has been submitted, it's no longer a draft — clear it so we don't
             // resurrect it as "unsent input" the next time the homepage is mounted.
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')

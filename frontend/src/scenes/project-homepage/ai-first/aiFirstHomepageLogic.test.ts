@@ -136,6 +136,28 @@ describe('aiFirstHomepageLogic', () => {
         await expectLogic(logic).toMatchValues({ mode: 'ai', query: prompt })
     })
 
+    it('typing over the suggestion typewriter cancels it and nothing submits', async () => {
+        router.actions.push(urls.projectHomepage())
+
+        jest.useFakeTimers()
+        try {
+            logic.actions.activateGridItem({
+                id: 'suggestion-static-analytics-0',
+                label: 'What is my DAU?',
+                kind: 'suggestion',
+                source: 'static',
+                prompt: 'What is my DAU?',
+            })
+            jest.advanceTimersByTime(100)
+            // The user types over the half-typed suggestion: their input must win
+            logic.actions.setQuery('my own question')
+            jest.advanceTimersByTime(10_000)
+        } finally {
+            jest.useRealTimers()
+        }
+        await expectLogic(logic).toMatchValues({ mode: 'idle', query: 'my own question' })
+    })
+
     it('activating a continue-conversation suggestion restores that conversation', async () => {
         router.actions.push(urls.projectHomepage())
 
