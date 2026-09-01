@@ -18,7 +18,10 @@ is_cloud_cached: Optional[bool] = None
 is_instance_licensed_cached: Optional[bool] = None
 instance_license_cached: Optional["License"] = None
 
-_CLOUD_DOMAINS = ("posthog.com", "posthog.dev")
+
+def _posthog_owned_host_suffixes() -> list[str]:
+    """Read from `django.conf.settings`, so `override_settings` applies."""
+    return settings.POSTHOG_OWNED_HOST_SUFFIXES
 
 
 def _run_mode() -> RunMode:
@@ -60,7 +63,7 @@ def is_hobby_url(url: object) -> bool:
         return False
 
     # Browsers report `location.host` as `localhost.` for `http://localhost./`, and an FQDN
-    # trailing dot must not defeat the localhost, loopback, and Cloud-domain checks below.
+    # trailing dot must not defeat the localhost, loopback, and owned-host checks below.
     hostname = hostname.rstrip(".")
 
     if hostname == "localhost" or hostname.endswith(".localhost"):
@@ -72,7 +75,7 @@ def is_hobby_url(url: object) -> bool:
     except ValueError:
         pass
 
-    return not any(hostname == domain or hostname.endswith(f".{domain}") for domain in _CLOUD_DOMAINS)
+    return not any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _posthog_owned_host_suffixes())
 
 
 def is_ci() -> bool:

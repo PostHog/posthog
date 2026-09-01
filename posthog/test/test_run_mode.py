@@ -99,7 +99,18 @@ class TestCloudUtilsRunMode(SimpleTestCase):
             # page's CSP, so its violations report `about` as the document URL. The report is
             # valid and comes from PostHog's own app, so it must not be treated as hobby.
             ("about_blank_frame", "about", False),
+            # PostHog also serves the app over a Tailscale tailnet and previews the website on
+            # Vercel. Both are PostHog's own, so neither can be treated as hobby.
+            ("tailnet", "https://dev-box.tailnet-example.ts.net/project/1", False),
+            ("vercel_preview", "https://posthog-git-branch-example.vercel.app/docs", False),
         ]
     )
     def test_identifies_hobby_url(self, _name: str, url: str | None, expected: bool) -> None:
         self.assertEqual(is_hobby_url(url), expected)
+
+    def test_reads_owned_host_suffixes_from_settings(self) -> None:
+        # Operators add a host PostHog starts serving from without a deploy, so the suffixes have
+        # to come from settings rather than a module constant.
+        with override_settings(POSTHOG_OWNED_HOST_SUFFIXES=["example.com"]):
+            self.assertFalse(is_hobby_url("https://app.example.com/project/1"))
+            self.assertTrue(is_hobby_url("https://eu.posthog.com/project/1"))

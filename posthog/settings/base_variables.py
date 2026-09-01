@@ -3,7 +3,7 @@ import sys
 
 import structlog
 
-from posthog.settings.utils import assert_debug_not_in_production, get_from_env, str_to_bool
+from posthog.settings.utils import assert_debug_not_in_production, get_from_env, get_list, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +44,17 @@ Possible values:
 - `E2E` for **e2e tests**.
 - Unset for **self-hosted** environments.
 """
+
+# Host suffixes that PostHog serves its own app or website from. `is_hobby_url` treats a document
+# URL under one of these as PostHog's own, which keeps the `$csp_self_hosted` label off our own
+# CSP reports. Cloud is `posthog.com` and `posthog.dev`, but we also reach the app over a Tailscale
+# tailnet (`ts.net`) and preview the website on Vercel (`vercel.app`).
+# Add a host here when PostHog starts serving from it, or its reports get labelled as someone
+# else's. The last two are shared suffixes, so a self-hosted install on one goes unlabelled.
+# That is the harmless direction: nothing is dropped either way, so a wide entry only undercounts.
+POSTHOG_OWNED_HOST_SUFFIXES: list[str] = get_list(
+    os.getenv("POSTHOG_OWNED_HOST_SUFFIXES", "posthog.com,posthog.dev,ts.net,vercel.app")
+)
 COMPACT_IN_REGION: str = get_from_env("COMPACT_IN_REGION", "US")
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING: bool = get_from_env(
