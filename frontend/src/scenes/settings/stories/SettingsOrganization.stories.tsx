@@ -149,9 +149,9 @@ export const SettingsOrganizationProxy: Story = { args: { sectionId: 'organizati
 
 export const SettingsOrganizationDangerZone: Story = { args: { sectionId: 'organization-danger-zone' } }
 
-export const SettingsOrganizationBilling: Story = { args: { sectionId: 'organization-billing' } }
-
-export const SettingsOrganizationStartupProgram: Story = { args: { sectionId: 'organization-startup-program' } }
+// Billing and the startup program are link-only settings sections: opening their URL redirects to
+// the dedicated scene. They have no settings page to snapshot here (Billing has its own stories in
+// scenes/billing), so they are intentionally not listed.
 
 export const SettingsOrganizationCimdVerificationTokens: Story = {
     args: { sectionId: 'organization-cimd-verification-tokens' },

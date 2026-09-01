@@ -8212,10 +8212,6 @@ snapshots:
         hash: v1.k794b7964.6ddb506ed211a3f8de0d302d47d070cb16ff121a93b22e78cf47d71582084971.rD1vE9nirvysLXvvRet6q3N2Jn8yqEeY6kj49SMtz3c
     scenes-app-settings-organization--settings-organization-authentication--light:
         hash: v1.k794b7964.3d38f15c011f2f0432c12adaaf1784c5c724a90a24e35ae4bf84e2a22e00bfcf.wSDrG71qowQs6xE3AqpR0soTqwtoJ7a-FIrxlnS-lcI
-    scenes-app-settings-organization--settings-organization-billing--dark:
-        hash: v1.k794b7964.b2709895d612381724c2275aeaa291853ad3460c7a70f82f44f9b68b53d48da7.Jz5OoUecWaosBkoyKe1t79ypi05lM4inlLcCVqXXESo
-    scenes-app-settings-organization--settings-organization-billing--light:
-        hash: v1.k794b7964.d4b5e0030757796876fa680f389ca76201f098f3b1b65eb303ca73b5e1be6ae4.bisG2Rrhp6kgmqbOtUQGs_484Kn8TkyRsaRSBlNVVl4
     scenes-app-settings-organization--settings-organization-cimd-verification-tokens--dark:
         hash: v1.k794b7964.a0efb34409ff03a8a94d527a39101882a124357800b9ebce870c124ba665b643.H5ZBcbmWeVY9BgSRWeSYkjfOCmCRmGGsipKPFigGqUA
     scenes-app-settings-organization--settings-organization-cimd-verification-tokens--light:
@@ -8240,10 +8236,6 @@ snapshots:
         hash: v1.k794b7964.afb3f2f3c50071a2619443aea8a356fa256580eafee49f7c0162392d0bec4409.ssq3Sr1zH8hPFuVhTPA7fArpsCEmlyxvOX_cttBcRzg
     scenes-app-settings-organization--settings-organization-roles--light:
         hash: v1.k794b7964.85771b45ce9aae44390b2639b5e9c4c0054c8c941863ddfd3214c7bc5458a05c.60Wo3QT89ayqlAFUPigg3oDQwBDSDPeWpz4eCKAVwk0
-    scenes-app-settings-organization--settings-organization-startup-program--dark:
-        hash: v1.k794b7964.7350d5c1608a11048e1dff1177936f88054a8b2f59f9364c7c0b4e1b532902e8.XL6fWFjzvdgrLqq__qTijTy70fAAQb47k0MhN5vST6U
-    scenes-app-settings-organization--settings-organization-startup-program--light:
-        hash: v1.k794b7964.7d547c57552c1d279a0787f9a45f964f745e00aaf8d24f40d558af6023ca6547.2pq0EfQs-iWVHK7_LfHkmQjXOo6wt9L8qWdc5nwU8Eg
     scenes-app-settings-project--settings-project-access-control--dark:
         hash: v1.k794b7964.0d4b21ea939d87af256459c8617d2bd61a8f16975b00e3f6ee9de61fb2bdb3ea.DyAdtBg-avD0tcklEKCyBC4txMEjtAndsQG0BxlQ3to
     scenes-app-settings-project--settings-project-access-control--light:
