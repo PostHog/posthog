@@ -113,7 +113,15 @@ export function elementsChainFromProperties(properties: Record<string, any>): st
     }
     const elements: Record<string, any>[] | undefined = properties['$elements']
     if (elements && elements.length) {
-        return elementsToString(extractElements(elements))
+        // Event properties are untrusted, so a malformed `$elements` payload can throw here.
+        // Return an empty chain instead of crashing, because the transformer and filter call
+        // sites derive the chain outside any per-event try/catch.
+        try {
+            return elementsToString(extractElements(elements))
+        } catch (error) {
+            captureException(error)
+            return ''
+        }
     }
     return ''
 }
