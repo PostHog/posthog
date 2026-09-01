@@ -1,6 +1,6 @@
 import { ApiRequestError } from "@posthog/api-client/fetcher";
 import type { Task, TaskRun, TaskRunStatus } from "@posthog/shared/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   derivePurpose,
   fetchReportTasks,
@@ -73,15 +73,18 @@ describe("fetchReportTasks", () => {
     };
   }
 
+  const getArtefacts = vi.fn();
+
   function client(
     artefacts: ReturnType<typeof artefact>[],
     getTask: (taskId: string) => Promise<Task>,
   ) {
+    getArtefacts.mockResolvedValue({
+      results: artefacts,
+      count: artefacts.length,
+    });
     return {
-      getSignalReportArtefacts: async () => ({
-        results: artefacts,
-        count: artefacts.length,
-      }),
+      getSignalReportArtefacts: getArtefacts,
       getTask: (taskId: string) => getTask(taskId),
     } as unknown as Parameters<typeof fetchReportTasks>[0];
   }
@@ -102,6 +105,8 @@ describe("fetchReportTasks", () => {
     );
 
     expect(tasks.map((t) => t.task)).toEqual([implementation]);
+    // Runs come from the whole log, so the oldest task_run is not truncated away.
+    expect(getArtefacts).toHaveBeenCalledWith("report-1", { limit: 1000 });
   });
 
   it("fails the fetch when a task lookup errors for any other reason", async () => {

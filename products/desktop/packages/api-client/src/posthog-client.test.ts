@@ -2239,17 +2239,24 @@ describe("PostHogAPIClient", () => {
       expect(results[0].task_id).toBe("t1");
     });
 
-    it("requests the full log so older runs are not truncated off the first page", async () => {
+    it.each([
+      [
+        "asks for the full log when a caller reads every row",
+        { limit: 1000 },
+        "1000",
+      ],
+      ["leaves list callers on the server page size", undefined, null],
+    ])("%s", async (_name, options, expected) => {
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ count: 0, results: [] }),
       });
       const client = makeClient(fetch);
 
-      await client.getSignalReportArtefacts("r1");
+      await client.getSignalReportArtefacts("r1", options);
 
       const { url } = fetch.mock.calls[0][0] as { url: URL };
-      expect(url.searchParams.get("limit")).toBe("1000");
+      expect(url.searchParams.get("limit")).toBe(expected);
     });
   });
 

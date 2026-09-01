@@ -61,6 +61,9 @@ const PURPOSE_ORDER: ReportTaskPurpose[] = [
   "other",
 ];
 
+/** Matches the web inbox's report-detail fetch, which reads the same full log. */
+const FULL_ARTEFACT_LOG_LIMIT = 1000;
+
 type ReportTaskClient = Pick<
   PostHogAPIClient,
   "getSignalReportArtefacts" | "getTask"
@@ -74,7 +77,11 @@ export async function fetchReportTasks(
   // keyed by content.task_id (earliest artefact wins for startedAt). The runtime `type`
   // check is authoritative (the generic fallback artefact keeps `type: string` and
   // defeats static narrowing).
-  const artefacts = await client.getSignalReportArtefacts(reportId);
+  const artefacts = await client.getSignalReportArtefacts(reportId, {
+    // Runs are read from the whole log: the scout task_run is written when the report is
+    // created, so it is the first row a default page drops.
+    limit: FULL_ARTEFACT_LOG_LIMIT,
+  });
   const taskRunByTaskId = new Map<
     string,
     { product: string; type: string; startedAt: string }
