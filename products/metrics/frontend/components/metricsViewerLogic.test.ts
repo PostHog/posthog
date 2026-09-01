@@ -253,6 +253,24 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryError).toBeNull()
     })
 
+    // A superseded query's abort lands as a failure while the replacement query is still in
+    // flight. kea-loaders' auto `queryResultsLoading` drops to false then, which flashed the
+    // "No data" empty state between the spinner and the chart, so `queryLoading` must ride
+    // out the abort, while still clearing on a real failure.
+    it.each([
+        [
+            'a superseded (aborted) query',
+            NEW_QUERY_STARTED_ERROR_MESSAGE,
+            new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'),
+            true,
+        ],
+        ['a real query failure', 'Invalid regex pattern', new Error('Invalid regex pattern'), false],
+    ])('queryLoading after %s', (_name, message, errorObject, expected) => {
+        logic.actions.fetchQueryResults({})
+        logic.actions.fetchQueryResultsFailure(message, errorObject)
+        expect(logic.values.queryLoading).toBe(expected)
+    })
+
     // The filter bar's property filters must translate into the backend's Prometheus-style
     // matchers: operator mapping, multi-value alternation (with regex escaping), and skipping
     // chips that are still being edited. A bad mapping silently filters the chart wrong.

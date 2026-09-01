@@ -56,6 +56,16 @@ function copyAssets() {
     distDir,
     "pi/product-engineer",
   );
+  const bundledAgentsSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/orchestration/bundled-agents",
+  );
+  const bundledAgentsTarget = resolve(distDir, "pi/bundled-agents");
+  const orchestrationSkillsSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/orchestration/skills",
+  );
+  const orchestrationSkillsTarget = resolve(distDir, "pi/skills");
   const enricherGrammarsSource = resolve(
     import.meta.dirname,
     "../enricher/grammars",
@@ -69,7 +79,19 @@ function copyAssets() {
       `Missing product engineer resources at ${productEngineerResourcesSource}`,
     );
   }
+  if (!existsSync(bundledAgentsSource)) {
+    throw new Error(`Missing bundled agents at ${bundledAgentsSource}`);
+  }
+  if (!existsSync(orchestrationSkillsSource)) {
+    throw new Error(
+      `Missing orchestration skills at ${orchestrationSkillsSource}`,
+    );
+  }
   cpSync(productEngineerResourcesSource, productEngineerResourcesTarget, {
+    recursive: true,
+  });
+  cpSync(bundledAgentsSource, bundledAgentsTarget, { recursive: true });
+  cpSync(orchestrationSkillsSource, orchestrationSkillsTarget, {
     recursive: true,
   });
   cpSync(enricherGrammarsSource, enricherGrammarsTarget, {

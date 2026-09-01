@@ -67,12 +67,9 @@ from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
-from products.signals.backend.scout_harness.config_registry import (
-    enabled_scout_count,
-    ensure_scout_category,
-    register_missing_configs,
-)
-from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin, sync_canonical_skills
+from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
+from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
@@ -94,6 +91,7 @@ from products.signals.backend.scout_harness.serializers import (
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
+    ScoutFleetSyncQuerySerializer,
     ScoutMemberSerializer,
     ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
@@ -130,7 +128,6 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_max_runs_per_day,
     _runs_today_by_team,
     _team_configs,
-    resolve_sync_seed_inputs,
     resolve_team_metadata,
     withheld_skills_for_team,
 )
@@ -1266,7 +1263,10 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(
-                description="Invalid memory shape (empty key/content, key too long, `expires_at` in the past)."
+                description=(
+                    "Invalid memory shape (empty key/content, key too long, or an `expires_at` on a "
+                    "`followup:` entry). An unparseable or past `expires_at` is dropped, not rejected."
+                )
             ),
         },
         summary="Remember a scratchpad entry",
@@ -2383,8 +2383,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         config.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(
-        request=None,
+    @validated_request(
+        query_serializer=ScoutFleetSyncQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=SignalScoutConfigSerializer(many=True),
@@ -2395,9 +2395,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Materialize the scout fleet for this project on demand (idempotent): seed the "
             "canonical `signals-scout-*` skills, create a default-schedule config for any scout "
-            "lacking one, and return all scout configs. Normally the Temporal coordinator does "
-            "this on its next tick; this action exists so setup flows (e.g. the wizard's "
-            "self-driving program) can hand the user a tunable fleet immediately."
+            "lacking one, retire the skills whose canonical scout no longer ships, and return all "
+            "scout configs. Normally the Temporal coordinator does this on its next tick; this "
+            "action exists so the scout UIs and setup flows (e.g. the wizard's self-driving "
+            "program) can hand the user a tunable fleet immediately."
         ),
         operation_id="signals_scout_config_sync",
     )
@@ -2411,21 +2412,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["signal_scout:write"],
         pagination_class=None,
     )
-    def sync(self, request: Request, *args, **kwargs) -> Response:
+    def sync(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         # Scout rows persist under the canonical parent team (see `_canonical_team_id`);
         # seed and register against that team so child-environment requests don't fork
         # a second fleet.
         team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
-        # Resolve the holdback denylist + the launch seed posture from a single flag read so they
-        # can't disagree if the flag changes mid-request (the coordinator reads once and threads the
-        # snapshot too). Holdback: a held-back scout can't be seeded/enabled by a manual fleet
-        # materialization (the coordinator already gates the scheduled path). Posture: seed the same
-        # launch shape the coordinator applies (general-only / daily etc., team_configs over
-        # default_team_config) so a self-serve materialization doesn't bypass the launch cost posture
-        # by enabling the full fleet.
-        seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
-        sync_canonical_skills(team, withheld_skill_names=withheld)
-        register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld)
+        withheld = materialize_scout_fleet(team, surface=request.validated_query_data.get("surface"))
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
         # previously seeded and later withheld still has a row, and surfacing it here would
         # advertise an unreleased scout despite the holdback. Storage is left untouched (no

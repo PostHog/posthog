@@ -467,6 +467,18 @@ It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `serv
 
 **11.11** The mirror counts collected image ref occurrences by `css` or `html` source, canonical property name, and `inline` or `url` lane. It counts before per-message ref deduplication. Every property label comes from the fixed HTML attribute set in requirement 13.11 or the fixed CSS property allowlist in the anonymizer.
 
+**11.12** The fetch deployment writes three high-cardinality metrics to TopHog. It does not export registrable domains as Prometheus labels.
+
+`ml_image_fetch_attempts_by_registrable_domain` counts durable URL attempts by partition, registrable domain, completed or republished disposition, and outcome.
+
+`ml_image_fetch_block_events_by_registrable_domain` counts blocking observations by partition, registrable domain, and exact reason. Reasons distinguish concurrency, scheduler waits, configuration failures, response backoff, and deadlines.
+
+`ml_image_fetch_blocked_ms_by_registrable_domain` sums positive wait milliseconds spent or imposed for the same keys. Domain concurrency contributes events because it has no measured wait duration.
+
+The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
+
+Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
+
 ### 12. Conditional requests
 
 **12.1** The lane stores the request time, response time, `ETag`, `Last-Modified`, `Date`, `Age`, `Cache-Control`, and `Expires` metadata in the crawl history for that URL.

@@ -136,6 +136,8 @@ CREATE TABLE posthog.logs32 (
   _bytes_uncompressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_compressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _record_count UInt64 CODEC(DoubleDelta, ZSTD(1)),
+  pattern String,
+  pattern_version UInt8,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -1222,7 +1224,9 @@ CREATE TABLE posthog.logs (
   _offset UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_uncompressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_compressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
-  _record_count UInt64 CODEC(DoubleDelta, ZSTD(1))
+  _record_count UInt64 CODEC(DoubleDelta, ZSTD(1)),
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs32');
 CREATE TABLE posthog.metric_samples (
   team_id Int32,

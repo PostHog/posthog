@@ -960,3 +960,34 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str
         f"These non-retryable patterns match {message_attr}, so an exhausted "
         f"retry budget would disable the customer's schema: {offenders}"
     )
+
+
+@parameterized.expand(
+    [
+        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, True),
+        ("no_swap_staged", None, False),
+    ]
+)
+def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_says(
+    _name: str, swap: dict | None, expected: bool
+) -> None:
+    # While a swap is staged the table's data may already be re-bucketed under the new scheme while
+    # the schema row still holds the old one. The merge derives each row's partition key from that
+    # row and scopes its predicate to it, so merging across the gap matches nothing and inserts every
+    # fetched row instead of upserting it. Unlike the converging-rewrite hold, this one is not behind
+    # the rollout flag: releasing it corrupts the table rather than merely restarting a rewrite.
+    schema = mock.MagicMock()
+    schema.id = uuid.uuid4()
+    schema.team_id = 1
+    schema.name = "public.usages"
+    schema.repartition_swap = swap
+    schema.repartition_holds_import = False
+
+    with (
+        mock.patch.object(module, "capture_repartition_event"),
+        mock.patch.object(module, "is_repartition_hold_enabled", return_value=False) as flag,
+    ):
+        held = module._import_held_for_repartition(schema, mock.MagicMock())
+
+    assert held is expected
+    flag.assert_not_called()
