@@ -132,7 +132,7 @@ import {
   checkoutExistingPullRequest,
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
-import { resolveRtkSavings } from "./rtk-savings";
+import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
@@ -5425,31 +5425,17 @@ ${commonInstructions}
     this.rtkSavingsAttempted = true;
 
     try {
-      const savings = await (
-        this.config.resolveRtkSavings ?? resolveRtkSavings
-      )();
-      if (!savings) return;
-
-      this.eventStreamSender.enqueue({
-        type: "notification",
-        timestamp: new Date().toISOString(),
-        notification: {
-          jsonrpc: "2.0",
-          method: POSTHOG_NOTIFICATIONS.RTK_SAVINGS,
-          params: {
-            task_id: this.config.taskId,
-            run_id: this.config.runId,
-            team_id: this.config.projectId,
-            counter_id: this.config.taskId,
-            cumulative_commands: savings.totalCommands,
-            cumulative_input_tokens: savings.inputTokens,
-            cumulative_output_tokens: savings.outputTokens,
-            cumulative_tokens_saved: savings.tokensSaved,
-            runtime_adapter: this.config.runtimeAdapter,
-            model: this.config.model,
-          },
-        },
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: this.config.runtimeAdapter,
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
       });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
     } catch (error) {
       this.logger.debug("Failed to emit rtk savings", { error });
     }
