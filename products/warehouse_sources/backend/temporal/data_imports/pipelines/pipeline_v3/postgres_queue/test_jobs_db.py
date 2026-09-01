@@ -23,7 +23,6 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
     STATUS_TABLE,
-    STATUS_VIEW,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
@@ -33,7 +32,6 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     _sync_connection_pool,
     build_status_dual_write_sql,
 )
-
 from products.warehouse_sources_queue.backend.testing import (
     BATCH_DEFAULTS as _BATCH_DEFAULTS,
     ensure_queue_tables as _ensure_tables,
@@ -1234,9 +1232,7 @@ class TestGetStaleStrandedRuns:
         # OFFSET 0 fence is dropped, the planner flattens it into a hash anti-join
         # whose hash side is every failed batch in the pruning window, and the
         # sweep degrades with failure-storm size instead of candidate count.
-        from products.warehouse_sources_queue.backend.core.jobs_db import (
-            _stranded_candidate_runs_sql,
-        )
+        from products.warehouse_sources_queue.backend.core.jobs_db import _stranded_candidate_runs_sql
 
         # Seed a storm-shaped table and analyze, so the index pin is
         # deterministic. With one row the planner rates the two partial indexes
@@ -1746,9 +1742,7 @@ class TestClaimGates:
         await _insert_batch(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
-            from products.warehouse_sources_queue.backend.core.jobs_db import (
-                _state_claim_candidates_sql,
-            )
+            from products.warehouse_sources_queue.backend.core.jobs_db import _state_claim_candidates_sql
 
             cur = await conn.execute(
                 "EXPLAIN (FORMAT TEXT) " + _state_claim_candidates_sql() + " LIMIT 50",

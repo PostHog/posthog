@@ -17,9 +17,18 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources_queue.backend.core import (
-    batch_consumer as batch_consumer_module,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
+    consumer as consumer_module,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
+    JOB_STATUS_CACHE_MAX_ENTRIES,
+    BatchConsumer,
+    ConsumerConfig,
+    DeltaBatchConsumerAdapter,
+    _group_by_key,
+    _update_job_status_to_failed,
+)
+from products.warehouse_sources_queue.backend.core import batch_consumer as batch_consumer_module
 from products.warehouse_sources_queue.backend.core.batch_consumer import (
     QUEUE_RETRY_MAX_ATTEMPTS,
     CoalescingDeclined,
@@ -33,17 +42,6 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
     _is_transient_queue_db_error,
 )
 from products.warehouse_sources_queue.backend.core.health import HealthState
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
-    consumer as consumer_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
-    JOB_STATUS_CACHE_MAX_ENTRIES,
-    BatchConsumer,
-    ConsumerConfig,
-    DeltaBatchConsumerAdapter,
-    _group_by_key,
-    _update_job_status_to_failed,
-)
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
