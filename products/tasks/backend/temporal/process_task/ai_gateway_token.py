@@ -33,6 +33,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "review_hog": "review_hog",
     "scout_suggestions": "signals",
     "signal_report": "signals",
     "signals_scout": "signals",
@@ -52,8 +53,11 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # API-settable, so an unmapped origin marked internal resolves to
 # background_agents and must never mint. Signals products qualify because their
 # stages are set only by server flows and the signals_scout origin is reserved.
+# review_hog qualifies because validate_origin_product reserves the origin, so
+# only ReviewHog's server-side executor can stamp it.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "review_hog",
         "signals_scout",
         "signals_research",
         "signals_implementation",
@@ -61,6 +65,21 @@ MINTABLE_PRODUCTS = frozenset(
         "signals_custom_agent",
     }
 )
+
+# Model pins carried on the minted token, mirroring the legacy gateway's per-product
+# allowlist. The GLM/DeepSeek experiment arms stay off: those runs stay on the
+# legacy gateway. A gateway without allowed_models support ignores the field.
+_PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
+    "review_hog": [
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "claude-opus-5",
+        "gpt-5.5",
+        "gpt-5.6-sol",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+    ],
+}
 
 # Minting is optional (no token = Python-gateway fallback), so the total budget
 # stays a few seconds: 2 attempts x 3s + one short backoff, not a 30s provisioning stall.
@@ -178,6 +197,9 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
     }
     if user:
         body["user"] = user
+    allowed_models = _PRODUCT_ALLOWED_MODELS.get(ai_product)
+    if allowed_models:
+        body["allowed_models"] = allowed_models
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:

@@ -7,7 +7,8 @@ export type GatewayProduct =
   | "slack_app"
   | "posthog_ai"
   | "conversations"
-  | "onboarding";
+  | "onboarding"
+  | "review_hog";
 
 export function resolveGatewayProduct({
   isInternal,
@@ -23,6 +24,7 @@ export function resolveGatewayProduct({
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
+    review_hog: "review_hog",
     scout_suggestions: "signals",
     signal_report: "signals",
     signals_chat: "signals",

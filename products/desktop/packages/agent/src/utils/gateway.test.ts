@@ -79,6 +79,16 @@ describe("resolveGatewayProduct", () => {
     },
     {
       isInternal: true,
+      originProduct: "review_hog",
+      expected: "review_hog",
+    },
+    {
+      isInternal: false,
+      originProduct: "review_hog",
+      expected: "review_hog",
+    },
+    {
+      isInternal: true,
       originProduct: "loop",
       expected: "posthog_code",
     },
@@ -415,6 +425,9 @@ describe("resolveAiProduct", () => {
     expect(
       resolveAiProduct({ product: "posthog_code", aiStage: "implementation" }),
     ).toBe("posthog_code");
+    expect(
+      resolveAiProduct({ product: "review_hog", aiStage: "resolution" }),
+    ).toBe("review_hog");
   });
 
   it.each([
@@ -423,6 +436,7 @@ describe("resolveAiProduct", () => {
     "slack_app",
     "posthog_ai",
     "conversations",
+    "review_hog",
   ] as const)("keeps %s unchanged", (product) => {
     expect(resolveAiProduct({ product })).toBe(product);
   });
