@@ -786,7 +786,7 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <Tooltip title="This event carries no $mcp_error_message. Check that the MCP server sends it on failed tool calls.">
+                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
                                     <span className="text-muted text-xs whitespace-nowrap">
                                         Not captured <IconInfo />
                                     </span>

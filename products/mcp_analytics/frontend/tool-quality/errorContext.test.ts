@@ -46,7 +46,7 @@ describe('formatErrorContext', () => {
             toolName: 'query_run',
             errorType: 'internal',
         })
-        expect(out).toContain('Error message: not captured (this event carries no $mcp_error_message).')
+        expect(out).toContain('Error message: not captured (no $mcp_error_message on this event).')
         expect(out).not.toContain('predates')
     })
 
