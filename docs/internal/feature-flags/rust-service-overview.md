@@ -170,11 +170,18 @@ pub struct FlagRequest {
 }
 ```
 
+#### JSON nulls in supplied properties
+
+`handler::properties` drops every JSON null the caller sent in `person_properties` and `group_properties`, so only a key with a real value counts as supplied.
+A null means the caller had no value, not that the person's value is null — callers clear a property with `$unset`.
+Downstream code decides on the presence of a key, so a retained null would suppress the persons-table read and then hide the persons-table value behind itself.
+The same person would resolve one flag two ways, depending on whether the caller sent the key.
+
 #### GeoIP enrichment of `person_properties`
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
 
-GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone, and a JSON null counts as absent, since callers clear a property with `$unset`, so a null is a gap to fill.
+GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone.
 This matters for server-side evaluation: the IP we geolocate is whoever made the HTTP request, so a call from a backend or an SSR render resolves the server's own location, not the end user's.
 A caller that resolved geo itself (from `CF-IPCountry`, `X-Forwarded-For`, or similar) is the authority for those keys.
 

@@ -54,6 +54,9 @@ impl PropertyFilter {
     /// caller sending a raw `created_at` in `person_properties` overrides would make this return
     /// `false`, skip the DB fetch, and let the filter fall through to operator defaults — silently
     /// bypassing the real persons-table value.
+    ///
+    /// Presence alone decides this, so every key here must carry a real value. `drop_null_values`
+    /// in `handler/properties.rs` guarantees that at the request boundary.
     pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
         !self.is_cohort()
             && !self.depends_on_feature_flag()

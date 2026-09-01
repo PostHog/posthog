@@ -457,6 +457,8 @@ pub struct FlagEvaluationState {
 ```
 
 Property overrides from the request body are merged on top of DB-fetched properties. Request overrides take precedence.
+A key the request sent as JSON null is dropped before any of this, so it neither suppresses the DB fetch nor wins the merge.
+See [JSON nulls in supplied properties](rust-service-overview.md#json-nulls-in-supplied-properties).
 GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
 See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
 
