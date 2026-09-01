@@ -34,12 +34,31 @@ export function resolveGatewayProduct({
   };
 
   if (originProduct && originProduct in originProductToGatewayProductMap) {
-    return originProductToGatewayProductMap[originProduct];
+    const mapped = originProductToGatewayProductMap[originProduct];
+    // review_hog was API-settable before its reservation, so a stored forged row
+    // must not reach the mintable product; `internal` is server-stamped only.
+    if (mapped === "review_hog" && !isInternal) {
+      return "posthog_code";
+    }
+    return mapped;
   }
   if (isInternal) {
     return "background_agents";
   }
   return "posthog_code";
+}
+
+// The legacy gateway's review_hog product is API-key-only (no OAuth apps), and
+// background_agents is the slug these runs use today, so the pre-flip state and
+// the mint-failure fallback stay exactly as they are.
+const LEGACY_PRODUCT_OVERRIDES: Partial<
+  Record<GatewayProduct, GatewayProduct>
+> = {
+  review_hog: "background_agents",
+};
+
+function legacyProduct(product: GatewayProduct): GatewayProduct {
+  return LEGACY_PRODUCT_OVERRIDES[product] ?? product;
 }
 
 function getGatewayBaseUrl(posthogHost: string): string {
@@ -50,7 +69,7 @@ export function getLlmGatewayUrl(
   posthogHost: string,
   product: GatewayProduct = "posthog_code",
 ): string {
-  return `${getGatewayBaseUrl(posthogHost)}/${product}`;
+  return `${getGatewayBaseUrl(posthogHost)}/${legacyProduct(product)}`;
 }
 
 /**
@@ -77,7 +96,7 @@ export function resolveLlmGatewayUrl(
     return base.replace(/\/v1$/, "");
   }
   if (envUrl) {
-    return `${envUrl.replace(/\/$/, "")}/${product}`;
+    return `${envUrl.replace(/\/$/, "")}/${legacyProduct(product)}`;
   }
   return getLlmGatewayUrl(posthogHost, product);
 }
@@ -144,7 +163,7 @@ export function getGatewayUsageUrl(
   posthogHost: string,
   product: GatewayProduct = "posthog_code",
 ): string {
-  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${product}`;
+  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${legacyProduct(product)}`;
 }
 
 export interface GatewayTarget {

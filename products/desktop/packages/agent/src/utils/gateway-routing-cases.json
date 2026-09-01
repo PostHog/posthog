@@ -120,6 +120,12 @@
       "ai_stage": null,
       "internal": true,
       "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
+      "internal": false,
+      "expected": "posthog_code"
     }
   ],
   "routed": [

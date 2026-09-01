@@ -34,12 +34,18 @@ class TestResolveSandboxAiProduct:
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
-            ("review_hog", "validation-c1", "review_hog"),
-            ("review_hog", None, "review_hog"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):
         assert resolve_sandbox_ai_product(origin_product, ai_stage) == expected
+
+    def test_review_hog_requires_the_server_stamped_internal_flag(self):
+        """A row stamped review_hog through the API before the origin was reserved
+        must resolve to posthog_code, never the mintable product."""
+        assert resolve_sandbox_ai_product("review_hog", "validation-c1", internal=True) == "review_hog"
+        assert resolve_sandbox_ai_product("review_hog", None, internal=True) == "review_hog"
+        assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
+        assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
 
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
@@ -131,14 +137,17 @@ class TestMintScopedToken:
         assert kwargs["timeout"] == 3
 
     def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
-        """The pin mirrors the legacy review_hog allowlist; a gateway without
-        allowed_models support ignores the field, so deploy order is free."""
+        """The pin covers the stage pins plus the SDK's implicit utility models; a
+        gateway without allowed_models support ignores the field, so deploy order is free."""
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="review_hog", team_id=2) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == [
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-6",
             "claude-sonnet-5",
             "claude-opus-4-8",
             "claude-opus-5",
@@ -299,6 +308,13 @@ class TestMintableGate:
             env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_non_internal_review_hog_does_not_mint(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
 
     def test_stageless_signal_report_cannot_mint_for_bare_signals(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals"

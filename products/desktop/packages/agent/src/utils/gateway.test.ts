@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getGatewayUsageUrl,
   getLlmGatewayUrl,
   resolveAiProduct,
   resolveGatewayProduct,
@@ -85,7 +86,7 @@ describe("resolveGatewayProduct", () => {
     {
       isInternal: false,
       originProduct: "review_hog",
-      expected: "review_hog",
+      expected: "posthog_code",
     },
     {
       isInternal: true,
@@ -170,6 +171,15 @@ describe("getLlmGatewayUrl", () => {
   it("uses the PostHog AI product route when requested", () => {
     expect(getLlmGatewayUrl("http://localhost:8000", "posthog_ai")).toBe(
       "http://localhost:3308/posthog_ai",
+    );
+  });
+
+  it("maps review_hog to the background_agents legacy slug everywhere", () => {
+    expect(getLlmGatewayUrl("http://localhost:8000", "review_hog")).toBe(
+      "http://localhost:3308/background_agents",
+    );
+    expect(getGatewayUsageUrl("http://localhost:8000", "review_hog")).toBe(
+      "http://localhost:3308/v1/usage/background_agents",
     );
   });
 });
@@ -375,6 +385,42 @@ describe("resolveGatewayTarget", () => {
       isAiGateway: true,
       aiProduct: "signals_custom_agent",
     });
+  });
+
+  it("keeps the review_hog legacy leg on the background_agents slug", () => {
+    expect(
+      resolveGatewayTarget({
+        product: "review_hog",
+        aiStage: "validation-c1",
+        posthogHost: PY_HOST,
+        env: {},
+      }),
+    ).toEqual({
+      baseUrl: "https://gateway.us.posthog.com/background_agents",
+      isAiGateway: false,
+      aiProduct: "review_hog",
+    });
+  });
+
+  it("keeps the legacy override on an LLM_GATEWAY_URL base too", () => {
+    expect(
+      resolveGatewayTarget({
+        product: "review_hog",
+        posthogHost: PY_HOST,
+        env: { LLM_GATEWAY_URL: "https://gateway.dev.posthog.dev" },
+      }).baseUrl,
+    ).toBe("https://gateway.dev.posthog.dev/background_agents");
+  });
+
+  it("routes review_hog to the Go gateway slugless once listed", () => {
+    expect(
+      resolveGatewayTarget({
+        product: "review_hog",
+        aiStage: "validation-c1",
+        posthogHost: PY_HOST,
+        env: { AI_GATEWAY_URL: GO, AI_GATEWAY_PRODUCTS: "review_hog" },
+      }),
+    ).toEqual({ baseUrl: GO, isAiGateway: true, aiProduct: "review_hog" });
   });
 
   it("honours an LLM_GATEWAY_URL override on the unrouted path", () => {

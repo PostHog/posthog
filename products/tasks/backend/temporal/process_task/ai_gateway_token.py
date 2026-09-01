@@ -51,10 +51,12 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
-# background_agents and must never mint. Signals products qualify because their
-# stages are set only by server flows and the signals_scout origin is reserved.
-# review_hog qualifies because validate_origin_product reserves the origin, so
-# only ReviewHog's server-side executor can stamp it.
+# background_agents and must never mint. Signals products qualify because they
+# are reachable only through the server-stamped, PATCH-protected ai_stage.
+# review_hog qualifies because validate_origin_product reserves the origin AND
+# the resolver requires the server-stamped `internal` flag, so rows stamped
+# through the API before the reservation (settable 2026-07-14 to 2026-09-01)
+# resolve to posthog_code and cannot mint.
 MINTABLE_PRODUCTS = frozenset(
     {
         "review_hog",
@@ -66,11 +68,18 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-# Model pins carried on the minted token, mirroring the legacy gateway's per-product
-# allowlist. The GLM/DeepSeek experiment arms stay off: those runs stay on the
-# legacy gateway. A gateway without allowed_models support ignores the field.
+# Model pins carried on the minted token: the pipeline's stage pins plus the
+# implicit agent-SDK calls (the haiku small/fast utility model, and the
+# sonnet-4-x generations the explore subagent's bare `sonnet` alias resolves to).
+# GLM/DeepSeek and retired opus-4-x era arms are deliberately unpinned: routing
+# is per product, so a persisted old arm is denied here and the experiment
+# harness must re-pin before reuse. A gateway without allowed_models support
+# ignores the field.
 _PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "review_hog": [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
         "claude-sonnet-5",
         "claude-opus-4-8",
         "claude-opus-5",
@@ -90,6 +99,10 @@ _MINT_TIMEOUT_SECONDS = 3
 def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
     """The `ai_product` the agent server will resolve for this run."""
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
+    # review_hog was API-settable before its reservation, so a stored forged row
+    # must not reach the mintable product; `internal` is server-stamped only.
+    if gateway_product == "review_hog" and not internal:
+        return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
     if gateway_product == "signals" and ai_stage:
