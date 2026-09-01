@@ -85,6 +85,8 @@ export interface FoldedPersonUpdate {
     isIdentified?: boolean
     /** Epoch milliseconds; max-merged server-side. */
     lastSeenAtMs?: number
+    /** The event's force flag; the leader writes filtered-only changes under it. */
+    forceUpdate?: boolean
 }
 
 export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
@@ -227,6 +229,7 @@ export class PersonHogPersonOperations {
                     unsetProperties: update.unsetProperties,
                     isIdentified: update.isIdentified,
                     lastSeenAt: update.lastSeenAtMs != null ? BigInt(update.lastSeenAtMs) : undefined,
+                    forceUpdate: update.forceUpdate ?? false,
                 }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )

@@ -303,12 +303,6 @@ interface OpsLaneEntry {
      */
     segments: EventOps[]
     /**
-     * Whether any folded event updates the person against its baseline
-     * baseline. A lane that never sets this holds filtered-only noise, which
-     * flush suppresses as the Postgres store does.
-     */
-    triggersUpdate: boolean
-    /**
      * Set while a flush is writing this entry's leading segments. Folds
      * arriving meanwhile start a new segment.
      */
@@ -843,11 +837,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         const [projected] = applyEventPropertyUpdates(refined, person)
         const scalarUpdates = computeOpsScalarUpdates(ops, projected)
         Object.assign(projected, scalarUpdates)
-        // An update means a non-filtered change against the baseline or a
-        // moved scalar. Filtered-only noise leaves this false and is
-        // suppressed at flush.
-        const triggersUpdate =
-            (refined.hasChanges && refined.hasNonFilteredChanges) || Object.keys(scalarUpdates).length > 0
 
         const personKey = `${person.team_id}:${person.id}`
         this.referenceEntry(batchId, personKey)
@@ -866,10 +855,8 @@ export class PersonhogPersonsStore implements PersonsStore {
                 personId: person.id,
                 distinctId,
                 segments: [ops],
-                triggersUpdate,
             })
         } else {
-            existing.triggersUpdate = existing.triggersUpdate || triggersUpdate
             const last = existing.segments.length - 1
             const lastSegment = existing.segments[last]
             // A flush snapshots the leading segments and truncates exactly
@@ -1497,7 +1484,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         otherUpdates: Partial<InternalPerson>,
         _distinctId: string,
         _batchId: number,
-        _forceUpdate?: boolean,
+        forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         const read = this.memo.beginRead(person.team_id, _batchId, [`${person.team_id}:${_distinctId}`])
@@ -1525,6 +1512,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 unsetProperties: propertiesToUnset,
                 isIdentified: otherUpdates.is_identified === true ? true : undefined,
                 lastSeenAtMs: otherUpdates.last_seen_at?.toMillis(),
+                forceUpdate: forceUpdate ?? false,
             },
             CALLER_TAG
         )
@@ -1798,7 +1786,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             return
         }
-        entry.triggersUpdate = false
         // A drained entry no batch still references was held open only to
         // protect its unwritten ops; now it can go. Identity-guarded: a
         // stale finalizer (an old write settling after the entry was retired
@@ -1841,25 +1828,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             return
         }
         try {
-            // Suppressing a filtered-only lane is a flush rule, not a merge
-            // one: the reference backend folds a source's pending values
-            // into the survivor before clearing anything, so dropping them
-            // here would lose a write it keeps. A merge-issued write is a
-            // forced write.
-            if (!entry.triggersUpdate && ownFence === undefined) {
-                if (!this.memo.isDestroyed(personKey)) {
-                    personhogStoreFlushCounter.inc({ outcome: 'filtered' })
-                    this.dropLeadingSegments(entry, segments)
-                    return
-                }
-                // Filtered-only was decided against the document of a person
-                // a merge has destroyed, which is the wrong document: the
-                // reference backend classifies against the survivor it reads
-                // through its cache. Writing lets the tombstone redirect
-                // carry the ops there, where the leader applies them against
-                // the true state.
-                personhogStoreFlushCounter.inc({ outcome: 'filtered_rescued_destroyed' })
-            }
             // What this pass still owes, decremented as segments leave the
             // lane by being written or dropped. Array length is no
             // substitute: folds arriving during a redirect's waits inflate it
@@ -2035,6 +2003,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 unsetProperties: ops.unset,
                 isIdentified: ops.isIdentified,
                 lastSeenAtMs: ops.lastSeenAtMs,
+                forceUpdate: ops.shouldForceUpdate,
             },
             CALLER_TAG
         )
