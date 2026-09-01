@@ -3,6 +3,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
@@ -51,6 +52,10 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 
 jest.mock('lib/lemon-ui/LemonDialog', () => ({
     LemonDialog: { open: jest.fn() },
+}))
+
+jest.mock('~/queries/query', () => ({
+    performQuery: jest.fn(),
 }))
 
 // A real logic rather than a stub: the editor connects the catalog's values, and `loadCount` is how
@@ -296,6 +301,63 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(warehouseSavedQueriesChecksCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a stale failing preview until the custom SQL is tested again', async () => {
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            columns: ['order_id'],
+            results: [['order-1']],
+            hasMore: false,
+        })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('fail')
+        expect(logic.values.customSqlPreviewStale).toBe(false)
+
+        logic.actions.setCheckFormValue('customSql', "SELECT order_id FROM orders WHERE status = 'failed'")
+
+        expect(logic.values.customSqlPreviewStale).toBe(true)
+
+        ;(performQuery as jest.Mock).mockResolvedValueOnce({ columns: [], results: [], hasMore: false })
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+        expect(logic.values.customSqlPreviewStale).toBe(false)
+    })
+
+    it('clears a custom SQL preview error when the query changes', async () => {
+        ;(performQuery as jest.Mock).mockRejectedValue({ detail: 'Unknown table' })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM missing' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+            .toDispatchActions(['runCustomSqlPreviewFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewError).toEqual('Unknown table')
+
+        logic.actions.setCheckFormValue('customSql', 'SELECT 1')
+
+        expect(logic.values.customSqlPreviewError).toBeNull()
+    })
+
+    it('blocks saving custom SQL with a Monaco validation error', async () => {
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
+
+        logic.actions.setCustomSqlEditorError('Unknown table')
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
+        expect(logic.values.checkFormErrors.customSql).toEqual('Unknown table')
     })
 
     it.each<[string, { detail: string; code?: string; attr?: string }, string, string]>([
