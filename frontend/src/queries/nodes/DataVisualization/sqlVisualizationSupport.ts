@@ -54,6 +54,6 @@ export function sqlVisualizationDisabledReason(
     }
 
     return nextQuery.chartSettings?.yAxis?.length
-        ? 'This insight has no column left to label the x axis'
+        ? 'This insight has no column left to label the X-axis'
         : 'This insight has no numeric column to plot'
 }

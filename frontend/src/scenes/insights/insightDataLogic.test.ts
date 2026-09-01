@@ -719,6 +719,69 @@ describe('insightDataLogic', () => {
             expect(patchBodies).toHaveLength(0)
             expect(logic.values.savingVisualizationType).toBe(false)
         })
+
+        it('persists only the last display edit against the latest clean SQL query', async () => {
+            savedQuery = {
+                ...latestQuery,
+                source: { ...latestQuery.source, variables: {} },
+            } as DataVisualizationNode
+            const dashboardQuery = {
+                ...cachedQuery,
+                source: {
+                    ...cachedQuery.source,
+                    filters: { dateRange: { date_from: '-7d' } },
+                },
+            } as DataVisualizationNode
+            logic.actions.syncQueryFromProps(dashboardQuery)
+
+            logic.actions.persistSqlDisplayOptions({
+                ...dashboardQuery,
+                chartSettings: { ...latestQuery.chartSettings, showLegend: true },
+            })
+            logic.actions.persistSqlDisplayOptions({
+                ...dashboardQuery,
+                chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
+            })
+            expect(logic.values.savingSqlDisplayOptions).toBe(true)
+
+            await expectLogic(logic).toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchBodies).toHaveLength(1)
+            expect(patchBodies[0].query).toEqual({
+                ...savedQuery,
+                chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
+            })
+            expect(logic.values.savingSqlDisplayOptions).toBe(false)
+        })
+
+        it('does not persist display settings from a stale chart type', async () => {
+            savedQuery = {
+                ...latestQuery,
+                display: ChartDisplayType.ActionsPie,
+            } as DataVisualizationNode
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlDisplayOptions({
+                    ...cachedQuery,
+                    chartSettings: { showLegend: true },
+                })
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+        })
+
+        it('does not overlap a display save with a chart type save', async () => {
+            logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+            logic.actions.persistSqlDisplayOptions({
+                ...cachedQuery,
+                chartSettings: { showLegend: true },
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(1)
+            expect(patchBodies[0].query.display).toBe(ChartDisplayType.ActionsLineGraph)
+        })
     })
 
     describe('draft query persistence', () => {

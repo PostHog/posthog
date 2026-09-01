@@ -1,8 +1,29 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import { LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
+
 import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { ChartDisplayType } from '~/types'
 
-import { sqlQueryForVisualizationPicker } from './dashboardVisualizationOptions'
+import { sqlQueryForVisualizationPicker, useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
 
-describe('sqlQueryForVisualizationPicker', () => {
+type DashboardVisualizationOptionsProps = Parameters<typeof useDashboardVisualizationOptions>[0]
+
+function displayOptionsElement(items: LemonMenuItems): JSX.Element {
+    const section = items.find((item): item is LemonMenuSection => !!item && 'title' in item && item.key === 'display')
+    expect(section).not.toBeUndefined()
+
+    const item = section?.items[0]
+    expect(item && typeof item.label).toBe('function')
+
+    return (item as { label: () => JSX.Element }).label()
+}
+
+describe('dashboardVisualizationOptions', () => {
     const sqlQuery = {
         kind: NodeKind.DataVisualizationNode,
         source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
@@ -13,22 +34,193 @@ describe('sqlQueryForVisualizationPicker', () => {
         source: { kind: NodeKind.TrendsQuery, series: [] },
     } as unknown as InsightVizNode
 
-    it.each([
-        { label: 'SQL insight gets the picker', query: sqlQuery as Node, canPersist: true, expected: sqlQuery },
-        {
-            label: 'a trends insight gets nothing, since its chart type carries query side effects',
-            query: trendsQuery as Node,
-            canPersist: true,
-            expected: null,
-        },
-        {
-            label: 'no picker when the change cannot be saved, so a viewer never gets a control that no-ops',
-            query: sqlQuery as Node,
-            canPersist: false,
-            expected: null,
-        },
-        { label: 'no picker without a query', query: null, canPersist: true, expected: null },
-    ])('$label', ({ query, canPersist, expected }) => {
-        expect(sqlQueryForVisualizationPicker(query, canPersist)).toBe(expected)
+    afterEach(() => {
+        cleanup()
+    })
+
+    describe('sqlQueryForVisualizationPicker', () => {
+        it.each([
+            { label: 'SQL insight gets the picker', query: sqlQuery as Node, canPersist: true, expected: sqlQuery },
+            {
+                label: 'a trends insight gets nothing, since its chart type carries query side effects',
+                query: trendsQuery as Node,
+                canPersist: true,
+                expected: null,
+            },
+            {
+                label: 'no picker when the change cannot be saved, so a viewer never gets a control that no-ops',
+                query: sqlQuery as Node,
+                canPersist: false,
+                expected: null,
+            },
+            { label: 'no picker without a query', query: null, canPersist: true, expected: null },
+        ])('$label', ({ query, canPersist, expected }) => {
+            expect(sqlQueryForVisualizationPicker(query, canPersist)).toBe(expected)
+        })
+    })
+
+    describe('SQL display controls', () => {
+        const insightData = {
+            columns: ['day', 'total'],
+            types: [
+                ['day', 'DateTime'],
+                ['total', 'UInt64'],
+            ],
+            result: [
+                ['2026-08-30', 12],
+                ['2026-08-31', 15],
+            ],
+        }
+
+        const lineQuery = {
+            ...sqlQuery,
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'total' }] },
+        } as DataVisualizationNode
+
+        const baseProps: DashboardVisualizationOptionsProps = {
+            query: lineQuery,
+            insightData,
+            persistVisualizationType: jest.fn(),
+            persistSqlDisplayOptions: jest.fn(),
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('reloads the available controls when the SQL chart type changes', async () => {
+            const { result, rerender } = renderHook(
+                (props: DashboardVisualizationOptionsProps) => useDashboardVisualizationOptions(props),
+                { initialProps: baseProps }
+            )
+            const view = render(displayOptionsElement(result.current))
+
+            expect(await screen.findByText('Right Y-axis')).toBeInTheDocument()
+            expect(screen.getByText('Goals')).toBeInTheDocument()
+
+            rerender({
+                ...baseProps,
+                query: {
+                    ...lineQuery,
+                    display: ChartDisplayType.ActionsPie,
+                } as DataVisualizationNode,
+            })
+            view.rerender(displayOptionsElement(result.current))
+
+            expect(await screen.findByText('Show on slices')).toBeInTheDocument()
+            expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
+            expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+        })
+
+        it('routes display setting changes through SQL-safe persistence', async () => {
+            const persistSqlDisplayOptions = jest.fn()
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    ...baseProps,
+                    persistSqlDisplayOptions,
+                })
+            )
+            render(displayOptionsElement(result.current))
+
+            const showLegend = await screen.findByLabelText('Show legend')
+            expect(persistSqlDisplayOptions).not.toHaveBeenCalled()
+
+            await userEvent.click(showLegend)
+
+            await waitFor(() => {
+                expect(persistSqlDisplayOptions).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        chartSettings: expect.objectContaining({ showLegend: true }),
+                    })
+                )
+            })
+        })
+
+        it('waits for result columns before mounting display controls', async () => {
+            const { result, rerender } = renderHook(
+                (props: DashboardVisualizationOptionsProps) => useDashboardVisualizationOptions(props),
+                {
+                    initialProps: {
+                        ...baseProps,
+                        insightData: {},
+                        loading: true,
+                    },
+                }
+            )
+            const view = render(displayOptionsElement(result.current))
+
+            expect(screen.getByRole('status')).toHaveTextContent('Loading display options')
+            expect(screen.queryByLabelText('Show legend')).not.toBeInTheDocument()
+
+            rerender({ ...baseProps, loading: false })
+            view.rerender(displayOptionsElement(result.current))
+
+            expect(await screen.findByLabelText('Show legend')).toBeInTheDocument()
+        })
+
+        it('combines rapid setting changes across saving-state rerenders', async () => {
+            const persistSqlDisplayOptions = jest.fn()
+            const { result, rerender } = renderHook(
+                (props: DashboardVisualizationOptionsProps) => useDashboardVisualizationOptions(props),
+                {
+                    initialProps: {
+                        ...baseProps,
+                        persistSqlDisplayOptions,
+                    },
+                }
+            )
+            const view = render(displayOptionsElement(result.current))
+
+            await userEvent.click(await screen.findByLabelText('Show legend'))
+            const displayLabel = (
+                result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection
+            ).items[0]
+            rerender({ ...baseProps, savingSqlDisplayOptions: true, persistSqlDisplayOptions })
+            const rerenderedDisplayLabel = (
+                result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection
+            ).items[0]
+            expect(
+                rerenderedDisplayLabel && 'label' in rerenderedDisplayLabel ? rerenderedDisplayLabel.label : null
+            ).toBe(displayLabel && 'label' in displayLabel ? displayLabel.label : null)
+            view.rerender(displayOptionsElement(result.current))
+            expect(screen.getByLabelText('Show legend')).toBeChecked()
+            await userEvent.click(screen.getByLabelText('Show annotations'))
+
+            expect(persistSqlDisplayOptions).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    chartSettings: expect.objectContaining({ showLegend: true, showAnnotations: true }),
+                })
+            )
+        })
+
+        it('shows when display settings are being saved', () => {
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    ...baseProps,
+                    savingSqlDisplayOptions: true,
+                })
+            )
+
+            render(
+                (result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection)
+                    .title as JSX.Element
+            )
+
+            expect(screen.getByRole('status')).toHaveTextContent('Saving')
+        })
+
+        it('makes display controls inert while a chart type is being saved', () => {
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    ...baseProps,
+                    saving: true,
+                })
+            )
+
+            const { container } = render(displayOptionsElement(result.current))
+
+            expect(container.firstChild).toHaveAttribute('inert')
+        })
     })
 })
