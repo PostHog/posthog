@@ -3,6 +3,8 @@
 // action – add or reorder options here only, and keep the values in sync with desktop and with
 // `SIGNAL_REPORT_DISMISSAL_REASON_CHOICES` in `products/signals/backend/views.py`.
 
+import type { SignalReportStateRequest } from '../types'
+
 export const DISMISSAL_REASON_OPTIONS = [
     { value: 'already_fixed', label: 'Already fixed' },
     { value: 'report_unclear', label: 'Report is unclear to me' },
@@ -53,11 +55,10 @@ export interface DismissalFeedback {
  * {@link DismissalFeedback} to the API the same way. Spread into `{ state: 'suppressed', ... }`.
  * The note is clamped to the API's 4000-character cap.
  */
-export function suppressDismissalPayload(dismissal: DismissalFeedback): {
-    dismissal_reason: DismissalReasonValue
-    dismissal_note?: string
-    corrected_repository?: string
-} {
+export function suppressDismissalPayload(
+    dismissal: DismissalFeedback
+): Required<Pick<SignalReportStateRequest, 'dismissal_reason'>> &
+    Pick<SignalReportStateRequest, 'dismissal_note' | 'corrected_repository'> {
     const note = dismissal.note.trim().slice(0, 4000)
     return {
         dismissal_reason: dismissal.reason,
