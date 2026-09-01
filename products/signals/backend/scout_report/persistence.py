@@ -238,6 +238,7 @@ def create_scout_report(
                 title=title,
                 summary=summary,
                 scout_idempotency_key=idempotency_key,
+                last_activity_at=timezone.now(),
                 signal_count=len(signals),
                 total_weight=total_weight,
                 charts=[chart.model_dump(mode="json") for chart in charts],
@@ -605,7 +606,14 @@ def record_content_revision(*, team_id: int, report_id: str) -> int:
         if existing is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
         content_revision_count = (existing["content_revision_count"] or 0) + 1
-        SignalReport.objects.filter(team_id=team_id, id=report_id).update(content_revision_count=content_revision_count)
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            content_revision_count=content_revision_count,
+            # A rewrite is the one scout edit that changes what the report says, so it is the one
+            # that resets the staleness clock. A revalidation note does not: a scout restating that
+            # its finding still holds is exactly the machine noise the human-silence clock exists
+            # to see past, and letting it stamp here would make every scout report immortal.
+            last_activity_at=timezone.now(),
+        )
     return content_revision_count
 
 

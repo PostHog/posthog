@@ -321,7 +321,7 @@ def implementation_pr_needed_by_another_report(*, team_id: int, report_id: str, 
     )
 
 
-PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded"]
+PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded", "stale"]
 
 _SUPERSEDED_COMMENT = (
     "Closing this PR because later research changed the fix. "
@@ -334,6 +334,13 @@ _SUPERSEDED_COMMENT_NO_URL = (
     "The report it came from is still open, and a new PR replaces this one.\n\n"
     "If this PR was still the right fix, reopen it."
 )
+# Staleness says nothing about the fix, only that nobody came back to it. So the comment names the
+# silence rather than judging the work, and points at the one thing that brings the PR back.
+_STALE_COMMENT = (
+    "🔕 Closing this PR because the PostHog report behind it went quiet. Nobody acted on it for "
+    "weeks, so it was archived along with this PR.\n\n"
+    "If the fix is still wanted, restore the report in PostHog and reopen this PR."
+)
 
 
 def _pr_close_comment(
@@ -345,6 +352,8 @@ def _pr_close_comment(
     and how to undo it. The close itself goes out under the team's GitHub App, so this comment is
     the only place the person behind it can appear.
     """
+    if reason == "stale":
+        return _STALE_COMMENT
     if reason == "superseded":
         return (
             _SUPERSEDED_COMMENT.format(replacement=replacement_pr_url)

@@ -151,6 +151,25 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is sent
 
+    @parameterized.expand(
+        [
+            ("opt_in", False, True),
+            ("opt_out", True, False),
+        ]
+    )
+    def test_update_stale_report_sweep_enabled(self, _name, initial, sent):
+        # The team's own half of the reaper's three gates. A team that predates the sweep is
+        # stamped out of it by the backfill, so turning it back on has to work from the API alone,
+        # without a deploy.
+        self.config.stale_report_sweep_enabled = initial
+        self.config.save(update_fields=["stale_report_sweep_enabled"])
+        response = self.client.post(self._url(), data={"stale_report_sweep_enabled": sent}, format="json")
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["stale_report_sweep_enabled"] is sent
+        self.config.refresh_from_db()
+        assert self.config.stale_report_sweep_enabled is sent
+
     def test_get_config_defaults_daily_report_limit_fields(self):
         response = self.client.get(self._url())
         data = response.json()

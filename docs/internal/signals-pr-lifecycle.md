@@ -24,6 +24,12 @@ An accepted scout replacement decision commits a protected `implementation_dispa
 
 Only the first four content revisions can request a scout replacement, including revisions that did not request one. An over-cap request preserves the rewrite and records the revision-limit reason without claiming that the old fix is still correct. Reports under active research cannot accept a supersede claim. The current revision count is read inside the edit transaction, so a failed read cannot report a failed edit after committing a note or evidence.
 
+## Stale reports
+
+The daily sweep uses inactivity for reports without scout revisions and human silence for reports a scout has rewritten. The default windows are 14 and 21 days. Archiving requires the global `SIGNAL_STALE_REPORT_REAPER_ENABLED` setting, the `signals-stale-report-reaper` organization flag, and the project's `stale_report_sweep_enabled` preference. The migration opts existing configuration rows out; an unset preference on a new configuration permits the sweep when the other gates are enabled.
+
+The sweep checks every linked PR within its team and preserves reports with any merged implementation PR. It rechecks the report's status and clock under a row lock before archiving, so activity after the scan can keep it open. Archived reports receive a dismissal reason, and the existing post-commit dismissal handler closes eligible PRs. Human PR reviews update the human clock; bot reviews do not.
+
 ## Verification plans
 
 After research completes, actionable reports can include a `Verification plan` note for the implementation agent.
