@@ -13,9 +13,12 @@ class Migration(migrations.Migration):
     `task_run_team_stage_task_idx` on `posthog_task_run` is left in place on
     purpose: it backs the optional stage filter and waits on traffic.
 
-    All drops run in one statement per table, so each table takes a single
-    brief ACCESS EXCLUSIVE lock. The columns were removed from state ten
-    months before this drop, so no deploy still reads them.
+    Each table is altered in one statement, so each takes its ACCESS
+    EXCLUSIVE lock once instead of once per column. Both statements run in
+    one transaction, so `posthog_task` keeps its lock until commit, which
+    spans the `posthog_task_run` drop. Each drop is a catalog-only change
+    that completes quickly once it holds the lock. The columns were removed
+    from state ten months before this drop, so no deploy still reads them.
     """
 
     dependencies = [
