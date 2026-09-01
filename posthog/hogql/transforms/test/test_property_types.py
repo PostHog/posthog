@@ -193,6 +193,9 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert "arrayExists" in printed, printed
         assert "events.properties.`$active_feature_flags`" in printed, printed
         assert "multiSearchAnyCaseInsensitive(toString(" not in printed, printed
+        # The missing-property branch must resolve to empty(column), not isNull(toJSONString(column)),
+        # or every row pays to serialize the array just to null-check it.
+        assert "toJSONString" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_exception_types_use_array_subcolumn(self) -> None:

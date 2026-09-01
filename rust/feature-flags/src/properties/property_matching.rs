@@ -70,8 +70,8 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
 
 /// Parses the property value being matched as f64, for the numeric comparison operators
 /// (Gt/Gte/Lt/Lte, Between/NotBetween). A missing or non-numeric value is a validation
-/// error here, distinct from `match_value.is_none()` short-circuiting to `Ok(false)`
-/// earlier in each operator's match arm.
+/// error here, distinct from `match_value.is_none()` short-circuiting earlier in each
+/// operator's match arm (to `Ok(false)`, except NotBetween's `Ok(true)`).
 fn parse_numeric_match_value(
     match_value: Option<&Value>,
     key: &str,
@@ -409,9 +409,9 @@ pub fn match_property(
         }
         OperatorType::Between | OperatorType::NotBetween => {
             if match_value.is_none() {
-                // When value doesn't exist:
-                // - for Between/NotBetween: it's not a match (false)
-                return Ok(false);
+                // Mirrors HogQL semantics (posthog/hogql/property.py): a missing value
+                // isn't in range, so Between doesn't match and its complement NotBetween does.
+                return Ok(operator == OperatorType::NotBetween);
             }
 
             // Mirrors HogQL semantics (posthog/hogql/property.py): between is inclusive
@@ -1914,14 +1914,15 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Missing person property is not a match, for both between and not_between
+        // A missing person property isn't in range, so between doesn't match and its
+        // complement not_between does, mirroring HogQL semantics.
         assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
         let not_between = PropertyFilter {
             operator: Some(OperatorType::NotBetween),
             ..between.clone()
         };
         assert!(
-            !match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
+            match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
         );
 
         // Non-numeric person property value is a validation error (like Gt/Lt), which

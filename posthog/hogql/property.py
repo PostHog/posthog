@@ -564,10 +564,12 @@ def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
 def _multi_search_not_found(search_call: ast.Call, expr: ast.Expr) -> ast.Expr:
     """Create an expression that is true when multiSearchAnyCaseInsensitive found no match.
 
-    A missing property makes the search return NULL and drops the row. An isNull(expr) branch keeps
-    it, matching every other negative operator. The branch stays separate rather than wrapping the
-    search in ifNull, so the bare multiSearchAnyCaseInsensitive call remains the comparison's left
-    operand for _optimize_materialized_array_multisearch to rewrite into a native array scan."""
+    Uses `expr = NULL` rather than isNull(expr) so a missing property is kept, matching every
+    other negative operator, while still letting _optimize_materialized_array_compare rewrite it
+    into empty(column) instead of serializing an array property to JSON per row. The branch stays
+    outside the search call rather than wrapping it in ifNull, so the bare
+    multiSearchAnyCaseInsensitive call remains what _optimize_materialized_array_multisearch
+    matches on to build an arrayExists scan."""
     return ast.Or(
         exprs=[
             ast.CompareOperation(
@@ -575,7 +577,7 @@ def _multi_search_not_found(search_call: ast.Call, expr: ast.Expr) -> ast.Expr:
                 left=search_call,
                 right=ast.Constant(value=0),
             ),
-            ast.Call(name="isNull", args=[expr]),
+            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=expr, right=ast.Constant(value=None)),
         ]
     )
 

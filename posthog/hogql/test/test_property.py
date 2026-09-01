@@ -452,7 +452,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0 OR isNull(properties.a))"
+                "(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0 OR properties.a = null)"
             ),
         )
         a = self._property_to_expr(
@@ -614,7 +614,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> (multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0 OR isNull(v)), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "arrayExists(v -> (multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0 OR v = null), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 
