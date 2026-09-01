@@ -386,13 +386,27 @@ export function buildHarnessModelGroups(
     groups.some((group) =>
       group.options.some((option) => option.value === currentValue),
     );
-  if (!hasCurrent && currentValue && groups.length > 0) {
-    groups[0].options.unshift({
+  if (!hasCurrent && currentValue) {
+    const custom = {
       value: currentValue,
       name: currentValue,
       description: "Custom model",
       _meta: modelHarnessMeta(adapter),
-    });
+    };
+    // The model belongs to the current harness, so it goes in that harness's
+    // group. An empty or one-sided catalog (a gateway blip returns no models)
+    // leaves no group to put it in, so open one — otherwise the picker offers
+    // nothing at all, or files the model under the other harness's heading.
+    const own = groups.find((group) => group.group === adapter);
+    if (own) {
+      own.options.unshift(custom);
+    } else {
+      groups.unshift({
+        group: adapter,
+        name: HARNESS_DISPLAY_NAMES[adapter],
+        options: [custom],
+      });
+    }
   }
   return groups;
 }

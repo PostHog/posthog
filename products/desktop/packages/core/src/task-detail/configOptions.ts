@@ -3,6 +3,7 @@ import {
   type Adapter,
   adapterForModelId,
   flattenSelectOptions,
+  isSelectGroup,
   selectOptionHarness,
 } from "@posthog/shared";
 
@@ -41,4 +42,24 @@ export function harnessForModelValue(
   );
   if (!entry) return undefined;
   return selectOptionHarness(entry._meta) ?? adapterForModelId(value);
+}
+
+/**
+ * Narrows a model option that spans harnesses down to one harness. A picker
+ * that cannot switch harness with the pick must not offer the other's models,
+ * or the task runs a model its harness cannot serve. A list for a single
+ * harness passes through untouched.
+ */
+export function modelOptionForHarness(
+  option: SessionConfigOption | undefined,
+  adapter: Adapter,
+): SessionConfigOption | undefined {
+  if (option?.type !== "select" || !isSelectGroup(option.options))
+    return option;
+  return {
+    ...option,
+    options: flattenSelectOptions(option.options).filter(
+      (entry) => selectOptionHarness(entry._meta) === adapter,
+    ),
+  };
 }

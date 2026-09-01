@@ -347,4 +347,25 @@ describe("buildHarnessModelGroups", () => {
       description: "Custom model",
     });
   });
+
+  // A gateway blip answers with an empty or one-sided catalog. The picker must
+  // still offer the model the task will run on, under its own harness.
+  it.each([
+    { label: "an empty catalog", models: [] },
+    {
+      label: "a catalog holding only the other harness",
+      models: [model("gpt-5.6-sol", "openai")],
+    },
+  ])(
+    "keeps the current model under its own harness with $label",
+    ({ models }) => {
+      const groups = buildHarnessModelGroups(models, "claude", "claude-opus-5");
+
+      expect(groups[0]).toMatchObject({
+        group: "claude",
+        name: "Claude Code",
+        options: [{ value: "claude-opus-5", description: "Custom model" }],
+      });
+    },
+  );
 });

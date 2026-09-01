@@ -12,6 +12,7 @@ import type {
 import {
   harnessForModelValue,
   isValidConfigValue,
+  modelOptionForHarness,
 } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
@@ -922,9 +923,11 @@ export function TaskInput({
 
   const autoresearchService =
     useServiceOptional<AutoresearchService>(AUTORESEARCH_SERVICE);
+  // The composer's picker spans both harnesses, but a stage model rides on the
+  // task's own harness with no way to switch, so the stages see only its models.
   const autoresearchModelOptions = useMemo(
-    () => toStageSelectOptions(modelOption),
-    [modelOption],
+    () => toStageSelectOptions(modelOptionForHarness(modelOption, adapter)),
+    [modelOption, adapter],
   );
   const autoresearchEffortOptions = useMemo(
     () => toStageSelectOptions(thoughtOption),

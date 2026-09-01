@@ -1,7 +1,11 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { modelHarnessMeta } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { harnessForModelValue } from "./configOptions";
+import {
+  flattenConfigValues,
+  harnessForModelValue,
+  modelOptionForHarness,
+} from "./configOptions";
 
 const groupedModelOption = {
   id: "model",
@@ -54,12 +58,6 @@ describe("harnessForModelValue", () => {
       expected: "codex",
     },
     {
-      label: "reads the current harness's own group too",
-      option: groupedModelOption,
-      value: "claude-opus-5",
-      expected: "claude",
-    },
-    {
       label: "falls back to the id shape when nothing is stamped",
       option: flatUnstampedOption,
       value: "gpt-5.5",
@@ -77,5 +75,26 @@ describe("harnessForModelValue", () => {
 
   it("returns undefined without an option", () => {
     expect(harnessForModelValue(undefined, "gpt-5.5")).toBeUndefined();
+  });
+});
+
+describe("modelOptionForHarness", () => {
+  it.each([
+    { adapter: "claude" as const, expected: ["claude-opus-5"] },
+    { adapter: "codex" as const, expected: ["gpt-5.5"] },
+  ])(
+    "keeps only $adapter models from a grouped list",
+    ({ adapter, expected }) => {
+      const narrowed = modelOptionForHarness(groupedModelOption, adapter);
+      expect(flattenConfigValues(narrowed as SessionConfigOption)).toEqual(
+        expected,
+      );
+    },
+  );
+
+  it("leaves a single-harness list alone", () => {
+    expect(modelOptionForHarness(flatUnstampedOption, "claude")).toBe(
+      flatUnstampedOption,
+    );
   });
 });
