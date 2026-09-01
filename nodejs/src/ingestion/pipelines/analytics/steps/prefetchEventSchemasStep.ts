@@ -2,11 +2,11 @@ import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enfor
 import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
 import { Team } from '~/types'
 
-type PrefetchEventSchemasStepInput = { team: Team }
+type PrefetchEventSchemasStepInput = { team: Pick<Team, 'id'> }
 
 /** Warms the enforced-schema cache for the chunk's teams ahead of validateEventSchemaStep's per-event lookups. */
 export function prefetchEventSchemasStep<T extends PrefetchEventSchemasStepInput>(
-    eventSchemaEnforcementManager: EventSchemaEnforcementManager,
+    eventSchemaEnforcementManager: Pick<EventSchemaEnforcementManager, 'getSchemasForTeams'>,
     enabled: boolean
 ) {
     return createPrefetchStep<T, number>({

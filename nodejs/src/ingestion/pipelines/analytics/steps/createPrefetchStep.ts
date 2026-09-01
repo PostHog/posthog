@@ -5,8 +5,8 @@ import { ok } from '~/ingestion/framework/results'
 export interface PrefetchStepOptions<T, K> {
     /** Stamped as the step's function name, which the framework uses for error attribution and metrics. */
     name: string
-    /** Key to warm for an event. Return undefined to skip the event. */
-    extractKey: (event: T) => K | undefined
+    /** Key to warm for an event. Return null to skip the event. */
+    extractKey: (event: T) => K | null
     /** Batched load for the chunk's distinct keys. The result is discarded; the cache keeps it. */
     load: (keys: K[]) => Promise<unknown>
     enabled: boolean
@@ -28,7 +28,7 @@ export function createPrefetchStep<T, K>(options: PrefetchStepOptions<T, K>): Ch
             const keys = new Set<K>()
             for (const event of events) {
                 const key = extractKey(event)
-                if (key !== undefined) {
+                if (key !== null) {
                     keys.add(key)
                 }
             }

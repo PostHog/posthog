@@ -1,19 +1,15 @@
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
-import { Team } from '~/types'
 
-type TestInput = { team: Team }
+type TestInput = { team: { id: number } }
 
 function createInput(teamId: number): TestInput {
-    return { team: { id: teamId } as unknown as Team }
+    return { team: { id: teamId } }
 }
 
 describe('prefetchEventSchemasStep', () => {
     it('warms the schema cache by team id', async () => {
-        const manager = {
-            getSchemasForTeams: jest.fn().mockResolvedValue({}),
-        } as unknown as EventSchemaEnforcementManager
+        const manager = { getSchemasForTeams: jest.fn().mockResolvedValue({}) }
         const step = prefetchEventSchemasStep<TestInput>(manager, true)
 
         const results = await step([createInput(3), createInput(4)])

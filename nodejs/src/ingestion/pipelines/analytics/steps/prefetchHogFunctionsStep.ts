@@ -2,11 +2,11 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
 import { Team } from '~/types'
 
-type PrefetchHogFunctionsStepInput = { team: Team }
+type PrefetchHogFunctionsStepInput = { team: Pick<Team, 'id'> }
 
 /** Warms the transformation hog-function cache for the chunk's teams ahead of the hog transformer's per-event lookups. */
 export function prefetchHogFunctionsStep<T extends PrefetchHogFunctionsStepInput>(
-    hogTransformer: HogTransformer,
+    hogTransformer: Pick<HogTransformer, 'prefetchHogFunctionsForTeams'>,
     enabled: boolean
 ) {
     return createPrefetchStep<T, number>({

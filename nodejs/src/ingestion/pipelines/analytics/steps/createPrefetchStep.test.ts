@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
 
-type TestInput = { key: string | undefined }
+type TestInput = { key: string | null }
 
 const flushRejections = () => new Promise((resolve) => setImmediate(resolve))
 
@@ -26,7 +26,7 @@ describe('createPrefetchStep', () => {
     })
 
     it('loads each distinct key once, skips events without a key, and passes every event through', async () => {
-        const events: TestInput[] = [{ key: 'a' }, { key: 'b' }, { key: 'a' }, { key: undefined }]
+        const events: TestInput[] = [{ key: 'a' }, { key: 'b' }, { key: 'a' }, { key: null }]
 
         const results = await createStep()(events)
 
@@ -38,7 +38,7 @@ describe('createPrefetchStep', () => {
 
     it.each([
         ['disabled', false, [{ key: 'a' }]],
-        ['no event has a key', true, [{ key: undefined }]],
+        ['no event has a key', true, [{ key: null }]],
         ['the chunk is empty', true, []],
     ])('does not load when %s', async (_case, enabled, events: TestInput[]) => {
         const results = await createStep(enabled)(events)
