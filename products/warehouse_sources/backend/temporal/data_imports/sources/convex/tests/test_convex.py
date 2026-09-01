@@ -12,6 +12,7 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     _CONVEX_RETRY,
@@ -577,12 +578,17 @@ class TestConvexNonRetryableErrors:
     def test_missing_table_404_surfaces_actionable_message(self) -> None:
         # A deleted table's 404 must stop retrying and tell the customer to turn off syncing for it,
         # not store the raw driver text (which carries the deployment host). Mirror the finalizer's
-        # first-match selection so a reorder that shadowed it with an earlier None key would be caught.
+        # first-match selection (external_data_job.py), including its case-insensitive matching via
+        # `error_message_matches`, so a reorder that shadowed it with an earlier None key would be caught.
         error_msg = (
             "404 Client Error: Not Found for url: "
             "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth"
         )
-        matches = [friendly for key, friendly in ConvexSource().get_non_retryable_errors().items() if key in error_msg]
+        matches = [
+            friendly
+            for key, friendly in ConvexSource().get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [key])
+        ]
         assert matches, "a missing-table 404 must be classified non-retryable"
         assert matches[0] is not None, "a missing-table 404 must surface an actionable message, not raw driver text"
         assert "turn off syncing" in matches[0].lower()
