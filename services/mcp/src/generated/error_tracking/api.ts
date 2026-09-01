@@ -1575,7 +1575,9 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -3179,7 +3181,9 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -4754,7 +4758,9 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -6361,7 +6367,9 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -7974,7 +7982,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('Count threshold for performed_event_multiple'),
                             time_interval: zod
-                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                 .optional(),
                             time_value: zod
                                 .union([zod.number(), zod.null()])
@@ -10186,7 +10194,9 @@ export const ErrorTrackingSeverityRulesCreateBody = /* @__PURE__ */ zod.object({
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -11769,7 +11779,9 @@ export const ErrorTrackingSeverityRulesUpdateBody = /* @__PURE__ */ zod.object({
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -13365,7 +13377,9 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -14951,7 +14965,9 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             .union([zod.number(), zod.null()])
                             .optional()
                             .describe('Count threshold for performed_event_multiple'),
-                        time_interval: zod.union([zod.enum(['day', 'week', 'month', 'year']), zod.null()]).optional(),
+                        time_interval: zod
+                            .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
+                            .optional(),
                         time_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()

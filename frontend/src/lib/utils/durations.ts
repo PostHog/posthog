@@ -177,5 +177,8 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
     if (timeUnit === TimeUnitType.Week) {
         return timeValue * 7
     }
+    if (timeUnit === TimeUnitType.Hour) {
+        return timeValue / 24
+    }
     return timeValue
 }

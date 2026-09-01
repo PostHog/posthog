@@ -400,6 +400,7 @@ export const BehavioralEventSourceApi = {
 export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
 
 export const TimeUnitTypeApi = {
+    Hour: 'hour',
     Day: 'day',
     Week: 'week',
     Month: 'month',

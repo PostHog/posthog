@@ -53910,7 +53910,7 @@
             "type": "object"
         },
         "TimeUnitType": {
-            "enum": ["day", "week", "month", "year"],
+            "enum": ["hour", "day", "week", "month", "year"],
             "type": "string"
         },
         "TimelineEntry": {

@@ -2365,6 +2365,7 @@ export namespace Schemas {
 
 
     export const TimeUnitType = {
+      Hour: 'hour',
       Day: 'day',
       Week: 'week',
       Month: 'month',

@@ -161,6 +161,27 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
         label: 'Units',
         type: FieldOptionsType.TimeUnits,
         values: {
+            [TimeUnitType.Hour]: {
+                label: 'hours',
+            },
+            [TimeUnitType.Day]: {
+                label: 'days',
+            },
+            [TimeUnitType.Week]: {
+                label: 'weeks',
+            },
+            [TimeUnitType.Month]: {
+                label: 'months',
+            },
+            [TimeUnitType.Year]: {
+                label: 'years',
+            },
+        },
+    },
+    [FieldOptionsType.TimeUnitsWithoutHour]: {
+        label: 'Units',
+        type: FieldOptionsType.TimeUnitsWithoutHour,
+        values: {
             [TimeUnitType.Day]: {
                 label: 'days',
             },
@@ -945,7 +966,13 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.Actors]} />
     },
     [FilterType.TimeUnit]: function _renderField(p) {
-        return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.TimeUnits]} />
+        // "Completed an event regularly" pins the window's upper bound to -1d in the query builder,
+        // so an hour-scale window would invert or collapse the range. Offer hours everywhere else.
+        const timeUnitOptions =
+            p.criteria?.value === BehavioralLifecycleType.PerformEventRegularly
+                ? FieldOptionsType.TimeUnitsWithoutHour
+                : FieldOptionsType.TimeUnits
+        return <CohortSelectorField {...p} fieldOptionGroupTypes={[timeUnitOptions]} />
     },
     [FilterType.DateOperator]: function _renderField(p) {
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.DateOperators]} />

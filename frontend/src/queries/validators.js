@@ -5757,7 +5757,7 @@ const schema63 = {
     enum: ['events', 'actions'],
     type: 'string',
 }
-const schema65 = { enum: ['day', 'week', 'month', 'year'], type: 'string' }
+const schema65 = { enum: ['hour', 'day', 'week', 'month', 'year'], type: 'string' }
 const schema66 = {
     description: 'The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`',
     enum: ['performed_event', 'performed_event_multiple'],
@@ -6198,6 +6198,7 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
                                                             }
                                                             if (
                                                                 !(
+                                                                    data10 === 'hour' ||
                                                                     data10 === 'day' ||
                                                                     data10 === 'week' ||
                                                                     data10 === 'month' ||

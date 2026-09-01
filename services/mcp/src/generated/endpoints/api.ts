@@ -2032,7 +2032,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])

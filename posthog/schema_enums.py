@@ -4193,6 +4193,7 @@ class TikTokAdsDefaultSources(StrEnum):
 
 
 class TimeUnitType(StrEnum):
+    HOUR = "hour"
     DAY = "day"
     WEEK = "week"
     MONTH = "month"

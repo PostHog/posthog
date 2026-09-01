@@ -346,7 +346,7 @@ export function CohortRelativeAndExactTimeField({
                     })
                 }}
                 max={1000}
-                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
                 showCustom
                 allowSingleAndRange
                 dateOptions={[

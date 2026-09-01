@@ -509,7 +509,7 @@ const WorkflowVariablePropertyFilter = z.object({
 
 const BehavioralEventSource = z.enum(['events', 'actions'])
 
-const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
+const TimeUnitType = z.enum(['hour', 'day', 'week', 'month', 'year'])
 
 const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
 

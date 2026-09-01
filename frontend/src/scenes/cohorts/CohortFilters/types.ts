@@ -41,6 +41,7 @@ export enum FieldOptionsType {
     CohortBehavioral = 'cohortBehavioral',
     LifecycleBehavioral = 'lifecycleBehavioral',
     TimeUnits = 'timeUnits',
+    TimeUnitsWithoutHour = 'timeUnitsWithoutHour',
     DateOperators = 'dateOperators',
     SingleFieldDateOperators = 'singleFieldDateOperators',
     MathOperators = 'mathOperators',

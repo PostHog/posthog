@@ -2825,7 +2825,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe('Count threshold for performed_event_multiple'),
                                                 time_interval: zod
-                                                    .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                    .union([
+                                                        zod.enum(['hour', 'day', 'week', 'month', 'year']),
+                                                        zod.null(),
+                                                    ])
                                                     .optional(),
                                                 time_value: zod
                                                     .union([zod.number(), zod.null()])
@@ -4531,7 +4534,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe('Count threshold for performed_event_multiple'),
                                                 time_interval: zod
-                                                    .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                    .union([
+                                                        zod.enum(['hour', 'day', 'week', 'month', 'year']),
+                                                        zod.null(),
+                                                    ])
                                                     .optional(),
                                                 time_value: zod
                                                     .union([zod.number(), zod.null()])
@@ -8739,7 +8745,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe('Count threshold for performed_event_multiple'),
                                                 time_interval: zod
-                                                    .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                    .union([
+                                                        zod.enum(['hour', 'day', 'week', 'month', 'year']),
+                                                        zod.null(),
+                                                    ])
                                                     .optional(),
                                                 time_value: zod
                                                     .union([zod.number(), zod.null()])
@@ -10445,7 +10454,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe('Count threshold for performed_event_multiple'),
                                                 time_interval: zod
-                                                    .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                    .union([
+                                                        zod.enum(['hour', 'day', 'week', 'month', 'year']),
+                                                        zod.null(),
+                                                    ])
                                                     .optional(),
                                                 time_value: zod
                                                     .union([zod.number(), zod.null()])
@@ -14633,7 +14645,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe('Count threshold for performed_event_multiple'),
                                                 time_interval: zod
-                                                    .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                    .union([
+                                                        zod.enum(['hour', 'day', 'week', 'month', 'year']),
+                                                        zod.null(),
+                                                    ])
                                                     .optional(),
                                                 time_value: zod
                                                     .union([zod.number(), zod.null()])
@@ -16339,7 +16354,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe('Count threshold for performed_event_multiple'),
                                                 time_interval: zod
-                                                    .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                    .union([
+                                                        zod.enum(['hour', 'day', 'week', 'month', 'year']),
+                                                        zod.null(),
+                                                    ])
                                                     .optional(),
                                                 time_value: zod
                                                     .union([zod.number(), zod.null()])
