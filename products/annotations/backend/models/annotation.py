@@ -46,6 +46,21 @@ class Annotation(ModelActivityMixin, models.Model):
 
     class Meta:
         db_table = "posthog_annotation"
+        indexes = [
+            # The annotations list filters on team or on organization scope, then sorts that whole
+            # slice by date_marker. Each branch of that OR gets its own ordered index, partial on
+            # the soft-delete flag the list always sets.
+            models.Index(
+                fields=["team", "-date_marker"],
+                condition=models.Q(deleted=False),
+                name="annotation_team_date_marker",
+            ),
+            models.Index(
+                fields=["organization", "-date_marker"],
+                condition=models.Q(deleted=False, scope="organization"),
+                name="annotation_org_date_marker",
+            ),
+        ]
 
     @property
     def insight_short_id(self) -> Optional[str]:
