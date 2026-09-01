@@ -10,7 +10,6 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
-import { significantDecimalPlaces } from '../utils/format'
 import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -866,22 +865,22 @@ function padValueRange(
     return [min < 0 ? start - reserve : start, max > 0 ? end + reserve : end]
 }
 
+// Caps runaway precision if a tick set never resolves (e.g. NaN), and stops float
+// residue from rendering as a wall of digits.
+const MAX_TICK_FRACTION_DIGITS = 10
+
+/** Labels an axis's ticks with the fewest fraction digits that keep every distinct tick's label
+ *  distinct, applied uniformly so the column of labels reads as one unit. Trying digit counts
+ *  against the rendered labels sidesteps float noise in computed tick values. */
 export function autoFormatterFor(ticks: number[]): (value: number) => string {
-    const domainMax = ticks.length > 0 ? Math.max(...ticks.map((tick) => Math.abs(tick))) : 1
-    if (domainMax < 2) {
-        // Two decimals only resolve a domain down to ~0.1; below that every tick rounds to the same
-        // label, so scale the precision to the domain instead.
-        return (value) =>
-            value.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: significantDecimalPlaces(domainMax),
-            })
+    const label = (value: number, digits: number): string =>
+        value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+    const distinct = new Set(ticks).size
+    let digits = 0
+    while (digits < MAX_TICK_FRACTION_DIGITS && new Set(ticks.map((tick) => label(tick, digits))).size < distinct) {
+        digits++
     }
-    if (domainMax < 5) {
-        return (value) => value.toFixed(1)
-    }
-    const maximumFractionDigits = ticks.some((tick) => !Number.isInteger(tick)) ? 10 : 0
-    return (value) => value.toLocaleString('en-US', { maximumFractionDigits })
+    return (value) => label(value, digits)
 }
 
 export function resolveYScaleForSeries<S extends (value: number) => number>(
