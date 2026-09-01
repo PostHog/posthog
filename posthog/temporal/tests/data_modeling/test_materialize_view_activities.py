@@ -37,6 +37,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
+    DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
     get_aws_storage_options,
@@ -1803,6 +1804,39 @@ class TestHogqlTableDescribeSettings:
         ]
         assert "globalIn(" in client.describe_calls[1][0]
         assert batches[0][1] == [("distinct_id", "String")]
+
+
+class TestHogqlTableDuplicateOutputColumns:
+    @pytest.mark.parametrize(
+        "describe_body",
+        [
+            pytest.param(b"event\tDateTime\nevent\tDateTime\n", id="type-the-wrapper-converts"),
+            pytest.param(b"event\tString\nevent\tString\n", id="type-the-wrapper-leaves-alone"),
+        ],
+    )
+    async def test_a_repeated_output_name_is_refused_before_the_query_runs(
+        self, ateam: Team, describe_body: bytes
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("event", pa.string())]))
+        client.describe_body = describe_body
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        # selecting a column on top of an asterisk that already includes it, which the resolver
+        # allows through where an explicit `x AS a, y AS a` is refused as a redefined alias
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            pytest.raises(DuplicateOutputColumnError) as error,
+        ):
+            _ = [batch async for batch in hogql_table("SELECT *, event FROM events", ateam, LOGGER.bind())]
+
+        assert error.value.duplicates == ["event"]
+        assert '"event"' in str(error.value)
+        assert client.arrow_query_calls == 0
 
 
 class _SlowDescribeClient(_EmptyArrowClient):

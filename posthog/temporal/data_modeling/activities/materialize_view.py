@@ -113,7 +113,9 @@ def _print_untouched(
 
 async def _describe_columns(
     printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
-) -> dict[str, str]:
+) -> list[tuple[str, str]]:
+    """A select list is ordered and may repeat a name, so the probe returns pairs, not a mapping.
+    `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
         async with client.apost_query(
             query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
@@ -122,11 +124,22 @@ async def _describe_columns(
             settings=query_settings,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
-    columns: dict[str, str] = {}
+    columns: list[tuple[str, str]] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns[column_name] = ch_type
+        columns.append((column_name, ch_type))
     return columns
+
+
+def _reject_duplicate_output_columns(columns: list[tuple[str, str]]) -> None:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for column_name, _ in columns:
+        if column_name in seen and column_name not in duplicates:
+            duplicates.append(column_name)
+        seen.add(column_name)
+    if duplicates:
+        raise DuplicateOutputColumnError(duplicates)
 
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
@@ -154,6 +167,20 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
+
+
+class DuplicateOutputColumnError(Exception):
+    """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
+    list from it, and the arrow transform looks it up on the batch. Neither can say which of two
+    same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
+
+    def __init__(self, duplicates: list[str]):
+        names = ", ".join(f'"{name}"' for name in duplicates)
+        super().__init__(
+            f"The query returns more than one column named {names}. "
+            "Give each output column a unique name, for example with an alias."
+        )
+        self.duplicates = duplicates
 
 
 def _incremental_enabled(team_id: int) -> bool:
@@ -605,8 +632,10 @@ async def hogql_table(
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
         described_columns = await _describe_columns(untouched, context.values, None)
 
+    _reject_duplicate_output_columns(described_columns)
+
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    for column_name, ch_type in described_columns.items():
+    for column_name, ch_type in described_columns:
         if _needs_conversion(ch_type):
             query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
         else:
