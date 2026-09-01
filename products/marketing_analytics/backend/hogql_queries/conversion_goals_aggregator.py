@@ -6,6 +6,7 @@ from typing import TypeVar
 from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsDrillDownLevel
 
 from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST
@@ -27,6 +28,14 @@ from .marketing_analytics_config import MarketingAnalyticsConfig
 # case. Bump only after measuring PG/Redis pressure under realistic concurrency.
 _GOAL_PARALLELISM_LIMIT = 8
 
+# Narrow column set shared by every UNION ALL branch. Each branch tags its rows with the goal it
+# belongs to, and the outer aggregation pivots the tag back into one column per goal. Giving each
+# branch a column per goal instead would grow the SQL text with the square of the goal count, and
+# ClickHouse rejects a query over `max_query_size` before it runs.
+_GOAL_INDEX_COLUMN = "conversion_goal_index"
+_GOAL_VALUE_COLUMN = "conversion_goal_value"
+_GOAL_COUNT_COLUMN = "conversion_goal_count"
+
 _T = TypeVar("_T")
 _R = TypeVar("_R")
 
@@ -47,6 +56,51 @@ def _map_in_caller_context(build: Callable[[_T], _R], items: list[_T]) -> list[_
         thread_name_prefix="ma_cte",
     ) as pool:
         return list(pool.map(lambda ctx, item: ctx.run(build, item), contexts, items))
+
+
+class _SubqueryJoinCollector(TraversingVisitor):
+    """Collect every join that reads from a subquery rather than a table."""
+
+    def __init__(self) -> None:
+        self.joins: list[tuple[ast.JoinExpr, ast.SelectQuery | ast.SelectSetQuery]] = []
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.SelectQuery | ast.SelectSetQuery):
+            self.joins.append((node, node.table))
+        super().visit_join_expr(node)
+
+
+def _hoist_repeated_subqueries(branches: list[ast.SelectQuery]) -> dict[str, ast.CTE]:
+    """Move a subquery that several branches repeat word for word into one shared CTE.
+
+    Goals that read the same precomputed touchpoints carry an identical copy of that scan in every
+    branch, so the query text grows with the goal count. ClickHouse rejects a query over
+    `max_query_size` before it runs, and one shared CTE keeps the text down.
+
+    Hoists the largest repeat first, then looks again, so an outer subquery is shared as a whole
+    instead of being split into its parts.
+    """
+    shared: dict[str, ast.CTE] = {}
+    if len(branches) < 2:
+        return shared
+
+    while True:
+        by_shape: dict[str, list[tuple[ast.JoinExpr, ast.SelectQuery | ast.SelectSetQuery]]] = {}
+        for branch in branches:
+            collector = _SubqueryJoinCollector()
+            collector.visit(branch)
+            for join, subquery in collector.joins:
+                by_shape.setdefault(repr(subquery), []).append((join, subquery))
+
+        repeated = [(shape, found) for shape, found in by_shape.items() if len(found) > 1]
+        if not repeated:
+            return shared
+
+        _, found = max(repeated, key=lambda item: len(item[0]))
+        name = f"{UNIFIED_CONVERSION_GOALS_CTE_ALIAS}_shared_{len(shared)}"
+        shared[name] = ast.CTE(name=name, expr=found[0][1], cte_type="subquery")
+        for join, _subquery in found:
+            join.table = ast.Field(chain=[name])
 
 
 class ConversionGoalsAggregator:
@@ -104,49 +158,32 @@ class ConversionGoalsAggregator:
 
         conversion_subqueries = []
         for processor, base_query in zip(self.processors, base_queries):
-            # Transform the query to include a column for this specific conversion goal
-            # and zero columns for all other conversion goals
+            # Transform the query into one branch of the UNION: the goal's own value, tagged with
+            # the goal index so the outer aggregation can pivot it back into its own column.
             # Note: base_query schema is: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
+            conversion_expr = base_query.select[4]
+            if isinstance(conversion_expr, ast.Alias):
+                conversion_expr = conversion_expr.expr
+
             enhanced_select = [
                 # Keep campaign, id, and source (skip match_key at [0])
                 base_query.select[1],  # campaign
                 base_query.select[2],  # id
                 base_query.select[3],  # source
+                ast.Alias(alias=_GOAL_INDEX_COLUMN, expr=ast.Constant(value=processor.index)),
+                ast.Alias(alias=_GOAL_VALUE_COLUMN, expr=conversion_expr),
             ]
 
-            # Add columns for all conversion goals (this one gets the actual value, others get 0)
-            for p in self.processors:
-                if p.index == processor.index:
-                    # This is the current processor - use the actual conversion value
-                    # Extract the expression from the alias to avoid double aliasing
-                    # Position [4] is the conversion value (after match_key, campaign, id, source)
-                    conversion_expr = base_query.select[4]
-                    if isinstance(conversion_expr, ast.Alias):
-                        conversion_expr = conversion_expr.expr
-                    enhanced_select.append(
-                        ast.Alias(
-                            alias=self.config.get_conversion_goal_column_name(p.index),
-                            expr=conversion_expr,
-                        )
+            # Every branch in the UNION has to carry the same columns, so the count rides along on
+            # all of them once any goal needs it. Same grouping as the value column, so it counts
+            # that goal's conversions.
+            if count_processors:
+                enhanced_select.append(
+                    ast.Alias(
+                        alias=_GOAL_COUNT_COLUMN,
+                        expr=processor.get_count_field() if processor in count_processors else ast.Constant(value=0),
                     )
-                else:
-                    # This is a different processor - add zero column
-                    enhanced_select.append(
-                        ast.Alias(
-                            alias=self.config.get_conversion_goal_column_name(p.index), expr=ast.Constant(value=0)
-                        )
-                    )
-
-                # Every subquery in the UNION has to carry the same columns, so the count
-                # rides along for all of them, actual for its owner and 0 elsewhere. Same
-                # grouping as the value column, so it counts that goal's conversions.
-                if p in count_processors:
-                    enhanced_select.append(
-                        ast.Alias(
-                            alias=self.config.get_conversion_goal_count_column_name(p.index),
-                            expr=p.get_count_field() if p.index == processor.index else ast.Constant(value=0),
-                        )
-                    )
+                )
 
             enhanced_query = ast.SelectQuery(
                 select=enhanced_select,
@@ -161,6 +198,7 @@ class ConversionGoalsAggregator:
             conversion_subqueries.append(enhanced_query)
 
         # Step 2: UNION ALL the individual queries
+        shared_ctes = _hoist_repeated_subqueries(conversion_subqueries)
         if len(conversion_subqueries) == 1:
             union_query: ast.SelectQuery | ast.SelectSetQuery = conversion_subqueries[0]
         else:
@@ -216,28 +254,30 @@ class ConversionGoalsAggregator:
                 source_field_expr,
             ]
 
-        # Add each conversion goal as a summed column
-        count_processors = self._count_processors()
+        # Pivot the tagged branches back into one summed column per conversion goal
         for processor in self.processors:
+            owns_this_goal = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[subquery_alias, _GOAL_INDEX_COLUMN]),
+                right=ast.Constant(value=processor.index),
+            )
             final_select.append(
                 ast.Alias(
                     alias=self.config.get_conversion_goal_column_name(processor.index),
                     expr=ast.Call(
-                        name="sum",
-                        args=[
-                            ast.Field(
-                                chain=[subquery_alias, self.config.get_conversion_goal_column_name(processor.index)]
-                            )
-                        ],
+                        name="sumIf",
+                        args=[ast.Field(chain=[subquery_alias, _GOAL_VALUE_COLUMN]), owns_this_goal],
                     ),
                 )
             )
             if processor in count_processors:
-                count_column = self.config.get_conversion_goal_count_column_name(processor.index)
                 final_select.append(
                     ast.Alias(
-                        alias=count_column,
-                        expr=ast.Call(name="sum", args=[ast.Field(chain=[subquery_alias, count_column])]),
+                        alias=self.config.get_conversion_goal_count_column_name(processor.index),
+                        expr=ast.Call(
+                            name="sumIf",
+                            args=[ast.Field(chain=[subquery_alias, _GOAL_COUNT_COLUMN]), owns_this_goal],
+                        ),
                     )
                 )
 
@@ -245,6 +285,7 @@ class ConversionGoalsAggregator:
             select=final_select,
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
             group_by=group_by_exprs,
+            ctes=shared_ctes or None,
         )
 
         return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=final_query, cte_type="subquery")
