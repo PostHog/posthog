@@ -1194,7 +1194,8 @@ class TestCli:
 # The shape these fixtures guard against: a `changes` detector cleared with a bare
 # `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
 # are empty on a cancelled job, so the gate exits 0 green with no tests run.
-def _gate(body: str, condition: str = "${{ !cancelled() }}") -> str:
+def _gate(body: str, condition: str = "${{ !cancelled() }}", step_condition: str | None = None) -> str:
+    step_if = f"if: {step_condition}\n            " if step_condition is not None else ""
     return f"""
     name: ci-thing
     on: pull_request
@@ -1213,7 +1214,7 @@ def _gate(body: str, condition: str = "${{ !cancelled() }}") -> str:
         timeout-minutes: 5
         if: {condition}
         steps:
-          - run: |
+          - {step_if}run: |
 {textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
 """
 
@@ -1423,6 +1424,7 @@ class TestRequiredGateCheck:
         [
             _gate(SAFE_BODY),
             _gate(SAFE_BODY, condition='"!cancelled()"'),
+            _gate(SAFE_BODY, step_condition="always()"),
             _gate(HELPER_BODY),
             _gate(LOCAL_ALIAS_HELPER_BODY),
             _gate(COMMENTED_CALL_BODY),
@@ -1432,6 +1434,7 @@ class TestRequiredGateCheck:
         ids=[
             "inline-allowlist",
             "quoted-bare-not-cancelled",
+            "guards-in-step-level-always",
             "shared-helper",
             "helper-via-local",
             "helper-call-with-trailing-comment",
@@ -1469,14 +1472,15 @@ class TestRequiredGateCheck:
     # Every fixture can exit zero for a cancelled dependency despite mentioning
     # the expected statuses or guard shape.
     @pytest.mark.parametrize(
-        "body",
+        "content",
         [
-            UNSAFE_HELPER_BODY,
-            DECOY_COMMENT_BODY,
-            DECOY_ECHO_BODY,
-            NON_FAILING_ALLOWLIST_BODY,
-            INVERTED_ALLOWLIST_BODY,
-            LOGGED_ONLY_BODY,
+            _gate(UNSAFE_HELPER_BODY),
+            _gate(DECOY_COMMENT_BODY),
+            _gate(DECOY_ECHO_BODY),
+            _gate(NON_FAILING_ALLOWLIST_BODY),
+            _gate(INVERTED_ALLOWLIST_BODY),
+            _gate(LOGGED_ONLY_BODY),
+            _gate(SAFE_BODY, step_condition="${{ always() && false }}"),
         ],
         ids=[
             "failure-only-helper",
@@ -1485,10 +1489,11 @@ class TestRequiredGateCheck:
             "non-failing-allowlist",
             "inverted-allowlist",
             "results-only-logged",
+            "guards-in-conditional-step",
         ],
     )
-    def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, body: str) -> None:
-        _write(tmp_path, "ci-thing.yml", _gate(body))
+    def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, content: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == ["build", "changes"]
         assert all("fail-closed guard" in i.message for i in issues)
