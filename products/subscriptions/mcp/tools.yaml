@@ -55,7 +55,6 @@ tools:
             - resource_name
             - insight_short_id
             - invite_message
-            - delivery_config
     subscriptions-delete:
         operation: subscriptions_destroy
         enabled: true
@@ -179,7 +178,6 @@ tools:
             - insight_short_id
             - invite_message
             - send_test_now
-            - delivery_config
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

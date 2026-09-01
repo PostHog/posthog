@@ -191,24 +191,27 @@ export function integrationHasFilesWrite(integration: IntegrationType | null | u
     return integration ? getGrantedScopes(integration).includes('files:write') : false
 }
 
-export function shouldShowSlackGalleryOption(
+export function coerceDeliveryConfigForScope(
     subscription: SubscriptionType,
-    integration: IntegrationType | null | undefined
-): boolean {
-    if (
-        subscription.target_type !== 'slack' ||
-        subscription.resource_type === 'ai_prompt' ||
-        !subscription.integration_id ||
-        !subscription.target_value ||
-        !integration
-    ) {
-        return false
+    integrations: IntegrationType[] | null | undefined
+): SubscriptionType['delivery_config'] {
+    if (!subscription.delivery_config?.post_all_insights_in_main_message) {
+        return subscription.delivery_config
     }
-    return (
-        integrationHasFilesWrite(integration) ||
-        Boolean(integration.files_write_requestable) ||
-        Boolean(subscription.delivery_config?.post_all_insights_in_main_message)
-    )
+    if (subscription.target_type !== 'slack') {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    if (integrations == null) {
+        return subscription.delivery_config
+    }
+
+    const selectedIntegration = subscription.integration_id
+        ? integrations.find((integration) => integration.id === subscription.integration_id)
+        : undefined
+    if (!integrationHasFilesWrite(selectedIntegration)) {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    return subscription.delivery_config
 }
 
 function formatSelectedDeliveryDays(selectedDays: WeekdayType[]): string {

@@ -549,16 +549,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        post_all_insights_in_main_message = effective_delivery_config.get("post_all_insights_in_main_message")
-
-        if post_all_insights_in_main_message and resource_type == Subscription.ResourceType.AI_PROMPT:
-            raise ValidationError(
-                {
-                    "delivery_config": [
-                        "Posting all insights in the main message is not available for AI report subscriptions."
-                    ]
-                }
-            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -614,7 +604,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
-            if post_all_insights_in_main_message and SlackIntegration(integration).missing_scopes({"files:write"}):
+            if effective_delivery_config.get("post_all_insights_in_main_message") and SlackIntegration(
+                integration
+            ).missing_scopes({"files:write"}):
                 raise ValidationError(
                     {
                         "delivery_config": [
@@ -624,13 +616,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     }
                 )
 
-        if post_all_insights_in_main_message and target_type != Subscription.SubscriptionTarget.SLACK:
+        if (
+            effective_delivery_config.get("post_all_insights_in_main_message")
+            and target_type != Subscription.SubscriptionTarget.SLACK
+        ):
             raise ValidationError(
-                {
-                    "delivery_config": [
-                        "Posting all insights in the main message is only available for Slack subscriptions."
-                    ]
-                }
+                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
             )
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)

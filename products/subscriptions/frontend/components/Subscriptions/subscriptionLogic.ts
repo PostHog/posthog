@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -33,7 +34,13 @@ import type { DeliveryConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import {
+    ALL_DAYS,
+    AI_PROMPT_MAX_LENGTH,
+    coerceDeliveryConfigForScope,
+    SubscriptionBaseProps,
+    urlForSubscription,
+} from './utils'
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -572,7 +579,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const payload = {
                     ...subscription,
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
-                    delivery_config: isAi || subscription.target_type !== 'slack' ? {} : subscription.delivery_config,
+                    delivery_config: coerceDeliveryConfigForScope(
+                        subscription,
+                        integrationsLogic.findMounted()?.values.integrations
+                    ),
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would

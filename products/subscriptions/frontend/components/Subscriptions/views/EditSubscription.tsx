@@ -58,7 +58,6 @@ import {
     intervalOptions,
     monthlyWeekdayOptions,
     shouldShowDayPicker,
-    shouldShowSlackGalleryOption,
     targetTypeOptions,
     timeOptions,
     WEEKDAYS,
@@ -580,10 +579,7 @@ function EditSubscriptionForm({
                                                 const selectedIntegration = integrations?.find(
                                                     (integration) => integration.id === subscription.integration_id
                                                 )
-                                                if (!shouldShowSlackGalleryOption(subscription, selectedIntegration)) {
-                                                    return null
-                                                }
-                                                if (!selectedIntegration) {
+                                                if (!selectedIntegration?.files_write_requestable) {
                                                     return null
                                                 }
                                                 const hasFilesWrite = integrationHasFilesWrite(selectedIntegration)
@@ -596,14 +592,12 @@ function EditSubscriptionForm({
                                                             <div className="border rounded">
                                                                 <LemonSwitch
                                                                     className="py-2"
-                                                                    checked={Boolean(value)}
+                                                                    checked={Boolean(value && hasFilesWrite)}
                                                                     onChange={onChange}
                                                                     disabledReason={
-                                                                        hasFilesWrite || value
+                                                                        hasFilesWrite
                                                                             ? undefined
-                                                                            : selectedIntegration.files_write_requestable
-                                                                              ? 'Reconnect Slack below to grant the file-upload permission.'
-                                                                              : 'This Slack app does not have the file-upload permission.'
+                                                                            : 'Reconnect Slack below to grant the file-upload permission.'
                                                                     }
                                                                     fullWidth
                                                                     label="Post all insights in the main message"
@@ -612,40 +606,24 @@ function EditSubscriptionForm({
                                                                     <div className="flex items-center gap-2 border-t px-2 py-2">
                                                                         <IconInfo className="text-base text-secondary shrink-0" />
                                                                         <span className="flex-1 text-xs text-secondary">
-                                                                            {selectedIntegration.files_write_requestable ? (
-                                                                                <>
-                                                                                    Posting all insights together needs
-                                                                                    the Slack file-upload permission (
-                                                                                    <code>files:write</code>). Reconnect
-                                                                                    Slack to keep this option enabled,
-                                                                                    or turn it off before saving.
-                                                                                </>
-                                                                            ) : (
-                                                                                <>
-                                                                                    This Slack app does not have the
-                                                                                    file-upload permission (
-                                                                                    <code>files:write</code>). Turn this
-                                                                                    option off before saving.
-                                                                                </>
-                                                                            )}
+                                                                            Posting all insights together needs the
+                                                                            Slack file-upload permission (
+                                                                            <code>files:write</code>). Reconnect Slack
+                                                                            to grant it, then return here.
                                                                         </span>
-                                                                        {selectedIntegration.files_write_requestable && (
-                                                                            <LemonButton
-                                                                                type="secondary"
-                                                                                size="xsmall"
-                                                                                to={api.integrations.authorizeUrl({
-                                                                                    kind: selectedIntegration.kind,
-                                                                                    next: window.location.pathname,
-                                                                                })}
-                                                                                disableClientSideRouting
-                                                                                disabledReason={
-                                                                                    slackReconnectRestriction
-                                                                                }
-                                                                                data-attr="subscription-slack-reconnect"
-                                                                            >
-                                                                                Reconnect Slack
-                                                                            </LemonButton>
-                                                                        )}
+                                                                        <LemonButton
+                                                                            type="secondary"
+                                                                            size="xsmall"
+                                                                            to={api.integrations.authorizeUrl({
+                                                                                kind: selectedIntegration.kind,
+                                                                                next: window.location.pathname,
+                                                                            })}
+                                                                            disableClientSideRouting
+                                                                            disabledReason={slackReconnectRestriction}
+                                                                            data-attr="subscription-slack-reconnect"
+                                                                        >
+                                                                            Reconnect Slack
+                                                                        </LemonButton>
                                                                     </div>
                                                                 )}
                                                             </div>

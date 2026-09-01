@@ -28,18 +28,6 @@ SLACK_USER_CONFIG_ERRORS = frozenset(
         "token_revoked",
         "missing_scope",
         "not_allowed_token_type",
-        "no_permission",
-        "posting_to_channel_denied",
-    }
-)
-
-SLACK_GALLERY_CONFIG_ERRORS = frozenset(
-    {
-        "file_uploads_disabled",
-        "file_upload_size_restricted",
-        "file_type_not_allowed",
-        "storage_limit_reached",
-        "ekm_access_denied",
     }
 )
 

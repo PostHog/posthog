@@ -519,35 +519,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 and all(result["status"] == "failed" for result in delivery_recipient_results)
                 else DeliveryStatus.COMPLETED
             )
-            if final_status == DeliveryStatus.FAILED and inputs.slo:
-                inputs.slo.outcome = SloOutcome.FAILURE
-                returned_error: dict[str, Any] = {}
-                for result in delivery_recipient_results:
-                    result_error = result.get("error")
-                    if isinstance(result_error, dict):
-                        returned_error = result_error
-                        break
-                inputs.slo.completion_properties.update(
-                    {
-                        "error_type": returned_error.get("type", "delivery_failed"),
-                        "error_message": returned_error.get("message", "Subscription delivery failed"),
-                        "failure_stage": SubscriptionFailureStage.DELIVERY.value,
-                        "failure_category": "delivery_result",
-                        "failure_component": _FAILURE_STAGE_COMPONENT[SubscriptionFailureStage.DELIVERY],
-                        "failure_retryable": False,
-                    }
-                )
-            elif inputs.slo and any(result["status"] == "partial" for result in delivery_recipient_results):
-                inputs.slo.outcome = SloOutcome.FAILURE
-                inputs.slo.completion_properties.update(
-                    {
-                        "partial_delivery": True,
-                        "failure_stage": SubscriptionFailureStage.DELIVERY.value,
-                        "failure_category": "partial_delivery_result",
-                        "failure_component": _FAILURE_STAGE_COMPONENT[SubscriptionFailureStage.DELIVERY],
-                        "failure_retryable": False,
-                    }
-                )
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors

@@ -716,7 +716,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
         response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only available for Slack subscriptions" in response.json()["detail"]
+        assert "only supported for Slack subscriptions" in response.json()["detail"]
 
     def test_can_patch_delivery_config_on_slack_subscription(self):
         integration = Integration.objects.create(
@@ -809,7 +809,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"target_type": "email", "target_value": "a@b.com"},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only available for Slack" in str(res.json())
+        assert "only supported for Slack" in str(res.json())
 
     def test_post_all_in_main_allowed_with_files_write(self):
         integration = Integration.objects.create(
@@ -2962,24 +2962,6 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert data["prompt"] == "What are the biggest event gains week-over-week?"
         assert data["insight"] is None
         assert data["dashboard"] is None
-
-    def test_rejects_slack_gallery_for_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(
-                target_type="slack",
-                target_value="C1234|#general",
-                integration_id=integration.id,
-                delivery_config={"post_all_insights_in_main_message": True},
-            ),
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "AI report subscriptions" in str(response.json())
 
     def test_create_ai_subscription_persists_trimmed_prompt(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()

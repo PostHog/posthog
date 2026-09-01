@@ -53,11 +53,6 @@ SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
         "Add files:write to a custom Slack app, or reconnect PostHog's Slack app, then try again."
     ),
 )
-SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON = DisableReason(
-    key="slack_file_upload_unavailable",
-    description="Slack file uploads are unavailable for this workspace",
-    user_message="Cannot re-enable {target_type} subscription: Slack file uploads are unavailable. Update the workspace's file upload or storage settings, then try again.",
-)
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
     description="AI subscription prompt or creator is invalid",

@@ -1,19 +1,13 @@
-import uuid
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
-from django.db.models.functions import Length
-from django.utils import timezone as tz
 
 import aiohttp
 import structlog
-import posthoganalytics
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncWebClient
 
-from posthog.constants import SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_subscription_explore import build_explore_hint, build_explore_hint_text
 from posthog.models.integration import Integration, SlackIntegration
@@ -22,9 +16,8 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, SubscriptionResource
+from products.exports.backend.models.subscription import Subscription, SubscriptionResource
 
-from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS
 from ee.tasks.subscriptions.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
     UTM_TAGS_BASE,
@@ -77,32 +70,19 @@ class SlackMessage:
     unfurl: bool = True
 
 
-@frozen
+@dataclass
 class SlackDeliveryResult:
     main_message_sent: bool
     total_thread_messages: int
     failed_thread_message_indices: list[int]
-    omitted_attachment_count: int = 0
-    failure_message: str | None = None
-    failure_type: str | None = None
 
     @property
     def is_partial_failure(self) -> bool:
-        return self.main_message_sent and (
-            len(self.failed_thread_message_indices) > 0 or self.omitted_attachment_count > 0
-        )
+        return self.main_message_sent and len(self.failed_thread_message_indices) > 0
 
     @property
     def is_complete_success(self) -> bool:
-        return (
-            self.main_message_sent
-            and len(self.failed_thread_message_indices) == 0
-            and self.omitted_attachment_count == 0
-        )
-
-    @property
-    def is_complete_failure(self) -> bool:
-        return not self.main_message_sent
+        return self.main_message_sent and len(self.failed_thread_message_indices) == 0
 
 
 @frozen
@@ -110,7 +90,6 @@ class SlackGallery:
     channel: str
     initial_comment: str
     file_uploads: list[dict[str, Any]] = field(default_factory=list)
-    omitted_attachment_count: int = 0
 
 
 def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
@@ -119,59 +98,6 @@ def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
     if asset.content_location:
         return object_storage.read_bytes(asset.content_location, missing_ok=True)
     return None
-
-
-def _asset_image_size(asset: ExportedAsset) -> int | None:
-    if "content" not in asset.get_deferred_fields():
-        content = asset.__dict__.get("content")
-        if content:
-            return len(content)
-    elif asset.pk is not None:
-        content_length = (
-            ExportedAsset.objects.filter(pk=asset.pk)
-            .annotate(content_length=Length("content"))
-            .values_list("content_length", flat=True)
-            .get()
-        )
-        if content_length:
-            return content_length
-    if asset.content_location:
-        metadata = object_storage.head_object_strict(asset.content_location)
-        content_length = metadata.get("ContentLength") if metadata else None
-        return content_length if isinstance(content_length, int) else None
-    return None
-
-
-def _claim_slack_gallery_delivery(delivery_id: uuid.UUID) -> bool:
-    return (
-        SubscriptionDelivery.objects.filter(
-            id=delivery_id,
-            slack_gallery_delivery_started_at__isnull=True,
-        ).update(slack_gallery_delivery_started_at=tz.now())
-        == 1
-    )
-
-
-def _slack_gallery_feature_enabled(subscription: Subscription) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY,
-                f"team_{subscription.team_id}",
-                groups={"organization": str(subscription.team.organization_id)},
-                group_properties={
-                    "organization": {"id": str(subscription.team.organization_id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception(
-            "deliver_slack_gallery.feature_flag_evaluation_failed",
-            subscription_id=subscription.id,
-        )
-        return False
 
 
 def _insight_name(asset: ExportedAsset) -> str:
@@ -228,48 +154,28 @@ def _prepare_slack_gallery(
         lines.append(summary_skipped_over_budget_message(billing_url))
 
     file_uploads: list[dict[str, Any]] = []
-    generation_failed_names: list[str] = []
-    attachment_failed_names: list[str] = []
+    failed_names: list[str] = []
     for asset in assets:
-        if asset.exception is not None:
-            generation_failed_names.append(_insight_name(asset))
+        if _has_asset_failed(asset):
+            failed_names.append(_insight_name(asset))
             continue
-        content_size = _asset_image_size(asset)
-        if content_size is None:
-            (attachment_failed_names if asset.content_location else generation_failed_names).append(
-                _insight_name(asset)
-            )
+        content = _asset_image_bytes(asset)
+        if content is None:
+            failed_names.append(_insight_name(asset))
             continue
-        if content_size > MAX_SLACK_UPLOAD_BYTES:
+        if len(content) > MAX_SLACK_UPLOAD_BYTES:
             logger.warning(
                 "deliver_slack_gallery.asset_too_large",
                 subscription_id=subscription.id,
                 filename=asset.filename,
-                size_bytes=content_size,
-            )
-            attachment_failed_names.append(_insight_name(asset))
-            continue
-        content = _asset_image_bytes(asset)
-        if content is None:
-            attachment_failed_names.append(_insight_name(asset))
-            continue
-        # The object may have changed between HEAD and GET. Keep a final bound on
-        # what is handed to Slack even though the common path rejects before reading.
-        if len(content) > MAX_SLACK_UPLOAD_BYTES:
-            logger.warning(
-                "deliver_slack_gallery.asset_grew_after_size_check",
-                subscription_id=subscription.id,
-                filename=asset.filename,
                 size_bytes=len(content),
             )
-            attachment_failed_names.append(_insight_name(asset))
+            failed_names.append(_insight_name(asset))
             continue
         file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
 
-    if generation_failed_names:
-        lines.append("_Could not generate: " + ", ".join(generation_failed_names) + "_")
-    if attachment_failed_names:
-        lines.append("_Could not attach: " + ", ".join(attachment_failed_names) + "_")
+    if failed_names:
+        lines.append("_Could not generate: " + ", ".join(failed_names) + "_")
     if total_asset_count > len(assets):
         lines.append(_overflow_text(len(assets), total_asset_count, resource_info.url, utm_tags))
     lines.append(
@@ -284,7 +190,6 @@ def _prepare_slack_gallery(
         channel=subscription.target_value.split("|")[0],
         initial_comment="\n\n".join(lines),
         file_uploads=file_uploads,
-        omitted_attachment_count=len(generation_failed_names) + len(attachment_failed_names),
     )
 
 
@@ -588,96 +493,29 @@ async def deliver_slack_gallery(
                 main_message_sent=True,
                 total_thread_messages=0,
                 failed_thread_message_indices=[],
-                omitted_attachment_count=gallery.omitted_attachment_count,
             )
 
-        try:
-            await _upload_slack_gallery_with_retry(async_client, subscription, gallery)
-        except SlackApiError as error:
-            slack_error_code = error.response.get("error", "")
-            if slack_error_code in SLACK_USER_CONFIG_ERRORS or slack_error_code in SLACK_GALLERY_CONFIG_ERRORS:
-                raise
-            logger.error(
-                "deliver_slack_gallery.delivery_unconfirmed",
-                subscription_id=subscription.id,
-                channel=gallery.channel,
-                slack_error=slack_error_code,
-                exc_info=True,
-            )
-            return SlackDeliveryResult(
-                main_message_sent=False,
-                total_thread_messages=0,
-                failed_thread_message_indices=[],
-                failure_message="Slack could not deliver the gallery. Check the channel before retrying.",
-                failure_type="slack_delivery_failed",
-            )
-        except (TimeoutError, aiohttp.ClientError):
-            logger.error(
-                "deliver_slack_gallery.delivery_unconfirmed",
-                subscription_id=subscription.id,
-                channel=gallery.channel,
-                exc_info=True,
-            )
-            return SlackDeliveryResult(
-                main_message_sent=False,
-                total_thread_messages=0,
-                failed_thread_message_indices=[],
-                failure_message="Slack could not confirm whether the gallery was delivered. Check the channel before retrying.",
-                failure_type="slack_delivery_unconfirmed",
-            )
+        for attempt in range(3):
+            try:
+                await async_client.files_upload_v2(
+                    channel=gallery.channel,
+                    initial_comment=gallery.initial_comment,
+                    file_uploads=gallery.file_uploads,
+                )
+                break
+            except (TimeoutError, SlackApiError) as error:
+                if isinstance(error, SlackApiError) and error.response.get("error", "") not in _RETRYABLE_SLACK_ERRORS:
+                    raise
+                if attempt >= 2:
+                    raise
+                await asyncio.sleep(2**attempt)
 
     logger.info(
         "deliver_slack_gallery.uploaded",
         subscription_id=subscription.id,
         file_count=len(gallery.file_uploads),
     )
-    return SlackDeliveryResult(
-        main_message_sent=True,
-        total_thread_messages=0,
-        failed_thread_message_indices=[],
-        omitted_attachment_count=gallery.omitted_attachment_count,
-    )
-
-
-async def _upload_slack_gallery_with_retry(
-    async_client: AsyncWebClient,
-    subscription: Subscription,
-    gallery: SlackGallery,
-    max_retries: int = 3,
-) -> None:
-    for attempt in range(max_retries):
-        try:
-            await async_client.files_upload_v2(
-                channel=gallery.channel,
-                initial_comment=gallery.initial_comment,
-                file_uploads=gallery.file_uploads,
-            )
-            return
-        except SlackApiError as error:
-            slack_error_code = error.response.get("error", "")
-            is_retryable_pre_upload_error = (
-                slack_error_code in _RETRYABLE_SLACK_ERRORS
-                and error.response.api_url.endswith("/files.getUploadURLExternal")
-            )
-            if not is_retryable_pre_upload_error or attempt >= max_retries - 1:
-                raise
-            logger.warning(
-                "deliver_slack_gallery.pre_upload_error_retrying",
-                subscription_id=subscription.id,
-                channel=gallery.channel,
-                slack_error=slack_error_code,
-                attempt=attempt + 1,
-                max_retries=max_retries,
-            )
-            retry_after = error.response.headers.get("Retry-After") or error.response.headers.get("retry-after")
-            if slack_error_code in {"ratelimited", "rate_limited"} and retry_after is not None:
-                try:
-                    wait_seconds = min(max(float(retry_after), 0.0), 60.0)
-                except (TypeError, ValueError):
-                    wait_seconds = float(2**attempt)
-            else:
-                wait_seconds = float(2**attempt)
-            await asyncio.sleep(wait_seconds)
+    return SlackDeliveryResult(main_message_sent=True, total_thread_messages=0, failed_thread_message_indices=[])
 
 
 async def send_slack_message_with_integration_async(
@@ -688,14 +526,8 @@ async def send_slack_message_with_integration_async(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    delivery_id: uuid.UUID | None = None,
 ) -> SlackDeliveryResult:
-    gallery_requested = subscription.delivery_config.get("post_all_insights_in_main_message")
-    gallery_enabled = gallery_requested and await database_sync_to_async(
-        _slack_gallery_feature_enabled,
-        thread_sensitive=False,
-    )(subscription)
-    if gallery_enabled:
+    if subscription.delivery_config.get("post_all_insights_in_main_message"):
         gallery = await database_sync_to_async(_prepare_slack_gallery, thread_sensitive=False)(
             subscription,
             assets,
@@ -705,26 +537,6 @@ async def send_slack_message_with_integration_async(
             summary_skipped_over_budget=summary_skipped_over_budget,
             integration=integration,
         )
-        if delivery_id is not None:
-            claimed = await database_sync_to_async(
-                _claim_slack_gallery_delivery,
-                thread_sensitive=False,
-            )(delivery_id)
-            if not claimed:
-                logger.warning(
-                    "deliver_slack_gallery.retry_blocked_after_delivery_started",
-                    subscription_id=subscription.id,
-                    delivery_id=str(delivery_id),
-                )
-                return SlackDeliveryResult(
-                    main_message_sent=False,
-                    total_thread_messages=0,
-                    failed_thread_message_indices=[],
-                    failure_message=(
-                        "Slack gallery delivery was already attempted. Check the channel before retrying."
-                    ),
-                    failure_type="slack_delivery_unconfirmed",
-                )
         return await deliver_slack_gallery(integration, subscription, gallery)
 
     # `_prepare_slack_message` reads lazily-loaded ORM relations (e.g. `integration.team.organization`),

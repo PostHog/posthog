@@ -3,12 +3,12 @@ import { IntegrationType, SubscriptionType } from '~/types'
 
 import {
     canNudgeToSubscribe,
+    coerceDeliveryConfigForScope,
     formatSubscriptionSchedule,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     getSubscriptionAdvancedSettings,
     integrationHasFilesWrite,
-    shouldShowSlackGalleryOption,
     selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
     toggleSelectedDay,
@@ -76,7 +76,6 @@ describe('Slack gallery delivery config', () => {
     const subscription = (args: Partial<SubscriptionType>): SubscriptionType =>
         ({
             target_type: 'slack',
-            target_value: 'C123|#general',
             integration_id: 7,
             delivery_config: { post_all_insights_in_main_message: true },
             ...args,
@@ -91,35 +90,25 @@ describe('Slack gallery delivery config', () => {
         expect(integrationHasFilesWrite(integration)).toBe(expected)
     })
 
-    it.each([
-        ['regular Slack subscription with the scope', subscription({}), slackIntegration(7, 'files:write'), true],
+    it.each<[string, SubscriptionType, IntegrationType[] | null | undefined, boolean]>([
+        ['removes the flag when files:write is missing', subscription({}), [slackIntegration(7, 'chat:write')], false],
+        ['keeps the flag when files:write is granted', subscription({}), [slackIntegration(7, 'files:write')], true],
         [
-            'custom Slack app with the scope',
-            subscription({}),
-            { ...slackIntegration(7, 'files:write'), files_write_requestable: false },
-            true,
-        ],
-        [
-            'saved gallery setting after the scope is lost',
-            subscription({}),
-            { ...slackIntegration(7, 'chat:write'), files_write_requestable: false },
-            true,
-        ],
-        [
-            'new setting when the scope cannot be requested',
-            subscription({ delivery_config: { post_all_insights_in_main_message: false } }),
-            { ...slackIntegration(7, 'chat:write'), files_write_requestable: false },
+            'removes the flag for a non-Slack target',
+            subscription({ target_type: 'email' }),
+            [slackIntegration(7, 'files:write')],
             false,
         ],
-        [
-            'AI report subscription',
-            subscription({ resource_type: 'ai_prompt' }),
-            slackIntegration(7, 'files:write'),
-            false,
-        ],
-        ['email subscription', subscription({ target_type: 'email' }), slackIntegration(7, 'files:write'), false],
-    ] as const)('shows the gallery option for a %s: %s', (_label, value, integration, expected) => {
-        expect(shouldShowSlackGalleryOption(value, integration)).toBe(expected)
+        ['removes the flag when the loaded integration is missing', subscription({}), [], false],
+        ['preserves the flag while integrations are unresolved', subscription({}), null, true],
+    ])('%s', (_label, value, integrations, expected) => {
+        expect(coerceDeliveryConfigForScope(value, integrations)?.post_all_insights_in_main_message).toBe(expected)
+    })
+
+    it('returns an already-disabled config unchanged', () => {
+        const config = { post_all_insights_in_main_message: false }
+        const value = subscription({ delivery_config: config })
+        expect(coerceDeliveryConfigForScope(value, [])).toBe(config)
     })
 })
 

@@ -12,11 +12,10 @@ from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
-from posthog.storage.object_storage import ObjectStorageError
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS
@@ -34,20 +33,12 @@ from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_ME
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
-def _make_slack_api_error(
-    error_code: str, *, api_url: str = "", headers: dict[str, str] | None = None, **extra_data
-) -> SlackApiError:
+def _make_slack_api_error(error_code: str, **extra_data) -> SlackApiError:
     data = {"ok": False, "error": error_code, **extra_data}
     return SlackApiError(
         "Error",
         AsyncSlackResponse(
-            client=None,
-            http_verb="POST",
-            api_url=api_url,
-            req_args={},
-            data=data,
-            headers=headers or {},
-            status_code=200,
+            client=None, http_verb="POST", api_url="", req_args={}, data=data, headers={}, status_code=200
         ),
     )
 
@@ -303,12 +294,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     integration: Integration
 
     def setUp(self) -> None:
-        self.gallery_feature_patch = patch(
-            "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
-            return_value=True,
-        )
-        self.gallery_feature_patch.start()
-        self.addCleanup(self.gallery_feature_patch.stop)
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         self.asset = ExportedAsset.objects.create(
@@ -654,7 +639,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert result.main_message_sent is True
 
     @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
-    def test_deliver_slack_gallery_does_not_retry_ambiguous_timeout(
+    def test_deliver_slack_gallery_retries_timeout(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
@@ -665,77 +650,9 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
         )
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
-        mock_async.files_upload_v2.assert_awaited_once()
-        mock_sleep.assert_not_awaited()
-        assert result.main_message_sent is False
-
-    @parameterized.expand(
-        [
-            ("ratelimited",),
-            ("service_unavailable",),
-        ]
-    )
-    def test_deliver_slack_gallery_retries_transient_pre_upload_errors(
-        self, MockSlackIntegration: MagicMock, slack_error_code: str
-    ) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        slack_error = _make_slack_api_error(
-            slack_error_code,
-            api_url="https://slack.com/api/files.getUploadURLExternal",
-        )
-        mock_async.files_upload_v2 = AsyncMock(side_effect=[slack_error, {"ok": True, "files": [{"id": "F1"}]}])
-        gallery = SlackGallery(
-            channel="C1",
-            initial_comment="hi",
-            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
-        )
-
-        with patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
-
         assert mock_async.files_upload_v2.await_count == 2
         mock_sleep.assert_awaited_once_with(1)
-        assert result.is_complete_success
-
-    def test_deliver_slack_gallery_honors_rate_limit_retry_after(self, MockSlackIntegration: MagicMock) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        slack_error = _make_slack_api_error(
-            "ratelimited",
-            api_url="https://slack.com/api/files.getUploadURLExternal",
-            headers={"Retry-After": "7"},
-        )
-        mock_async.files_upload_v2 = AsyncMock(side_effect=[slack_error, {"ok": True, "files": [{"id": "F1"}]}])
-        gallery = SlackGallery(
-            channel="C1",
-            initial_comment="hi",
-            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
-        )
-
-        with patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
-
-        mock_sleep.assert_awaited_once_with(7.0)
-        assert result.is_complete_success
-
-    def test_deliver_slack_gallery_does_not_retry_ambiguous_completion_error(
-        self, MockSlackIntegration: MagicMock
-    ) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        slack_error = _make_slack_api_error(
-            "internal_error",
-            api_url="https://slack.com/api/files.completeUploadExternal",
-        )
-        mock_async.files_upload_v2 = AsyncMock(side_effect=[slack_error, {"ok": True, "files": [{"id": "F1"}]}])
-        gallery = SlackGallery(
-            channel="C1",
-            initial_comment="hi",
-            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
-        )
-
-        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
-
-        mock_async.files_upload_v2.assert_awaited_once()
-        assert result.is_complete_failure
+        assert result.main_message_sent is True
 
     def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
@@ -764,218 +681,12 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             export_format="image/png",
             content=b"PNGBYTES",
         )
-        failed_asset = ExportedAsset.objects.create(
-            team=self.team,
-            insight_id=self.insight.id,
-            export_format="image/png",
-            exception="render failed",
-        )
-        assets = list(
-            ExportedAsset.objects.filter(id__in=[asset_with_content.id, failed_asset.id]).select_related("insight")
-        )
-        result = asyncio.run(
-            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=2)
+        assets = list(ExportedAsset.objects.filter(id=asset_with_content.id).select_related("insight"))
+        asyncio.run(
+            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
         )
         mock_async.files_upload_v2.assert_awaited_once()
         mock_async.chat_postMessage.assert_not_called()
-        assert result.is_partial_failure
-
-    def test_async_send_uses_legacy_layout_until_gallery_rollout_flag_is_enabled(
-        self, MockSlackIntegration: MagicMock
-    ) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.chat_postMessage.return_value = {"ts": "1.234"}
-        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
-        self.subscription.save()
-        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
-
-        with patch(
-            "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
-            return_value=False,
-        ):
-            result = asyncio.run(
-                send_slack_message_with_integration_async(
-                    self.integration,
-                    self.subscription,
-                    assets,
-                    total_asset_count=1,
-                )
-            )
-
-        mock_async.files_upload_v2.assert_not_awaited()
-        mock_async.chat_postMessage.assert_awaited()
-        assert result.is_complete_success
-
-    def test_gallery_delivery_claim_prevents_activity_retry_from_uploading_again(
-        self, MockSlackIntegration: MagicMock
-    ) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
-        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
-        self.subscription.save()
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=self.subscription,
-            team=self.team,
-            temporal_workflow_id="workflow-1",
-            idempotency_key="gallery-delivery-1",
-            trigger_type="scheduled",
-            target_type="slack",
-            target_value=self.subscription.target_value,
-        )
-        asset = ExportedAsset.objects.create(
-            team=self.team,
-            insight_id=self.insight.id,
-            export_format="image/png",
-            content=b"PNGBYTES",
-        )
-        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
-
-        with patch(
-            "ee.tasks.subscriptions.slack_subscriptions._claim_slack_gallery_delivery",
-            side_effect=[True, False],
-        ) as claim_delivery:
-            first_result = asyncio.run(
-                send_slack_message_with_integration_async(
-                    self.integration,
-                    self.subscription,
-                    assets,
-                    total_asset_count=1,
-                    delivery_id=delivery.id,
-                )
-            )
-            retry_result = asyncio.run(
-                send_slack_message_with_integration_async(
-                    self.integration,
-                    self.subscription,
-                    assets,
-                    total_asset_count=1,
-                    delivery_id=delivery.id,
-                )
-            )
-
-        assert claim_delivery.call_count == 2
-        mock_async.files_upload_v2.assert_awaited_once()
-        assert first_result.main_message_sent is True
-        assert retry_result.is_complete_failure
-        assert retry_result.failure_type == "slack_delivery_unconfirmed"
-
-    def test_gallery_delivery_claim_is_not_taken_when_preparation_fails(self, MockSlackIntegration: MagicMock) -> None:
-        self._setup_async_mock(MockSlackIntegration)
-        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
-        self.subscription.save()
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=self.subscription,
-            team=self.team,
-            temporal_workflow_id="workflow-2",
-            idempotency_key="gallery-delivery-2",
-            trigger_type="scheduled",
-            target_type="slack",
-            target_value=self.subscription.target_value,
-        )
-        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
-
-        with patch(
-            "ee.tasks.subscriptions.slack_subscriptions._prepare_slack_gallery",
-            side_effect=OSError("object storage unavailable"),
-        ):
-            with pytest.raises(OSError, match="object storage unavailable"):
-                asyncio.run(
-                    send_slack_message_with_integration_async(
-                        self.integration,
-                        self.subscription,
-                        assets,
-                        total_asset_count=1,
-                        delivery_id=delivery.id,
-                    )
-                )
-
-        delivery.refresh_from_db()
-        assert delivery.slack_gallery_delivery_started_at is None
-
-    def test_gallery_storage_metadata_failure_retries_before_claiming(self, MockSlackIntegration: MagicMock) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
-        self.subscription.save()
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=self.subscription,
-            team=self.team,
-            temporal_workflow_id="workflow-storage-retry",
-            idempotency_key="gallery-storage-retry",
-            trigger_type="scheduled",
-            target_type="slack",
-            target_value=self.subscription.target_value,
-        )
-        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
-
-        with (
-            patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
-                side_effect=ObjectStorageError("head_object failed"),
-            ),
-            patch("ee.tasks.subscriptions.slack_subscriptions._claim_slack_gallery_delivery") as claim_delivery,
-        ):
-            with pytest.raises(ObjectStorageError, match="head_object failed"):
-                asyncio.run(
-                    send_slack_message_with_integration_async(
-                        self.integration,
-                        self.subscription,
-                        assets,
-                        total_asset_count=1,
-                        delivery_id=delivery.id,
-                    )
-                )
-
-        claim_delivery.assert_not_called()
-        mock_async.files_upload_v2.assert_not_awaited()
-        mock_async.chat_postMessage.assert_not_awaited()
-        delivery.refresh_from_db()
-        assert delivery.slack_gallery_delivery_started_at is None
-
-    def test_gallery_rejects_oversized_object_before_reading_it(self, MockSlackIntegration: MagicMock) -> None:
-        self._setup_async_mock(MockSlackIntegration)
-        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
-
-        with (
-            patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
-                return_value={"ContentLength": MAX_SLACK_UPLOAD_BYTES + 1},
-            ) as mock_head,
-            patch("ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes") as mock_read,
-        ):
-            gallery = _prepare_slack_gallery(
-                self.subscription,
-                assets,
-                total_asset_count=1,
-                integration=self.integration,
-            )
-
-        mock_head.assert_called_once_with(self.asset.content_location)
-        mock_read.assert_not_called()
-        assert gallery.file_uploads == []
-        assert gallery.omitted_attachment_count == 1
-
-    def test_gallery_rejects_oversized_inline_content_without_materializing_it(
-        self, MockSlackIntegration: MagicMock
-    ) -> None:
-        self._setup_async_mock(MockSlackIntegration)
-        inline_asset = ExportedAsset.objects.create(
-            team=self.team,
-            insight_id=self.insight.id,
-            export_format="image/png",
-            content=b"x" * (MAX_SLACK_UPLOAD_BYTES + 1),
-        )
-        deferred_asset = ExportedAsset.objects.select_related("insight").defer("content").get(id=inline_asset.id)
-
-        gallery = _prepare_slack_gallery(
-            self.subscription,
-            [deferred_asset],
-            total_asset_count=1,
-            integration=self.integration,
-        )
-
-        assert "content" in deferred_asset.get_deferred_fields()
-        assert gallery.file_uploads == []
-        assert gallery.omitted_attachment_count == 1
 
 
 class TestSlackErrorTruncation(APIBaseTest):
@@ -1159,15 +870,9 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             content_location="s3://bucket/from-storage.png",
         )
         assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
-        with (
-            patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
-                return_value={"ContentLength": len(b"STORAGEBYTES")},
-            ),
-            patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
-                return_value=b"STORAGEBYTES",
-            ),
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            return_value=b"STORAGEBYTES",
         ):
             gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
         assert len(gallery.file_uploads) == 1
@@ -1182,19 +887,13 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             content_location="s3://bucket/missing.png",
         )
         assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
-        with (
-            patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
-                return_value={"ContentLength": 12},
-            ),
-            patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
-                return_value=None,
-            ),
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            return_value=None,
         ):
             gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
         assert gallery.file_uploads == []
-        assert "Could not attach" in gallery.initial_comment
+        assert "Could not generate" in gallery.initial_comment
 
     def test_prepare_slack_gallery_skips_oversized_asset(self) -> None:
         subscription = self._subscription(post_all_in_main=True)
@@ -1207,8 +906,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assets = list(ExportedAsset.objects.filter(id=oversized.id).select_related("insight"))
         gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
         assert gallery.file_uploads == []
-        assert "Could not attach" in gallery.initial_comment
-        assert "Could not generate" not in gallery.initial_comment
+        assert "Could not generate" in gallery.initial_comment
         assert "My Test subscription" in gallery.initial_comment
 
     def _make_integration(self, ai_enabled: bool) -> Integration:
@@ -1318,10 +1016,7 @@ class TestSlackExploreHint(APIBaseTest):
         assert self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES)) == []
 
 
-@pytest.mark.parametrize(
-    "error_code",
-    ["missing_scope", "not_allowed_token_type", "no_permission", "posting_to_channel_denied"],
-)
+@pytest.mark.parametrize("error_code", ["missing_scope", "not_allowed_token_type"])
 def test_scope_revocation_errors_auto_disable(error_code: str) -> None:
     # Guards the wiring in delivery_common: errors in this set route to auto_disable_and_return,
     # which disables the subscription and notifies the creator when files:write is revoked.

@@ -773,7 +773,7 @@ describe('subscriptionLogic', () => {
     })
 
     it.each([
-        ['preserves the gallery flag when files:write is missing', 'chat:write,channels:read', true],
+        ['removes the gallery flag when files:write is missing', 'chat:write,channels:read', false],
         ['keeps the gallery flag when files:write is granted', 'chat:write,files:write', true],
     ] as const)('%s on submit', async (_label, scope, expected) => {
         const integrations = integrationsLogic()
@@ -802,33 +802,5 @@ describe('subscriptionLogic', () => {
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.delivery_config?.post_all_insights_in_main_message).toBe(expected)
-    })
-
-    it.each([
-        ['email delivery', { target_type: 'email', resource_type: 'insight' }],
-        ['AI reports', { target_type: 'slack', resource_type: 'ai_prompt' }],
-    ] as const)('clears the gallery flag when saving %s', async (_label, overrides) => {
-        let capturedBody: Partial<SubscriptionType> | undefined
-        useMocks({
-            post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
-                    capturedBody = (await request.json()) as Partial<SubscriptionType>
-                    return [200, { id: 52, ...capturedBody } as SubscriptionType]
-                },
-            },
-        })
-        router.actions.push('/subscriptions/new')
-        await expectLogic(newLogic).toFinishListeners()
-        newLogic.actions.setSubscriptionValues({
-            ...overrides,
-            prompt: overrides.resource_type === 'ai_prompt' ? 'Summarize the dashboard' : undefined,
-            target_value: overrides.target_type === 'slack' ? 'C123|#general' : 'ben@posthog.com',
-            integration_id: overrides.target_type === 'slack' ? 7 : null,
-            title: 'Changed delivery type',
-            delivery_config: { post_all_insights_in_main_message: true },
-        })
-        newLogic.actions.submitSubscription()
-        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
-        expect(capturedBody?.delivery_config).toEqual({})
     })
 })

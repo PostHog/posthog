@@ -210,7 +210,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
-    delivery_config = models.JSONField(db_default={}, default=dict)
+    delivery_config = models.JSONField(default=dict)
 
     class Meta:
         indexes = [
@@ -606,10 +606,6 @@ class SubscriptionDelivery(UUIDModel):
 
     # Per-recipient delivery results
     recipient_results = models.JSONField(default=list)
-
-    # Claimed immediately before the first non-idempotent Slack gallery API call.
-    # Activity retries may repeat all safe preparation, but never cross this boundary twice.
-    slack_gallery_delivery_started_at = models.DateTimeField(null=True, blank=True)
 
     # Overall status and error (null when no error)
     # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
