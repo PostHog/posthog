@@ -42,6 +42,8 @@ export function InboxReportRowView({
   const headline = deriveHeadline(report.summary);
   const prUrl = report.implementation_pr_url ?? null;
   const pr = prUrl ? parsePrUrl(prUrl) : null;
+  const isTerminal =
+    report.status === "resolved" || report.status === "suppressed";
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: The row contains independent PR and restore buttons.
@@ -56,7 +58,7 @@ export function InboxReportRowView({
           onOpen();
         }
       }}
-      className="flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-3 py-2 text-left transition hover:border-(--gray-6) hover:bg-(--gray-2)"
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--color-panel-solid) px-3 py-2 text-left transition-[background-color,border-color,opacity] duration-150 hover:border-(--gray-9) hover:bg-(--gray-2) focus-visible:border-(--gray-9) focus-visible:bg-(--gray-2) focus-visible:outline-none ${pr ? "border-(--gray-6) border-solid" : "border-(--gray-6) border-dashed"} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium text-[14px] text-gray-12">

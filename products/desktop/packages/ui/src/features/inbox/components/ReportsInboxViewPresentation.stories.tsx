@@ -3,7 +3,6 @@ import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
-import { InboxReportSection } from "@posthog/ui/features/inbox/components/InboxReportSection";
 import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -50,6 +49,16 @@ const resolved = [
   }),
 ];
 
+const reports = [
+  reviewAndMerge[0],
+  needsPr[0],
+  resolved[0],
+  reviewAndMerge[1],
+  needsPr[1],
+  resolved[1],
+  ...needsPr.slice(2),
+];
+
 function reportRow(report: SignalReport): React.JSX.Element {
   return (
     <InboxReportContextMenu key={report.id} report={report}>
@@ -81,12 +90,8 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     ),
   ],
   args: {
-    reviewAndMerge,
-    reviewAndMergeCount: reviewAndMerge.length,
-    showReviewAndMerge: true,
-    needsPr,
-    needsPrCount: needsPr.length,
-    showNeedsDecision: true,
+    reports,
+    triageReportCount: reviewAndMerge.length + needsPr.length,
     isLoading: false,
     isFetchingNextPage: false,
     isEmpty: false,
@@ -97,15 +102,6 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
       <Button type="button" variant="outline" size="sm">
         For you
       </Button>
-    ),
-    resolvedSection: (
-      <InboxReportSection
-        title="Resolved"
-        reports={resolved}
-        count={resolved.length}
-        defaultOpen={false}
-        renderReport={reportRow}
-      />
     ),
     renderReport: reportRow,
     onConfigureAgents: () => {},
@@ -121,35 +117,26 @@ export const MixedQueue: Story = {};
 
 export const EmptyInbox: Story = {
   args: {
-    reviewAndMerge: [],
-    reviewAndMergeCount: 0,
-    needsPr: [],
-    needsPrCount: 0,
+    reports: [],
+    triageReportCount: 0,
     isEmpty: true,
-    resolvedSection: undefined,
   },
 };
 
 export const FilteredEmpty: Story = {
   args: {
-    reviewAndMerge: [],
-    reviewAndMergeCount: 0,
-    needsPr: [],
-    needsPrCount: 0,
+    reports: [],
+    triageReportCount: 0,
     isEmpty: true,
     hasActiveFilters: true,
-    resolvedSection: undefined,
   },
 };
 
 export const Loading: Story = {
   args: {
-    reviewAndMerge: [],
-    reviewAndMergeCount: 0,
-    needsPr: [],
-    needsPrCount: 0,
+    reports: [],
+    triageReportCount: 0,
     isLoading: true,
     isEmpty: false,
-    resolvedSection: undefined,
   },
 };

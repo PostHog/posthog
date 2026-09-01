@@ -1,4 +1,5 @@
 import {
+  buildArchiveListOrdering,
   buildPriorityFilterParam,
   buildSignalReportListOrdering,
   buildSuggestedReviewerFilterParam,
@@ -59,12 +60,15 @@ export function useInboxAllReports(options?: {
   applySourceFilter?: boolean;
   /** Ignore the shared search value on surfaces that do not render search. */
   applySearchFilter?: boolean;
+  /** Keep statuses interleaved by the selected sort instead of grouping them. */
+  groupByStatus?: boolean;
 }) {
   const enabled = options?.enabled ?? true;
   const ignoreScope = options?.ignoreScope ?? false;
   const ignoreFilters = options?.ignoreFilters ?? false;
   const applySourceFilter = options?.applySourceFilter ?? true;
   const applySearchFilter = options?.applySearchFilter ?? true;
+  const groupByStatus = options?.groupByStatus ?? true;
   const refetchIntervalMs =
     options?.refetchIntervalMs ?? INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
@@ -113,7 +117,9 @@ export function useInboxAllReports(options?: {
         ? INBOX_PULL_REQUEST_STATUS_FILTER
         : (options?.statusFilter ?? INBOX_PIPELINE_STATUS_FILTER),
       has_implementation_pr: pullRequestsOnly ? true : undefined,
-      ordering: buildSignalReportListOrdering(sortField, sortDirection),
+      ordering: groupByStatus
+        ? buildSignalReportListOrdering(sortField, sortDirection)
+        : buildArchiveListOrdering(sortField, sortDirection),
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")

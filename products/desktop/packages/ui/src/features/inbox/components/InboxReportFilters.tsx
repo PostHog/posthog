@@ -112,7 +112,12 @@ export function InboxReportFilters(): React.JSX.Element {
             </Button>
           }
         />
-        <DropdownMenuContent align="start" side="bottom" sideOffset={6}>
+        <DropdownMenuContent
+          align="start"
+          side="bottom"
+          sideOffset={6}
+          className="min-w-56"
+        >
           {REPORT_STATE_OPTIONS.map((option) => (
             <DropdownMenuCheckboxItem
               key={option.value}

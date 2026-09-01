@@ -111,6 +111,7 @@ function renderCounts(options?: {
   enabled?: boolean;
   withReportsCount?: boolean;
   applySourceFilter?: boolean;
+  groupByStatus?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -189,5 +190,12 @@ describe("useInboxAllReports", () => {
     await waitFor(() => expect(result.current.allReports).toHaveLength(50));
     expect(pipelineRequests()[0]?.source_product).toBeUndefined();
     expect(result.current.sourceProductFilter).toEqual([]);
+  });
+
+  it("interleaves statuses when the consumer renders one flat list", async () => {
+    const { result } = renderCounts({ groupByStatus: false });
+
+    await waitFor(() => expect(result.current.allReports).toHaveLength(50));
+    expect(pipelineRequests()[0]?.ordering).toBe("-priority");
   });
 });

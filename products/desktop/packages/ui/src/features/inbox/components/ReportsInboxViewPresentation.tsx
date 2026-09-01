@@ -18,7 +18,6 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
-import { InboxReportSection } from "@posthog/ui/features/inbox/components/InboxReportSection";
 import {
   PageHeader,
   PageHeaderActions,
@@ -30,12 +29,8 @@ import {
 import type { ReactNode } from "react";
 
 export interface ReportsInboxViewPresentationProps {
-  reviewAndMerge: SignalReport[];
-  reviewAndMergeCount: number;
-  showReviewAndMerge: boolean;
-  needsPr: SignalReport[];
-  needsPrCount: number;
-  showNeedsDecision: boolean;
+  reports: SignalReport[];
+  triageReportCount: number;
   isLoading: boolean;
   isFetchingNextPage: boolean;
   isEmpty: boolean;
@@ -43,7 +38,6 @@ export interface ReportsInboxViewPresentationProps {
   triageEnabled: boolean;
   filterControl: ReactNode;
   scopeControl: ReactNode;
-  resolvedSection?: ReactNode;
   renderReport: (report: SignalReport) => ReactNode;
   onConfigureAgents: () => void;
   onEnterTriage: () => void;
@@ -51,12 +45,8 @@ export interface ReportsInboxViewPresentationProps {
 }
 
 export function ReportsInboxViewPresentation({
-  reviewAndMerge,
-  reviewAndMergeCount,
-  showReviewAndMerge,
-  needsPr,
-  needsPrCount,
-  showNeedsDecision,
+  reports,
+  triageReportCount,
   isLoading,
   isFetchingNextPage,
   isEmpty,
@@ -64,14 +54,11 @@ export function ReportsInboxViewPresentation({
   triageEnabled,
   filterControl,
   scopeControl,
-  resolvedSection,
   renderReport,
   onConfigureAgents,
   onEnterTriage,
   onClearFilters,
 }: ReportsInboxViewPresentationProps): React.JSX.Element {
-  const triageReportCount = reviewAndMergeCount + needsPrCount;
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
       <PageHeader>
@@ -93,42 +80,42 @@ export function ReportsInboxViewPresentation({
             Issues and opportunities found in your product, ready to review
           </PageHeaderDescription>
         </PageHeaderHeading>
-        <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          {filterControl}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {triageEnabled && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="gap-2"
-                      disabled={triageReportCount === 0}
-                      onClick={onEnterTriage}
-                    >
-                      <ListChecksIcon />
-                      Triage mode
-                      <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
-                        T
-                      </kbd>
-                    </Button>
-                  }
-                />
-                <TooltipContent side="bottom">
-                  Step through reports that need a decision, one at a time.
-                  Open, create a PR, or dismiss each from the keyboard.
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {scopeControl}
-          </div>
-        </div>
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-4">
-          {isLoading && reviewAndMerge.length === 0 && needsPr.length === 0 ? (
+          <div className="flex w-full flex-wrap items-center justify-between gap-2">
+            {filterControl}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {triageEnabled && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-2"
+                        disabled={triageReportCount === 0}
+                        onClick={onEnterTriage}
+                      >
+                        <ListChecksIcon />
+                        Triage mode
+                        <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
+                          T
+                        </kbd>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom">
+                    Step through reports that need a decision, one at a time.
+                    Open, create a PR, or dismiss each from the keyboard.
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {scopeControl}
+            </div>
+          </div>
+          {isLoading && reports.length === 0 ? (
             <div aria-hidden className="flex flex-col gap-2 pt-2">
               {[70, 55, 80, 60].map((width) => (
                 <div key={width} className="flex items-center gap-3 py-2">
@@ -171,30 +158,14 @@ export function ReportsInboxViewPresentation({
             </Empty>
           ) : (
             <>
-              {showReviewAndMerge && (
-                <InboxReportSection
-                  title="Review and merge"
-                  reports={reviewAndMerge}
-                  count={reviewAndMergeCount}
-                  emptyNote="No pull requests are waiting for review."
-                  renderReport={renderReport}
-                />
-              )}
-              {showNeedsDecision && (
-                <InboxReportSection
-                  title="Needs decision"
-                  reports={needsPr}
-                  count={needsPrCount}
-                  emptyNote="No reports are waiting for a decision."
-                  renderReport={renderReport}
-                />
-              )}
+              <div className="flex flex-col gap-1.5">
+                {reports.map((report) => renderReport(report))}
+              </div>
               {isFetchingNextPage && (
                 <div className="flex justify-center py-2">
                   <Spinner />
                 </div>
               )}
-              {resolvedSection}
             </>
           )}
         </div>
