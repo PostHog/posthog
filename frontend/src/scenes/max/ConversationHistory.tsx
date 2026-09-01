@@ -29,7 +29,6 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
     if (compact) {
         return (
             <div className="flex flex-col gap-1 w-full pb-10">
-                <ConversationHistoryProjectScope className="text-xs px-1 pb-1" />
                 {conversationHistory.length > 0 ? (
                     conversationHistory.map((conversation) => (
                         <CompactConversationCard
@@ -47,7 +46,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
                     </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
-                        <p className="text-sm mb-0">No chats in this project yet</p>
+                        <p className="text-sm mb-0">No chats yet</p>
                     </div>
                 )}
             </div>
