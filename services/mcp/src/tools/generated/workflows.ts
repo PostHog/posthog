@@ -463,6 +463,9 @@ const workflowsSuggest = (): ToolBase<typeof WorkflowsSuggestSchema, Schemas.Wor
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
         }
+        if (params.step_id !== undefined) {
+            body['step_id'] = params.step_id
+        }
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
         }
