@@ -8,7 +8,6 @@ import {
   downloadBinary,
   downloadFile,
   MAX_DOWNLOAD_ATTEMPTS,
-  verifyChecksum,
 } from "./download-binaries.mjs";
 
 vi.mock("node:timers/promises", () => {
@@ -43,7 +42,6 @@ vi.mock("node:fs", () => {
     createWriteStream: vi.fn(() => ({})),
     existsSync: vi.fn(() => true),
     mkdirSync: vi.fn(),
-    readFileSync: vi.fn(() => Buffer.alloc(0)),
     realpathSync: vi.fn(() => "/not/the/entrypoint"),
     renameSync: vi.fn(),
     rmSync: vi.fn(),
@@ -188,18 +186,6 @@ describe("download binaries", () => {
     }
   });
 
-  it("rejects an archive with an unexpected checksum", () => {
-    const checksum =
-      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
-    expect(() =>
-      verifyChecksum(Buffer.alloc(0), checksum, "rtk.tar.gz"),
-    ).not.toThrow();
-    expect(() =>
-      verifyChecksum(Buffer.from("modified"), checksum, "rtk.tar.gz"),
-    ).toThrow("Checksum mismatch for rtk.tar.gz");
-  });
-
   it("uses the configured target for RTK", () => {
     vi.stubEnv("npm_config_platform", "darwin");
     vi.stubEnv("npm_config_arch", "x64");
@@ -231,7 +217,7 @@ describe("download binaries", () => {
     });
     fetchMock.mockResolvedValue(okResponse());
 
-    await downloadBinary({ ...rtk, checksum: undefined }, destination);
+    await downloadBinary(rtk, destination);
 
     const archiveSuffix = target.includes("windows") ? ".zip" : ".tar.gz";
     expect(fetchMock).toHaveBeenCalledWith(

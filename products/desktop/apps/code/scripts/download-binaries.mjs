@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 
 import { execSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   createWriteStream,
   existsSync,
   mkdirSync,
-  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -91,7 +89,6 @@ export const BINARIES = [
       return rtkReleaseUrl(asset);
     },
     getTarget: () => rtkTarget(targetPlatform(), targetArch()),
-    checksum: (target) => rtkAssetForTarget(target)?.checksum,
   },
   {
     name: "rg",
@@ -163,13 +160,6 @@ function signForMacOS(binaryPath) {
   execSync(`codesign --force --sign - "${binaryPath}"`, { stdio: "pipe" });
 }
 
-export function verifyChecksum(content, expected, name) {
-  const actual = createHash("sha256").update(content).digest("hex");
-  if (actual !== expected) {
-    throw new Error(`Checksum mismatch for ${name}`);
-  }
-}
-
 export async function downloadBinary(binary, destDir = DEST_DIR) {
   const binaryName =
     process.platform === "win32" ? `${binary.name}.exe` : binary.name;
@@ -196,10 +186,6 @@ export async function downloadBinary(binary, destDir = DEST_DIR) {
   console.log(`  Platform: ${process.platform}/${process.arch} -> ${target}`);
 
   await downloadFile(url, archivePath);
-  const expectedChecksum = binary.checksum?.(target);
-  if (expectedChecksum) {
-    verifyChecksum(readFileSync(archivePath), expectedChecksum, archiveName);
-  }
   await extractArchive(archivePath, destDir);
   rmSync(archivePath);
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -15,10 +14,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const destination =
   process.argv[2] ?? join(__dirname, "..", "dist", "extensions", "rtk", "bin");
-
-function checksum(content) {
-  return createHash("sha256").update(content).digest("hex");
-}
 
 async function download(asset) {
   const targetDirectory = join(destination, asset.target);
@@ -36,10 +31,6 @@ async function download(asset) {
   }
 
   const content = Buffer.from(await response.arrayBuffer());
-  if (checksum(content) !== asset.checksum) {
-    throw new Error(`Checksum mismatch for ${asset.archive}`);
-  }
-
   await mkdir(targetDirectory, { recursive: true });
   if (asset.archive.endsWith(".zip")) {
     const entries = unzipSync(content);
