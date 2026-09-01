@@ -206,12 +206,32 @@ class EffectivePolicy:
     independently, so a folder that raises one ceiling never opens a second
     budget for the other. No file ever gets more leniency than its own chain
     grants.
+
+    Per-scope budgets alone would let a PR's total grow with the number of
+    scopes it touches, so each ceiling also carries a roof over the whole PR.
     """
 
     file_scopes: tuple[ScopeBudget, ...]
     line_scopes: tuple[ScopeBudget, ...]
     folder_prose: str | None = None
     invalid_folder_files: tuple[str, ...] = ()
+
+    @property
+    def line_roof(self) -> int:
+        """Whole-PR substantive line ceiling: the most generous one in play.
+
+        Every grant is validated at or under the delegation ceiling, and the
+        global pool is always a scope, so the roof stays between the global
+        default and that ceiling. With no grant in play it equals the global
+        default, which is the single global total the gate had before ceilings
+        became delegable.
+        """
+        return max(scope.ceiling for scope in self.line_scopes)
+
+    @property
+    def file_roof(self) -> int:
+        """Whole-PR substantive file ceiling. See `line_roof`."""
+        return max(scope.ceiling for scope in self.file_scopes)
 
     def governed_file_counts(self) -> tuple[tuple[str, int], ...]:
         """Changed files each granting AGENT_APPROVALS.md governs, path-sorted.

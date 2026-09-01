@@ -684,7 +684,9 @@ class Pipeline:
         # the scope governing it for a given ceiling (a folder override or the
         # global pool), so a folder's higher ceiling covers its own files and
         # nothing else. Lines and files partition independently, so a folder
-        # that raises one ceiling keeps the global one for the other.
+        # that raises one ceiling keeps the global one for the other. Each
+        # ceiling then has a roof over the PR total, so scope budgets cannot sum
+        # without bound as more folders grant.
         budgets = self._size_budgets()
         for scope in budgets.line_scopes:
             scope_lines, _ = substantive_size(self._files_in(scope))
@@ -702,6 +704,18 @@ class Pipeline:
                     f"too large for auto-review ({scope_files}F substantive in {scope.path or 'global'} — "
                     f"ceiling is {scope.ceiling}F; {lines}L, {files}F total{suffix})",
                 )
+        if lines > budgets.line_roof:
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F substantive across the whole PR — "
+                f"roof is {budgets.line_roof}L{suffix})",
+            )
+        if files > budgets.file_roof:
+            return (
+                False,
+                f"too large for auto-review ({lines}L, {files}F substantive across the whole PR — "
+                f"roof is {budgets.file_roof}F{suffix})",
+            )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
     def _files_in(self, scope: ScopeBudget) -> list[dict]:
