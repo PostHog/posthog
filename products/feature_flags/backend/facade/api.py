@@ -301,19 +301,33 @@ def add_group_to_flag_targeting(*, team: Team, key: str, group_key: str) -> bool
     flag = FeatureFlag.objects.filter(team=team, key=key, deleted=False).first()
     if flag is None:
         return False
+    outcome = widen_group_targeting(flag.filters or {}, group_key)
+    if outcome is None:
+        return False
+    if outcome == "added":
+        flag.save(update_fields=["filters"])
+    return True
+
+
+def widen_group_targeting(filters: dict, group_key: str) -> str | None:
+    """Add one group key to the first `$group_key` condition in a flag's filters, in place.
+
+    Returns "added" when the list was widened, "present" when the group is already targeted, and
+    None when the conditions carry no widenable `$group_key` list. Shared by the ORM path above and
+    callers that read and write the same filters shape over the REST API, so the two cannot drift.
+    """
     conditions = [
         prop
-        for group in (flag.filters or {}).get("groups") or []
+        for group in filters.get("groups") or []
         for prop in group.get("properties", [])
         if prop.get("key") == "$group_key"
     ]
     if not conditions:
-        return False
-    condition = conditions[0]
-    values = condition.get("value")
+        return None
+    values = conditions[0].get("value")
     if not isinstance(values, list):
-        return False
-    if group_key not in values:
-        values.append(group_key)
-        flag.save(update_fields=["filters"])
-    return True
+        return None
+    if group_key in values:
+        return "present"
+    values.append(group_key)
+    return "added"

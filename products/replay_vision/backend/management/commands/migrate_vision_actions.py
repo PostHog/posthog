@@ -32,6 +32,7 @@ import structlog
 
 from posthog.models import Team, User
 
+from products.feature_flags.backend.facade.api import add_group_to_flag_targeting, widen_group_targeting
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -68,52 +69,67 @@ class _FlagsApiTargeting:
     """Widens org targeting on flags that live on another PostHog instance.
 
     EU evaluates the rollout flags against the US instance (`posthog.ph_client` self-capture), so a
-    migration run on EU must widen the US flags. Mirrors `add_group_to_flag_targeting`: returns False
-    when the flag, its `$group_key` condition, or the write is missing, so the org is not counted.
+    migration run on EU must widen the US flags. Each widen re-reads the flag before the PATCH: the
+    run is long, and writing back a cached filters document would revert any concurrent flag edit.
     """
 
     def __init__(self, host: str, project_id: int, api_key: str) -> None:
-        self._base = f"{host.rstrip('/')}/api/projects/{project_id}/feature_flags"
+        self._host = host.rstrip("/")
+        self._base = f"{self._host}/api/projects/{project_id}/feature_flags"
         self._session = requests.Session()
         self._session.headers["Authorization"] = f"Bearer {api_key}"
-        self._flags: dict[str, dict[str, Any]] = {}
+        self._flag_ids: dict[str, int] = {}
 
-    def _fetch(self, key: str) -> dict[str, Any] | None:
-        response = self._session.get(self._base, params={"search": key}, timeout=15)
-        response.raise_for_status()
-        for flag in response.json().get("results", []):
-            if flag.get("key") == key and not flag.get("deleted"):
-                return {"id": flag["id"], "filters": flag.get("filters") or {}}
-        return None
+    @property
+    def where(self) -> str:
+        return self._host
 
-    def add_group(self, key: str, group_key: str) -> bool:
-        try:
-            flag = self._flags.get(key) or self._fetch(key)
-            if flag is None:
-                return False
-            self._flags[key] = flag
-            conditions = [
-                prop
-                for group in flag["filters"].get("groups") or []
-                for prop in group.get("properties", [])
-                if prop.get("key") == "$group_key"
-            ]
-            if not conditions:
-                return False
-            values = conditions[0].get("value")
-            if not isinstance(values, list):
-                return False
-            if group_key in values:
-                return True
-            values.append(group_key)
-            response = self._session.patch(f"{self._base}/{flag['id']}/", json={"filters": flag["filters"]}, timeout=15)
+    def preflight(self, keys: tuple[str, ...]) -> None:
+        """Resolve flag ids so a wrong host, key, or missing flag fails before any row is migrated."""
+        for key in keys:
+            response = self._session.get(self._base, params={"key": key}, timeout=15)
             response.raise_for_status()
-            return True
+            results = response.json().get("results", [])
+            flag = next((f for f in results if f.get("key") == key and not f.get("deleted")), None)
+            if flag is None or flag.get("id") is None:
+                raise CommandError(f"flag {key}: not found via {self._base}")
+            self._flag_ids[key] = flag["id"]
+
+    def add_group(self, key: str, group_key: str) -> str | None:
+        """Widen one flag's org targeting. Returns a problem description, or None on success."""
+        url = f"{self._base}/{self._flag_ids[key]}/"
+        try:
+            response = self._session.get(url, timeout=15)
+            response.raise_for_status()
+            filters = response.json().get("filters") or {}
+            outcome = widen_group_targeting(filters, group_key)
+            if outcome is None:
+                return "no organization targeting to widen"
+            if outcome == "added":
+                self._session.patch(url, json={"filters": filters}, timeout=15).raise_for_status()
+            return None
         except requests.RequestException as error:
-            # Drop the cached copy so the next org re-reads instead of replaying a stale list.
-            self._flags.pop(key, None)
             logger.exception("vision_action_migration.flags_api_failed", key=key, error=str(error))
-            return False
+            return f"API request failed ({error})"
+
+
+class _LocalFlagTargeting:
+    """The same widen contract over this instance's own flags project."""
+
+    def __init__(self, team: Team) -> None:
+        self._team = team
+
+    @property
+    def where(self) -> str:
+        return f"team {self._team.id}"
+
+    def add_group(self, key: str, group_key: str) -> str | None:
+        if add_group_to_flag_targeting(team=self._team, key=key, group_key=group_key):
+            return None
+        return "no organization targeting to widen"
+
+
+_FlagTargeting = _FlagsApiTargeting | _LocalFlagTargeting
 
 
 @dataclass(frozen=False)
@@ -209,12 +225,22 @@ class Command(BaseCommand):
             raise CommandError("--flags-api-host and --flags-api-project must be passed together.")
         if api_mode == (options["flag_team_id"] is not None):
             raise CommandError("Pass exactly one of --flag-team-id or --flags-api-host/--flags-api-project.")
-        self._flags_api: _FlagsApiTargeting | None = None
+        targeting: _FlagTargeting
         if api_mode:
             api_key = os.environ.get(FLAGS_API_KEY_ENV)
             if not api_key:
                 raise CommandError(f"--flags-api-host requires a personal API key in ${FLAGS_API_KEY_ENV}.")
-            self._flags_api = _FlagsApiTargeting(options["flags_api_host"], options["flags_api_project"], api_key)
+            if not options["flags_api_host"].startswith("https://"):
+                raise CommandError("--flags-api-host must be https:// — the API key crosses the network.")
+            api_targeting = _FlagsApiTargeting(options["flags_api_host"], options["flags_api_project"], api_key)
+            try:
+                # Runs in dry-run mode too, so a rehearsal validates the host, key, and flags.
+                api_targeting.preflight((ALERTS_FLAG_KEY, SCOUTS_FLAG_KEY))
+            except requests.RequestException as error:
+                raise CommandError(f"flags API preflight failed: {error}")
+            targeting = api_targeting
+        else:
+            targeting = _LocalFlagTargeting(Team.objects.get(id=options["flag_team_id"]))
         report = _Report()
 
         actions = (
@@ -235,7 +261,7 @@ class Command(BaseCommand):
             orgs = orgs[: options["limit_orgs"]]
 
         for org_id, org_actions in orgs:
-            self._migrate_org(org_id, org_actions, execute, options["flag_team_id"], report)
+            self._migrate_org(org_id, org_actions, execute, targeting, report)
 
         mode = "EXECUTED" if execute else "DRY RUN"
         self.stdout.write(
@@ -249,7 +275,7 @@ class Command(BaseCommand):
             raise CommandError(f"{len(report.problems)} rows need manual attention; see above.")
 
     def _migrate_org(
-        self, org_id: Any, org_actions: list[VisionAction], execute: bool, flag_team_id: int | None, report: _Report
+        self, org_id: Any, org_actions: list[VisionAction], execute: bool, targeting: _FlagTargeting, report: _Report
     ) -> None:
         # "This org has migrated rows", not "this run migrated something": an interrupted run that
         # already moved the rows must still be able to flag the org on a re-run, or its users sit on
@@ -300,7 +326,7 @@ class Command(BaseCommand):
             report.problems.append(f"org {org_id}: not flagged, {org_problems} row(s) need attention")
             return
         if migrated_any:
-            self._flag_org(org_id, execute, flag_team_id, report)
+            self._flag_org(org_id, execute, targeting, report)
 
     def _plan(self, action: VisionAction) -> str:
         """What this row becomes. Shared by the check and the write so they cannot disagree."""
@@ -494,26 +520,16 @@ class Command(BaseCommand):
         action.save(update_fields=["synthesis_config", "enabled", "updated_at"])
         return True
 
-    def _flag_org(self, org_id: Any, execute: bool, flag_team_id: int | None, report: _Report) -> None:
-        from products.feature_flags.backend.facade.api import (  # noqa: PLC0415 — keeps the flags API surface off the command's import path
-            add_group_to_flag_targeting,
-        )
-
-        team = Team.objects.get(id=flag_team_id) if self._flags_api is None else None
+    def _flag_org(self, org_id: Any, execute: bool, targeting: _FlagTargeting, report: _Report) -> None:
         widened = True
         for key in (ALERTS_FLAG_KEY, SCOUTS_FLAG_KEY):
             if not execute:
                 continue
-            if self._flags_api is not None:
-                took = self._flags_api.add_group(key, str(org_id))
-                where = "the flags API instance"
-            else:
-                took = add_group_to_flag_targeting(team=cast(Team, team), key=key, group_key=str(org_id))
-                where = f"team {flag_team_id}"
-            if not took:
-                report.problems.append(f"flag {key}: no organization targeting to widen on {where}")
+            problem = targeting.add_group(key, str(org_id))
+            if problem is not None:
+                report.problems.append(f"flag {key}: {problem} on {targeting.where}")
                 widened = False
-        # Counting an org as flagged when the flag never took would report a rollout that did not
+        # Counting the org as flagged when a flag never took would report a rollout that did not
         # happen, and its users would sit on the legacy surface with their rows already migrated.
         if widened:
             report.orgs_flagged += 1
