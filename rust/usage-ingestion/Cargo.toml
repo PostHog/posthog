@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 common-database = { path = "../common/database" }
+common-grpc = { path = "../common/grpc" }
 common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
 envconfig = { workspace = true }
