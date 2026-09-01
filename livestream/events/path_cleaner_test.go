@@ -1,6 +1,8 @@
 package events
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,6 +93,45 @@ func TestNewPathCleanerFromJSONReturnsNilWhenNothingApplies(t *testing.T) {
 			assert.Nil(t, NewPathCleanerFromJSON(raw))
 		})
 	}
+}
+
+func TestPathCleanerBoundsOutputAmplification(t *testing.T) {
+	// A `(.) -> \1\1` rule doubles the path, and rules chain each fed the
+	// previous output, so enough of them would grow a short path past any memory
+	// limit. Cleaning must bail and return the raw path instead of amplifying
+	// unbounded in the shared fan-out loop. Without the size cap this Clean call
+	// allocates gigabytes and never returns.
+	// 14 doublings of a 4-char path cross the ceiling at rule 12, so cleaning
+	// bails there. Kept just past the bail point: if the cap regresses, the
+	// fallback is a 64 KiB string that fails the assert cleanly, not a multi-
+	// terabyte allocation that OOMs the runner.
+	doubling := `{"alias": "\\1\\1", "regex": "(.)"}`
+	rules := "[" + strings.Repeat(doubling+",", 13) + doubling + "]"
+	cleaner := NewPathCleanerFromJSON(rules)
+	require.NotNil(t, cleaner)
+
+	path := "/abc"
+	got := cleaner.Clean(path)
+	assert.Equal(t, path, got, "amplifying ruleset must fall back to the raw path")
+	assert.LessOrEqual(t, len(got), maxCleanedPathLen)
+}
+
+func TestPathCleanerReturnsOversizedInputUnchanged(t *testing.T) {
+	cleaner := NewPathCleanerFromJSON(`[{"alias": "/x", "regex": "/.*"}]`)
+	require.NotNil(t, cleaner)
+
+	path := "/" + strings.Repeat("a", maxCleanedPathLen)
+	assert.Equal(t, path, cleaner.Clean(path), "a path over the ceiling must skip cleaning, not run rules on it")
+}
+
+func TestPathCleanerSkipsOverlongAlias(t *testing.T) {
+	longAlias := strings.Repeat("x", maxPathCleaningAliasLen+1)
+	// The over-long alias rule is dropped; the valid rule after it still applies.
+	rules := fmt.Sprintf(`[{"alias": %q, "regex": "/a/.*"}, {"alias": "/b", "regex": "/a/.*"}]`, longAlias)
+	cleaner := NewPathCleanerFromJSON(rules)
+	require.NotNil(t, cleaner)
+
+	assert.Equal(t, "/b", cleaner.Clean("/a/123"))
 }
 
 func TestConvertInjectsCleanedPathnameWithoutMutatingSharedEvent(t *testing.T) {

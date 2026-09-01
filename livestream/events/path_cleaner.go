@@ -12,6 +12,13 @@ import (
 const (
 	maxPathCleaningRules    = 100
 	maxPathCleaningRegexLen = 1000
+	maxPathCleaningAliasLen = 1000
+	// Ceiling on the working path while cleaning. A rule can amplify output (a
+	// `(.) -> \1\1` rule doubles the string) and rules chain each fed the
+	// previous output, so N of them grow it 2^N. Bailing once the path passes a
+	// size no real $pathname reaches keeps one subscription from exhausting
+	// memory/CPU in the shared fan-out loop.
+	maxCleanedPathLen = 8 * 1024
 )
 
 type pathCleaningRule struct {
@@ -62,6 +69,12 @@ func NewPathCleanerFromJSON(raw string) *PathCleaner {
 		if p.Alias != nil {
 			alias = *p.Alias
 		}
+		// A long alias packed with backreferences amplifies each match, so cap
+		// it alongside the regex. Without this a single rule could still blow the
+		// path up in one pass.
+		if len(alias) > maxPathCleaningAliasLen {
+			continue
+		}
 		rules = append(rules, pathCleaningRule{regex: re, replacement: translateAlias(alias)})
 	}
 	if len(rules) == 0 {
@@ -71,10 +84,21 @@ func NewPathCleanerFromJSON(raw string) *PathCleaner {
 }
 
 func (pc *PathCleaner) Clean(path string) string {
-	for _, rule := range pc.rules {
-		path = rule.regex.ReplaceAllString(path, rule.replacement)
+	// Cleaning is best-effort normalization: if the raw path already exceeds the
+	// ceiling, or a rule amplifies it past one, abandon cleaning and return the
+	// raw path rather than let an abusive ruleset grow it unbounded. Checking
+	// after every rule also caps each step's input, so the chain can't compound.
+	if len(path) > maxCleanedPathLen {
+		return path
 	}
-	return path
+	cleaned := path
+	for _, rule := range pc.rules {
+		cleaned = rule.regex.ReplaceAllString(cleaned, rule.replacement)
+		if len(cleaned) > maxCleanedPathLen {
+			return path
+		}
+	}
+	return cleaned
 }
 
 // translateAlias converts a replaceRegexpAll replacement string (`\0`-`\9`
