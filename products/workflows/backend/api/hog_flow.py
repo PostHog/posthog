@@ -2150,14 +2150,11 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
 
 # VDM aggregates by whole day and the window ends at the last UTC midnight, so these numbers move
 # at most once a day. A five-minute TTL bought nothing and cost a full fan-out on every expiry.
+# One refresh of five domains is 150 queries across 15 sequential BatchGetMetricData calls, and the
+# endpoint reloads on every search keystroke, so this is what keeps typing a workflow name from
+# costing a fan-out per character.
 ISP_METRICS_CACHE_SECONDS = 30 * 60
-# Served while a refresh is in flight, so a concurrent request shows the last known breakdown rather
-# than starting a second fan-out. Longer than the fresh TTL by design.
-ISP_METRICS_STALE_CACHE_SECONDS = 6 * 60 * 60
-# One refresh per project at a time. BatchGetMetricData is limited per AWS account, and one refresh
-# of five domains is already 100 queries across 10 calls, so projects refreshing together can
-# throttle each other — and a throttled query is indistinguishable from a healthy zero.
-ISP_METRICS_REFRESH_LOCK_SECONDS = 120
+# A failure is cached too, briefly: without it an unreachable SES is retried in full per keystroke.
 ISP_METRICS_ERROR_CACHE_SECONDS = 60
 # Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
 # metric. A project with more sending domains gets a breakdown over its first few.
@@ -2258,18 +2255,9 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
     # one project can be entitled to different domains, and one must not be served the other's.
     domain_key = hashlib.sha256("|".join(domains).encode()).hexdigest()[:12]
     cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}_{domain_key}"
-    stale_key = f"{cache_key}_stale"
-    lock_key = f"{cache_key}_refreshing"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached["value"]
-
-    # `add` succeeds for the first caller only, so concurrent misses do not each start a fan-out.
-    # Whoever loses shows the last known breakdown, or nothing on a cold cache, rather than queueing
-    # behind a refresh the page cannot wait for anyway.
-    if not cache.add(lock_key, True, ISP_METRICS_REFRESH_LOCK_SECONDS):
-        stale = cache.get(stale_key)
-        return stale["value"] if stale is not None else []
 
     try:
         rows = SESProvider().get_identity_isp_metrics(
@@ -2278,7 +2266,6 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
     except Exception:
         logger.exception("Failed to fetch SES per-ISP metrics", team_id=team_id)
         cache.set(cache_key, {"value": []}, ISP_METRICS_ERROR_CACHE_SECONDS)
-        cache.delete(lock_key)
         return []
 
     value = [
@@ -2302,8 +2289,6 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
         for row in rows
     ]
     cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
-    cache.set(stale_key, {"value": value}, ISP_METRICS_STALE_CACHE_SECONDS)
-    cache.delete(lock_key)
     return value
 
 
