@@ -1,3 +1,7 @@
+# Root AGENTS.md alone is larger than the 32 KiB default, so Codex truncates it mid-sentence
+# and leaves no budget for the nested AGENTS.md files below it.
+project_doc_max_bytes = 65536
+
 developer_instructions = """
 Run commands that depend on PostHog's development environment from the repository
 root through `.codex/with-flox <command> [args...]`.

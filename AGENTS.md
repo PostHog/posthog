@@ -260,7 +260,9 @@ We use more than one coding agent, so guidance lives in an `AGENTS.md`, a README
 
 `.claude/rules/*.md` are the exception: triggers, not content. Only Claude Code reads them, so each stays a few lines pointing at the portable doc to read.
 
-Keep path triggers in the root `AGENTS.md` even when the explanation moves down to a nested one. Nested files are directory-scoped: Claude Code loads them on touching a file in that tree, while Codex walks up from the working directory, usually the repo root.
+Nested files are directory-scoped: Claude Code loads one when you touch a file in that tree, and Codex concatenates every `AGENTS.md` from the repo root down to the working directory. Keep the path trigger in the root `AGENTS.md` even when the explanation moves down to a nested one.
+
+Codex applies a single byte budget across that whole chain: it truncates the file that overruns the budget and skips every file after it. The root file is read first, so growing it spends budget the nested files need. `project_doc_max_bytes` in `.codex/config.toml` sets the budget, and `.github/scripts/check-agents-md-symlinks.sh` fails when the root `AGENTS.md` outgrows it.
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Codex reaches the same environment through the `.codex/with-flox` wrapper instead; the two cannot be shared. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
 

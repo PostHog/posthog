@@ -27,4 +27,16 @@ while read -r path; do
         err "$path" "AGENTS.md needs a sibling CLAUDE.md symlink (ln -s AGENTS.md $sibling)"
 done < <(git ls-files '*AGENTS.md')
 
+# Codex reads AGENTS.md from the repo root down to the working directory under one byte
+# budget: it truncates the file that overruns the budget and skips every file after it. A
+# root AGENTS.md larger than the budget therefore arrives cut off mid-sentence, and no
+# nested AGENTS.md arrives at all.
+# https://developers.openai.com/codex/guides/agents-md
+budget=$(git cat-file -p :.codex/config.toml | sed -n 's/^project_doc_max_bytes[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+if [ -z "$budget" ]; then
+    err ".codex/config.toml" "set project_doc_max_bytes; the 32 KiB default truncates AGENTS.md"
+elif [ "$(git cat-file -s :AGENTS.md)" -gt "$budget" ]; then
+    err "AGENTS.md" "AGENTS.md is $(git cat-file -s :AGENTS.md) bytes, over the project_doc_max_bytes budget of $budget in .codex/config.toml; trim it or raise the budget"
+fi
+
 exit $status
