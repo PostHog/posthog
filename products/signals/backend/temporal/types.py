@@ -23,7 +23,7 @@ RESEARCH_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_RESEARCH_DEBOUNCE_SECONDS", "0
 # run still owns the report's workflow ID, so a signal arriving during the wait collapses into it
 # (see the WorkflowAlreadyStartedError handler in grouping) and re-promotes the report to CANDIDATE;
 # the run then loops to re-research rather than implement. 0 disables the wait.
-IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_SECONDS", "300"))
+IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_SECONDS", "900"))
 
 # Orgs new to self-driving skip the implementation buffer: a team whose signals config was created
 # within this window implements without the extra wait, so the product feels responsive while
