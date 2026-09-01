@@ -160,15 +160,29 @@ describe('CDP API', () => {
         expect(res.status).toEqual(404)
     })
 
-    it('errors if missing values', async () => {
+    it.each([
+        ['nothing at all', {}],
+        ['an empty clickhouse_event', { clickhouse_event: {} }],
+        ['a clickhouse_event with no timestamp', { clickhouse_event: { event: '$pageview' } }],
+        ['a clickhouse_event with a numeric timestamp', { clickhouse_event: { event: '$pageview', timestamp: 1 } }],
+    ])('errors if the body carries %s', async (_name, body) => {
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-            .send({})
+            .send(body)
 
         expect(res.status).toEqual(400)
         expect(res.body).toEqual({
             error: 'Missing event',
         })
+    })
+
+    it('uses the given globals when clickhouse_event carries no event', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({ globals, clickhouse_event: {}, mock_async_functions: true })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
     })
 
     it("does not error if hog function is 'new'", async () => {

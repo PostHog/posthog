@@ -30,6 +30,17 @@ export const getPersonDisplayName = (team: Team, distinctId: string, properties:
     return (customIdentifier || String(distinctId))?.trim()
 }
 
+// A test-invocation body can carry `clickhouse_event: {}`, which is truthy but has no timestamp for
+// the converter to parse, so it throws before any Hog code runs.
+export function isConvertibleClickHouseEvent(event: unknown): event is RawClickHouseEvent {
+    return (
+        !!event &&
+        typeof event === 'object' &&
+        typeof (event as RawClickHouseEvent).event === 'string' &&
+        typeof (event as RawClickHouseEvent).timestamp === 'string'
+    )
+}
+
 // that we can keep to as a contract
 export function convertToHogFunctionInvocationGlobals(
     event: RawClickHouseEvent,
