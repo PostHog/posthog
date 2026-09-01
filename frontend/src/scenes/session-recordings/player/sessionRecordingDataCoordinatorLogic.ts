@@ -75,7 +75,7 @@ export interface OversizedMutationRange {
 // A full snapshot rebuilds the DOM from scratch, so a burst and everything up to the next full snapshot can be dropped safely
 export function findOversizedMutationRanges(events: eventWithTime[]): OversizedMutationRange[] {
     const ranges: OversizedMutationRange[] = []
-    const windowMutations: { timestamp: number; adds: number }[] = []
+    const windowMutations: { timestamp: number; adds: number; index: number }[] = []
     let windowAdds = 0
     for (let i = 0; i < events.length; i++) {
         const event = events[i]
@@ -87,7 +87,7 @@ export function findOversizedMutationRanges(events: eventWithTime[]): OversizedM
         ) {
             continue
         }
-        windowMutations.push({ timestamp: event.timestamp, adds: event.data.adds.length })
+        windowMutations.push({ timestamp: event.timestamp, adds: event.data.adds.length, index: i })
         windowAdds += event.data.adds.length
         while (event.timestamp - windowMutations[0].timestamp > OVERSIZED_MUTATION_WINDOW_MS) {
             windowAdds -= windowMutations.shift()!.adds
@@ -96,9 +96,10 @@ export function findOversizedMutationRanges(events: eventWithTime[]): OversizedM
             continue
         }
         const start = windowMutations[0].timestamp
+        // The recovery point can sit inside the sliding window, before the mutation that tripped the threshold
         let end = Infinity
-        for (let j = i + 1; j < events.length; j++) {
-            if (events[j].type === EventType.FullSnapshot && events[j].timestamp > event.timestamp) {
+        for (let j = windowMutations[0].index; j < events.length; j++) {
+            if (events[j].type === EventType.FullSnapshot && events[j].timestamp > start) {
                 end = events[j].timestamp
                 break
             }
@@ -107,9 +108,12 @@ export function findOversizedMutationRanges(events: eventWithTime[]): OversizedM
         if (end === Infinity) {
             break
         }
-        while (i + 1 < events.length && events[i + 1].timestamp < end) {
-            i++
+        // Rescan from the recovery point so mutations kept past it count toward the next window
+        let resume = windowMutations[0].index
+        while (resume < events.length && events[resume].timestamp < end) {
+            resume++
         }
+        i = resume - 1
         windowMutations.length = 0
         windowAdds = 0
     }

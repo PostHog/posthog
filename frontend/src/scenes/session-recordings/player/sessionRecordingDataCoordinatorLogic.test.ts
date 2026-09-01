@@ -183,6 +183,11 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 [-5000, 20_000, 30_000],
             ],
             [
+                'recovers at a full snapshot inside the burst window',
+                [...mutationSnapshots(2, 5000), fullSnapshot(1002), ...mutationSnapshots(2, 5000, 1, 1003)],
+                [1002, 1003, 1004],
+            ],
+            [
                 'excises everything after a burst with no later full snapshot',
                 [
                     ...mutationSnapshots(1, 10, 1, -5000),
