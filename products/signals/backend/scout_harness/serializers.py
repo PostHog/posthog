@@ -93,6 +93,7 @@ logger = structlog.get_logger(__name__)
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
             "network_access": {"type": "string"},
+            "triggered_by": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
             # a `[key: string]: boolean` index signature that the optional named flags cannot
@@ -244,9 +245,10 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "looks maintained) — the provenance set that says which instructions the run "
             "actually got, so runs are only compared against runs of the same shape. Present only "
             "when the run departed from a default: `model`, `runtime_adapter`, and "
-            "`reasoning_effort` (routing overrode the agent-server default), and `network_access` "
+            "`reasoning_effort` (routing overrode the agent-server default), `network_access` "
             "(`full` when the scout's config lifted the trusted-domain network restriction for "
-            "this run). The nested `derived` object is the harness's "
+            "this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
+            "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
             "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
             "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
