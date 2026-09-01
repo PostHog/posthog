@@ -55,6 +55,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    Edge,
     Graph,
     Node,
 )
@@ -2010,12 +2011,16 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
     """Walk the data modeling graph from a saved query and identify what it reaches.
 
     A saved query can hold a node in more than one DAG, so the walk starts from each of its
-    nodes and unions the results. Edges never cross DAGs, so one team-wide edge load covers
-    every start point. Each reached node is identified the way the lineage endpoints have
-    always identified it: a query by its saved-query id, an imported warehouse table by its
+    nodes and unions the results. Each reached node is identified the way the lineage endpoints
+    have always identified it: a query by its saved-query id, an imported warehouse table by its
     `DataWarehouseTable` id, a cross-DAG proxy by the id of the saved query it stands in for,
     and a PostHog system table by its name. A table node carries the id in its properties
     (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
+
+    Immediate neighbours (`max_depth == 1`) are read straight off the edge foreign-key indexes,
+    so the `dependencies` counts and level-1 lineage never load the whole team's edges. A deeper
+    walk loads every edge once — they never cross DAGs, so one load covers every start point —
+    and traverses in memory.
     """
     node_ids = {
         str(node_id)
@@ -2024,14 +2029,17 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
     if not node_ids:
         return set()
 
-    # Keep table nodes: the source tables a query reads from are part of its lineage.
-    graph = Graph(team_id=saved_query.team_id, exclude_table_sources=False, exclude_table_targets=False)
-    walk = graph.get_upstream if upstream else graph.get_downstream
+    if max_depth == 1:
+        reached = _immediate_neighbor_node_ids(saved_query.team_id, node_ids, upstream=upstream)
+    else:
+        # Keep table nodes: the source tables a query reads from are part of its lineage.
+        graph = Graph(team_id=saved_query.team_id, exclude_table_sources=False, exclude_table_targets=False)
+        walk = graph.get_upstream if upstream else graph.get_downstream
 
-    reached: set[str] = set()
-    for node_id in node_ids:
-        reached |= walk(node_id, max_depth)
-    reached -= node_ids
+        reached = set()
+        for node_id in node_ids:
+            reached |= walk(node_id, max_depth)
+        reached -= node_ids
 
     identifiers: set[str] = set()
     for saved_query_id, name, properties in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
@@ -2047,3 +2055,18 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
         else:
             identifiers.add(name)
     return identifiers
+
+
+def _immediate_neighbor_node_ids(team_id: int, node_ids: set[str], *, upstream: bool) -> set[str]:
+    """Node ids one edge away from `node_ids`, read off the edge foreign-key indexes.
+
+    Upstream neighbours are the sources of edges that target these nodes; downstream neighbours
+    are the targets of edges from them. Table nodes are kept, matching the depth-1 result of the
+    full-graph walk this stands in for.
+    """
+    edges = Edge.objects.filter(team_id=team_id)
+    if upstream:
+        neighbor_ids = edges.filter(target_id__in=node_ids).values_list("source_id", flat=True)
+    else:
+        neighbor_ids = edges.filter(source_id__in=node_ids).values_list("target_id", flat=True)
+    return {str(neighbor_id) for neighbor_id in neighbor_ids} - node_ids

@@ -1939,6 +1939,39 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(data["upstream_count"], 1)  # child_view (only immediate parent)
         self.assertEqual(data["downstream_count"], 0)  # No downstream
 
+    def test_dependencies_reads_immediate_edges_without_loading_the_whole_graph(self):
+        # The views page fires this endpoint for every visible row, so depth-1 counts must read
+        # the adjacent edges off their foreign-key indexes and never rebuild the team-wide graph.
+        response_parent = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "parent_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response_parent.status_code, 201)
+        parent_id = response_parent.json()["id"]
+
+        response_child = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "child_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from parent_view LIMIT 50"},
+            },
+        )
+        self.assertEqual(response_child.status_code, 201)
+
+        with patch("products.data_warehouse.backend.presentation.views.saved_query.Graph") as mock_graph:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}/dependencies",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertEqual(data["upstream_count"], 1)  # events table
+        self.assertEqual(data["downstream_count"], 1)  # child_view
+        mock_graph.assert_not_called()
+
     def test_run_history_no_runs(self):
         """Test run_history endpoint returns empty array for a view with no runs"""
         response = self.client.post(
