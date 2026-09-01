@@ -41,12 +41,26 @@ export function WizardProgramList({
                         Couldn’t load the Wizard Library. Close and reopen it to try again.
                     </div>
                 ) : programs.length === 0 ? (
-                    <div className="p-6 text-center">
-                        <div className="font-semibold">No programs are available</div>
-                        <p className="mt-1 text-sm text-muted">
-                            Refresh the page, or contact support if you expected to see a program.
-                        </p>
-                    </div>
+                    search.trim() ? (
+                        <div className="p-6 text-center">
+                            <div className="font-semibold">No matching programs</div>
+                            <p className="mt-1 text-sm text-muted">
+                                Try a different search, or clear it to see all programs.
+                            </p>
+                            <div className="mt-3 flex justify-center">
+                                <LemonButton type="secondary" size="small" onClick={() => onSearch('')}>
+                                    Clear search
+                                </LemonButton>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="p-6 text-center">
+                            <div className="font-semibold">No programs are available</div>
+                            <p className="mt-1 text-sm text-muted">
+                                Refresh the page, or contact support if you expected to see a program.
+                            </p>
+                        </div>
+                    )
                 ) : (
                     <div className="flex flex-col">
                         {programs.map((program) => (
