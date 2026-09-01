@@ -331,6 +331,16 @@ function CustomSqlField(): JSX.Element {
                         <LemonBanner type="error">{customSqlPreviewError}</LemonBanner>
                     ) : !customSqlPreviewLoading && customSqlPreview && customSqlPreviewVerdict ? (
                         <div className={customSqlPreviewStale ? 'opacity-60' : undefined}>
+                            {customSqlPreview.warnings.length > 0 && (
+                                <LemonBanner type="warning" className="mb-2">
+                                    This result may be incomplete or out of date:
+                                    <ul className="list-disc pl-5">
+                                        {customSqlPreview.warnings.map((warning, index) => (
+                                            <li key={index}>{warning.message}</li>
+                                        ))}
+                                    </ul>
+                                </LemonBanner>
+                            )}
                             {customSqlPreviewVerdict === 'pass' ? (
                                 <LemonBanner type="success">
                                     The query returned no rows. This check would pass.

@@ -9,7 +9,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    AccessControlFilterWarning,
+    DataWarehouseSyncWarning,
+    HogQLQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import type {
     DatabaseSchemaDataWarehouseTable,
@@ -74,6 +79,8 @@ export interface CustomSqlPreview {
     rows: unknown[][]
     rowCount: number
     hasMore: boolean
+    /** Sources this query read that are stale, or resources access control filtered out, so the verdict is not final. */
+    warnings: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
 }
 
 export interface DataQualityCheckEditorLogicProps {
@@ -483,6 +490,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         rows: response.results.slice(0, 10) as unknown[][],
                         rowCount: response.results.length,
                         hasMore: !!response.hasMore,
+                        warnings: response.warnings ?? [],
                     }
                 },
             },

@@ -345,6 +345,40 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(refresh).toEqual('force_blocking')
     })
 
+    it('carries warehouse-sync warnings onto the preview so a pass is not shown as final', async () => {
+        // A query over a source whose last sync failed can still return zero rows, which would
+        // otherwise read as a confident pass over data the platform already knows is behind.
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            columns: [],
+            results: [],
+            hasMore: false,
+            warnings: [
+                {
+                    type: 'warehouse_sync',
+                    table_name: 'stripe_charges',
+                    schema_name: 'charges',
+                    source_type: 'Stripe',
+                    status: 'Failed',
+                    message: 'The Stripe charges sync last failed, so this data may be behind.',
+                },
+            ],
+        })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT id FROM stripe_charges WHERE amount < 0' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+        expect(logic.values.customSqlPreview?.warnings).toEqual([
+            expect.objectContaining({
+                type: 'warehouse_sync',
+                message: 'The Stripe charges sync last failed, so this data may be behind.',
+            }),
+        ])
+    })
+
     it('clears a custom SQL preview error when the query changes', async () => {
         ;(performQuery as jest.Mock).mockRejectedValue({ detail: 'Unknown table' })
         await mountLogic()
