@@ -111,6 +111,12 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
+            - name: Install protoc
+              # A one-shot suite builds the personhog binaries during preflight, and their proto
+              # crate compiles .proto files in a build script. The runner image has no protoc.
+              if: steps.gate.outputs.enabled == 'true'
+              uses: ./.github/actions/setup-protoc
+
             - name: Install sqlx-cli
               if: steps.gate.outputs.enabled == 'true'
               uses: ./.github/actions/setup-sqlx-cli

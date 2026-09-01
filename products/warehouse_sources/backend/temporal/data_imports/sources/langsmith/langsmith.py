@@ -35,6 +35,15 @@ INSECURE_SCHEME_ERROR = "LangSmith host must use https"
 # cursor we've already paged is stuck or hostile; retrying re-hits the same cursor, so fail for good.
 REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
 
+# Raised (and registered non-retryable) when a page body exceeds MAX_RESPONSE_BYTES. The same page
+# is re-requested on every retry, so the cap is hit again deterministically — stop immediately.
+RESPONSE_TOO_LARGE_ERROR = "LangSmith API returned an oversized response"
+
+# Raised (and registered non-retryable) when a single runs page stays over MAX_RESPONSE_BYTES even at
+# the minimum limit. A page that big has runs with very large inputs/outputs; halving the page can't
+# help below one run, so fail with guidance instead of retrying the same wall.
+RUNS_PAGE_TOO_LARGE_ERROR = "LangSmith runs page too large even at the minimum page size"
+
 # Cap the decoded body of any single LangSmith response. `host` is user-controlled, so a hostile
 # server could otherwise stream an unbounded body and exhaust a shared import worker's memory. Set
 # well above any realistic page (runs pages carry full LLM inputs/outputs) so it only trips on a
@@ -52,6 +61,11 @@ READ_CHUNK_BYTES = 64 * 1024
 # A real pagination cursor is a short opaque token. A host handing back anything larger is broken or
 # hostile — reject it rather than echo it back in the next request body or hold it in memory.
 MAX_CURSOR_BYTES = 8 * 1024
+
+# Smallest runs page we shrink to when a full page exceeds MAX_RESPONSE_BYTES. A single run still
+# carries full inputs/outputs, so one run per request is the floor; below it there is nothing left to
+# halve. See _fetch_runs_page.
+MIN_RUNS_PAGE_SIZE = 1
 
 # Bound how many pages one activity attempt walks. A hostile host can otherwise return a full page
 # with a fresh cursor/offset forever and hold a worker until the week-long activity timeout. On the
@@ -100,6 +114,13 @@ class LangSmithRepeatedCursorError(Exception):
     pass
 
 
+class LangSmithRunsPageTooLargeError(Exception):
+    """A single runs page stayed over the cap at the minimum page size. Non-retryable — see
+    RUNS_PAGE_TOO_LARGE_ERROR."""
+
+    pass
+
+
 def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES) -> bytes:
     """Read at most `cap` decoded bytes from a streamed response, refusing an oversized body.
 
@@ -113,7 +134,7 @@ def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES
     for chunk in response.iter_content(chunk_size=READ_CHUNK_BYTES):
         buffer.extend(chunk)
         if len(buffer) > cap:
-            raise LangSmithResponseTooLargeError(f"LangSmith API returned an oversized response (> {cap} bytes)")
+            raise LangSmithResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} (> {cap} bytes)")
     return bytes(buffer)
 
 
@@ -337,6 +358,35 @@ def _fetch_page(
         return json.loads(raw) if raw else None
 
 
+def _fetch_runs_page(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    body: dict[str, Any],
+    page_cursor: str | None,
+    limit: int,
+) -> tuple[Any, int]:
+    """POST one runs page, halving `limit` and re-requesting the same cursor when the page is oversized.
+
+    A legitimate workspace with large prompt payloads can push a full page past MAX_RESPONSE_BYTES.
+    Halving the page and retrying the same cursor lets the sync move forward without skipping runs.
+    Returns the page data and the limit that fetched it, so the caller keeps the shrunk size for the
+    next pages. Raises LangSmithRunsPageTooLargeError when even a single-run page is oversized.
+    """
+    while True:
+        page_body = {**body, "limit": limit}
+        if page_cursor:
+            page_body["cursor"] = page_cursor
+        try:
+            return _fetch_page(session, url, headers, logger, json_body=page_body), limit
+        except LangSmithResponseTooLargeError:
+            if limit <= MIN_RUNS_PAGE_SIZE:
+                raise LangSmithRunsPageTooLargeError(RUNS_PAGE_TOO_LARGE_ERROR)
+            limit = max(MIN_RUNS_PAGE_SIZE, limit // 2)
+            logger.warning(f"LangSmith runs page exceeded the response cap; retrying same cursor with limit={limit}")
+
+
 def _list_session_ids(
     session: requests.Session,
     headers: dict[str, str],
@@ -463,7 +513,6 @@ def _get_runs_rows(
         return
 
     body: dict[str, Any] = {
-        "limit": config.page_size,
         "select": RUNS_SELECT_FIELDS,
         # Ascending by start time so cursor pagination walks forward deterministically from the
         # window bound. The watermark still only persists at job end (sort_mode="desc") since we
@@ -479,10 +528,11 @@ def _get_runs_rows(
     # grow this set without bound. A fixed-size digest is all cycle detection needs.
     seen_cursors: set[bytes] = set()
     pages = 0
+    # Shrinks (and stays shrunk) when a page trips MAX_RESPONSE_BYTES — see _fetch_runs_page.
+    limit = config.page_size
     while True:
         page_cursor = cursor
-        page_body = {**body, "cursor": page_cursor} if page_cursor else dict(body)
-        data = _fetch_page(session, url, headers, logger, json_body=page_body)
+        data, limit = _fetch_runs_page(session, url, headers, logger, body, page_cursor, limit)
 
         runs = data.get("runs", []) if isinstance(data, dict) else []
         if not runs:

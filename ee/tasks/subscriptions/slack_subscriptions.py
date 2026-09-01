@@ -216,11 +216,14 @@ def _prepare_slack_message(
             }
         )
 
+    # unfurl=False: the AI summary and explore hint carry links Slack would otherwise fetch,
+    # burying the chart under preview cards and handing report content to Slack's link fetcher.
     return SlackMessage(
         channel=channel,
         blocks=blocks,
         title=title,
         thread_messages=thread_messages,
+        unfurl=False,
     )
 
 

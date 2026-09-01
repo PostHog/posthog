@@ -1,3 +1,4 @@
+import type { InboxReviewerScope } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
 
 /**
@@ -8,7 +9,7 @@ import type { SignalReport } from "@posthog/shared/types";
  * finished section so the user can see what went wrong. Other tabs filter
  * them out via their own predicates.
  */
-export const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
+const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
   "suppressed",
   "resolved",
   "deleted",
@@ -41,17 +42,6 @@ export function isRestorableReport(
   return report.status === "suppressed";
 }
 
-export function getImmediatelyActionableReports(
-  reports: SignalReport[],
-): SignalReport[] {
-  return reports.filter(
-    (report) =>
-      report.status === "ready" &&
-      report.actionability === "immediately_actionable" &&
-      !report.already_addressed,
-  );
-}
-
 export type InboxScope = "for-you" | "entire-project" | `teammate:${string}`;
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = "for-you";
@@ -71,6 +61,13 @@ export function isTeammateInboxScope(
   scope: InboxScope,
 ): scope is `teammate:${string}` {
   return parseTeammateInboxScope(scope) != null;
+}
+
+/** Analytics-safe scope value: teammate UUIDs never leave the client. */
+export function inboxReviewerScopeValue(scope: InboxScope): InboxReviewerScope {
+  if (scope === INBOX_SCOPE_FOR_YOU) return "for-you";
+  if (scope === INBOX_SCOPE_ENTIRE_PROJECT) return "entire-project";
+  return "teammate";
 }
 
 export function inboxScopeTriggerLabel(

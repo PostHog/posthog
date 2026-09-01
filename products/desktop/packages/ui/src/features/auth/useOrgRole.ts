@@ -1,7 +1,7 @@
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 
-export const ORGANIZATION_ADMIN_LEVEL = 8;
+const ORGANIZATION_ADMIN_LEVEL = 8;
 
 export function useIsOrgAdmin(): { isAdmin: boolean | null } {
   const client = useOptionalAuthenticatedClient();

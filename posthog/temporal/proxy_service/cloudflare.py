@@ -16,6 +16,8 @@ from django.conf import settings
 
 import requests
 
+from posthog.dataclasses import frozen
+
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CLOUDFLARE_MIN_TLS_VERSION = "1.2"
 
@@ -174,7 +176,7 @@ class CustomHostnameSSL:
     validation_records: list[dict] = field(default_factory=list)
 
 
-@dataclass
+@frozen
 class CustomHostname:
     """Information about a Custom Hostname."""
 
@@ -182,6 +184,7 @@ class CustomHostname:
     hostname: str
     status: CustomHostnameStatus
     ssl: CustomHostnameSSL
+    custom_metadata: dict[str, str] = field(default_factory=dict)
 
 
 def _get_headers() -> dict[str, str]:
@@ -209,6 +212,7 @@ def _parse_hostname(result: dict) -> "CustomHostname":
             certificate_authority=ssl_payload.get("certificate_authority"),
             validation_records=ssl_payload.get("validation_records", []),
         ),
+        custom_metadata=result.get("custom_metadata", {}),
     )
 
 
@@ -230,7 +234,7 @@ def _handle_response(response: requests.Response) -> dict:
     return data
 
 
-def create_custom_hostname(domain: str) -> CustomHostname:
+def create_custom_hostname(domain: str, root_redirect_url: str | None = None) -> CustomHostname:
     """
     Create a Custom Hostname in Cloudflare for SaaS.
 
@@ -260,6 +264,8 @@ def create_custom_hostname(domain: str) -> CustomHostname:
             },
         },
     }
+    if root_redirect_url:
+        payload["custom_metadata"] = {"root_redirect_url": root_redirect_url}
 
     response = requests.post(url, headers=_get_headers(), json=payload, timeout=CLOUDFLARE_API_TIMEOUT_S)
     data = _handle_response(response)
@@ -314,6 +320,19 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostname]:
         return None
 
     return _parse_hostname(results[0])
+
+
+def update_custom_hostname_metadata(hostname: CustomHostname, custom_metadata: dict[str, str]) -> CustomHostname:
+    """Replace a Custom Hostname's metadata while preserving keys owned by other features."""
+    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname.id}"
+    response = requests.patch(
+        url,
+        headers=_get_headers(),
+        json={"custom_metadata": {**hostname.custom_metadata, **custom_metadata}},
+        timeout=CLOUDFLARE_API_TIMEOUT_S,
+    )
+    data = _handle_response(response)
+    return _parse_hostname(data["result"])
 
 
 def delete_custom_hostname(hostname_id: str) -> bool:

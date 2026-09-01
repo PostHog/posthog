@@ -275,60 +275,21 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish().describe('Optional issue description.'),
 })
 
-export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        id: zod.uuid().optional(),
-        status: zod.string().optional(),
-        severity: zod
-            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
-            .optional()
-            .describe('Issue severity, or null when no severity is assigned.'),
-        name: zod.string().nullish(),
-        description: zod.string().nullish(),
-        first_seen: zod.iso.datetime({ offset: true }).nullish(),
-        assignee: zod
-            .union([
-                zod.object({
-                    id: zod.union([zod.number(), zod.string(), zod.null()]),
-                    type: zod.string(),
-                }),
-                zod.null(),
-            ])
-            .optional(),
-        external_issues: zod
-            .array(
-                zod
-                    .object({
-                        id: zod.uuid().describe('Unique ID of the external reference.'),
-                        integration: zod
-                            .object({
-                                id: zod.number().describe('ID of the integration backing this external reference.'),
-                                kind: zod
-                                    .string()
-                                    .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
-                                display_name: zod
-                                    .string()
-                                    .describe('Human-readable name of the connected integration.'),
-                            })
-                            .describe('The connected integration this reference was created through.'),
-                        external_url: zod
-                            .string()
-                            .describe("URL of the linked external issue in the provider's system."),
-                    })
-                    .describe('Read-only shape of an external reference, shared by every response.')
-            )
-            .optional(),
-        cohort: zod
-            .union([
-                zod.object({
-                    id: zod.number(),
-                    name: zod.string(),
-                }),
-                zod.null(),
-            ])
-            .optional(),
-    })
-    .describe('Read-only serializer for issue contract types returned by the facade.')
+export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({
+    assignee: zod
+        .union([
+            zod.object({
+                id: zod.union([zod.number(), zod.string()]).describe('User ID or role UUID to assign the issue to.'),
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe('Assignment target type: user or role.\n\n\* `user` - user\n\* `role` - role'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Assignment target. Set to null or omit to remove the current assignment.'),
+})
 
 export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -718,7 +679,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
     assignee: zod
         .union([
             zod.object({
-                id: zod.union([zod.string(), zod.number(), zod.null()]).describe('User ID or role UUID to filter by.'),
+                id: zod.union([zod.string(), zod.number()]).describe('User ID or role UUID to filter by.'),
                 type: zod
                     .enum(['user', 'role'])
                     .describe('\* `user` - user\n\* `role` - role')

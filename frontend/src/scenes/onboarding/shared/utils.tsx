@@ -353,7 +353,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
-        url: urls.mcpAnalyticsDashboard(),
+        url: urls.mcpAnalytics(),
         scene: Scene.MCPAnalytics,
         setupEffort: 'low',
     },

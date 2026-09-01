@@ -79,6 +79,9 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
 
         assert first_call["channel"] == "C12345"
         assert first_call["text"] == "Your subscription to the Insight *My Test subscription* is ready! 🎉"
+        # Links in the report (explore hint, AI summary) must not auto-unfurl into preview cards.
+        assert first_call["unfurl_links"] is False
+        assert first_call["unfurl_media"] is False
         assert first_call["blocks"] == [
             {
                 "type": "section",

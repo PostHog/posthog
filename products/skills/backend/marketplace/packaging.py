@@ -23,9 +23,17 @@ import yaml
 
 from .git_smart_http import FileTree
 
-# Spec caps (https://agentskills.io/specification). Description is 1024 in the spec
-# but stored at 4096 today — export validates rather than silently truncating.
+# Spec caps (https://agentskills.io/specification). New writes cap description at 1024, but the
+# DB column holds 4096, so legacy rows can still exceed the spec — export validates rather than
+# silently truncating.
 SPEC_DESCRIPTION_MAX_LENGTH = 1024
+
+# A skill bundle is unpacked into a harness's skill directory, and every skill in it costs prompt
+# context on each turn (the harness lists name and description of every discovered skill), so the
+# count is bounded by what an agent can usefully carry, not by what the user owns. The client picks
+# the count up to the ceiling.
+DEFAULT_BUNDLE_SKILLS = 20
+MAX_BUNDLE_SKILLS = 100
 
 # Zip-bomb defense for import: bound member count and per-member *decompressed* read so a small
 # zip can't inflate into GBs of memory. These are coarse hard stops — the precise per-field/per-file
@@ -94,6 +102,45 @@ def render_skill_md(skill: SkillExport) -> str:
     return render_frontmatter(skill) + "\n" + skill.body
 
 
+@dataclass(frozen=True)
+class SkillStub:
+    """The discovery half of a skill: enough for a harness to list and invoke it by name."""
+
+    name: str
+    description: str
+    version: int
+
+
+# The stub must read as a pointer, not as the skill. An agent that treats it as the skill's body
+# improvises instead of fetching the real instructions, so the first line says what the file is
+# and the steps say exactly which MCP calls to make.
+_STUB_BODY = """\
+This skill lives in the PostHog skills store. This file is a pointer for discovery, not the skill itself.
+
+Before you act on it:
+
+1. Run `call skill-get {{"skill_name": "{name}"}}` with the PostHog MCP `exec` tool. Note the `version` in the response and pass it to every later call for this skill, so a publish in the meantime cannot mix two versions.
+2. If the response has a non-null `body_next_offset`, call `skill-get` again with `"version"` set to that version and `"body_offset"` set to `body_next_offset`, and append the returned `body`. Repeat until `body_next_offset` is null.
+3. Follow the complete `body` as the instructions for this skill.
+4. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>", "version": <version>}}` and write it into this directory before you use it.
+"""
+
+
+def render_skill_stub_md(stub: SkillStub) -> str:
+    document: dict[str, object] = {
+        "name": stub.name,
+        "description": stub.description,
+        "metadata": {"version": str(stub.version), "source": "posthog-skills-store"},
+    }
+    frontmatter = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return f"---\n{frontmatter}---\n\n" + _STUB_BODY.format(name=stub.name)
+
+
+def build_skill_stub_tree(stub: SkillStub) -> FileTree:
+    """A one-file skill directory whose SKILL.md tells the agent to fetch the real skill over MCP."""
+    return {"SKILL.md": render_skill_stub_md(stub)}
+
+
 def validate_for_export(skill: SkillExport) -> list[str]:
     """Return spec-compliance problems that should block or warn on export. Empty == clean."""
     problems: list[str] = []
@@ -154,6 +201,40 @@ def build_skill_zip(skill: SkillExport) -> bytes:
         for rel_path, content in build_skill_tree(skill).items():
             archive.writestr(f"{skill.name}/{rel_path}", content)
     return buffer.getvalue()
+
+
+def build_skills_bundle_zip(trees: dict[str, FileTree]) -> bytes:
+    """Many rendered skill trees in one zip, each nested under ``<name>/`` like ``build_skill_zip``.
+
+    Unpacking the result into a skills directory (``~/.claude/skills``, ``~/.agents/skills``)
+    yields one spec-compliant directory per skill, so a harness discovers them natively.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, tree in trees.items():
+            for rel_path, content in tree.items():
+                archive.writestr(f"{name}/{rel_path}", content)
+    return buffer.getvalue()
+
+
+# A zip stores each entry's name twice (local file header and central directory entry) plus a
+# fixed header per entry (30 and 46 bytes). Counting it keeps a bundle of many empty files with
+# long paths inside the byte cap.
+_ZIP_ENTRY_OVERHEAD_BYTES = 76
+
+
+def archive_entry_bytes(path: str, content_bytes: int) -> int:
+    return content_bytes + 2 * len(path.encode("utf-8")) + _ZIP_ENTRY_OVERHEAD_BYTES
+
+
+def file_tree_bytes(tree: FileTree, prefix: str = "") -> int:
+    """Uncompressed bytes the tree costs in a zip: content plus per-entry framing.
+
+    ``prefix`` is prepended to each entry name to mirror how the tree is archived —
+    ``build_skills_bundle_zip`` nests every entry under ``<name>/`` — so the cap counts the real
+    archive-member name, not just the tree-relative path.
+    """
+    return sum(archive_entry_bytes(prefix + path, len(content.encode("utf-8"))) for path, content in tree.items())
 
 
 def parse_skill_md(content: str) -> dict:

@@ -173,6 +173,12 @@ database "posthog" {
     column "retention_days" {
       type = "Nullable(Int32)"
     }
+    column "pattern" {
+      type = "Nullable(String)"
+    }
+    column "pattern_version" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
       broker_list          = "warpstream_logs"
       topic_list           = "kafka_topic_list = 'clickhouse_logs'"
@@ -747,6 +753,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -911,7 +923,9 @@ SELECT
   _offset,
   toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+  ifNull(pattern, '') AS pattern,
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -980,6 +994,12 @@ SQL
     }
     column "_bytes_compressed" {
       type = "Nullable(Int64)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
   }
 }

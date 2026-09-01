@@ -86,6 +86,12 @@ WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
 WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
     "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
 )
+WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_rpc_duration_seconds",
+    "Temporal workflow start RPC duration",
+    labelnames=["kind"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, 7.5, 10),
+)
 WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
 WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
     "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
@@ -166,6 +172,22 @@ DEV_STACK_IMAGE_BAKE_TOTAL = Counter(
     "posthog_tasks_dev_stack_image_bake_total",
     "Prebaked dev-stack VM image bake lifecycle events",
     labelnames=["outcome", "region", "trigger"],
+)
+
+DEV_STACK_PREVIEW_BOOT_BUCKETS = [30.0, 60.0, 120.0, 180.0, 240.0, 300.0, 420.0, 600.0, 720.0]
+
+DEV_STACK_PREVIEW_BOOT_SECONDS = Histogram(
+    "posthog_tasks_dev_stack_preview_boot_seconds",
+    "Wall time from launching the dev stack in a run's sandbox to its preview answering health checks",
+    buckets=DEV_STACK_PREVIEW_BOOT_BUCKETS,
+)
+
+DEV_STACK_PREVIEW_TOTAL = Counter(
+    "posthog_tasks_dev_stack_preview_total",
+    "Dev stack preview lifecycle outcomes. started counts launches and attached counts re-entries that joined "
+    "a launch in progress; ready, failed, timed_out and cancelled each close one of those; launch_failed "
+    "counts start attempts that raised before launching.",
+    labelnames=["outcome"],
 )
 
 
@@ -312,8 +334,6 @@ CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 DesktopAccessOutcome = Literal[
     "allowed",
-    "legacy_allowed",
-    "legacy_denied",
     "startup_plan",
     "prepaid_credits",
     "override",

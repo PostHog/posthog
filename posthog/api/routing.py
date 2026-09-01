@@ -34,6 +34,7 @@ from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    MCPAccessPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
@@ -255,9 +256,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement is a tenant boundary, not an authorization level: views that
-            # shape their own permission chain cannot opt out of it.
-            return [*dangerously_defined, VerifiedDomainEnforcementPermission()]
+            # Domain enforcement and the MCP cap are tenant boundaries, not authorization
+            # levels. Views that shape their own permission chain cannot remove them.
+            return [*dangerously_defined, VerifiedDomainEnforcementPermission(), MCPAccessPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -270,7 +271,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
+        permission_classes: list = [
+            IsAuthenticated,
+            APIScopePermission,
+            AccessControlPermission,
+        ]
 
         if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
@@ -278,8 +283,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             permission_classes.append(OrganizationMemberPermissions)
 
         # After the membership permission, so non-members get the generic denial and the
-        # organization row it resolved is reused.
+        # organization row it resolved is reused. The MCP cap follows for the same reason:
+        # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
+        permission_classes.append(MCPAccessPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]

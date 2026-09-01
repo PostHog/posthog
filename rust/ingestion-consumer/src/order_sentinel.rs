@@ -11,7 +11,7 @@
 //! guarantee holds while it grows and the violation counter stays flat.
 //!
 //! **Per-key send order** ([`KeyOrderSentinel`]): for every routing key
-//! (`token:distinct_id`), messages must be handed to workers in Kafka offset
+//! (the Kafka message key), messages must be handed to workers in Kafka offset
 //! order, and a message must never be re-sent after it was ACKed. Replays of
 //! un-ACKed messages on the retry paths ([`SendKind::Resend`]: send failure →
 //! deferred flush) are legal at-least-once behavior and are counted separately
@@ -333,9 +333,9 @@ pub enum SendKind {
     /// single partition, so their offsets must only move forward; a regression
     /// is a [`KeyOrderViolationKind::SendBelowLastSent`] violation.
     Fresh,
-    /// A retry path (deferred flush or eager release) that re-routes messages
-    /// whose earlier send failed — repeating un-ACKed offsets is expected
-    /// at-least-once behavior, not a violation.
+    /// A deferred-flush retry that re-routes messages whose earlier send
+    /// failed — repeating un-ACKed offsets is expected at-least-once behavior,
+    /// not a violation.
     Resend,
 }
 
@@ -565,7 +565,7 @@ pub struct SentinelContext {
     key_sentinel: Arc<KeyOrderSentinel>,
     /// Bumped on every partition assignment; the gRPC transport stamps it on
     /// sub-batches so the worker's feed-order sentinel rebaselines across
-    /// rebalances. `None` on the HTTP transport.
+    /// rebalances.
     assignment_epoch: Option<Arc<AtomicU64>>,
 }
 

@@ -39,6 +39,8 @@ Two gates keep that from passing silently.
 
 - `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
+- `deletes_job` counts the same way after its own sweep, but only logs what survived and still marks the requests verified. Its mutations have already run by then, and failing the op would strand the run without undoing anything. Proving zero survivors is a full scan, so the count is time-bounded and reports unknown rather than zero when it runs out.
+- A proxy only reads the cluster its engine names, and `sql.py` builds the `events_json` proxy against `CLICKHOUSE_CLUSTER`. So a target stored on another cluster is counted twice: once through the proxy, and once on its storage table through the handle that holds it. Without the second count, a deployment whose storage moved without the proxy following it would report a clean sweep off an empty table.
 
 Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
@@ -74,7 +76,12 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Nothing changes on a deployment where every target sits on the cluster the job connects to. The handle in hand is probed first, and no object is written.
 - The source tables stay where they are. `pending_deletes_<timestamp>` also carries the Postgres `AsyncDeletion` row ids that `mark_deletions_verified` reads back, and those never enter a dictionary.
 - `load_and_verify_deletes_dictionary` loads on every host of every cluster and fails the run unless all of them checksum alike. That is what catches a stale or missing object: without it the mutation there joins an empty dictionary, deletes nothing, and reports success.
-- Retention belongs to the bucket lifecycle policy, set through `DELETES_DICTIONARY_S3_*`. Nothing deletes the objects.
+- Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
+
+The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
+`squash_person_overrides` rewrites `person_id` on `sharded_events` and `sharded_events_json` through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+Skipping the second table there is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
 

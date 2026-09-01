@@ -10,13 +10,7 @@ import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import {
-  type CustomizableNavItemId,
-  type NavItemOverrides,
-  SIDEBAR_MIN_WIDTH,
-  sanitizeNavItemOrder,
-  sanitizeNavItemOverrides,
-} from "./constants";
+import { SIDEBAR_MIN_WIDTH } from "./constants";
 import {
   type ListItemMetadataField,
   sanitizeListItemMetadataFields,
@@ -45,13 +39,6 @@ interface SidebarStoreState {
   // the task list, Canvas nav item appears). Off by default — Code merged into
   // the Bluebird chrome ships with channels hidden until the user opts in.
   channelsEnabled: boolean;
-  // Per-item visibility overrides from the Customize sidebar dialog. Items
-  // absent from the map follow their CUSTOMIZABLE_NAV_ITEMS defaultVisible, so newly
-  // shipped moreable items keep their intended default for existing users.
-  navItemOverrides: NavItemOverrides;
-  // Drag order from the Customize sidebar dialog. Empty means default order;
-  // ids absent from it (newly shipped items) render after the ordered ones.
-  navItemOrder: readonly CustomizableNavItemId[];
 }
 
 interface SidebarStoreActions {
@@ -76,8 +63,6 @@ interface SidebarStoreActions {
   setChannelItemSort: (sort: ChannelItemSort) => void;
   setChannelItemGrouping: (grouping: ChannelItemGrouping) => void;
   setChannelsEnabled: (channelsEnabled: boolean) => void;
-  setNavItemVisible: (item: CustomizableNavItemId, visible: boolean) => void;
-  setNavItemOrder: (order: readonly CustomizableNavItemId[]) => void;
 }
 
 type SidebarStore = SidebarStoreState & SidebarStoreActions;
@@ -102,8 +87,6 @@ export const useSidebarStore = create<SidebarStore>()(
       channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
       channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
       channelsEnabled: false,
-      navItemOverrides: {},
-      navItemOrder: [],
       setOpen: (open) => set({ open, hasUserSetOpen: true }),
       setOpenAuto: (open) =>
         set((state) => (state.hasUserSetOpen ? state : { open })),
@@ -163,11 +146,6 @@ export const useSidebarStore = create<SidebarStore>()(
             : [...state.taskTypeFilter, mode],
         })),
       setChannelsEnabled: (channelsEnabled) => set({ channelsEnabled }),
-      setNavItemVisible: (item, visible) =>
-        set((state) => ({
-          navItemOverrides: { ...state.navItemOverrides, [item]: visible },
-        })),
-      setNavItemOrder: (navItemOrder) => set({ navItemOrder }),
       setChannelItemFilters: (channelItemFilters) =>
         set({ channelItemFilters }),
       setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
@@ -193,8 +171,6 @@ export const useSidebarStore = create<SidebarStore>()(
         channelItemSort: state.channelItemSort,
         channelItemGrouping: state.channelItemGrouping,
         channelsEnabled: state.channelsEnabled,
-        navItemOverrides: state.navItemOverrides,
-        navItemOrder: state.navItemOrder,
       }),
       merge: (persisted, current) => {
         const persistedState = persisted as {
@@ -214,8 +190,6 @@ export const useSidebarStore = create<SidebarStore>()(
           channelItemSort?: ChannelItemSort;
           channelItemGrouping?: ChannelItemGrouping;
           channelsEnabled?: boolean;
-          navItemOverrides?: unknown;
-          navItemOrder?: unknown;
         };
         return {
           ...current,
@@ -251,10 +225,6 @@ export const useSidebarStore = create<SidebarStore>()(
             persistedState.channelItemGrouping ?? current.channelItemGrouping,
           channelsEnabled:
             persistedState.channelsEnabled ?? current.channelsEnabled,
-          navItemOverrides: sanitizeNavItemOverrides(
-            persistedState.navItemOverrides,
-          ),
-          navItemOrder: sanitizeNavItemOrder(persistedState.navItemOrder),
         };
       },
     },

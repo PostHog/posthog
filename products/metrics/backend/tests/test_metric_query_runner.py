@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -49,27 +50,36 @@ class TestPickInterval:
 
 
 class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand([(name,) for name, _, _ in _INTERVAL_LADDER])
-    def test_matches_clickhouse_bucket_boundaries(self, interval: str) -> None:
+    @parameterized.expand(
+        [
+            (project_timezone, interval)
+            for project_timezone in ("UTC", "Asia/Kolkata")
+            for interval, _, _ in _INTERVAL_LADDER
+        ]
+    )
+    def test_matches_clickhouse_bucket_boundaries(self, project_timezone: str, interval: str) -> None:
         # The runner snaps date_from onto the bucket grid before querying; if
         # this floor ever disagrees with toStartOfInterval, first buckets go
-        # partial again.
+        # partial again. The queries read `timestamp` through the project's
+        # timezone, because HogQL wraps a DateTime column in toTimeZone, so the
+        # grid that has to match is the project's. Asia/Kolkata is +05:30, which
+        # puts every boundary from `hour` up where a UTC floor never lands.
         awkward = dt.datetime(2026, 3, 11, 17, 47, 33, 123456, tzinfo=dt.UTC)
-        aligned = _align_to_interval(awkward, interval)
+        aligned = _align_to_interval(awkward, interval, tzinfo=ZoneInfo(project_timezone))
 
         interval_call = next(expr for name, _, expr in _INTERVAL_LADDER if name == interval)
         interval_arg = interval_call.args[0]
         assert isinstance(interval_arg, ast.Constant)
         interval_sql = f"{interval_call.name}({interval_arg.value})"
-        ((clickhouse_aligned,),) = sync_execute(
-            f"SELECT toStartOfInterval(toDateTime64(%(ts)s, 6, 'UTC'), {interval_sql})",
-            {"ts": awkward.strftime("%Y-%m-%d %H:%M:%S.%f")},
+        ((bucket_label,),) = sync_execute(
+            f"SELECT toString(toStartOfInterval(toTimeZone(toDateTime64(%(ts)s, 6, 'UTC'), %(tz)s), {interval_sql}))",
+            {"ts": awkward.strftime("%Y-%m-%d %H:%M:%S.%f"), "tz": project_timezone},
         )
-        if not isinstance(clickhouse_aligned, dt.datetime):
-            # Week intervals come back as a bare Date.
-            clickhouse_aligned = dt.datetime.combine(clickhouse_aligned, dt.time(), tzinfo=dt.UTC)
-        elif clickhouse_aligned.tzinfo is None:
-            clickhouse_aligned = clickhouse_aligned.replace(tzinfo=dt.UTC)
+        # Rendering the bucket as a string keeps the comparison free of the
+        # driver's datetime conversion, and covers the `week` interval, which
+        # ClickHouse truncates to a bare Date. Either shape names a wall-clock
+        # reading in the project's timezone.
+        clickhouse_aligned = dt.datetime.fromisoformat(bucket_label).replace(tzinfo=ZoneInfo(project_timezone))
 
         self.assertEqual(aligned, clickhouse_aligned)
         self.assertLessEqual(aligned, awkward)
@@ -268,6 +278,34 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rows[0]["value"], 7.0)
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, anchor)
+
+    def test_first_bucket_is_whole_on_a_project_away_from_utc(self):
+        # A project at +05:30 has its hourly buckets at :30 past each UTC hour,
+        # so a date_from floored in UTC can start the scan after the bucket
+        # ClickHouse labels the rows with. The 07:45 sample belongs to the
+        # 07:30 bucket, and a UTC floor to 08:00 would drop it.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(bucket_start + dt.timedelta(minutes=15), 3.0)],
+        )
+
+        rows = MetricQueryRunner(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=bucket_start + dt.timedelta(minutes=45),
+            date_to=bucket_start + dt.timedelta(hours=1),
+            interval="hour",
+        ).run()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["value"], 3.0)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, bucket_start)
 
     def test_synthetic_original_timestamp_does_not_split_a_series(self):
         anchor = timezone.now().replace(second=0, microsecond=0)

@@ -62,6 +62,7 @@ class TestApplyModelCostOverrides:
             "baseten/zai-org/glm-5.2",
             "baseten/deepseek-ai/deepseek-v4-flash-0731",
             "baseten/zai-org/glm-5.3",
+            "baseten/zai-org/glm-5.3-flash",
         }
 
     def test_returns_same_object_in_place(self) -> None:

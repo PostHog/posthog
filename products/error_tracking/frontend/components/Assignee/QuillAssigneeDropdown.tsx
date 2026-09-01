@@ -40,7 +40,10 @@ interface AssigneeOptionGroup {
 }
 
 export interface QuillAssigneeDropdownProps {
+    ariaLabel: string
     assignee: ErrorTrackingIssueAssignee | null
+    clearActionLabel: string
+    currentUserActionLabel: string
     onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
     open: boolean
     onOpenChange: (open: boolean) => void
@@ -56,7 +59,10 @@ function optionLabel(assignee: NonNullable<Assignee>): string {
 }
 
 export function QuillAssigneeDropdown({
+    ariaLabel,
     assignee,
+    clearActionLabel,
+    currentUserActionLabel,
     onChange,
     open,
     onOpenChange,
@@ -156,7 +162,7 @@ export function QuillAssigneeDropdown({
                 }
             }}
         >
-            <ComboboxTrigger ref={triggerRef} render={trigger} aria-label="Assignee" />
+            <ComboboxTrigger ref={triggerRef} render={trigger} aria-label={ariaLabel} />
             <ComboboxContent
                 anchor={triggerRef}
                 align="start"
@@ -234,7 +240,7 @@ export function QuillAssigneeDropdown({
                                         assignee={{ type: 'user', id: me.user.id, user: me.user }}
                                         size="xsmall"
                                     />
-                                    Assign to me
+                                    {currentUserActionLabel}
                                 </Button>
                             ) : null}
                             {assignee ? (
@@ -246,7 +252,7 @@ export function QuillAssigneeDropdown({
                                     onClick={() => onChange(null)}
                                 >
                                     <IconX className="size-3" />
-                                    Remove assignee
+                                    {clearActionLabel}
                                 </Button>
                             ) : null}
                         </div>

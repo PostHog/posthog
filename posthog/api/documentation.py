@@ -326,7 +326,7 @@ class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES,
         required=False,
-        help_text="Property filter type. Common values are 'person' and 'cohort'.",
+        help_text="Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.",
     )
     cohort_name = serializers.CharField(
         required=False,
@@ -336,7 +336,7 @@ class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Group type index when using group-based filters.",
+        help_text="Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
     )
 
 

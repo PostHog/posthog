@@ -1,0 +1,12 @@
+{
+    "id": "LA4",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "873-881",
+    "priority": "must_fix",
+    "title": "Dependency outages can leave stale approvals active",
+    "problem": "The carve-out performs Tasks database and reviewer-resolution calls before the skip path retracts the prior approval. If either dependency fails through the three retries, GitHub has already acknowledged the delivery. The task then stops before retraction, so an approval for the old head can remain active on unreviewed code.",
+    "suggestion": "Retract old-head approvals before the cross-product lookup for every head-changing skipped PR. Then resolve the carve-out and queue the new review. Add durable reconciliation for deliveries that exhaust retries.",
+    "cluster": 29,
+    "cluster_issue": "Carve-out exception retry path can block the stale-approval safety dismissal for head-changing bot PRs",
+    "cluster_verified": "0/0"
+}
