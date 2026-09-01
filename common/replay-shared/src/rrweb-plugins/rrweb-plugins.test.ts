@@ -37,54 +37,6 @@ describe('CorsPlugin', () => {
         CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
         expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
     })
-
-    it.each(['https://example.com/photo.png', 'https://example.com/render?id=1'])(
-        'proxies absolute image urls',
-        (url) => {
-            expect(CorsPlugin._replaceImageUrl(url)).toEqual(`https://replay.ph-proxy.com/proxy?url=${url}`)
-        }
-    )
-
-    it.each([
-        'data:image/png;base64,iVBORw0KGgo=',
-        '/relative/photo.png',
-        'https://replay.ph-proxy.com/proxy?url=https://example.com/photo.png',
-    ])('does not proxy image urls that are not absolute or are already proxied', (url) => {
-        expect(CorsPlugin._replaceImageUrl(url)).toEqual(url)
-    })
-
-    it('rewrites each candidate in a srcset and keeps descriptors', () => {
-        const srcset = 'https://example.com/a.png 1x, https://example.com/b.png 2x'
-        expect(CorsPlugin._replaceSrcset(srcset)).toEqual(
-            'https://replay.ph-proxy.com/proxy?url=https://example.com/a.png 1x, https://replay.ph-proxy.com/proxy?url=https://example.com/b.png 2x'
-        )
-    })
-
-    it.each([
-        '.hero { background-image: url("https://example.com/bg.png"); }',
-        ".hero { background-image: url('https://example.com/bg.jpg'); }",
-        '.hero { background-image: url(https://example.com/bg.webp); }',
-    ])('proxies image urls in css', (content) => {
-        expect(CorsPlugin._replaceImageCssUrls(content)).toContain('https://replay.ph-proxy.com/proxy?url=https://example.com/bg')
-    })
-
-    it('rewrites img src and srcset on build', () => {
-        const el = document.createElement('img')
-        el.setAttribute('src', 'https://example.com/photo.png')
-        el.setAttribute('srcset', 'https://example.com/a.png 1x, https://example.com/b.png 2x')
-        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
-        expect(el.getAttribute('src')).toEqual('https://replay.ph-proxy.com/proxy?url=https://example.com/photo.png')
-        expect(el.getAttribute('srcset')).toEqual(
-            'https://replay.ph-proxy.com/proxy?url=https://example.com/a.png 1x, https://replay.ph-proxy.com/proxy?url=https://example.com/b.png 2x'
-        )
-    })
-
-    it('rewrites inline background-image on build', () => {
-        const el = document.createElement('div')
-        el.setAttribute('style', 'background-image: url("https://example.com/bg.png")')
-        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
-        expect(el.getAttribute('style')).toContain('https://replay.ph-proxy.com/proxy?url=https://example.com/bg.png')
-    })
 })
 
 const mockHlsInstance = {

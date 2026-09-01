@@ -1899,14 +1899,12 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy" not in response
 
     def test_report_only_policy_allows_the_replay_asset_proxy(self):
-        # The replay player routes recorded fonts and images through this proxy, so both
-        # directives must list it or enforcement would block every replay asset.
+        # The replay player routes recorded fonts through this proxy, so font-src must
+        # list it or enforcement would block them.
         response = self.client.get("/")
         policy = response["Content-Security-Policy-Report-Only"]
         font_src = next(part for part in policy.split(";") if part.strip().startswith("font-src"))
-        img_src = next(part for part in policy.split(";") if part.strip().startswith("img-src"))
         assert "https://replay.ph-proxy.com" in font_src
-        assert "https://replay.ph-proxy.com" in img_src
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):

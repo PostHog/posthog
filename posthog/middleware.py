@@ -1208,8 +1208,8 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            # The session replay player rewrites recorded assets (fonts, images) to load
-            # through this proxy, so the app policy must allow it. See CorsPlugin in
+            # The session replay player rewrites recorded fonts to load through this proxy,
+            # so font-src must allow it. See CorsPlugin in
             # common/replay-shared/src/rrweb-plugins/index.ts.
             replay_proxy_url = "https://replay.ph-proxy.com"
 
@@ -1223,7 +1223,7 @@ class CSPMiddleware:
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} {replay_proxy_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
