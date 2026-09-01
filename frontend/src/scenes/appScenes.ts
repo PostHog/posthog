@@ -7,6 +7,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
     [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
     [Scene.AgenticAuthorize]: () => import('./agentic/AgenticAuthorize'),
+    [Scene.Annotations]: () => import('./annotations/Annotations'),
     [Scene.Approval]: () => import('./approvals/ApprovalDetail'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.MaterializedColumns]: () => import('./data-management/MaterializedColumns/MaterializedColumns'),

@@ -8,9 +8,9 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
+    outputs::{OutputRegistry, PublishEvents},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
-    sinks::Event,
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
 };
@@ -1031,13 +1031,8 @@ impl MemorySink {
 }
 
 #[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for MemorySink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend_from_slice(&events);
         Ok(())
     }
@@ -1095,7 +1090,7 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             timesource,
             readiness,
             liveness,
-            Arc::new(sink.clone()),
+            Arc::new(OutputRegistry::single(sink.clone())),
             redis,
             None, // global_rate_limiter_token_distinctid
             quota_limiter,

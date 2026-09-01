@@ -3,6 +3,7 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -10,6 +11,7 @@ from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
+from .constants import MCP_MISSING_CAPABILITY_EVENT
 from .enums import SubmissionKind
 
 
@@ -51,6 +53,34 @@ def create_missing_capability_submission(
     team: Team, created_by: User | None, submission: contracts.CreateMissingCapabilitySubmission
 ) -> contracts.Submission:
     return _to_submission(logic.create_missing_capability_submission(team, created_by, submission))
+
+
+def capture_missing_capability_event(team: Team, distinct_id: str, submission: contracts.Submission) -> None:
+    properties: dict[str, object] = {
+        "submission_id": str(submission.id),
+        "kind": submission.kind,
+        "attempted_tool_present": bool(submission.attempted_tool),
+        "mcp_client_name_present": bool(submission.mcp_client_name),
+        "mcp_session_id_present": bool(submission.mcp_session_id),
+        "mcp_trace_id_present": bool(submission.mcp_trace_id),
+        "$mcp_source": "posthog_mcp_analytics",
+        "$mcp_tool_name": "mcp-missing-capability-report",
+        "missing_capability_blocked": submission.blocked,
+    }
+    if submission.mcp_session_id:
+        properties["$mcp_session_id"] = submission.mcp_session_id
+    if submission.mcp_trace_id:
+        properties["$mcp_trace_id"] = submission.mcp_trace_id
+
+    capture_internal(
+        token=team.api_token,
+        event_name=MCP_MISSING_CAPABILITY_EVENT,
+        event_source="mcp_analytics_missing_capability",
+        distinct_id=distinct_id,
+        properties=properties,
+        event_uuid=str(submission.id),
+        process_person_profile=False,
+    )
 
 
 def list_mcp_sessions(

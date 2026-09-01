@@ -29,6 +29,7 @@ from posthog.api.email_verification import email_verification_code_verifier, ema
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
+from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
@@ -3326,6 +3327,18 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.is_email_verified
         assert self.user.email != "staged@posthog.com"
+
+    def test_codes_for_different_addresses_in_the_same_second_do_not_collide(self):
+        # Two email changes in the same second must not derive the same code. The code binds to the
+        # address it authorizes. So a code mailed to an address the user owns cannot verify a
+        # different staged address.
+        issued_at = 1_700_000_000
+        code_owned = code_based_verification_token_generator.make_code(self.user, issued_at, "attacker@owns.example")
+        code_victim = code_based_verification_token_generator.make_code(self.user, issued_at, "victim@corp.example")
+        assert code_owned != code_victim
+        assert not code_based_verification_token_generator.check_code(
+            self.user, code_owned, issued_at, "victim@corp.example"
+        )
 
     def test_code_dies_when_a_different_pending_address_is_staged(self):
         self.user.is_email_verified = True
