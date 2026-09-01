@@ -2,11 +2,11 @@
 
 Harmonic bills one account-wide rate limit — there is one ``HARMONIC_API_KEY`` per PostHog
 instance, not one per installation or team — so every call anywhere in the codebase draws from a
-single shared budget under the constant key ``harmonic:global``.
+single shared budget under the constant key ``harmonic:account:default``.
 
-Production measurement (30 days of traffic, zero 429s) shows Harmonic comfortably sustains 15
-requests per second; that observed ceiling, not the unverified 5 or 10 req/s figures quoted
-elsewhere, is what this budget is seeded from.
+Seeded from observed production throughput rather than the conflicting 5 and 10 req/s figures
+that were quoted in code comments here before, neither of which was ever enforced. Treat it as a
+starting point and tune it against the rate-limit headers this domain records.
 
 Two very different consumers share this budget, so the priority lanes matter:
 - CRITICAL (interactive): signup enrichment and the ICP re-enrichment sweep run inside a
@@ -15,7 +15,7 @@ Two very different consumers share this budget, so the priority lanes matter:
   and can back off when the budget is tight.
 
 Importing this module registers the policy as a side effect — import it (directly or via
-``consume_harmonic``/``acquire_harmonic``) before using the ``harmonic:global`` limiter key.
+``consume_harmonic``/``acquire_harmonic``) before using the ``harmonic:account:default`` key.
 """
 
 from django.conf import settings
@@ -26,7 +26,8 @@ from posthog.egress.limiter.policies import Priority, RatePolicy, register_polic
 HARMONIC_DOMAIN = "harmonic"
 
 # One account per instance — Harmonic meters usage account-wide, not per installation.
-HARMONIC_GLOBAL_KEY = f"{HARMONIC_DOMAIN}:global"
+_ACCOUNT_SCOPE_ID = "default"
+HARMONIC_ACCOUNT_KEY = f"{HARMONIC_DOMAIN}:account:{_ACCOUNT_SCOPE_ID}"
 
 _DEFAULT_PER_SECOND_BUDGET = 15
 
@@ -53,16 +54,16 @@ register_policy(HARMONIC_DOMAIN, _harmonic_policy)
 def consume_harmonic(priority: Priority = Priority.NORMAL, source: str = "unknown") -> bool:
     """Sync gate, for callers outside an event loop. Returns False when the budget (or this
     priority's reserved floor) is exhausted — degrade gracefully rather than calling out."""
-    return get_outbound_rate_limiter().consume_sync(HARMONIC_GLOBAL_KEY, priority=priority, source=source)
+    return get_outbound_rate_limiter().consume_sync(HARMONIC_ACCOUNT_KEY, priority=priority, source=source)
 
 
 async def acquire_harmonic(priority: Priority = Priority.NORMAL, source: str = "unknown") -> bool:
     """Async gate — the primary path, since the Harmonic client is aiohttp-based."""
-    return await get_outbound_rate_limiter().acquire(HARMONIC_GLOBAL_KEY, priority=priority, source=source)
+    return await get_outbound_rate_limiter().acquire(HARMONIC_ACCOUNT_KEY, priority=priority, source=source)
 
 
 def pace_seconds_harmonic(priority: Priority = Priority.NORMAL) -> float:
     """Seconds to wait before the next call, for a caller that can wait (the bulk enrichment job
     walking pages) so it spreads its share of the budget instead of bursting into it and being
     shed. Advisory only — acquire/consume remain the sole admission authority."""
-    return get_outbound_rate_limiter().pace_seconds(HARMONIC_GLOBAL_KEY, priority=priority)
+    return get_outbound_rate_limiter().pace_seconds(HARMONIC_ACCOUNT_KEY, priority=priority)

@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.egress.harmonic.limiter import HARMONIC_GLOBAL_KEY, consume_harmonic
+from posthog.egress.harmonic.limiter import HARMONIC_ACCOUNT_KEY, consume_harmonic
 from posthog.egress.harmonic.observability import _parse_harmonic_rate_limit
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.backends import LimitsBackend
@@ -17,7 +17,7 @@ from posthog.egress.observability.observability import RateLimitSnapshot
 
 def _unique_harmonic_key() -> str:
     # Distinct scope per test so it never shares a sliding window with the literal
-    # "harmonic:global" key (or with another test) while still resolving to the real registered
+    # "harmonic:account:default" key (or with another test) while still resolving to the real registered
     # harmonic policy, whose provider only inspects the "harmonic" domain segment.
     return f"harmonic:test:{uuid.uuid4().hex}"
 
@@ -35,7 +35,7 @@ class TestHarmonicLimiterRegistration(SimpleTestCase):
     def test_policy_is_registered_for_the_global_key(self) -> None:
         # consume raises for a domain with no registered policy — this catches the registration
         # side effect being lost (e.g. an import shuffle dropping the register_policy call).
-        assert HARMONIC_GLOBAL_KEY == "harmonic:global"
+        assert HARMONIC_ACCOUNT_KEY == "harmonic:account:default"
         assert consume_harmonic(source="test") is True
 
 
@@ -62,17 +62,17 @@ async def test_batch_pressure_does_not_starve_the_interactive_lane() -> None:
 class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_headers", None, RateLimitSnapshot(resource="global")),
-            ("empty_headers", {}, RateLimitSnapshot(resource="global")),
+            ("no_headers", None, RateLimitSnapshot(resource="account")),
+            ("empty_headers", {}, RateLimitSnapshot(resource="account")),
             (
                 "garbage_values",
                 {"X-RateLimit-Remaining": "not-a-number", "X-RateLimit-Limit": "", "X-RateLimit-Reset": "soon"},
-                RateLimitSnapshot(resource="global"),
+                RateLimitSnapshot(resource="account"),
             ),
             (
                 "standard_names",
                 {"X-RateLimit-Remaining": "42", "X-RateLimit-Limit": "100", "X-RateLimit-Reset": "1700000000"},
-                RateLimitSnapshot(resource="global", remaining=42.0, limit=100.0, reset_at=1700000000.0),
+                RateLimitSnapshot(resource="account", remaining=42.0, limit=100.0, reset_at=1700000000.0),
             ),
             (
                 "second_variant_preferred_over_standard",
@@ -81,12 +81,12 @@ class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
                     "X-RateLimit-Remaining": "500",
                     "X-Ratelimit-Limit-Second": "15",
                 },
-                RateLimitSnapshot(resource="global", remaining=5.0, limit=15.0),
+                RateLimitSnapshot(resource="account", remaining=5.0, limit=15.0),
             ),
             (
                 "second_variant_alone",
                 {"X-Ratelimit-Remaining-Second": "9", "X-Ratelimit-Limit-Second": "15"},
-                RateLimitSnapshot(resource="global", remaining=9.0, limit=15.0),
+                RateLimitSnapshot(resource="account", remaining=9.0, limit=15.0),
             ),
         ]
     )

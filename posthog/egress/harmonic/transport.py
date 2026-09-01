@@ -16,7 +16,7 @@ from posthog.egress.transport.transport import AsyncEgressClient, EgressBudgetEx
 # Harmonic bills one account-wide budget, so every call carries the same scope. AsyncEgressClient
 # skips its gate entirely on a falsy scope, and Harmonic has no per-caller identity to gate on
 # instead, so this constant is what keeps every Harmonic call gated.
-_GLOBAL_SCOPE = "global"
+_ACCOUNT_SCOPE = "default"
 
 
 class HarmonicEgressBudgetExhausted(EgressBudgetExhausted):
@@ -77,7 +77,7 @@ async def harmonic_request(
         method,
         url,
         source=source,
-        scope=_GLOBAL_SCOPE,
+        scope=_ACCOUNT_SCOPE,
         priority=priority,
         endpoint=endpoint,
         headers=headers,

@@ -22,7 +22,11 @@ from posthog.egress.observability.observability import EgressMetrics, RateLimitS
 HARMONIC_DOMAIN = "harmonic"
 
 # Harmonic bills one account-wide limit, not a per-installation one, so every call shares this scope.
-_SCOPE = "global"
+_SCOPE = "default"
+
+# Harmonic rate-limits the whole account rather than per endpoint, so every observed header
+# describes the same one resource.
+_RATE_LIMIT_RESOURCE = "account"
 
 _metrics = EgressMetrics(
     request_counter=Counter(
@@ -48,7 +52,7 @@ _metrics = EgressMetrics(
 )
 
 # Preferred first: the per-second variant matches the window this domain's policy actually gates
-# (15 requests/second). Falls back to the GitHub-style name in case Harmonic serves only that one.
+# Falls back to the GitHub-style name in case Harmonic serves only that one.
 _REMAINING_HEADERS = ("X-Ratelimit-Remaining-Second", "X-RateLimit-Remaining")
 _LIMIT_HEADERS = ("X-Ratelimit-Limit-Second", "X-RateLimit-Limit")
 _RESET_HEADERS = ("X-RateLimit-Reset",)
@@ -69,7 +73,7 @@ def _first_float_header(headers: Mapping[str, str], names: tuple[str, ...]) -> f
 def _parse_harmonic_rate_limit(headers: Mapping[str, str] | None) -> RateLimitSnapshot:
     headers = headers or {}
     return RateLimitSnapshot(
-        resource=_SCOPE,
+        resource=_RATE_LIMIT_RESOURCE,
         remaining=_first_float_header(headers, _REMAINING_HEADERS),
         limit=_first_float_header(headers, _LIMIT_HEADERS),
         reset_at=_first_float_header(headers, _RESET_HEADERS),
