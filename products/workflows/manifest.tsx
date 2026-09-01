@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
             name: 'Broadcast',
             iconType: 'workflows',
             projectBased: true,
+            description: 'Send a one-time or scheduled email to a group of people',
         },
     },
     routes: {

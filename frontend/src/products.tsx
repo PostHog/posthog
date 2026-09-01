@@ -1029,7 +1029,12 @@ export const productConfiguration: Record<string, any> = {
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
-    Broadcast: { name: 'Broadcast', iconType: 'workflows', projectBased: true },
+    Broadcast: {
+        name: 'Broadcast',
+        iconType: 'workflows',
+        projectBased: true,
+        description: 'Send a one-time or scheduled email to a group of people',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
