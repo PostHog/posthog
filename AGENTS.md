@@ -279,6 +279,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
