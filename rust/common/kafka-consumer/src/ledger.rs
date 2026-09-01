@@ -18,6 +18,14 @@ pub struct TakenFrontier {
 
 /// Per-partition delivered-offset ledger. Completion only marks slots; commit
 /// paths explicitly consume the contiguous prefix after observing it.
+///
+/// A ledger lives for one partition assignment: create it on assign, drop it
+/// on revoke. Kafka replays a partition from its committed offset after a
+/// rebalance, so a ledger kept across assignments sees the replay as
+/// duplicate delivery and panics. Completions from a previous assignment's
+/// in-flight work must be discarded before they reach the new ledger; it
+/// never charged those offsets and panics on them too (see the panic
+/// contracts on `charge` and `complete`).
 #[derive(Debug, Default)]
 pub struct OffsetLedger {
     /// The offset of `slots[0]`; `None` until the first delivery.
@@ -41,6 +49,12 @@ impl OffsetLedger {
     /// offset gap (transaction control records) gets pre-completed zero-charge
     /// filler slots, so the window stays dense and the frontier walks over the
     /// gap.
+    ///
+    /// # Panics
+    ///
+    /// When an offset is not above every offset already recorded. Duplicate
+    /// or out-of-order delivery is a caller bug, and recording it would
+    /// corrupt the commit accounting.
     pub fn charge(&mut self, offsets: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
         let mut total = Charge::ZERO;
         for (offset, charge) in offsets {
@@ -66,6 +80,13 @@ impl OffsetLedger {
     }
 
     /// Mark delivered offsets complete in any order.
+    ///
+    /// # Panics
+    ///
+    /// When an offset was never charged, was completed before, or was already
+    /// consumed by `take_frontier`. Each case means the completion does not
+    /// belong to this ledger's window, and marking it would corrupt the
+    /// commit accounting.
     pub fn complete(&mut self, offsets: &[Offset]) {
         let base_offset = self.base_offset.expect("completion before any delivery");
         for &offset in offsets {
