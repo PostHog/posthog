@@ -4,6 +4,30 @@ import { parseLogBodyForIngestion } from './log-body-parse'
 
 export const PATTERN_VERSION = 3
 
+/**
+ * Everything here shapes the emitted pattern, so it sits inside `PATTERN_VERSION`: two records may
+ * only be grouped by `pattern` when they carry the same version.
+ *
+ * These are constants rather than config for that reason. A per-pod override would let two pods stamp
+ * one version onto differently shaped patterns, which no consumer could detect. The shape-safe
+ * operational lever is `LOGS_PATTERN_MASKING_ENABLED_TEAMS`, which stops masking instead of changing it.
+ *
+ * `computeLogPattern` takes no caps argument, so there is no override path to reach at all. `readonly`
+ * states the intent to the compiler and `Object.freeze` holds it at runtime, because a caller reaching
+ * this object through an `any` would otherwise reshape every pattern under an unchanged version.
+ */
+export type PatternCaps = {
+    /** Ceiling on the body chars fed to the masker; longer bodies are cut first (CPU guard). */
+    readonly maxInputChars: number
+    /** Truncation applied to the masked pattern, after masking, so more real content survives the cut. */
+    readonly maxOutputChars: number
+}
+
+export const PATTERN_CAPS: PatternCaps = Object.freeze({
+    maxInputChars: 8192,
+    maxOutputChars: 1024,
+})
+
 export type MaskRuleName = 'timestamp' | 'klogtime' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
 
 export type MaskRule = {
@@ -64,7 +88,7 @@ export const MASK_RULES: readonly MaskRule[] = [
 
 export const JSON_ARRAY = '<JSON_ARRAY>'
 
-const KEY_SET_MAX_KEYS = 32
+export const KEY_SET_MAX_KEYS = 32
 
 const MASK_COMBINED_RE = createTrackedRE2(
     MASK_RULES.map((rule) => `(${rule.pattern})`).join('|'),
@@ -102,7 +126,7 @@ export type LogPatternResult = {
     ruleFires: number[]
 }
 
-const MESSAGE_KEYS = ['message', 'msg', 'event'] as const
+export const MESSAGE_KEYS = ['message', 'msg', 'event'] as const
 
 function extractJsonMessage(value: object): string | null {
     if (Array.isArray(value)) {
@@ -117,6 +141,9 @@ function extractJsonMessage(value: object): string | null {
     return null
 }
 
+const capOutput = (pattern: string): string =>
+    pattern.length > PATTERN_CAPS.maxOutputChars ? pattern.slice(0, PATTERN_CAPS.maxOutputChars) : pattern
+
 function jsonKeySetPattern(value: object): string {
     const keys = Object.keys(value).sort()
     const kept = keys.slice(0, KEY_SET_MAX_KEYS)
@@ -124,17 +151,13 @@ function jsonKeySetPattern(value: object): string {
     return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
 }
 
-export function computeLogPattern(
-    body: string | null | undefined,
-    maxInputChars: number,
-    maxOutputChars: number
-): LogPatternResult {
+export function computeLogPattern(body: string | null | undefined): LogPatternResult {
     if (body === null || body === undefined || body === '') {
         return { pattern: '', bodyKind: 'empty', inputCapped: false, maskedLength: 0, ruleFires: [] }
     }
 
-    const inputCapped = body.length > maxInputChars
-    const cappedBody = inputCapped ? body.slice(0, maxInputChars) : body
+    const inputCapped = body.length > PATTERN_CAPS.maxInputChars
+    const cappedBody = inputCapped ? body.slice(0, PATTERN_CAPS.maxInputChars) : body
     const parsed = parseLogBodyForIngestion(cappedBody)
     const bodyKind: PatternBodyKind =
         parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
@@ -150,7 +173,7 @@ export function computeLogPattern(
                 const isArray = Array.isArray(parsed.value)
                 const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
                 return {
-                    pattern: pattern.length > maxOutputChars ? pattern.slice(0, maxOutputChars) : pattern,
+                    pattern: capOutput(pattern),
                     bodyKind,
                     inputCapped,
                     maskedLength: pattern.length,
@@ -174,7 +197,7 @@ export function computeLogPattern(
 
     const { masked, ruleFires } = maskString(maskInput)
     return {
-        pattern: masked.length > maxOutputChars ? masked.slice(0, maxOutputChars) : masked,
+        pattern: capOutput(masked),
         bodyKind,
         inputCapped,
         maskedLength: masked.length,
