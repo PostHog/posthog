@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,6 +28,7 @@ import {
     PAGINATOR_DEFAULTS,
     PAGINATOR_TYPES,
     type PaginatorType,
+    parseJsonObject,
     SORT_MODES,
     type SortMode,
     type TableForm,
@@ -542,6 +543,10 @@ function TableCard({
     // manifest-path error, so warn here where the fields are.
     const nameMissing = !table.name.trim()
     const pathMissing = !table.path.trim()
+    // A body that won't parse to a JSON object is dropped by buildManifest, so warn here where it's
+    // edited. Only for POST — that's where the field renders and where a body is meaningful.
+    const bodyInvalid =
+        table.method === 'POST' && table.request_body.trim().length > 0 && parseJsonObject(table.request_body) === null
     return (
         <div className="rounded border border-border p-3 space-y-3">
             <div className="flex items-center justify-between">
@@ -600,6 +605,24 @@ function TableCard({
                     <p className="m-0 text-xs text-danger">Enter a path. Creating the source fails without one.</p>
                 )}
             </div>
+            {table.method === 'POST' && (
+                <LemonField.Pure label="Request body (JSON)">
+                    <LemonTextArea
+                        placeholder='{"query": "search term"}'
+                        value={table.request_body}
+                        onChange={(value) => onUpdate({ request_body: value })}
+                    />
+                    <p className="m-0 mt-1 text-xs text-secondary">
+                        Sent as the JSON request body on every request to this endpoint. Use it for search or query APIs
+                        that take their parameters in the body. Leave blank for none.
+                    </p>
+                    {bodyInvalid && (
+                        <p className="m-0 mt-1 text-xs text-danger">
+                            Enter a valid JSON object. The body is left off until it parses.
+                        </p>
+                    )}
+                </LemonField.Pure>
+            )}
             <LemonField.Pure label="Records JSONPath">
                 <LemonInput
                     placeholder="data"
