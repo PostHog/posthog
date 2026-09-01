@@ -31,7 +31,7 @@ import {
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -61,6 +61,9 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
             }
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
+            }
+            if (params.email_sending_rate_limit !== undefined) {
+                body['email_sending_rate_limit'] = params.email_sending_rate_limit
             }
             if (params.edges !== undefined) {
                 body['edges'] = params.edges
@@ -186,6 +189,8 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     offset: params.offset,
                     search: params.search,
                     status: params.status,
+                    trigger: params.trigger,
+                    type: params.type,
                     updated_at: params.updated_at,
                 },
             })
@@ -230,6 +235,7 @@ const workflowsListInvocations = (): ToolBase<
                 after: params.after,
                 before: params.before,
                 distinct_id: params.distinct_id,
+                error_message_contains: params.error_message_contains,
                 limit: params.limit,
                 status: params.status,
             },
@@ -282,6 +288,24 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
                 limit: params.limit,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const WorkflowsPatchActionEmailSchema = WorkflowActionEmailPatchSchema
+
+const workflowsPatchActionEmail = (): ToolBase<typeof WorkflowsPatchActionEmailSchema, Schemas.HogFlow> => ({
+    name: 'workflows-patch-action-email',
+    schema: WorkflowsPatchActionEmailSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchActionEmailSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = WorkflowsPatchActionEmailSchema.parse(params)
+        const { id, action_id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(String(action_id))}/email/`,
+            body,
         })
         return result
     },
@@ -342,6 +366,9 @@ const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSch
         const body: Record<string, unknown> = {}
         if (params.overwrite !== undefined) {
             body['overwrite'] = params.overwrite
+        }
+        if (params.expected_draft_updated_at !== undefined) {
+            body['expected_draft_updated_at'] = params.expected_draft_updated_at
         }
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'POST',
@@ -435,6 +462,9 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
             }
+            if (params.email_sending_rate_limit !== undefined) {
+                body['email_sending_rate_limit'] = params.email_sending_rate_limit
+            }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
             }
@@ -490,6 +520,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-list-revisions': workflowsListRevisions,
     'workflows-logs': workflowsLogs,
+    'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,

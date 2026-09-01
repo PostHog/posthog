@@ -91,7 +91,7 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
         textOutputTokens = audioOutputTokens > 0 || imageOutputTokens > 0 ? Math.max(0, derived) : derived
     }
 
-    const reasoningTokens = event.properties['$ai_reasoning_tokens']
+    const reasoningTokens = numericProperty(event, '$ai_reasoning_tokens')
     if (reasoningTokens && event.properties['$ai_model'] && mustAddReasoningCost(event.properties['$ai_model'])) {
         textOutputTokens = bigDecimal.add(textOutputTokens, reasoningTokens)
     }

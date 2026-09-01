@@ -224,6 +224,12 @@ export GOMODCACHE="$GOPATH/pkg/mod"
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
+# In `flox activate -- <cmd>` mode, Flox does not source [profile], so the uv venv
+# is not on PATH. Add it here so non-interactive commands can find hogli and
+# Python tooling.
+if [[ "$_interactive" != true ]] && [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
+  export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+fi
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
@@ -305,6 +311,23 @@ _UV_SKIP=0
 [[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" ]] && _UV_SKIP=1
 _PHROCS_SKIP=0
 [[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
+
+# Seed repo-local git settings here, because package.json's postinstall runs inside
+# the sandbox below, which write-denies .git/config. The postinstall still tries
+# blame.ignoreRevsFile for clones that never activate flox (.claude/hooks/setup-cloud.sh
+# and friends); under the sandbox that attempt no-ops and this one is what lands.
+# Idempotent — the --get short-circuits once the value is set.
+git -C "$FLOX_ENV_PROJECT" config --get blame.ignoreRevsFile >/dev/null 2>&1 ||
+  git -C "$FLOX_ENV_PROJECT" config blame.ignoreRevsFile .git-blame-ignore-revs >/dev/null 2>&1 ||
+  true
+# Same for husky's core.hooksPath, which `prepare` sets during the sandboxed pnpm
+# install below. husky checks only whether git spawned, not how it exited, so the
+# denied write leaves a fresh clone with no hooks and an install that claims success.
+# --local, not --get: a global core.hooksPath would satisfy a merged --get and skip
+# the seed, leaving the repo pointed at the developer's global hooks dir instead.
+git -C "$FLOX_ENV_PROJECT" config --local --get core.hooksPath >/dev/null 2>&1 ||
+  git -C "$FLOX_ENV_PROJECT" config core.hooksPath .husky >/dev/null 2>&1 ||
+  true
 
 # Sandbox the automatic installs below by default on macOS (opt out with
 # POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check

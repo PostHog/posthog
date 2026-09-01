@@ -11,6 +11,7 @@ import {
     SavedPartialUpdateParams,
     SavedRegenerateCreateParams,
     SavedRetrieveParams,
+    WebAnalyticsPathCleaningSuggestionsApplyParams,
     WebAnalyticsWeeklyDigestQueryParams,
 } from '@/generated/web_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -32,6 +33,7 @@ const heatmapsEvents = (): ToolBase<typeof HeatmapsEventsSchema, Schemas.Heatmap
                 cohort_ids: params.cohort_ids,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                events: params.events,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
@@ -63,6 +65,7 @@ const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Sche
                 cohort_ids: params.cohort_ids,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                events: params.events,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
@@ -213,6 +216,45 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
     },
 })
 
+const WebAnalyticsPathCleaningSuggestionsApplySchema = WebAnalyticsPathCleaningSuggestionsApplyParams.omit({
+    project_id: true,
+})
+
+const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<
+    typeof WebAnalyticsPathCleaningSuggestionsApplySchema,
+    Schemas.ApplyPathCleaningSuggestionResponse
+> => ({
+    name: 'web-analytics-path-cleaning-suggestions-apply',
+    schema: WebAnalyticsPathCleaningSuggestionsApplySchema,
+    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsApplySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ApplyPathCleaningSuggestionResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_path_cleaning_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsPathCleaningSuggestionsGenerateSchema = z.object({})
+
+const webAnalyticsPathCleaningSuggestionsGenerate = (): ToolBase<
+    typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema,
+    Schemas.GeneratePathCleaningSuggestionResponse
+> => ({
+    name: 'web-analytics-path-cleaning-suggestions-generate',
+    schema: WebAnalyticsPathCleaningSuggestionsGenerateSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.GeneratePathCleaningSuggestionResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_path_cleaning_suggestions/generate/`,
+        })
+        return result
+    },
+})
+
 const WebAnalyticsWeeklyDigestSchema = WebAnalyticsWeeklyDigestQueryParams
 
 const webAnalyticsWeeklyDigest = (): ToolBase<typeof WebAnalyticsWeeklyDigestSchema, Schemas.WeeklyDigestResponse> => ({
@@ -316,7 +358,7 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
@@ -542,6 +584,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
+    'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
+    'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,
     'query-web-overview': createQueryWrapper({
         name: 'query-web-overview',

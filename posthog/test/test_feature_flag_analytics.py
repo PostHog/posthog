@@ -19,6 +19,7 @@ from django.core.cache import cache
 
 from posthog import redis
 from posthog.constants import FlagRequestType
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
@@ -933,6 +934,12 @@ class TestEnrichedAnalytics(BaseTest):
             key="beta-feature3",
             created_by=self.user,
         )
+        f5 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature4",
+            created_by=self.user,
+        )
 
         # create usage dashboard for f1 and f3
         _create_usage_dashboard(f1, self.user)
@@ -959,6 +966,14 @@ class TestEnrichedAnalytics(BaseTest):
             distinct_id="test3",
             event="$feature_view",
             properties={"feature_flag": "test_flag"},
+            timestamp="2021-01-12T12:00:10Z",
+        )
+        # out of bounds for f5 - should not set has_enriched_analytics
+        _create_event(
+            team=self.team,
+            distinct_id="test8",
+            event="$feature_view",
+            properties={"feature_flag": "beta-feature4"},
             timestamp="2021-01-12T12:00:10Z",
         )
         # different flag
@@ -1005,11 +1020,13 @@ class TestEnrichedAnalytics(BaseTest):
         f2.refresh_from_db()
         f3.refresh_from_db()
         f4.refresh_from_db()
+        f5.refresh_from_db()
 
         self.assertEqual(f1.has_enriched_analytics, True)
         self.assertEqual(f2.has_enriched_analytics, True)
         self.assertEqual(f3.has_enriched_analytics, False)
         self.assertEqual(f4.has_enriched_analytics, False)
+        self.assertEqual(f5.has_enriched_analytics, False)
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         assert f1.usage_dashboard is not None
@@ -1035,16 +1052,53 @@ class TestEnrichedAnalytics(BaseTest):
         self.assertEqual(f1.has_enriched_analytics, True)
         self.assertEqual(f1.usage_dashboard, None)
 
+    def test_find_flags_with_enriched_analytics_via_feature_interaction_only(self):
+        # A flag that only ever receives $feature_interaction (no $feature_view) should still be
+        # detected as enriched, since the generated usage dashboard charts both events.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Interaction only feature",
+            key="interaction-only-flag",
+            created_by=self.user,
+        )
+
+        _create_event(
+            team=self.team,
+            distinct_id="test",
+            event="$feature_interaction",
+            properties={"feature_flag": "interaction-only-flag"},
+            timestamp="2021-01-01T12:00:00Z",
+        )
+
+        flush_persons_and_events()
+
+        start = datetime.datetime(2021, 1, 1, 0, 0, 0)
+        end = datetime.datetime(2021, 1, 2, 0, 0, 0)
+
+        find_flags_with_enriched_analytics(start, end)
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.has_enriched_analytics, True)
+
 
 class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
     @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
-    def test_logs_and_reraises_on_failure(self, mock_find_flags: MagicMock) -> None:
+    def test_logs_and_captures_on_failure_without_reraising(self, mock_find_flags: MagicMock) -> None:
         mock_find_flags.side_effect = Exception("boom")
 
-        with patch("posthog.tasks.tasks.capture_exception") as mock_capture, self.assertRaises(Exception):
+        with patch("posthog.tasks.tasks.capture_exception") as mock_capture:
             find_flags_with_enriched_analytics_task()
 
         mock_capture.assert_called_once()
+
+    @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
+    def test_unknown_table_error_is_not_captured(self, mock_find_flags: MagicMock) -> None:
+        mock_find_flags.side_effect = CHQueryErrorUnknownTable("Table default.events doesn't exist", code=60)
+
+        with patch("posthog.tasks.tasks.capture_exception") as mock_capture:
+            find_flags_with_enriched_analytics_task()
+
+        mock_capture.assert_not_called()
 
 
 class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):

@@ -83,6 +83,17 @@ Note that Railway rate limits API requests per plan (as low as 100 requests/hour
             "Railway API error: Not Authorized": "Your Railway API token is invalid, revoked, or lacks access to this resource. Create a new account or workspace token in your Railway account settings, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_execute` already retries 429/5xx (as the "Railway API error (retryable)" sentinel),
+        # connection failures, and read timeouts in-process. Once that budget exhausts, Temporal
+        # retries the whole activity and the failure is transient and self-recovering, so don't
+        # surface it as tracked exception noise. The host is a constant, not user input, so
+        # matching on it doesn't risk swallowing an unrelated failure.
+        return {
+            "Railway API error (retryable)",
+            "HTTPSConnectionPool(host='backboard.railway.com', port=443)",
+        }
+
     def get_schemas(
         self,
         config: RailwaySourceConfig,

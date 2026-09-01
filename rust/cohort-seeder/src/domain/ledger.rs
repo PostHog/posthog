@@ -1,11 +1,11 @@
 //! Pure per-run fold of observed `reconcile_complete` markers into per-cohort partition bitmaps.
 //!
-//! The marker watcher's dedicated task reads *all* membership partitions and hands each marker
+//! The marker watcher's dedicated task reads *all* marker partitions and hands each marker
 //! to the ledger of the run it names. Folding is a monotone set-union: a partition's bit, once set,
 //! never clears, so replaying the same marker stream in any order yields the same bitmaps. The final
 //! per-cohort outcome (complete / partial) is reachable only through [`MarkerLedger::settle`], which
 //! consumes a [`SettleProof`] — the capability minted in [`super::completion`] once the watcher has
-//! read past the membership end-watermarks captured at the liveness pass. No proof, no negative
+//! read past the marker-topic end-watermarks captured at the liveness pass. No proof, no negative
 //! verdict.
 
 use std::collections::BTreeMap;
@@ -327,8 +327,8 @@ mod tests {
         // Reach the proof through the real caught-up path so the ZST stays un-forgeable in tests:
         // one partition read up to its captured end, minting a fresh proof for each settle.
         let proof = || {
-            use crate::domain::{MembershipPartition, NextOffset, ObservationEnds, WatchPositions};
-            let partition = MembershipPartition::new(0);
+            use crate::domain::{NextOffset, ObservationEnds, WatchPartition, WatchPositions};
+            let partition = WatchPartition::new(0);
             let at = NextOffset::from_high_watermark(10);
             let mut ends = ObservationEnds::new();
             ends.insert(partition, at);

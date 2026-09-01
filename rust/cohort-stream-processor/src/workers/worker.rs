@@ -425,8 +425,7 @@ async fn run_worker(
             if errors > 0 {
                 warn!(
                     partition_id,
-                    errors,
-                    "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+                    errors, "produce to the membership topic failed; holding offset for replay",
                 );
                 continue;
             }
@@ -508,7 +507,7 @@ async fn flush_event_changes_before_inline(
         *held = true;
         warn!(
             partition_id,
-            errors, "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+            errors, "produce to the membership topic failed; holding offset for replay",
         );
         return true;
     }
@@ -841,8 +840,7 @@ async fn handle_sweep(
         if errors > 0 {
             warn!(
                 partition_id,
-                errors,
-                "sweep produce to cohort_membership_changed_shadow failed; rescheduling for replay",
+                errors, "sweep produce to the membership topic failed; rescheduling for replay",
             );
             reschedule_all(queue, &popped);
             return;
@@ -939,7 +937,7 @@ async fn handle_sweep(
         warn!(
             partition_id,
             errors,
-            "sweep stage 2 produce to cohort_membership_changed_shadow failed; dropping (cf_stage2 already committed, at-most-once)",
+            "sweep stage 2 produce to the membership topic failed; dropping (cf_stage2 already committed, at-most-once)",
         );
         return;
     }
@@ -1072,14 +1070,15 @@ mod tombstone_redirect_tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
-        CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
+        CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, CaptureStreamEventSink,
+        CaptureTransferSink,
     };
     use crate::stage1::person_record::PersonRecord;
     use crate::stage1::state::AppliedOffsets;
@@ -1217,12 +1216,14 @@ mod tombstone_redirect_tests {
         })
     }
 
-    fn reconcile_deps() -> Arc<MergeWorkerDeps> {
+    fn reconcile_deps() -> (Arc<MergeWorkerDeps>, CaptureReconcileMarkerSink) {
         let mut deps = Arc::try_unwrap(merge_deps_with(CaptureStreamEventSink::new()))
             .unwrap_or_else(|_| panic!("test owns the only dependency Arc"));
         deps.reconcile.enabled = true;
         deps.reconcile.scan_page = 2;
-        Arc::new(deps)
+        let markers = CaptureReconcileMarkerSink::new();
+        deps.reconcile.marker_sink = Arc::new(markers.clone());
+        (Arc::new(deps), markers)
     }
 
     /// Deps with the `stage2_orphan_gc_enabled` kill-switch set to `stage2_orphan_gc_enabled`.
@@ -1312,7 +1313,7 @@ mod tombstone_redirect_tests {
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
         );
 
@@ -1343,14 +1344,14 @@ mod tombstone_redirect_tests {
 
         let (_dir, store) = temp_store();
         let membership = CaptureSink::new();
-        let merge = reconcile_deps();
+        let (merge, marker_sink) = reconcile_deps();
         let seed_tracker = merge.seed_tracker.clone();
         let backlog = merge.reconcile.backlog.clone();
         let events_tracker = Arc::new(OffsetTracker::new());
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             RunId(Uuid::from_u128(7)),
         );
 
@@ -1374,7 +1375,7 @@ mod tombstone_redirect_tests {
         .await;
 
         assert!(membership.changes().is_empty());
-        let markers = membership.markers();
+        let markers = marker_sink.markers();
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].partition(), 0);
         assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(7)));

@@ -7,11 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LangSmithSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
-    REPEATED_CURSOR_ERROR,
-    LangSmithResumeConfig,
+    RESPONSE_TOO_LARGE_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLangSmithSource:
@@ -19,9 +17,6 @@ class TestLangSmithSource:
         self.source = LangSmithSource()
         self.team_id = 123
         self.config = LangSmithSourceConfig(api_key="key", host=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LANGSMITH
 
     def test_config_fields(self):
         field_names = {f.name for f in self.source.get_source_config.fields}
@@ -56,14 +51,6 @@ class TestLangSmithSource:
         assert schema.supports_incremental is expected_incremental
         assert schema.supports_append is expected_incremental
         assert schema.detected_primary_keys == ["id"]
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", REPEATED_CURSOR_ERROR])
-    def test_auth_errors_are_non_retryable(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is LangSmithResumeConfig
 
     def test_validate_credentials_collapses_blank_host_and_forwards_team_id(self):
         config = LangSmithSourceConfig(api_key="key", host="")
@@ -118,6 +105,12 @@ class TestLangSmithSource:
         _, kwargs = langsmith_source.call_args
         # A stale watermark must not leak into a full-refresh run.
         assert kwargs["db_incremental_field_last_value"] is None
+
+    def test_oversized_response_is_non_retryable(self):
+        # Retrying an oversized page re-requests the same data and hits the same cap every time,
+        # so the error must be registered as non-retryable to stop immediately.
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(RESPONSE_TOO_LARGE_ERROR in key for key in non_retryable)
 
     def test_documented_tables_render_from_static_catalog(self):
         # lists_tables_without_credentials must expose the table catalog (+ canonical descriptions)

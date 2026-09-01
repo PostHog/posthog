@@ -1,0 +1,1 @@
+export { OpenTelemetryInstallation } from './opentelemetry'

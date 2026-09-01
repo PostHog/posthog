@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from datetime import timedelta
 from pathlib import Path
@@ -7,12 +8,13 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_schedule_exists
 
-from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
+from products.data_modeling.backend.logic.cohort_scheduling import Tier, tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import schedulable_nodes
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
@@ -27,6 +29,9 @@ logger = structlog.get_logger(__name__)
 
 REPORT_MARKER = "=== BATCH RECONCILE REPORT JSON ==="
 
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_BASE_WAIT_SECONDS = 10
+
 
 class Anomaly(Exception):
     """The team's state diverged from what the plan predicted; halts the batch."""
@@ -34,6 +39,11 @@ class Anomaly(Exception):
 
 def _seconds(interval: timedelta) -> int:
     return int(interval.total_seconds())
+
+
+def _tier_key(tier: Tier) -> str:
+    seconds = _seconds(tier.interval)
+    return str(seconds) if tier.anchor_minutes is None else f"{seconds}@{tier.anchor_minutes}"
 
 
 @async_to_sync
@@ -82,7 +92,7 @@ class Command(BaseCommand):
             record: dict = {"team_id": team_id, "status": "planned", "dags": [], "anomalies": []}
             report["teams"].append(record)
             try:
-                self._process_team(team_id, record, apply=apply)
+                self._process_team_with_retry(team_id, record, apply=apply)
                 if apply:
                     record["status"] = "applied"
                 self.stdout.write(f"team {team_id}: {record['status']}")
@@ -108,6 +118,23 @@ class Command(BaseCommand):
         self.stdout.write(REPORT_MARKER)
         self.stdout.write(payload)
 
+    def _process_team_with_retry(self, team_id: int, record: dict, *, apply: bool) -> None:
+        """Retry a rate-limited team instead of halting the batch: both phases are
+        idempotent per team (plan is read-only; re-applying converges on the same
+        tier set), so on RESOURCE_EXHAUSTED the whole team is safely re-run after
+        a backoff. Any other error propagates to the per-team handler."""
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                self._process_team(team_id, record, apply=apply)
+                return
+            except RPCError as err:
+                if err.status != RPCStatusCode.RESOURCE_EXHAUSTED or attempt == RATE_LIMIT_RETRIES:
+                    raise
+                wait = RATE_LIMIT_BASE_WAIT_SECONDS * (2**attempt)
+                self.stderr.write(f"team {team_id}: temporal rate limited, retrying in {wait}s")
+                record["dags"].clear()
+                time.sleep(wait)
+
     def _process_team(self, team_id: int, record: dict, *, apply: bool) -> None:
         team = Team.objects.filter(id=team_id).first()
         if team is None:
@@ -127,8 +154,8 @@ class Command(BaseCommand):
             dag_record: dict = {
                 "dag_id": str(dag.id),
                 "name": dag.name,
-                "planned_tiers": sorted(_seconds(t) for t in preview.desired_tiers),
-                "tier_node_counts": {str(_seconds(t)): len(nodes) for t, nodes in preview.desired_tiers.items()},
+                "planned_tiers": sorted(_seconds(t.interval) for t in preview.desired_tiers),
+                "tier_node_counts": {_tier_key(t): len(nodes) for t, nodes in preview.desired_tiers.items()},
                 "to_create": sorted(preview.plan.to_create),
                 "to_update": sorted(preview.plan.to_update),
                 "to_delete": sorted(preview.plan.to_delete),
@@ -178,7 +205,9 @@ class Command(BaseCommand):
                 raise Anomaly(f"DAG {dag.name}: {len(failed)} v1 schedule(s) failed to delete")
 
         for dag, preview, dag_record in plans:
-            expected = sorted(tier_schedule_id(str(dag.id), interval) for interval in preview.desired_tiers)
+            expected = sorted(
+                tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in preview.desired_tiers
+            )
             missing, lingering = _verify_schedules(expected, sorted(preview.plan.to_delete))
             dag_record["verified"] = not missing and not lingering
             if missing or lingering:

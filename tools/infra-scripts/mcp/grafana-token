@@ -86,8 +86,19 @@ case "${1:-}" in
             # Delete existing token if present (security add doesn't update)
             security delete-generic-password -a "$USER" -s "$SERVICE" 2>/dev/null || true
 
-            # Add new token (use stdin to avoid token appearing in process list)
-            printf '%s' "$TOKEN" | security add-generic-password -a "$USER" -s "$SERVICE" -w
+            # security reads password input from the TTY, so use expect to keep the token out of process arguments.
+            printf '%s\n' "$TOKEN" | KEYCHAIN_ACCOUNT="$USER" KEYCHAIN_SERVICE="$SERVICE" expect -c '
+                set token [gets stdin]
+                log_user 0
+                spawn security add-generic-password -a $env(KEYCHAIN_ACCOUNT) -s $env(KEYCHAIN_SERVICE) -w
+                expect "password data for new item:"
+                send -- "$token\r"
+                expect "retype password for new item:"
+                send -- "$token\r"
+                expect eof
+                set wait_status [wait]
+                exit [lindex $wait_status 3]
+            '
 
             echo "Token for $REGION saved to Keychain."
             echo ""

@@ -234,6 +234,21 @@ export class KafkaConsumer {
         this.lastHeartbeatTime = Date.now()
     }
 
+    /**
+     * Say that this consumer waits on purpose, and does not stall.
+     *
+     * Separate from `heartbeat()` because it relaxes the loop stall detector, and most callers must
+     * not do that. Two lanes drive `heartbeat()` from a `setInterval`, which keeps firing while a
+     * batch is wedged on a promise that never settles, so moving the loop clock there would leave
+     * such a pod reporting healthy forever.
+     *
+     * Call this only from a handler that sleeps by design, and only from its own await chain.
+     */
+    public reportDeliberateWait(): void {
+        this.lastHeartbeatTime = Date.now()
+        this.lastConsumerLoopTime = Date.now()
+    }
+
     public isHealthy(): HealthCheckResult {
         // Use legacy heartbeat-based health check if feature flag is disabled
         if (!defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK) {
@@ -361,6 +376,14 @@ export class KafkaConsumer {
         })
 
         return [offsets.lowOffset, offsets.highOffset]
+    }
+
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
     }
 
     public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
@@ -497,9 +520,16 @@ export class KafkaConsumer {
     }
 
     private createConsumer(): RdKafkaConsumer {
+        // auto.offset.reset is a topic-level property, and librdkafka ignores the global-config
+        // form on our version (see node-rdkafka #984), so the resolved value, including any
+        // caller override, must be mirrored into the explicit topic config. v2 does the same.
+        const autoOffsetReset =
+            (this.consumerConfig['auto.offset.reset' as keyof ConsumerGlobalConfig] as
+                | 'earliest'
+                | 'latest'
+                | undefined) ?? 'earliest'
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
-            // Default settings
-            'auto.offset.reset': 'earliest',
+            'auto.offset.reset': autoOffsetReset,
         })
 
         consumer.on('event.log', (log) => {

@@ -30,9 +30,9 @@ from django.core import signing
 
 import structlog
 from pydantic import BaseModel, ValidationError
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -257,6 +257,10 @@ class SlackIdentity(BaseModel):
     slack_email: str | None = None
     user_access_token: str
     user_refresh_token: str | None = None
+    # What Slack actually granted, space-delimited. Normally OIDC_SCOPES verbatim —
+    # the consent screen grants them together — so this is a record of what an older
+    # link was created with rather than something to branch on.
+    user_scopes: str = ""
 
 
 def _credentials() -> tuple[str, str]:
@@ -303,7 +307,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
     """
     client_id, client_secret = _credentials()
     try:
-        token_response = WebClient().openid_connect_token(
+        token_response = WebClient(source="slack_user_oauth", app_id="posthog").openid_connect_token(
             client_id=client_id,
             client_secret=client_secret,
             code=code,
@@ -321,7 +325,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         raise SlackUserOAuthError("Slack OIDC token response missing access_token")
 
     try:
-        userinfo = WebClient(token=user_token).openid_connect_userInfo()
+        userinfo = WebClient(token=user_token, source="slack_user_oauth", app_id="posthog").openid_connect_userInfo()
     except SlackApiError as exc:
         error = exc.response.get("error") if exc.response else None
         logger.warning("slack_app_user_link_oidc_userinfo_failed", error=error)
@@ -346,6 +350,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         # `refresh_token` is only present when the Slack app has
         # `token_rotation_enabled`; falls back to None in today's manifest.
         user_refresh_token=token_response.get("refresh_token"),
+        user_scopes=token_response.get("scope") or "",
     )
 
 

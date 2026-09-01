@@ -12,6 +12,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     InsightActorsQuery,
     LifecycleQuery,
+    PathsV2ActorsQuery,
     StickinessActorsQuery,
     StickinessQuery,
     TrendsQuery,
@@ -19,13 +20,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.models import Team
@@ -34,8 +32,15 @@ from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
-from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
+from products.product_analytics.backend.facade.queries import (
+    FunnelCorrelationQueryRunner,
+    FunnelsQueryRunner,
+    LifecycleQueryRunner,
+    PathsQueryRunner,
+    PathsV2QueryRunner,
+    RetentionQueryRunner,
+    StickinessQueryRunner,
+)
 
 
 class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -102,6 +107,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         elif isinstance(self.source_runner, PathsQueryRunner):
             paths_runner = cast(PathsQueryRunner, self.source_runner)
             return paths_runner.to_actors_query()
+        elif isinstance(self.source_runner, PathsV2QueryRunner):
+            paths_v2_runner = cast(PathsV2QueryRunner, self.source_runner)
+            paths_v2_actors_query = cast(PathsV2ActorsQuery, self.query)
+            return paths_v2_runner.to_actors_query(paths_v2_actors_query.element)
         elif isinstance(self.source_runner, StickinessQueryRunner):
             stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
             stickiness_actors_query = cast(StickinessActorsQuery, self.query)
@@ -156,13 +165,13 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return cast(RetentionQueryRunner, self.source_runner).group_type_index
 
         if isinstance(self.source_runner, FunnelCorrelationQueryRunner):
-            assert isinstance(self.query, FunnelCorrelationActorsQuery)
-            assert isinstance(self.query.source, FunnelCorrelationQuery)
+            if not isinstance(self.query.source, FunnelCorrelationQuery):
+                raise ExposedHogQLError("Funnel correlation actors query requires a FunnelCorrelationQuery source")
             return self.query.source.source.source.aggregation_group_type_index
 
         if isinstance(self.source_runner, FunnelsQueryRunner):
-            assert isinstance(self.query, FunnelsActorsQuery)
-            assert isinstance(self.query.source, FunnelsQuery)
+            if not isinstance(self.query.source, FunnelsQuery):
+                raise ExposedHogQLError("Funnels actors query requires a FunnelsQuery source")
             return self.query.source.aggregation_group_type_index
 
         if isinstance(self.source_runner, LifecycleQueryRunner):
@@ -202,4 +211,5 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self.build_hogql_context(),
         )

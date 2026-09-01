@@ -18,6 +18,52 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Every action type the worker can execute. Must stay in sync with the `actionHandlers` registry in
+# nodejs/src/cdp/services/hogflows/hogflow-executor.service.ts (and the schemas mirroring it in
+# nodejs/src/cdp/schema/hogflow.ts and products/workflows/frontend/Workflows/hogflows/steps/types.ts).
+# A type absent here has no handler, so the run dies on reaching it with "Action type 'x' not
+# supported" - and unless that step sets on_error: continue, everything downstream never happens.
+# Ordered longest-lived first so the generated API/MCP enum reads in a sensible order.
+SUPPORTED_ACTION_TYPES: Final[list[str]] = [
+    "trigger",
+    "function",
+    "function_email",
+    "function_sms",
+    "function_push",
+    "delay",
+    "wait_until_condition",
+    "wait_until_time_window",
+    "conditional_branch",
+    "random_cohort_branch",
+    "exit",
+]
+
+# The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
+# Callers confuse the two (a stored workflow had an action of type "webhook", which is a trigger
+# kind), so the rejection message can say which mistake was made. Mirrors HogFlowTriggerSchema in
+# nodejs/src/cdp/schema/hogflow.ts.
+TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "event",
+        "schedule",
+        "manual",
+        "batch",
+        "tracking_pixel",
+        "webhook",
+        "data-warehouse-table",
+        "data-warehouse-view",
+        "internal-event",
+    }
+)
+
+# The internal events a workflow may subscribe to. The internal-events stream carries payloads
+# that each owning product gates behind its own scopes — recording content, exception detail,
+# activity detail, alert bodies — while starting a workflow needs only hog_flow:write. An
+# allowlist keeps that gap closed by default, so adding a trigger means answering the
+# authorization question for that event. Pair a new entry with a tile in
+# products/workflows/frontend/Workflows/hogflows/registry/triggers/.
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
+
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
 BILLABLE_ACTION_TYPES: Final[set[str]] = {
@@ -27,12 +73,31 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_push",  # Push notification actions
 }
 
+# Action types that send a message to a person. A workflow containing at least one of these is a
+# "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
+# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
+# same split, and the list API's `type` filter, which queries on it.
+MESSAGING_ACTION_TYPES: Final[list[str]] = [
+    "function_email",
+    "function_sms",
+    "function_push",
+]
+
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")
 # workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
 # frontend's PERSON_DEPENDENT_ACTION_TYPES.
 PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
     "wait_until_condition",
     "random_cohort_branch",
+}
+
+# Trigger types that start a run with no person attached: a synced warehouse row and a Slack message
+# are both authored by something PostHog has no person record for. Keep in sync with the frontend's
+# ROW_SCOPED_TRIGGER_TYPES.
+ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
+    "data-warehouse-table",
+    "data-warehouse-view",
+    "internal-event",
 }
 
 
@@ -77,6 +142,10 @@ class HogFlow(UUIDTModel):
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
     exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
+
+    # Optional email pacing for deliverability: {"count": <int>, "period": "minute" | "hour"}.
+    # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
+    email_sending_rate_limit = models.JSONField(null=True, blank=True)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)

@@ -26,12 +26,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
     def test_returns_single_layer_when_other_absent(self, _name, dashboard, tile, expected):
         assert merge_filters_by_priority(dashboard, tile) == expected
 
-    def test_tile_scalar_fields_win_over_dashboard(self):
+    @parameterized.expand(
+        [
+            ("tile forces test accounts on", False, True),
+            # False is a meaningful override (force off), so it must beat a dashboard True too.
+            ("tile forces test accounts off", True, False),
+        ]
+    )
+    def test_tile_scalar_fields_win_over_dashboard(self, _name, dashboard_fta, tile_fta):
         merged = merge_filters_by_priority(
-            {"interval": "day", "filterTestAccounts": False},
-            {"interval": "week", "filterTestAccounts": True},
+            {"interval": "day", "filterTestAccounts": dashboard_fta},
+            {"interval": "week", "filterTestAccounts": tile_fta},
         )
-        assert merged == {"interval": "week", "filterTestAccounts": True}
+        assert merged == {"interval": "week", "filterTestAccounts": tile_fta}
 
     def test_dashboard_scalar_kept_when_tile_leaves_it_unset(self):
         merged = merge_filters_by_priority(
@@ -219,9 +226,9 @@ class TestResolveEffectiveDashboardFilters(SimpleTestCase):
     def test_normalizes_single_layer_dict_properties_to_flat_list(self):
         prop = {"key": "$browser", "value": "Chrome", "type": "event"}
         query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
-        _, effective = resolve_effective_dashboard_filters(
+        effective = resolve_effective_dashboard_filters(
             query, {"date_from": "-7d", "properties": {"type": "AND", "values": [prop]}}, None
-        )
+        ).filters
         assert effective["properties"] == [prop]
         assert effective["date_from"] == "-7d"
 
@@ -292,9 +299,9 @@ class TestIgnoreDashboardFilters(SimpleTestCase):
     def test_flag_in_base_layer_does_not_reach_effective_filters(self):
         query = {"kind": "TrendsQuery", "series": []}
 
-        _, effective = resolve_effective_dashboard_filters(
+        effective = resolve_effective_dashboard_filters(
             query, {"ignoreDashboardFilters": True, "date_from": "-30d"}, None
-        )
+        ).filters
 
         assert effective == {"date_from": "-30d"}
         DashboardFilter(**effective)

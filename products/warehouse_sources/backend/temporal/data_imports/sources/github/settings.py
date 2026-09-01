@@ -4,7 +4,9 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+# Tests patch fields on these config records, so freezing them is a change of its own. The class
+# stays tracked in dataclass_frozen_baseline.txt for that migration.
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- tests mutate these config records
 class GithubEndpointConfig:
     name: str
     path: str  # Path template with {repository}, {organization}, and fan-out placeholders
@@ -49,10 +51,13 @@ class GithubEndpointConfig:
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway
     # pagination. A structured warning is logged if the cap is reached.
     max_pages_per_parent: int = 50
-    # First-sync floor: when set, the very first incremental sync only fans out
-    # over parents created within this many days, instead of crawling the whole
-    # repo history. The webhook carries steady-state, so only the one-off backfill
-    # needs a bound; later syncs advance from the stored watermark and ignore this.
+    # First-sync floor: the very first incremental sync only reaches back this many
+    # days instead of crawling the whole repo history. For a fan-out child it bounds
+    # the parent walk; for a repo-wide endpoint with `since` support it becomes a
+    # server-side `since` floor. The webhook carries steady-state, so only the
+    # one-off backfill needs a bound; later syncs advance from the stored watermark
+    # and ignore this. Zero means the poll does no backfill at all, which is what
+    # marks a webhook-capable endpoint webhook-only.
     initial_lookback_days: Optional[int] = None
     # Steady-state reconciliation for a webhook-fed fan-out child whose events GitHub does not
     # always deliver: after each webhook drain, re-fan parents created within this many days so
@@ -79,6 +84,12 @@ class GithubEndpointConfig:
     # checkpoints the watermark assuming ascending order. workflow_runs and deployments are the
     # original cases and are matched by name via _ALWAYS_NEWEST_FIRST_ENDPOINTS in github.py.
     always_desc: bool = False
+    # A 404 on this endpoint means the resource does not exist for this repository rather than that
+    # the repository or token is wrong, so the sync writes zero rows instead of failing. Issue types
+    # and repository teams only exist under an organization owner, so a user-owned repo 404s on both
+    # even with a perfectly good token. (The org-scoped endpoints predate this flag and are matched
+    # by name via ORG_SCOPED_ENDPOINTS in github.py.)
+    tolerate_not_found: bool = False
 
 
 def _datetime_field(field: str) -> IncrementalField:
@@ -424,6 +435,38 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         primary_key="repository",
         param_style="plain",
     ),
+    "repository_activity": GithubEndpointConfig(
+        name="repository_activity",
+        # Pushes, force pushes, merges, and branch creations and deletions, repo-wide. This is the
+        # only place force pushes and branch deletions are visible at all: they rewrite or remove
+        # history, so nothing in commits or pull_requests records that they happened.
+        # The endpoint takes no `since` filter but answers newest-first, so incremental syncs
+        # paginate down and stop at the watermark, the same way issue_events does.
+        path="/repos/{repository}/activity",
+        partition_key="timestamp",  # When the activity happened; immutable.
+        incremental_fields=[_datetime_field("timestamp")],
+        default_incremental_field="timestamp",
+        param_style="plain",
+        # desc is already the endpoint's default, but the descending walk is what makes the
+        # watermark stop correct, so send it rather than depend on the default staying put.
+        extra_params={"direction": "desc"},
+        sort_mode="desc",
+        always_desc=True,
+    ),
+    "repository_teams": GithubEndpointConfig(
+        name="repository_teams",
+        # The teams granted access to this repository, with the permission level each holds. Unlike
+        # the org-wide teams table this is repo-scoped, so it answers "who owns this repo" without
+        # the org membership grant.
+        path="/repos/{repository}/teams",
+        incremental_fields=[],
+        param_style="plain",
+        # GitHub answers 404 rather than 403 when the caller cannot see a repository's teams, and a
+        # user-owned repo has no teams at all, so a default connection could enable a table that
+        # only ever stays empty. Leave it deselected and let org-owned repos opt in.
+        should_sync_default=False,
+        tolerate_not_found=True,
+    ),
     # --- Issue and review discussion ------------------------------------------------------
     "issue_comments": GithubEndpointConfig(
         name="issue_comments",
@@ -433,6 +476,17 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="updated_at",
         param_style="sorted",
         supports_since_param=True,
+        # A comment is editable, so created/edited/deleted deliveries for one id can land in the
+        # same webhook batch. GitHub bumps updated_at on every edit, so it ranks them; the delta
+        # merge does not dedupe within a batch, so without this the row keeps whichever event
+        # happened to arrive last rather than the latest edit.
+        version_keys=["updated_at"],
+        # Bound the bootstrap: without a floor the first sync walks every comment ever written
+        # before webhook mode can activate (webhook_enabled needs initial_sync_complete), which on
+        # a large repo is thousands of requests against the shared budget. Steady state is the
+        # webhook, or a `since`-bounded poll, so only the backfill window is at stake; deeper
+        # history is a deliberate one-off backfill.
+        initial_lookback_days=14,
     ),
     "pull_request_comments": GithubEndpointConfig(
         name="pull_request_comments",
@@ -444,6 +498,33 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="updated_at",
         param_style="sorted",
         supports_since_param=True,
+        version_keys=["updated_at"],  # Editable, same as issue_comments.
+        initial_lookback_days=14,  # Bound the bootstrap, same as issue_comments.
+    ),
+    "commit_comments": GithubEndpointConfig(
+        name="commit_comments",
+        # The third comment surface, alongside issue_comments and pull_request_comments: comments
+        # left on a commit directly rather than through an issue or a pull request review.
+        path="/repos/{repository}/comments",
+        partition_key="created_at",
+        # Rows come back ordered by ascending id and the endpoint takes no `since` filter or sort,
+        # so an incremental sync would still walk every page. Full refresh only, which is why the
+        # commit_comment webhook matters more here than for the other two comment tables: it is the
+        # only way this table stops re-pulling the whole collection on every sync.
+        incremental_fields=[],
+        param_style="plain",
+        version_keys=["updated_at"],  # Editable, same as issue_comments.
+    ),
+    "issue_types": GithubEndpointConfig(
+        name="issue_types",
+        # Lookup table for the issue type an issue carries (Bug, Feature, Task, plus whatever the
+        # organization defines). issues stores it as a nested object per row, so without this there
+        # is nothing to group by when a type is renamed or retired.
+        path="/repos/{repository}/issue-types",
+        incremental_fields=[],
+        param_style="plain",
+        # Issue types are inherited from the organization owner, so a user-owned repository 404s.
+        tolerate_not_found=True,
     ),
     "issue_events": GithubEndpointConfig(
         name="issue_events",
@@ -587,13 +668,19 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # filter=all returns every check run for the ref, not just the latest per check name —
         # required for re-run and flake analysis.
         extra_params={"filter": "all"},
-        # One call per commit, so a first incremental sync would otherwise crawl the repo's entire
-        # commit history against a shared, rate-limited budget. Floor it at a recent window; later
-        # syncs advance from the watermark. A deliberate full refresh still pulls everything.
-        initial_lookback_days=7,
-        # A commit-grained fan-out is far more expensive than the repo-wide tables, so leave it
-        # deselected and let users opt in rather than paying for it on every default connection.
+        # Webhook-only marker, like reviews: the poll costs one call per commit, so any poll mode
+        # is a per-commit fan-out over a shared, rate-limited budget however tight the window is.
+        # initial_lookback_days == 0 makes source.py offer this schema webhook-only, activates
+        # webhook mode from the first sync, and makes the poll path yield no rows. History, if
+        # wanted, is a deliberate one-off backfill.
+        initial_lookback_days=0,
+        # A busy repo produces check runs at commit x check-name grain, which is far more volume
+        # than most connections want, so leave it deselected and let users opt in.
         should_sync_default=False,
+        # A check run emits queued -> in_progress -> completed events sharing an id and carries no
+        # updated_at, so rank by how far the run progressed: completed_at (terminal) outranks
+        # started_at, and both are NULL while queued, so NULLs-last ordering keeps the latest state.
+        version_keys=["completed_at", "started_at"],
     ),
     "commit_statuses": GithubEndpointConfig(
         name="commit_statuses",
@@ -610,10 +697,22 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         fan_out_parent="commits",
         fan_out_path_param="ref",
         fan_out_parent_field="sha",
-        # A status carries no sha of its own, so inject the commit it was posted against.
+        # A status carries no sha of its own, so inject the commit it was posted against. The Hog
+        # template fills the same column from the `status` event's top-level `sha`, so webhook rows
+        # carry both halves of the composite key too.
         fan_out_include_parent_fields={"sha": "commit_sha"},
-        initial_lookback_days=7,
-        should_sync_default=False,  # Same commit-grained fan-out cost as check_runs.
+        # Webhook-only marker, like check_runs: the poll is a per-commit fan-out, and it also
+        # bounds the parent walk on the commit's immutable created_at with no
+        # fan_out_parent_recency_field, so a status posted after the watermark passed its commit is
+        # never fetched. The `status` webhook carries every status as it is posted, which fixes both.
+        initial_lookback_days=0,
+        # Statuses arrive at commit x context grain on a busy repo, so leave the table deselected
+        # and let users opt in.
+        should_sync_default=False,
+        # No version_keys on purpose: statuses are append-only (a re-run posts a new status id
+        # rather than mutating one), so there is nothing to collapse within a batch. The dedupe
+        # transformer would also be wrong here, because it ranks on the first primary-key column
+        # only, which is commit_sha for this composite key, and would keep one status per commit.
     ),
     # --- Security posture ------------------------------------------------------------------
     "code_scanning_alerts": GithubEndpointConfig(
@@ -758,10 +857,86 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         primary_key="week",
         param_style="plain",
     ),
+    "punch_card_stats": GithubEndpointConfig(
+        name="punch_card_stats",
+        # Returns positional arrays ([day, hour, commits]); the body transform names them. One row
+        # per weekday/hour bucket, so the whole table is at most 168 rows.
+        path="/repos/{repository}/stats/punch_card",
+        incremental_fields=[],
+        primary_key=["day", "hour"],
+        param_style="plain",
+    ),
 }
 
 ENDPOINTS = tuple(GITHUB_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in GITHUB_ENDPOINTS.items()
+}
+
+# The grant a connection needs before GitHub will answer this endpoint, keyed the way GitHub names
+# it in an installation's permission set, so the picker can compare it against the permissions the
+# installation actually holds. Endpoints not listed here need no grant beyond the metadata/contents
+# read that every connection is validated for at connect time, so a denial on those is not a
+# per-table gap.
+ENDPOINT_REQUIRED_PERMISSION: dict[str, str] = {
+    "issues": "issues",
+    "issue_comments": "issues",
+    "issue_events": "issues",
+    "issue_types": "issues",
+    "labels": "issues",
+    "milestones": "issues",
+    "pull_requests": "pull_requests",
+    "pull_request_comments": "pull_requests",
+    "reviews": "pull_requests",
+    "workflow_runs": "actions",
+    "workflow_jobs": "actions",
+    "workflows": "actions",
+    "artifacts": "actions",
+    "actions_caches": "actions",
+    "check_runs": "checks",
+    "commit_statuses": "statuses",
+    "environments": "environments",
+    "deployments": "deployments",
+    "deployment_statuses": "deployments",
+    "code_scanning_alerts": "security_events",
+    "secret_scanning_alerts": "secret_scanning_alerts",
+    "dependabot_alerts": "vulnerability_alerts",
+    "security_advisories": "repository_advisories",
+    "runners": "administration",
+    "traffic_views": "administration",
+    "traffic_clones": "administration",
+    "traffic_referrers": "administration",
+    "traffic_paths": "administration",
+    "hooks": "repository_hooks",
+    "teams": "members",
+    "team_members": "members",
+}
+
+# Prefix of every per-endpoint grant-denial message _fetch_page raises. GithubSource's
+# get_non_retryable_errors keys its catch-all on this exact string: GitHub phrases denials per
+# endpoint ("Must have push access to view repository collaborators"), so without the shared prefix
+# those wordings would match no key and the job would retry a denial forever instead of disabling
+# the schema.
+GRANT_DENIAL_PREFIX = "GitHub can't read this table"
+
+# What to ask for, as (name on a fine-grained token or app installation, scope on a classic token).
+# The three name the same grant differently, so the message carries both rather than making the
+# reader translate. _grant_hint in github.py builds the sentence, which keeps the wording in one
+# place and out of the user-facing string, where markdown does not render.
+GRANT_NAMES: dict[str, tuple[str, str]] = {
+    "issues": ("Issues: read", "repo"),
+    "pull_requests": ("Pull requests: read", "repo"),
+    "actions": ("Actions: read", "repo"),
+    "checks": ("Checks: read", "repo"),
+    "statuses": ("Commit statuses: read", "repo:status"),
+    "environments": ("Environments: read", "repo"),
+    "deployments": ("Deployments: read", "repo_deployment"),
+    "security_events": ("Code scanning alerts: read", "security_events"),
+    "secret_scanning_alerts": ("Secret scanning alerts: read", "repo"),
+    "vulnerability_alerts": ("Dependabot alerts: read", "security_events"),
+    "repository_advisories": ("Repository security advisories: read", "repo"),
+    "administration": ("Administration: read", "repo"),
+    "repository_hooks": ("Webhooks: read", "admin:repo_hook"),
+    "members": ("Members: read on the organization", "read:org"),
 }

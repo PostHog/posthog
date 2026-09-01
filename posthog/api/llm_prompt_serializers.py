@@ -6,14 +6,10 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.llm_prompt import normalize_prompt_to_string
 
 from products.ai_observability.backend.activity_logging import prompt_activity_item_id
-from products.ai_observability.backend.models.llm_prompt import (
-    LLMPrompt,
-    LLMPromptLabel,
-    get_prompt_outline,
-    normalize_prompt_to_string,
-)
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
 
 class LLMPromptOutlineEntrySerializer(serializers.Serializer):

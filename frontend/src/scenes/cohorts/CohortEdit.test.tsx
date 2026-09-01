@@ -12,7 +12,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -493,6 +493,59 @@ describe('cohortEditLogic', () => {
         )
     })
 
+    describe('import warning', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('stays hidden after an import that matched every ID', async () => {
+            const cohortId = 5
+            const cohortName = 'Clean import cohort'
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: cohortName,
+                        is_static: true,
+                        last_import_total_count: 5,
+                        last_import_unmatched_count: 0,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText(cohortName)
+            expect(screen.queryByText("Some IDs in the last import didn't match a person")).not.toBeInTheDocument()
+        })
+
+        it('shows the unmatched and total ID counts after a partial import', async () => {
+            const cohortId = 6
+            const cohortName = 'Partial import cohort'
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: cohortName,
+                        is_static: true,
+                        last_import_total_count: 7,
+                        last_import_unmatched_count: 2,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText(cohortName)
+            const heading = screen.getByText("Some IDs in the last import didn't match a person")
+            expect(heading).toBeInTheDocument()
+            expect(heading.closest('[aria-live="polite"]')).toBeInTheDocument()
+            expect(screen.getByText(/2 of 7 IDs weren't added to this cohort/)).toBeInTheDocument()
+        })
+    })
+
     describe('criteria row type switching', () => {
         afterEach(() => {
             cleanup()
@@ -605,6 +658,66 @@ describe('cohortEditLogic', () => {
             // a LemonSelect would render the data-attr onto a <button>
             expect(typeContainer?.tagName).not.toBe('BUTTON')
             expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+        })
+    })
+
+    describe('criteria with unmapped behavioral value', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        // Stored criteria can carry a behavioral value with no ROWS entry. Values that instead
+        // resolve to an Object.prototype member are covered against getRowShape in cohortUtils.test,
+        // since this scene render is the most expensive place to assert the same lookup.
+        it('renders an empty, recoverable criteria row for an unmapped value', async () => {
+            const cohortId = 11
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Unmapped Criteria Cohort',
+                        is_static: false,
+                        filters: {
+                            properties: {
+                                id: '1',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        id: '2',
+                                        type: FilterLogicalOperator.Or,
+                                        values: [
+                                            {
+                                                type: BehavioralFilterKey.Behavioral,
+                                                value: 'legacy_unknown_value',
+                                                key: '$pageview',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            // The name only gates on the cohort having loaded; a throw in the row builder has no
+            // error boundary between here and the test, so it fails the render outright.
+            expect(await screen.findByText('Unmapped Criteria Cohort')).toBeInTheDocument()
+            expect(document.querySelector('.CohortCriteriaRow')).toBeInTheDocument()
+            expect(screen.getByText('Choose criterion')).toBeInTheDocument()
+            // Counting fields is what catches a revert to the PerformEvent fallback: the stored
+            // key would label the event picker rather than leave its placeholder visible, so the
+            // placeholder assertion above would still pass.
+            expect(document.querySelectorAll('.CohortCriteriaRow__Criteria__Field')).toHaveLength(1)
+            expect(document.querySelector('.CohortCriteriaRow__Criteria__arrow')).not.toBeInTheDocument()
+            expect(screen.getByText("This criterion isn't valid. Choose a new one to replace it.")).toBeInTheDocument()
         })
     })
 })

@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class TeamExperimentsConfig(models.Model):
+    class PrecomputationEnabledSetBy(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        AUTO = "auto", "Auto"
+
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     experiment_recalculation_time = models.TimeField(
@@ -39,6 +43,18 @@ class TeamExperimentsConfig(models.Model):
     experiment_precomputation_enabled = models.BooleanField(
         default=False,
         help_text="Whether to precompute experiment exposure data for faster query execution.",
+    )
+
+    precomputation_enabled_set_by = models.CharField(
+        max_length=10,
+        choices=PrecomputationEnabledSetBy.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "Who last set experiment_precomputation_enabled: a human (manual) or the auto-enrollment "
+            "job (auto). Null means never set. The job only writes when this is null or auto, so a "
+            "manual change in either direction sticks."
+        ),
     )
 
     default_only_count_matured_users = models.BooleanField(
@@ -93,6 +109,17 @@ class TeamExperimentsConfig(models.Model):
             "Default tuning parameter for sequential testing. Roughly the sample size at which the "
             "confidence sequence is tightest. Overridden by the experiment-level "
             "`stats_config.frequentist.sequential_tuning_parameter` setting when set."
+        ),
+    )
+
+    flag_cleanup_repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text=(
+            "Default GitHub repository (organization/repository) for experiment flag-cleanup PRs in "
+            "this environment. Used when an experiment has no repository of its own. It must belong "
+            "to the team's GitHub installation at cleanup time or it is ignored."
         ),
     )
 

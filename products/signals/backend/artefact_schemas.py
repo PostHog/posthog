@@ -22,6 +22,7 @@ import re
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
@@ -209,11 +210,19 @@ class SuggestedReviewerEntry(BaseModel):
     def github_login_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
-        return v
+        # Strip on the way in: read-time enrichment and autostart look logins up with
+        # `login.lower()` and no strip, so a padded login would persist but never match.
+        return v.strip()
 
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
+
+
+class ChannelAssignment(BaseModel):
+    """The space that currently owns a report. The latest assignment wins."""
+
+    channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
 class Dismissal(BaseModel):
@@ -530,7 +539,12 @@ class CodeReview(BaseModel):
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
-    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
+    SafetyJudgment
+    | ActionabilityAssessment
+    | PriorityAssessment
+    | RepoSelectionResult
+    | SuggestedReviewers
+    | ChannelAssignment
 )
 LogArtefactContent = (
     CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
@@ -547,6 +561,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "channel_assignment": ChannelAssignment,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,

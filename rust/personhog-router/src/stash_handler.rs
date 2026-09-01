@@ -11,8 +11,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::Code;
 
 use crate::backend::{
-    BounceReason, DrainSession, ForwardDecision, ForwardPath, LeaderBackend, StashKey,
-    StashedRequest, TakenKeyRun, BOUNCE_BACKOFF, MAX_CONSECUTIVE_BOUNCES,
+    counts_as_possibly_applied, BounceReason, DrainSession, ForwardDecision, ForwardPath,
+    LeaderBackend, StashKey, StashedRequest, TakenKeyRun, BOUNCE_BACKOFF, MAX_CONSECUTIVE_BOUNCES,
 };
 use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 
@@ -272,7 +272,7 @@ async fn forward_key_run(
                 outcome.completed += 1;
             }
             Disposition::Bounce(reason) => {
-                if matches!(reason, BounceReason::Transport) {
+                if counts_as_possibly_applied(reason) {
                     entry.item.possibly_applied = true;
                 }
                 metrics::counter!(

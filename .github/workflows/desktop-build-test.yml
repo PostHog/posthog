@@ -1,0 +1,501 @@
+name: Desktop Build Test
+
+# Full build + code signing + verification of apps/code, producing downloadable
+# artifacts for every platform. Runs on demand, or on a same-repo PR that carries
+# the `desktop-build-installer` label, where it also posts a sticky comment
+# linking the artifacts for testers.
+#
+# This intentionally does NOT create or publish any GitHub release — it exists
+# to prove the packaging pipeline works end to end before merge. The real
+# release pipeline lives in desktop-release.yml and runs only on desktop-v* tags.
+# The macOS builds are signed but not notarized, so a downloaded app is
+# quarantined and Gatekeeper reports it as "damaged"; the PR comment tells
+# testers to clear the flag with `xattr -dr com.apple.quarantine`.
+
+on:
+    workflow_dispatch:
+    pull_request:
+        types: [opened, synchronize, reopened, labeled]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-build-test.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    build-macos:
+        # Fork PRs never receive the signing/AWS secrets, so only same-repo PRs
+        # with the label build; a manual dispatch always builds.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              (
+                (github.event.action == 'labeled' && github.event.label.name == 'desktop-build-installer') ||
+                (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'desktop-build-installer'))
+              )
+            )
+        strategy:
+            fail-fast: false
+            matrix:
+                arch: [arm64, x64]
+        # Depot macOS runners are Apple silicon only; the x64 build cross-compiles here.
+        runs-on: depot-macos-26
+        timeout-minutes: 60
+        permissions:
+            id-token: write
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            npm_config_arch: ${{ matrix.arch }}
+            npm_config_platform: darwin
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            # No sourcemap secrets: without them the posthog vite plugin skips
+            # release creation and sourcemap upload, keeping test builds
+            # hermetic instead of calling the prod API and flaking on it.
+            CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+            CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            # Sign but do not notarize. This build-test verifies the packaging pipeline,
+            # not Gatekeeper distribution; the runner can launch a signed-but-unnotarized
+            # app for the smoke test. Notarization runs only in the tag release
+            # (code-release.yml), where Apple's notary service and agreements apply.
+            SKIP_NOTARIZE: '1'
+            # electron-builder skips signing on pull_request builds unless told
+            # otherwise; the job condition already limits those to same-repo PRs.
+            CSC_FOR_PULL_REQUEST: 'true'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            # pnpm installs native optional packages for the host CPU only, and the x64
+            # build runs on an Apple silicon runner.
+            - name: Install x64 native packages on the arm64 runner
+              if: matrix.arch == 'x64'
+              run: |
+                  printf '\nsupportedArchitectures:\n    cpu: [x64, arm64]\n' >> pnpm-workspace.yaml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              shell: bash
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Restore only: PR runs must not save caches, and the store is seeded
+            # by the desktop-test and desktop-warm-caches runs on master.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
+            - name: Download BerkeleyMono fonts from S3
+              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            # build/Assets.car is gitignored, so compile it here. actool only handles the .icon
+            # bundle with Xcode 26, which this job gets from its macOS 26 runner's default
+            # toolchain; the script fails the build when it cannot produce one.
+            - name: Compile macOS liquid-glass icon
+              working-directory: products/desktop/apps/code
+              run: bash scripts/compile-glass-icon.sh
+
+            - name: Build app
+              env:
+                  MATRIX_ARCH: ${{ matrix.arch }}
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec electron-vite build
+                  if [[ "$MATRIX_ARCH" == "arm64" ]]; then
+                    pnpm exec electron-builder build --mac --arm64 --publish never --config electron-builder.ts
+                  else
+                    pnpm exec electron-builder build --mac --x64 --publish never --config electron-builder.ts
+                  fi
+
+            - name: Verify package
+              env:
+                  MATRIX_ARCH: ${{ matrix.arch }}
+              run: |
+                  if [[ "$MATRIX_ARCH" == "arm64" ]]; then
+                    APP_BUNDLE="apps/code/out/mac-arm64/PostHog.app"
+                  else
+                    APP_BUNDLE="apps/code/out/mac/PostHog.app"
+                  fi
+                  RESOURCES="$APP_BUNDLE/Contents/Resources"
+                  UNPACKED="$RESOURCES/app.asar.unpacked/node_modules"
+
+                  if [[ ! -f "$RESOURCES/app-update.yml" ]]; then
+                    echo "FAIL: app-update.yml missing at $RESOURCES/app-update.yml"
+                    exit 1
+                  fi
+                  echo "OK: app-update.yml"
+
+                  for mod in node-pty better-sqlite3 "@parcel/watcher"; do
+                    if [[ ! -d "$UNPACKED/$mod" ]]; then
+                      echo "FAIL: $mod missing in app.asar.unpacked/node_modules"
+                      exit 1
+                    fi
+                    echo "OK: $mod"
+                  done
+
+                  for bin in claude-cli codex-acp; do
+                    if [[ ! -d "$RESOURCES/app.asar.unpacked/.vite/build/$bin" ]]; then
+                      echo "FAIL: $bin missing in bundled binaries"
+                      exit 1
+                    fi
+                    echo "OK: $bin"
+                  done
+
+            - name: Install Playwright
+              run: pnpm --filter code exec playwright install
+
+            - name: Install Rosetta for the x64 smoke test
+              if: matrix.arch == 'x64'
+              run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
+
+            - name: Smoke test packaged app
+              env:
+                  CI: true
+                  E2E_APP_ARCH: ${{ matrix.arch }}
+              run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts tests/e2e/tests/smoke.spec.ts
+
+            - name: Upload Playwright report
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build-test-playwright-macos-${{ matrix.arch }}
+                  path: products/desktop/apps/code/playwright-report/
+                  retention-days: 7
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-macos-${{ matrix.arch }}
+                  path: |
+                      products/desktop/apps/code/out/*.dmg
+                      products/desktop/apps/code/out/*-mac.zip
+                      products/desktop/apps/code/out/*.blockmap
+                      products/desktop/apps/code/out/latest-mac.yml
+                  compression-level: 0
+                  retention-days: 7
+
+    build-windows:
+        # Fork PRs never receive the signing/AWS secrets, so only same-repo PRs
+        # with the label build; a manual dispatch always builds.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              (
+                (github.event.action == 'labeled' && github.event.label.name == 'desktop-build-installer') ||
+                (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'desktop-build-installer'))
+              )
+            )
+        runs-on: depot-windows-2022-4
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              shell: bash
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Restore only: PR runs must not save caches, and the store is seeded
+            # by the desktop-test and desktop-warm-caches runs on master.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build workspace packages
+              # bash, not pwsh: pwsh only fails a multi-line step on the LAST
+              # command's exit code, silently swallowing earlier failures.
+              shell: bash
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            # Two separate steps: in a multi-line pwsh script only the last
+            # command's exit code fails the step, so a broken electron-vite
+            # build let electron-builder package an app with no renderer.
+            - name: Build app bundles
+              working-directory: products/desktop/apps/code
+              run: pnpm exec electron-vite build
+
+            - name: Package installer
+              working-directory: products/desktop/apps/code
+              run: pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
+
+            - name: Verify package
+              shell: pwsh
+              working-directory: products/desktop/apps/code
+              run: |
+                  if (!(Test-Path ".vite/renderer/main_window/index.html")) {
+                    Write-Error "FAIL: renderer bundle missing from electron-vite output"
+                    exit 1
+                  }
+                  echo "OK: renderer bundle"
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-windows
+                  path: |
+                      products/desktop/apps/code/out/*.exe
+                      products/desktop/apps/code/out/latest.yml
+                      products/desktop/apps/code/out/*.blockmap
+                      products/desktop/apps/code/out/squirrel-windows/**
+                  compression-level: 0
+                  retention-days: 7
+                  if-no-files-found: ignore
+
+    build-linux:
+        # Fork PRs never receive the signing/AWS secrets, so only same-repo PRs
+        # with the label build; a manual dispatch always builds.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              (
+                (github.event.action == 'labeled' && github.event.label.name == 'desktop-build-installer') ||
+                (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'desktop-build-installer'))
+              )
+            )
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runner: depot-ubuntu-24.04-4
+                      arch: x64
+                    - runner: depot-ubuntu-24.04-arm-4
+                      arch: arm64
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Install Linux packaging tooling
+              # squashfs-tools/zsync/libfuse2t64: AppImage. fakeroot: deb. rpm: rpmbuild.
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends \
+                    squashfs-tools zsync libfuse2t64 fakeroot rpm
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              shell: bash
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Restore only: PR runs must not save caches, and the store is seeded
+            # by the desktop-test and desktop-warm-caches runs on master.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            - name: Build app
+              env:
+                  MATRIX_ARCH: ${{ matrix.arch }}
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec electron-vite build
+                  if [[ "$MATRIX_ARCH" == "arm64" ]]; then
+                    pnpm exec electron-builder build --linux --arm64 --publish never --config electron-builder.ts
+                  else
+                    pnpm exec electron-builder build --linux --x64 --publish never --config electron-builder.ts
+                  fi
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-linux-${{ matrix.arch }}
+                  path: |
+                      products/desktop/apps/code/out/*.AppImage
+                      products/desktop/apps/code/out/*.deb
+                      products/desktop/apps/code/out/*.rpm
+                  compression-level: 0
+                  retention-days: 7
+
+    # hogli-lint: not-a-required-gate — posts the sticky PR build status comment; emits no required check.
+    comment:
+        # Update the sticky comment once every build finishes, on success OR
+        # failure, so a failed re-run replaces a prior "ready" comment instead of
+        # leaving it pointing at stale artifacts. Runs only for labeled PRs.
+        needs: [build-macos, build-windows, build-linux]
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.build-macos.result != 'skipped' }}
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            issues: write
+            pull-requests: write
+        steps:
+            - name: Post build status on the PR
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  MACOS_RESULT: ${{ needs.build-macos.result }}
+                  WINDOWS_RESULT: ${{ needs.build-windows.result }}
+                  LINUX_RESULT: ${{ needs.build-linux.result }}
+              run: |
+                  set -euo pipefail
+                  MARKER="<!-- pr-installer-build -->"
+                  RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+                  if [ "${MACOS_RESULT}" = "success" ] && [ "${WINDOWS_RESULT}" = "success" ] && [ "${LINUX_RESULT}" = "success" ]; then
+                    {
+                      echo "$MARKER"
+                      echo "### 🖥️ Desktop test builds"
+                      echo ""
+                      echo "Signed test builds for this PR are ready. **[Open this run and download an artifact](${RUN_URL}#artifacts)** (requires repo access):"
+                      echo ""
+                      echo "| Artifact | Platform |"
+                      echo "|---|---|"
+                      echo "| \`code-macos-arm64\` | macOS, Apple Silicon (.dmg, .zip) |"
+                      echo "| \`code-macos-x64\` | macOS, Intel (.dmg, .zip) |"
+                      echo "| \`code-windows\` | Windows x64 (.exe installer) |"
+                      echo "| \`code-linux-x64\` | Linux x64 (.AppImage, .deb, .rpm) |"
+                      echo "| \`code-linux-arm64\` | Linux arm64 (.AppImage, .deb, .rpm) |"
+                      echo ""
+                      echo "The macOS builds are **signed but not notarized**, so macOS quarantines them on download and Gatekeeper reports *\"PostHog is damaged and can't be opened\"*. Clear the flag once and it launches:"
+                      echo ""
+                      echo "\`\`\`sh"
+                      echo "xattr -dr com.apple.quarantine \"/Applications/PostHog.app\""
+                      echo "\`\`\`"
+                      echo ""
+                      echo "<sub>Built from ${GITHUB_SHA} · rebuilds on each push while the \`desktop-build-installer\` label is present.</sub>"
+                    } > comment-body.md
+                  else
+                    {
+                      echo "$MARKER"
+                      echo "### 🖥️ Desktop test builds failed"
+                      echo ""
+                      echo "macOS: ${MACOS_RESULT}, Windows: ${WINDOWS_RESULT}, Linux: ${LINUX_RESULT}. **[View the run](${RUN_URL})** for logs."
+                      echo ""
+                      echo "<sub>Failed on ${GITHUB_SHA} · rebuilds on each push while the \`desktop-build-installer\` label is present.</sub>"
+                    } > comment-body.md
+                  fi
+
+                  COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+                    --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n1 || true)
+
+                  if [ -n "${COMMENT_ID}" ]; then
+                    gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -F body=@comment-body.md
+                  else
+                    gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -F body=@comment-body.md
+                  fi

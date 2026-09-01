@@ -439,7 +439,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                         >
                                                             {columnGroup.title}
                                                         </th>
-                                                        <th colSpan={columnGroup.children.length - 1} />
+                                                        {/* The DOM clamps colSpan 0 up to 1, so a single-child
+                                                            group must not render the filler at all: the phantom
+                                                            column shifts every group title after it one column
+                                                            to the right. */}
+                                                        {columnGroup.children.length > 1 && (
+                                                            <th colSpan={columnGroup.children.length - 1} />
+                                                        )}
                                                     </React.Fragment>
                                                 ) : (
                                                     <th
@@ -454,7 +460,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         </tr>
                                     )}
                                     <tr>
-                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
+                                        {
+                                            isRowExpansionToggleShown && (
+                                                <th className="LemonTable__toggle" />
+                                            ) /* Expand/collapse */
+                                        }
                                         {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                             columnGroup.children
                                                 .filter((column) => !column.isHidden)
@@ -730,9 +740,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         ))
                                 ) : (
                                     <tr className="LemonTable__empty-state">
-                                        <td colSpan={columns.length + Number(!!expandable)}>
-                                            {emptyState || `No ${nouns[1]}`}
-                                        </td>
+                                        <td colSpan={headerLoaderColSpan}>{emptyState || `No ${nouns[1]}`}</td>
                                     </tr>
                                 )}
                             </tbody>

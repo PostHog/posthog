@@ -142,10 +142,10 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         assert context.log is not None
-        user, password = get_clickhouse_creds(ClickHouseUser.BACKUPS)
+        creds = get_clickhouse_creds(ClickHouseUser.BACKUPS)
         from django.conf import settings as django_settings
 
-        if user == django_settings.CLICKHOUSE_USER:
+        if creds.user == django_settings.CLICKHOUSE_USER:
             context.log.warning(
                 "CLICKHOUSE_BACKUPS_USER not configured, falling back to default user. "
                 "Backups will not use the dedicated 'backups' profile with use_concurrency_control=0."
@@ -160,7 +160,7 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
                 delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
-            connection_overrides={"user": user, "password": password},
+            connection_overrides={"user": creds.user, "password": creds.password},
         )
 
 
@@ -181,12 +181,12 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         assert context.log is not None
-        user, password = get_clickhouse_creds(ClickHouseUser.PART_BREAKER)
+        creds = get_clickhouse_creds(ClickHouseUser.PART_BREAKER)
         from django.conf import settings as django_settings
 
-        if user == django_settings.CLICKHOUSE_USER:
+        if creds.user == django_settings.CLICKHOUSE_USER:
             context.log.warning(
-                f"CLICKHOUSE_PART_BREAKER_USER not configured, falling back to default user '{user}'. "
+                f"CLICKHOUSE_PART_BREAKER_USER not configured, falling back to default user '{creds.user}'. "
                 "Part breaker will not use a dedicated user with restricted permissions."
             )
         return get_cluster(
@@ -197,7 +197,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
                 delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
-            connection_overrides={"user": user, "password": password},
+            connection_overrides={"user": creds.user, "password": creds.password},
         )
 
 

@@ -1,13 +1,18 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import type { IndexedTrendResult } from 'scenes/trends/types'
+import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     buildTrendsQuery,
     chart,
@@ -20,7 +25,9 @@ import {
     trendsSeries,
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
-import { AnnotationScope, ChartDisplayType } from '~/types'
+import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
+
+import { extendLabelsToLongestSeries } from './TrendsLineChart'
 
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
@@ -107,6 +114,46 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Spike')).toContain('3')
         })
 
+        it('prefixes rows with the series name when multiple series share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Each breakdown value appears once per series; without the prefix the rows
+            // would be indistinguishable (e.g. two bare "Spike" rows).
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Pageview · Spike')).toContain('90')
+            expect(tooltip.row('Napped · Spike')).toContain('3')
+        })
+
+        it('adds series letters when same-named series share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // The name alone can't tell the two series apart, so rows get the A/B
+            // letters from the insight editor.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            const spikeRows = tooltip.rows().filter((label) => label.includes('Spike'))
+            expect(spikeRows.map((label) => label[0]).sort()).toEqual(['A', 'B'])
+        })
+
         it('shows every breakdown value when a formula is applied', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -124,7 +171,25 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Prickles')).toContain('1')
         })
 
-        it('shows current and previous period rows in compare mode', async () => {
+        it('prefixes rows with the formula name when multiple formulas share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { formulas: ['A', 'A*2'] },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Formula rows carry no `action`; their `order` is what keeps the repeated
+            // breakdown values from separate formulas attributable.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Formula (A) · Spike')).toContain('3')
+            expect(tooltip.row('Formula (A*2) · Spike')).toContain('6')
+        })
+
+        it('dates the previous period row in compare mode', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     compareFilter: { compare: true },
@@ -137,8 +202,10 @@ describe('TrendsLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
+            // Index 2 is 12 Jun in the current period, so 5 Jun can only come from the previous one.
             expect(tooltip.row('Current')).toContain('134')
-            expect(tooltip.row('Previous')).toContain('100')
+            expect(tooltip.row('5 Jun')).toContain('100')
+            expect(tooltip.element.textContent).not.toContain('Previous')
         })
 
         it('uses context.formatCompareLabel to override Current/Previous in compare mode', async () => {
@@ -522,6 +589,22 @@ describe('TrendsLineChart', () => {
             expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
 
+        it('renders the chart when the first series is empty but a later one has data', async () => {
+            // Regresses the bug this PR fixes: the old check only looked at
+            // indexedResults[0], so a leading empty series blanked the whole chart even when a
+            // later series (here, ActiveSeries) had real counts.
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
+            })
+            expect(screen.queryByTestId('insight-empty-state')).not.toBeInTheDocument()
+        })
+
         it('uses context.emptyStateHeading override when provided', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -592,6 +675,8 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(personsModal.actorNames()).toEqual(['spike-fan@example.com'])
             })
+            // The pin outlives the click unless the drill-down drops it, leaving the tooltip over the modal.
+            expect(chart.getTooltip()).not.toBeInTheDocument()
         })
 
         it('fires context.onDataPointClick instead of opening the persons modal', async () => {
@@ -629,6 +714,75 @@ describe('TrendsLineChart', () => {
                 // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
                 expect(personsModal.get()).not.toBeInTheDocument()
             })
+        })
+    })
+
+    describe('formula insights with drill-down disabled', () => {
+        const multiSeriesFormulaQuery = buildTrendsQuery({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { formula: 'A/B' },
+        })
+
+        /** Mirrors how InsightCard hands a dashboard tile's real short_id and query down through
+         *  `context.insightProps.cachedInsight` (see InsightCard.tsx / InsightMeta.tsx). */
+        const dashboardTileContext = (shortId: InsightShortId): QueryContext<InsightVizNode> => ({
+            insightProps: {
+                dashboardItemId: shortId,
+                dashboardId: 42,
+                cachedInsight: {
+                    short_id: shortId,
+                    query: { kind: NodeKind.InsightVizNode, source: multiSeriesFormulaQuery } as InsightVizNode,
+                },
+            },
+        })
+
+        it('offers no click affordance and does not open the persons modal', async () => {
+            renderInsight({ query: multiSeriesFormulaQuery })
+
+            await chart.hoverTooltip(2)
+
+            expect(chart.getTooltip()?.textContent).not.toContain('Click to view')
+            await chart.clickTooltipRow('Pageview')
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('navigates to the insight on click when rendered as a dashboard/card tile', async () => {
+            const shortId = 'formula-insight-1' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                context: dashboardTileContext(shortId),
+            })
+
+            await chart.hoverTooltip(2)
+            expect(chart.getTooltip()?.textContent).toContain('Click to view the insight')
+
+            await chart.clickTooltipRow('Pageview')
+
+            await waitFor(() => {
+                const path = removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search
+                expect(path).toEqual(urls.insightView(shortId, 42))
+            })
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('does not navigate on click when rendered in shared mode', async () => {
+            const shortId = 'formula-insight-2' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                inSharedMode: true,
+                context: dashboardTileContext(shortId),
+            })
+            const pathnameBeforeClick = router.values.location.pathname
+
+            await chart.hoverTooltip(2)
+            await chart.clickTooltipRow('Pageview')
+
+            expect(router.values.location.pathname).toEqual(pathnameBeforeClick)
         })
     })
 
@@ -696,6 +850,42 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('multi-year weekly x-axis', () => {
+        // Week display labels omit the year ("1–7 Jun"), so a multi-year range repeats them.
+        // The chart keys x positions off its labels prop and collapses a repeated key onto the
+        // first occurrence's x, which draws the series backwards — so the components must key
+        // the axis by the unique ISO days instead. Covers the bar path too, where a repeated
+        // key collapses whole bands.
+        it.each([
+            ['line', undefined],
+            ['bar', ChartDisplayType.ActionsBar],
+        ])(
+            'renders %s points at strictly increasing x when display labels repeat across years',
+            async (_displayName, display) => {
+                renderInsight({
+                    query: buildTrendsQuery({
+                        interval: 'week',
+                        series: [{ kind: NodeKind.EventsNode, event: 'WeeklyAcrossYears', name: 'WeeklyAcrossYears' }],
+                        trendsFilter: { showValuesOnSeries: true, ...(display ? { display } : {}) },
+                    }),
+                })
+
+                await waitFor(() => {
+                    expect(getHogChart().valueLabels()).toHaveLength(6)
+                })
+                const leftByText = new Map(
+                    Array.from(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map(
+                        (el) => [el.textContent, parseFloat(el.style.left)]
+                    )
+                )
+                const lefts = ['10', '20', '30', '40', '50', '60'].map((text) => leftByText.get(text)!)
+                for (let i = 1; i < lefts.length; i++) {
+                    expect(lefts[i]).toBeGreaterThan(lefts[i - 1])
+                }
+            }
+        )
+    })
+
     describe('drag-to-zoom', () => {
         const totalLabels = trendsSeries.pageviews.labels.length
         const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
@@ -753,6 +943,30 @@ describe('TrendsLineChart', () => {
             dragSelection(wrapper, 1, 3, totalLabels)
 
             expect(getQuerySource().dateRange).toBeUndefined()
+        })
+    })
+
+    describe('extendLabelsToLongestSeries', () => {
+        const result = (data: number[]): IndexedTrendResult => ({ data }) as IndexedTrendResult
+
+        it('extends the hourly domain forward to a longer previous series', () => {
+            const currentDays = ['2020-01-02 00:00:00', '2020-01-02 01:00:00', '2020-01-02 02:00:00']
+            const extended = extendLabelsToLongestSeries(currentDays, 'hour', [
+                result([0, 0, 1]),
+                result([3, 0, 0, 0, 0]),
+            ])
+            expect(extended).toEqual([
+                '2020-01-02 00:00:00',
+                '2020-01-02 01:00:00',
+                '2020-01-02 02:00:00',
+                '2020-01-02 03:00:00',
+                '2020-01-02 04:00:00',
+            ])
+        })
+
+        it('leaves the domain untouched when no series is longer', () => {
+            const days = ['2020-01-02', '2020-01-03', '2020-01-04']
+            expect(extendLabelsToLongestSeries(days, 'day', [result([1, 2, 3]), result([4, 5, 6])])).toBe(days)
         })
     })
 })

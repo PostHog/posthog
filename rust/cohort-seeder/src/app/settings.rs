@@ -6,7 +6,7 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::domain::PlanCaps;
+use crate::domain::{BackoffPolicyError, PlanCaps, RetryBackoffPolicy};
 use crate::store::runs::RunKind;
 use crate::store::{LeaseDuration, LeaseDurationError, MaxAttempts, MaxAttemptsError};
 
@@ -23,6 +23,10 @@ pub struct PersonSettings {
     /// long person scan cannot stall live behavioral seeding.
     pub max_concurrent_chunks: NonZeroUsize,
     pub emit_nonmatchers: bool,
+    /// Whether completion discovery may surface person runs. Separate from the seed gate so the
+    /// reconcile half can be staged after the processor fleet decodes `reconcile_person` tiles —
+    /// seeding a person run is inert, dispatching its tiles to an old processor is not.
+    pub reconcile_dispatch: bool,
 }
 
 impl PersonSettings {
@@ -56,6 +60,7 @@ pub struct OrchestratorSettings {
     pub(super) max_concurrent_chunks: NonZeroUsize,
     pub(super) chunk_lease: LeaseDuration,
     pub(super) max_chunk_attempts: MaxAttempts,
+    pub(super) retry_backoff: RetryBackoffPolicy,
     pub(super) plan_caps: PlanCaps,
     pub(super) producer: ProducerSettings,
     pub(super) person: Option<PersonSettings>,
@@ -68,6 +73,7 @@ impl OrchestratorSettings {
         max_concurrent_chunks: usize,
         chunk_lease: Duration,
         max_chunk_attempts: u32,
+        retry_backoff: RetryBackoffPolicy,
         max_lookback_days: u32,
         bands_per_day: u16,
         producer: ProducerSettings,
@@ -99,6 +105,7 @@ impl OrchestratorSettings {
             max_concurrent_chunks,
             chunk_lease,
             max_chunk_attempts,
+            retry_backoff,
             plan_caps: PlanCaps {
                 max_lookback_days,
                 bands_per_day,
@@ -112,10 +119,20 @@ impl OrchestratorSettings {
         self.person.as_ref()
     }
 
-    /// The backfill kinds discovery binds. With the person gate off this is `['behavioral']`, so
-    /// the running binary's behavior is identical to today's.
-    pub(super) fn discovery_kinds(&self) -> &'static [RunKind] {
+    /// The backfill kinds run discovery binds: the person seed path is on or it is not.
+    pub fn seed_kinds(&self) -> &'static [RunKind] {
         if self.person.is_some() {
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        } else {
+            &[RunKind::Behavioral]
+        }
+    }
+
+    /// The backfill kinds completion discovery binds. Narrower than [`Self::seed_kinds`] on
+    /// purpose: seeding a person run is inert, dispatching its reconcile tiles to a processor that
+    /// cannot decode them is not, so the reconcile gate stages after the seed gate.
+    pub fn completion_kinds(&self) -> &'static [RunKind] {
+        if self.person.is_some_and(|person| person.reconcile_dispatch) {
             &[RunKind::Behavioral, RunKind::PersonProperty]
         } else {
             &[RunKind::Behavioral]
@@ -144,16 +161,23 @@ impl TryFrom<&Config> for OrchestratorSettings {
                     )
                     .ok_or(OrchestratorSettingsError::ZeroPersonConcurrency)?,
                     emit_nonmatchers: config.seeder_person_emit_nonmatchers,
+                    reconcile_dispatch: config.seeder_person_reconcile_dispatch_enabled,
                 };
                 person.validate_scan_budget(config.seeder_ch_max_execution_time_secs)?;
                 Ok::<_, OrchestratorSettingsError>(person)
             })
             .transpose()?;
+        let retry_backoff = RetryBackoffPolicy::new(
+            Duration::from_secs(config.seeder_retry_backoff_base_secs),
+            Duration::from_secs(config.seeder_retry_backoff_cap_secs),
+        )
+        .map_err(OrchestratorSettingsError::RetryBackoff)?;
         Ok(Self::new(
             Duration::from_secs(config.seeder_run_poll_secs),
             config.seeder_max_concurrent_chunks,
             Duration::from_secs(config.seeder_chunk_lease_secs),
             config.seeder_max_chunk_attempts,
+            retry_backoff,
             config.seeder_max_lookback_days,
             config.seeder_bands_per_day,
             producer,
@@ -180,6 +204,8 @@ pub enum OrchestratorSettingsError {
     MaxAttemptsOutOfRange,
     #[error("bands per day must be between 1 and 32767")]
     BandsPerDayOutOfRange,
+    #[error(transparent)]
+    RetryBackoff(#[from] BackoffPolicyError),
     #[error("person seeds per second must be greater than zero")]
     ZeroPersonSeedRate,
     #[error("persons per chunk must be greater than zero")]
@@ -252,6 +278,10 @@ mod tests {
         ProducerSettings::new(1, Duration::from_millis(1)).unwrap()
     }
 
+    fn backoff() -> RetryBackoffPolicy {
+        RetryBackoffPolicy::new(Duration::from_secs(30), Duration::from_secs(1800)).unwrap()
+    }
+
     #[test]
     fn producer_settings_reject_unbounded_bounds() {
         assert_eq!(
@@ -279,6 +309,7 @@ mod tests {
                     1,
                     Duration::from_secs(3),
                     1,
+                    backoff(),
                     400,
                     1,
                     producer_settings(),
@@ -292,6 +323,7 @@ mod tests {
                     1,
                     Duration::from_secs(3),
                     1,
+                    backoff(),
                     400,
                     1,
                     producer_settings(),
@@ -305,6 +337,7 @@ mod tests {
                     0,
                     Duration::from_secs(3),
                     1,
+                    backoff(),
                     400,
                     1,
                     producer_settings(),
@@ -318,6 +351,7 @@ mod tests {
                     1,
                     Duration::from_secs(2),
                     1,
+                    backoff(),
                     400,
                     1,
                     producer_settings(),
@@ -331,6 +365,7 @@ mod tests {
                     1,
                     Duration::from_secs(3),
                     0,
+                    backoff(),
                     400,
                     1,
                     producer_settings(),
@@ -344,6 +379,7 @@ mod tests {
                     1,
                     Duration::from_secs(3),
                     1,
+                    backoff(),
                     400,
                     0,
                     producer_settings(),
@@ -357,6 +393,7 @@ mod tests {
                     1,
                     Duration::from_secs(3),
                     1,
+                    backoff(),
                     400,
                     u16::MAX,
                     producer_settings(),
@@ -370,21 +407,48 @@ mod tests {
         }
     }
 
-    /// Dark-by-default: with the gate off discovery binds behavioral only; enabling it validates
-    /// the person rates the way `ZeroTileRate` guards the behavioral pacer.
+    /// Dark-by-default: with the gates off discovery binds behavioral only; enabling them validates
+    /// the person rates the way `ZeroTileRate` guards the behavioral pacer. The two gates stage
+    /// separately — seeding a person run is inert, dispatching its tiles to a processor that cannot
+    /// decode the person kind is not, and that run cannot be recovered by flipping the gate back.
     #[test]
     fn person_settings_are_gated_and_validated() {
         let config = Config::init_from_hashmap(&HashMap::new()).unwrap();
         let dark = OrchestratorSettings::try_from(&config).unwrap();
         assert!(dark.person().is_none());
-        assert_eq!(dark.discovery_kinds(), &[RunKind::Behavioral]);
+        assert_eq!(dark.seed_kinds(), &[RunKind::Behavioral]);
+        assert_eq!(dark.completion_kinds(), &[RunKind::Behavioral]);
+
+        // The reconcile gate alone arms nothing: there is no person seed path to reconcile.
+        let mut reconcile_only = config.clone();
+        reconcile_only.seeder_person_reconcile_dispatch_enabled = true;
+        let reconcile_only = OrchestratorSettings::try_from(&reconcile_only).unwrap();
+        assert!(reconcile_only.person().is_none());
+        assert_eq!(reconcile_only.seed_kinds(), &[RunKind::Behavioral]);
+        assert_eq!(reconcile_only.completion_kinds(), &[RunKind::Behavioral]);
 
         let mut enabled = config.clone();
         enabled.seeder_person_seeds_enabled = true;
-        let lit = OrchestratorSettings::try_from(&enabled).unwrap();
+        // Seeding without dispatch is the staging step: person runs are discovered and seed, then
+        // park in `seeding` because completion discovery still never surfaces them.
+        let seeds_only = OrchestratorSettings::try_from(&enabled).unwrap();
+        assert!(seeds_only.person().is_some());
+        assert_eq!(
+            seeds_only.seed_kinds(),
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        );
+        assert_eq!(seeds_only.completion_kinds(), &[RunKind::Behavioral]);
+
+        let mut both = enabled.clone();
+        both.seeder_person_reconcile_dispatch_enabled = true;
+        let lit = OrchestratorSettings::try_from(&both).unwrap();
         assert!(lit.person().is_some());
         assert_eq!(
-            lit.discovery_kinds(),
+            lit.seed_kinds(),
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        );
+        assert_eq!(
+            lit.completion_kinds(),
             &[RunKind::Behavioral, RunKind::PersonProperty]
         );
 
@@ -431,6 +495,35 @@ mod tests {
                     projected_secs: 15_000,
                     budget_secs: 7_200,
                 }
+            ))
+        ));
+    }
+
+    /// A backoff pair that cannot space retries must fail at startup. Accepting it would leave the
+    /// claim gate stamping a zero or shrinking wait, which is the reclaim storm the policy exists
+    /// to stop, and nothing downstream would report it.
+    #[test]
+    fn retry_backoff_is_parsed_from_config_and_rejected_when_it_cannot_space_retries() {
+        let config = Config::init_from_hashmap(&HashMap::new()).unwrap();
+        let settings = OrchestratorSettings::try_from(&config).unwrap();
+        assert_eq!(settings.retry_backoff.base(), Duration::from_secs(30));
+        assert_eq!(settings.retry_backoff.cap(), Duration::from_secs(1800));
+
+        let mut zero_base = config.clone();
+        zero_base.seeder_retry_backoff_base_secs = 0;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&zero_base),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::RetryBackoff(BackoffPolicyError::ZeroBase)
+            ))
+        ));
+
+        let mut cap_below_base = config.clone();
+        cap_below_base.seeder_retry_backoff_cap_secs = 29;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&cap_below_base),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::RetryBackoff(BackoffPolicyError::CapBelowBase)
             ))
         ));
     }

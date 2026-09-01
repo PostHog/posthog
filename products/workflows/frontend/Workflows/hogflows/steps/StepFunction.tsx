@@ -28,6 +28,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
                 errors={validationResult?.errors}
                 warnings={validationResult?.warnings}
+                emailFieldErrors={validationResult?.emailErrors}
             />
         </>
     )

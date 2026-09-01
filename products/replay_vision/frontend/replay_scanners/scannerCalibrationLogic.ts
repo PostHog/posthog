@@ -525,6 +525,7 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
         loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadObservationsFailure() // Clear the loading flag; a bare return spins forever.
                 return
             }
             let response: Awaited<ReturnType<typeof visionScannersObservationsList>>
@@ -580,6 +581,7 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
         loadLabelStats: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadLabelStatsFailure()
                 return
             }
             let response
@@ -598,6 +600,7 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
         loadCurrentSuggestion: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadCurrentSuggestionFailure()
                 return
             }
             const epoch = cache.suggestionEpoch ?? 0

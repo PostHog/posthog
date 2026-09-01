@@ -158,4 +158,96 @@ describe('tracingFiltersLogic', () => {
             }
         })
     })
+
+    describe('addFilter', () => {
+        it.each([
+            [PropertyOperator.Exact, PropertyFilterType.SpanAttribute],
+            [PropertyOperator.IsNot, PropertyFilterType.SpanResourceAttribute],
+        ])('appends a %s filter of type %s to the editable filterGroup', (operator, propertyType) => {
+            logic.actions.addFilter('http.method', 'GET', operator, propertyType)
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toContainEqual({
+                key: 'http.method',
+                value: ['GET'],
+                operator,
+                type: propertyType,
+            })
+        })
+
+        // The attribute buttons live inside the trace drawer — re-querying immediately would
+        // reload data the drawer is covering. tracingDataLogic gates its query off this flag.
+        it('marks a filter refresh as deferred instead of running the query inline', () => {
+            expect(logic.values.hasDeferredFilterRefresh).toBe(false)
+
+            logic.actions.addFilter('http.method', 'GET')
+
+            expect(logic.values.hasDeferredFilterRefresh).toBe(true)
+        })
+
+        it('marks the newly added filter so its editor popover does not auto-open', () => {
+            expect(logic.values.suppressAutoOpenFilter).toBeNull()
+
+            logic.actions.addFilter('http.method', 'GET')
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(logic.values.suppressAutoOpenFilter).toBe(inner.values[inner.values.length - 1])
+        })
+
+        // The row buttons are one click away from each other, so a repeat click used to stack an
+        // identical chip and a `+` after a `-` used to leave a pair matching no span. The
+        // suppression assertion pins the merged entry, not the discarded incoming one — the bar
+        // matches by identity, so a stale reference pops the editor open on a chip nobody touched.
+        it('folds a repeat click into the chip already there', () => {
+            logic.actions.addFilter('http.method', 'GET')
+            logic.actions.addFilter('http.method', 'GET')
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toEqual([
+                {
+                    key: 'http.method',
+                    value: ['GET'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.SpanAttribute,
+                },
+            ])
+            expect(logic.values.suppressAutoOpenFilter).toBe(inner.values[0])
+        })
+
+        // Separate from the fold test above, which needs the flag already armed by its first add.
+        it('does not defer a refresh for a click that changes nothing', () => {
+            logic.actions.addFilter('http.method', 'GET')
+            logic.actions.refreshDeferredFilters()
+
+            logic.actions.addFilter('http.method', 'GET')
+
+            expect(logic.values.hasDeferredFilterRefresh).toBe(false)
+        })
+
+        it('cancels a standing exclusion instead of contradicting it', () => {
+            logic.actions.addFilter('http.method', 'GET', PropertyOperator.IsNot)
+            logic.actions.addFilter('http.method', 'GET', PropertyOperator.Exact)
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toEqual([
+                {
+                    key: 'http.method',
+                    value: ['GET'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.SpanAttribute,
+                },
+            ])
+        })
+    })
+
+    describe('refreshDeferredFilters', () => {
+        it('clears the deferred-refresh flag set by addFilter', () => {
+            logic.actions.addFilter('http.method', 'GET')
+            expect(logic.values.hasDeferredFilterRefresh).toBe(true)
+
+            logic.actions.refreshDeferredFilters()
+
+            expect(logic.values.hasDeferredFilterRefresh).toBe(false)
+        })
+    })
 })

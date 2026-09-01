@@ -1,5 +1,5 @@
 import hashlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from freezegun import freeze_time
@@ -25,9 +25,13 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.personhog_client.fake_client import FakePersonHogClient
+from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier import TierDecision
 
 
 def _attach_messages(request) -> None:
@@ -675,6 +679,70 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert self.mock_suspend_email.delay.call_args.kwargs["reason"] == "Hard bounce rate above 5%"
         assert self.mock_notification.call_count == 1
 
+    def test_suspend_drops_the_tier_to_zero_even_when_pinned(self) -> None:
+        config = get_or_create_team_extension(
+            self.team, TeamWorkflowsConfig, defaults={"email_sending_tier": 3, "email_sending_tier_pinned": True}
+        )
+
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "spam complaints"}), str(self.team.pk))
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.email_sending_suspended_at is not None
+        assert config.email_sending_tier == 0
+        assert config.email_sending_tier_updated_at is not None
+
+    def test_tier_actions_render_without_a_nested_form(self) -> None:
+        # The field renders inside the admin's team change form. A nested <form> would break the page,
+        # so the actions must submit the surrounding form through formaction instead.
+        html = self.admin.email_sending_tier_actions(self.team)
+        assert "<form" not in html
+        assert html.count('formmethod="post"') == 2
+        assert "Save tier" in html
+        assert "Recompute now" in html
+
+    def test_tier_actions_use_a_nonce_script_not_inline_handlers(self) -> None:
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, so inline
+        # onclick/onsubmit attributes are dropped. The recompute confirm must run from a nonce'd
+        # script, which needs the request in the render context.
+        request = self.factory.get(f"/admin/posthog/team/{self.team.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.email_sending_tier_actions(self.team)
+
+        assert "onclick=" not in html
+        assert "onsubmit=" not in html
+        assert 'nonce="test-nonce-value"' in html
+
+    def test_recompute_message_names_the_hold_reason(self) -> None:
+        # A held recompute used to report a canned guess ("pinned or does not meet the promotion
+        # bar"), which misled staff when the real reason was the dwell or a cooldown.
+        request = self._post()
+        with patch(
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team",
+            return_value=TierDecision(team_id=self.team.id, previous_tier=4, new_tier=4, reason="too_soon"),
+        ):
+            response = self.admin.recompute_email_sending_tier_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        rendered = [str(message) for message in request._messages]
+        assert any("keeps tier 4" in message and "has not held its current tier" in message for message in rendered)
+
+    def test_recompute_creates_a_missing_workflows_config(self) -> None:
+        # A team that predates the extension signal can have no config row, and the sweep skips a
+        # rowless team, so the recompute action must create the row before it runs.
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).delete()
+        assert self._config() is None
+        with patch(
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team", return_value=None
+        ) as mock_recompute:
+            response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        mock_recompute.assert_called_once_with(self.team.id)
+        assert self._config() is not None
+
     def test_suspend_is_idempotent(self) -> None:
         self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))
         response = self.admin.suspend_email_sending_view(self._post({"reason": "second"}), str(self.team.pk))
@@ -777,3 +845,111 @@ class TestTeamInlineForm(BaseTest):
         form = self._inline_form({"test_account_filters": raw})
         form.is_valid()
         assert "test_account_filters" in form.errors
+
+
+class TestTeamAdminEditGroupTypeMappingView(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+        self.edit_url = f"/admin/posthog/team/{self.team.pk}/group-type-mapping/0/edit/"
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        # Sub-second component matters: the form prefills created_at, so a lossy prefill would
+        # silently truncate it on every save.
+        existing_created_at = datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC)
+
+        self.fake_client = FakePersonHogClient()
+        self.fake_client.add_group_type_mapping(
+            project_id=self.team.project_id,
+            team_id=self.team.pk,
+            group_type="organization",
+            group_type_index=0,
+            created_at=int(existing_created_at.timestamp() * 1000),
+        )
+        client_patcher = patch("posthog.admin.admins.team_admin.get_personhog_client", return_value=self.fake_client)
+        client_patcher.start()
+        self.addCleanup(client_patcher.stop)
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.edit_url
+            ),
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+    def _post(self, created_at: str):
+        http_request = self.factory.post(
+            self.edit_url,
+            {"name_singular": "org", "name_plural": "orgs", "default_columns": "", "created_at": created_at},
+        )
+        http_request.user = self.user
+        _attach_messages(http_request)
+        return self.admin.edit_group_type_mapping_view(http_request, str(self.team.pk), 0)
+
+    @parameterized.expand(
+        [
+            ("whole_seconds", "2026-02-20 08:15:00", int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000)),
+            (
+                "with_millis",
+                "2026-02-20 08:15:00.456",
+                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
+            ),
+        ]
+    )
+    def test_post_sets_created_at_via_personhog(self, _name: str, created_at_raw: str, expected_millis: int) -> None:
+        response = self._post(created_at_raw)
+
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        update_request = update_calls[0].request
+        assert "created_at" in update_request.update_mask
+        assert update_request.created_at == expected_millis
+
+    def test_post_clears_created_at_when_field_is_blank(self) -> None:
+        # The mask path with no value is how the replica is told to null the column.
+        response = self._post("")
+
+        assert response.status_code == 302
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        update_request = update_calls[0].request
+        assert "created_at" in update_request.update_mask
+        assert not update_request.HasField("created_at")
+        assert (
+            not self.fake_client.get_group_type_mappings_by_project_id(
+                GetGroupTypeMappingsByProjectIdRequest(project_id=self.team.project_id)
+            )
+            .mappings[0]
+            .HasField("created_at")
+        )
+
+    def test_unedited_prefill_does_not_rewrite_created_at(self) -> None:
+        # Feeding GET's prefill straight back must be a no-op. Fails if the prefill loses
+        # sub-second precision, or if an unchanged value is still sent in the update_mask.
+        get_request = self.factory.get(self.edit_url)
+        get_request.user = self.user
+        _attach_messages(get_request)
+        with patch("posthog.admin.admins.team_admin.render") as mock_render:
+            self.admin.edit_group_type_mapping_view(get_request, str(self.team.pk), 0)
+        prefilled_created_at = mock_render.call_args.args[2]["created_at_display"]
+
+        response = self._post(prefilled_created_at)
+
+        assert response.status_code == 302
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        assert "created_at" not in update_calls[0].request.update_mask
+
+    def test_post_invalid_created_at_redirects_without_updating(self) -> None:
+        response = self._post("not-a-datetime")
+
+        assert response.status_code == 302
+        assert response["Location"] == self.edit_url
+        assert not any(c.method == "update_group_type_mapping" for c in self.fake_client.calls)

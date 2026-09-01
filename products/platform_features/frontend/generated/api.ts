@@ -21,13 +21,17 @@ import type {
     ChangeRequestRejectApi,
     ChangeRequestsListParams,
     CommentApi,
+    CommentSlackThreadApi,
     CommentsListParams,
+    DiagnosticReportApi,
     ListParams,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
+    OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
@@ -42,13 +46,21 @@ import type {
     PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
+    PatchedProxyRecordUpdateApi,
     PatchedRoleApi,
+    PatchedUserFacetSettingsApi,
     PersonalApiKeysListParams,
     PinnedSceneTabsApi,
+    ProxyRecordApi,
+    ProxyRecordListResponseApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    SendCommentToSlackApi,
+    UserFacetSettingsApi,
+    UserFacetSettingsPartialUpdateParams,
+    UserFacetSettingsRetrieveParams,
     WelcomeResponseApi,
 } from './api.schemas'
 
@@ -162,6 +174,31 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
+export const getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/remove_blocked_members_and_enforce_verified_domains/`
+}
+
+/**
+ * Remove the members whose email domain is outside the organization's verified domains and turn
+ * `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+ * access and can disable the setting themselves. Admin only.
+ *
+ * Use this only when the caller has confirmed the removals. To turn the setting on without
+ * touching memberships, PATCH `enforce_verified_domains` on the organization instead.
+ */
+export const removeBlockedMembersAndEnforceVerifiedDomainsCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationRemoveBlockedMembersResponseApi> => {
+    return apiMutator<OrganizationRemoveBlockedMembersResponseApi>(
+        getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl(id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getRequestAiAccessCreateUrl = (id: string) => {
     return `/api/organizations/${id}/request_ai_access/`
 }
@@ -176,6 +213,23 @@ export const requestAiAccessCreate = async (
     return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTeamsDataFreshnessRetrieveUrl = (id: string) => {
+    return `/api/organizations/${id}/teams/data_freshness/`
+}
+
+/**
+ * When each project in the organization last received data, broken down by kind of data.
+ */
+export const teamsDataFreshnessRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationDataFreshnessApi> => {
+    return apiMutator<OrganizationDataFreshnessApi>(getTeamsDataFreshnessRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -311,6 +365,132 @@ export const personalApiKeysList = async (
     return apiMutator<PaginatedOrganizationPersonalAPIKeyListApi>(getPersonalApiKeysListUrl(organizationId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getProxyRecordsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/`
+}
+
+/**
+ * List all reverse proxies configured for the organization. Returns proxy records along with the maximum number allowed by the current plan.
+ */
+export const proxyRecordsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<ProxyRecordListResponseApi> => {
+    return apiMutator<ProxyRecordListResponseApi>(getProxyRecordsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProxyRecordsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/`
+}
+
+/**
+ * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
+ */
+export const proxyRecordsCreate = async (
+    organizationId: string,
+    proxyRecordApi: NonReadonly<ProxyRecordApi>,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(proxyRecordApi),
+    })
+}
+
+export const getProxyRecordsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/`
+}
+
+/**
+ * Get details of a specific reverse proxy by ID. Returns the full configuration including domain, CNAME target, and current provisioning status.
+ */
+export const proxyRecordsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getProxyRecordsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/`
+}
+
+/**
+ * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
+ */
+export const proxyRecordsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedProxyRecordUpdateApi?: PatchedProxyRecordUpdateApi,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProxyRecordUpdateApi),
+    })
+}
+
+export const getProxyRecordsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/`
+}
+
+/**
+ * Delete a reverse proxy. For proxies in 'waiting', 'erroring', or 'timed_out' status, the record is deleted immediately. For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.
+ */
+export const proxyRecordsDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getProxyRecordsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getProxyRecordsDiagnoseCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/diagnose/`
+}
+
+/**
+ * Run a deep diagnostic on a reverse proxy. Inspects DNS CNAME alignment, the certificate provider's hostname state, CAA records walked up the customer's DNS tree, HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps (e.g. exact DNS records to add). Use this to debug why a proxy is stuck or erroring.
+ */
+export const proxyRecordsDiagnoseCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DiagnosticReportApi> => {
+    return apiMutator<DiagnosticReportApi>(getProxyRecordsDiagnoseCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getProxyRecordsRetryCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/proxy_records/${id}/retry/`
+}
+
+/**
+ * Retry provisioning a failed reverse proxy. Only available for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' status and restarts the provisioning workflow.
+ */
+export const proxyRecordsRetryCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProxyRecordApi> => {
+    return apiMutator<ProxyRecordApi>(getProxyRecordsRetryCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -884,9 +1064,16 @@ export const getCommentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/comments/`
 }
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
 export const commentsCreate = async (
     projectId: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsCreateUrl(projectId), {
@@ -915,7 +1102,7 @@ export const getCommentsUpdateUrl = (projectId: string, id: string) => {
 export const commentsUpdate = async (
     projectId: string,
     id: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsUpdateUrl(projectId, id), {
@@ -994,6 +1181,27 @@ export const commentsReopenCreate = async (
     })
 }
 
+export const getCommentsSendToSlackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/send_to_slack/`
+}
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreate = async (
+    projectId: string,
+    id: string,
+    sendCommentToSlackApi: SendCommentToSlackApi,
+    options?: RequestInit
+): Promise<CommentSlackThreadApi> => {
+    return apiMutator<CommentSlackThreadApi>(getCommentsSendToSlackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendCommentToSlackApi),
+    })
+}
+
 export const getCommentsThreadRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/comments/${id}/thread/`
 }
@@ -1013,6 +1221,69 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUserFacetSettingsRetrieveUrl = (uuid: string, params: UserFacetSettingsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user_facet_settings/${uuid}/?${stringifiedParams}`
+        : `/api/user_facet_settings/${uuid}/`
+}
+
+/**
+ * Get the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const userFacetSettingsRetrieve = async (
+    uuid: string,
+    params: UserFacetSettingsRetrieveParams,
+    options?: RequestInit
+): Promise<UserFacetSettingsApi> => {
+    return apiMutator<UserFacetSettingsApi>(getUserFacetSettingsRetrieveUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserFacetSettingsPartialUpdateUrl = (uuid: string, params: UserFacetSettingsPartialUpdateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user_facet_settings/${uuid}/?${stringifiedParams}`
+        : `/api/user_facet_settings/${uuid}/`
+}
+
+/**
+ * Replace the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const userFacetSettingsPartialUpdate = async (
+    uuid: string,
+    params: UserFacetSettingsPartialUpdateParams,
+    patchedUserFacetSettingsApi?: PatchedUserFacetSettingsApi,
+    options?: RequestInit
+): Promise<UserFacetSettingsApi> => {
+    return apiMutator<UserFacetSettingsApi>(getUserFacetSettingsPartialUpdateUrl(uuid, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserFacetSettingsApi),
     })
 }
 

@@ -1,10 +1,17 @@
+import re
 from datetime import UTC, timedelta
+from typing import Any
+from uuid import UUID
 
 from django import forms
 from django.apps import apps
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core import signing
+from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
@@ -12,16 +19,20 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
+from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.project_inline import ProjectInline
+from posthog.admin.inlines.proxy_record_inline import ProxyRecordInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 from posthog.person_db_router import PERSONS_DB_MODELS
+from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
+from posthog.utils import pluralize
 
 # Registry of default-db models to count for bulk-delete report.
 # Format: (app_label.ModelName, filter_field, display_name)
@@ -42,7 +53,6 @@ BULK_DELETE_PERSONS_DB_MODELS: dict[str, str] = {
     "grouptypemapping": "Group Type Mappings",
     "person": "Persons",
     "persondistinctid": "Person Distinct IDs",
-    "personlessdistinctid": "Personless Distinct IDs",
 }
 
 
@@ -122,6 +132,104 @@ class UsageReportForm(forms.Form):
         return report_date
 
 
+class BulkDeactivateOrganizationsForm(forms.Form):
+    CUSTOM_REASON = "__custom__"
+    MAX_ORGANIZATIONS = 100
+    PREVIEW_TOKEN_SALT = "posthog.admin.bulk_deactivate_organizations"
+
+    organization_ids = forms.CharField(
+        label="Organization IDs",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 10,
+                "placeholder": "Paste one organization ID per line, or separate IDs with commas.",
+            }
+        ),
+        help_text=f"Paste up to {MAX_ORGANIZATIONS} organization IDs separated by new lines, commas, or spaces.",
+    )
+    reason = forms.ChoiceField(
+        label="Reason",
+        choices=[*Organization.DeactivationReason.choices, (CUSTOM_REASON, "Custom reason")],
+        initial=Organization.DeactivationReason.DESKTOP_ABUSE,
+    )
+    custom_reason = forms.CharField(
+        label="Custom reason",
+        required=False,
+        max_length=Organization._meta.get_field("is_not_active_reason").max_length,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Used only when reason is set to custom reason.",
+    )
+
+    def clean_organization_ids(self) -> list[UUID]:
+        raw_value = self.cleaned_data["organization_ids"]
+        invalid_tokens: list[str] = []
+        organization_ids: list[UUID] = []
+        seen_ids: set[UUID] = set()
+        token_count = 0
+
+        for match in re.finditer(r"[^,\s]+", raw_value):
+            token_count += 1
+            if token_count > self.MAX_ORGANIZATIONS:
+                raise forms.ValidationError(f"Enter {self.MAX_ORGANIZATIONS} organization IDs or fewer.")
+
+            token = match.group()
+            try:
+                organization_id = UUID(token)
+            except ValueError:
+                invalid_tokens.append(token)
+                continue
+
+            if organization_id in seen_ids:
+                continue
+
+            seen_ids.add(organization_id)
+            organization_ids.append(organization_id)
+
+        if token_count == 0:
+            raise forms.ValidationError("Enter at least one organization ID.")
+
+        if invalid_tokens:
+            raise forms.ValidationError(
+                "These organization IDs are not valid UUIDs: %(ids)s",
+                params={"ids": ", ".join(invalid_tokens[:10])},
+            )
+
+        return organization_ids
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean() or {}
+        reason = cleaned_data.get("reason")
+        custom_reason = (cleaned_data.get("custom_reason") or "").strip()
+
+        if reason == self.CUSTOM_REASON:
+            if not custom_reason:
+                self.add_error("custom_reason", "Enter a custom reason.")
+                return cleaned_data
+            cleaned_data["resolved_reason"] = custom_reason
+        elif reason:
+            cleaned_data["resolved_reason"] = reason
+
+        return cleaned_data
+
+    def preview_payload(self) -> dict[str, str | list[str]]:
+        return {
+            "organization_ids": [str(organization_id) for organization_id in self.cleaned_data["organization_ids"]],
+            "reason": self.cleaned_data["resolved_reason"],
+        }
+
+    def preview_token(self) -> str:
+        return signing.dumps(self.preview_payload(), salt=self.PREVIEW_TOKEN_SALT)
+
+    def preview_token_matches(self, preview_token: str) -> bool:
+        if not preview_token:
+            return False
+
+        try:
+            return signing.loads(preview_token, salt=self.PREVIEW_TOKEN_SALT) == self.preview_payload()
+        except signing.BadSignature:
+            return False
+
+
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
@@ -149,6 +257,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",
+        "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
     inlines = [
@@ -157,6 +266,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationMemberInline,
         OrganizationInviteInline,
         OrganizationDomainInline,
+        ProxyRecordInline,
     ]
     readonly_fields = [
         "id",
@@ -169,6 +279,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "bulk_delete_data_display",
         "sync_to_billing_display",
+        "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
     search_fields = ("name", "members__email", "team__api_token")
@@ -190,6 +301,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Inlines other apps registered for Organization, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
         return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = {
+            **(extra_context or {}),
+            "deactivation_reason_presets": list(Organization.DeactivationReason.values),
+        }
+        return super().changeform_view(request, object_id, form_url, extra_context)
 
     def members_count(self, organization: Organization):
         return organization.members.count()
@@ -310,6 +428,17 @@ class OrganizationAdmin(admin.ModelAdmin):
             return "-"
         url = reverse("admin:organization_model_counts", args=[organization.pk])
         return format_html('<a class="button" href="{}">View counts</a>', url)
+
+    @admin.display(description="AI training opt-in history")
+    def ai_training_opt_in_history_display(self, organization: Organization):
+        # UUIDT sets the id before the save, so the add form's unsaved instance also has a pk.
+        if organization._state.adding:
+            return "-"
+        # render_to_string returns a SafeString, so this method does not need mark_safe.
+        return render_to_string(
+            "admin/organization/ai_training_opt_in_history.html",
+            {"history": get_ai_training_opt_in_history(organization)},
+        )
 
     @admin.display(description="Sync to billing")
     def sync_to_billing_display(self, organization: Organization):
@@ -494,6 +623,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 name="send-ai-observability-usage-report",
             ),
             path(
+                "bulk-deactivate/",
+                self.admin_site.admin_view(self.bulk_deactivate_view),
+                name="organization_bulk_deactivate",
+            ),
+            path(
                 "<path:organization_id>/limit-product/",
                 self.admin_site.admin_view(self.limit_product_view),
                 name="limit_product",
@@ -520,6 +654,110 @@ class OrganizationAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def _bulk_deactivation_candidates(self, organization_ids: list[UUID]) -> tuple[list[Organization], list[str]]:
+        organizations_by_id = Organization.objects.only("id", "name", "is_active", "is_not_active_reason").in_bulk(
+            organization_ids
+        )
+        organizations = [
+            organizations_by_id[organization_id]
+            for organization_id in organization_ids
+            if organization_id in organizations_by_id
+        ]
+        missing_ids = [
+            str(organization_id) for organization_id in organization_ids if organization_id not in organizations_by_id
+        ]
+        return organizations, missing_ids
+
+    def bulk_deactivate_view(self, request):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+
+        form = BulkDeactivateOrganizationsForm(request.POST or None)
+        preview_organizations: list[Organization] = []
+        deactivation_organizations: list[Organization] = []
+        already_inactive_organizations: list[Organization] = []
+        missing_ids: list[str] = []
+        preview_token = ""
+        resolved_reason = ""
+
+        if request.method == "POST" and form.is_valid():
+            organization_ids = form.cleaned_data["organization_ids"]
+            resolved_reason = form.cleaned_data["resolved_reason"]
+            preview_organizations, missing_ids = self._bulk_deactivation_candidates(organization_ids)
+            deactivation_organizations = [
+                organization for organization in preview_organizations if organization.is_active is not False
+            ]
+            already_inactive_organizations = [
+                organization for organization in preview_organizations if organization.is_active is False
+            ]
+
+            if not preview_organizations:
+                form.add_error("organization_ids", "No organizations matched these IDs.")
+            elif not deactivation_organizations:
+                form.add_error("organization_ids", "All matched organizations are already inactive.")
+            elif "confirm" in request.POST:
+                preview_token = form.preview_token()
+                if not form.preview_token_matches(request.POST.get("preview_token", "")):
+                    form.add_error(None, "Review the organizations again before deactivating.")
+                else:
+                    deactivation_ids = [organization.id for organization in deactivation_organizations]
+                    with transaction.atomic():
+                        locked_deactivation_organizations = list(
+                            Organization.objects.select_for_update()
+                            .only("id", "is_active", "is_not_active_reason")
+                            .filter(id__in=deactivation_ids)
+                            .exclude(is_active=False)
+                        )
+                        for organization in locked_deactivation_organizations:
+                            organization.is_active = False
+                            organization.is_not_active_reason = resolved_reason
+                            organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
+
+                    count = len(locked_deactivation_organizations)
+                    if count:
+                        messages.success(request, f"Deactivated {pluralize(count, 'organization')}.")
+                    if missing_ids:
+                        missing_count = len(missing_ids)
+                        messages.warning(
+                            request,
+                            (
+                                f"Skipped {pluralize(missing_count, 'organization ID')} "
+                                f"that {'were' if missing_count != 1 else 'was'} not found."
+                            ),
+                        )
+                    skipped_inactive_count = len(already_inactive_organizations) + (
+                        len(deactivation_organizations) - count
+                    )
+                    if skipped_inactive_count:
+                        messages.warning(
+                            request,
+                            (
+                                f"Skipped {pluralize(skipped_inactive_count, 'already inactive organization')} "
+                                "without changing the existing reason."
+                            ),
+                        )
+                    return redirect(reverse("admin:posthog_organization_changelist"))
+            else:
+                preview_token = form.preview_token()
+
+        return render(
+            request,
+            "admin/posthog/organization/bulk_deactivate.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Bulk deactivate organizations",
+                "opts": self.model._meta,
+                "form": form,
+                "preview_organizations": preview_organizations,
+                "deactivation_organizations": deactivation_organizations,
+                "already_inactive_organizations": already_inactive_organizations,
+                "missing_ids": missing_ids,
+                "preview_token": preview_token,
+                "resolved_reason": resolved_reason,
+                "custom_reason_value": BulkDeactivateOrganizationsForm.CUSTOM_REASON,
+            },
+        )
 
     def model_counts_view(self, request, organization_id):
         organization = Organization.objects.get(id=organization_id)
@@ -556,26 +794,31 @@ class OrganizationAdmin(admin.ModelAdmin):
         return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
 
     def send_ai_observability_usage_report_view(self, request):
-        # Staff-only on purpose (no group gate like the sibling): nothing customer-facing, and
-        # duplicate emissions are ignorable at query time (read one event per org per day).
+        # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
+        # the task now skips organizations that already have a report for the period.
         if request.method == "POST":
             form = UsageReportForm(request.POST)
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
-                call_command(
-                    "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
-                )
-                messages.success(request, f"AI observability usage report for date {report_date} was queued.")
+                try:
+                    call_command(
+                        "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
+                    )
+                except CommandError as e:
+                    # Surfacing this matters: a swallowed refusal would report success for a run that
+                    # never started, so the operator would stop looking for the missing reports.
+                    messages.error(request, str(e))
+                else:
+                    messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
         else:
             form = UsageReportForm()
 
-        return render(request, "admin/posthog/organization/send_ai_observability_usage_report.html", {"form": form})
-
-    def changelist_view(self, request, extra_context=None):
-        extra_context = extra_context or {}
-        extra_context["show_usage_report_button"] = True
-        return super().changelist_view(request, extra_context=extra_context)
+        return render(
+            request,
+            "admin/posthog/organization/send_ai_observability_usage_report.html",
+            {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
+        )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}

@@ -13,6 +13,11 @@ from products.wizard.backend.facade.contracts import UpsertWizardSessionRequest,
 MAX_PROMPT_LENGTH = 2000
 MAX_PROMPTS = 10
 
+# Bound on the handoff doc. It IS a document (the wizard's setup report, a few KB of markdown in
+# practice), but the row is streamed over SSE and republished on every later upsert, so cap it well
+# below anything a hostile push could use to balloon the channel. The CLI truncates to the same cap.
+MAX_HANDOFF_TEXT_LENGTH = 64 * 1024
+
 
 class PendingInputSerializer(serializers.Serializer):
     """The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
@@ -73,6 +78,12 @@ class WizardSessionSerializer(DataclassSerializer):
                     "attribution existed). Lets the UI name whose run it is."
                 ),
             },
+            "handoff_text": {
+                "help_text": (
+                    "Markdown handoff doc the wizard produced for this run (its setup report), "
+                    "or null while the run hasn't written one. Sticky once set."
+                ),
+            },
         }
 
 
@@ -85,6 +96,18 @@ class UpsertWizardSessionRequestSerializer(DataclassSerializer):
         help_text=(
             "Populated while the wizard is blocked on a question in the terminal. "
             "Null/absent means no input is pending; a push without it clears the previous prompt."
+        ),
+    )
+    # trim_whitespace would mangle markdown that opens with indentation (e.g. a code block).
+    handoff_text = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=MAX_HANDOFF_TEXT_LENGTH,
+        help_text=(
+            "Markdown handoff doc for the run (the wizard's setup report). Send it once the run "
+            "has produced one; omitting it on later pushes keeps the stored value."
         ),
     )
 

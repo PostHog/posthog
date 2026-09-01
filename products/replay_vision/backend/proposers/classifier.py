@@ -1,3 +1,5 @@
+from collections import deque
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from products.replay_vision.backend import tag_suggestions
@@ -58,7 +60,7 @@ class ClassifierProposer:
     def to_config_patch(self, llm_output: dict[str, Any], base_config: dict[str, Any]) -> dict[str, Any]:
         config = dict(base_config)
         config["prompt"] = str(llm_output["suggested_prompt"]).strip()
-        config["tags"] = _apply_tag_ops(list(base_config.get("tags", [])), llm_output.get("tag_ops", []))
+        config["tags"] = _apply_tag_ops(list(base_config.get("tags", [])), _valid_tag_ops(llm_output.get("tag_ops")))
         return config
 
     def to_changes(
@@ -66,29 +68,13 @@ class ClassifierProposer:
     ) -> list[ConfigChange]:
         rationale = str(llm_output.get("rationale", "")).strip()
         changes = prompt_change(base_config, suggested_config, rationale)
-        # Emit a change only for an op that actually alters the vocabulary, so a no-op op does not mark an
-        # unchanged config as pending.
         working = list(base_config.get("tags", []))
-        for op in llm_output.get("tag_ops", []):
-            kind, tag, to = op.get("op"), op.get("tag"), op.get("to")
-            if not kind or not tag:
-                continue
-            if kind == "add" and tag not in working:
-                working.append(tag)
-                before, after = None, tag
-            elif kind == "remove" and tag in working:
-                working.remove(tag)
-                before, after = tag, None
-            elif kind == "rename" and tag in working and to:
-                _rename_tag(working, tag, to)
-                before, after = tag, to
-            else:
-                continue
+        for op, before, after in _tag_transitions(working, _valid_tag_ops(llm_output.get("tag_ops"))):
             changes.append(
                 ConfigChange(
                     field="tags",
                     kind="tags",
-                    op=kind,
+                    op=op["op"],
                     before=before,
                     after=after,
                     rationale=str(op.get("rationale", "")),
@@ -97,30 +83,60 @@ class ClassifierProposer:
         return changes
 
 
+def _valid_tag_ops(raw: Any) -> list[dict[str, Any]]:
+    """The schema guides the model, it doesn't bind it, and this runs outside the generation fallbacks:
+    one malformed op used to lose the whole suggestion, rewritten prompt included."""
+    if not isinstance(raw, list):
+        return []
+    ops: list[dict[str, Any]] = []
+    for op in raw:
+        if not isinstance(op, dict):
+            continue
+        kind, tag, to = op.get("op"), op.get("tag"), op.get("to")
+        if kind not in ("add", "remove", "rename"):
+            continue
+        if not isinstance(tag, str) or not tag.strip():
+            continue
+        if kind == "rename" and (not isinstance(to, str) or not to.strip()):
+            continue
+        ops.append(op)
+    return ops
+
+
+def _slug_taken(tags: list[str], candidate: str, *, skip_index: int | None = None) -> bool:
+    """Tag uniqueness is slug-normalized (see api.scanners), so a plain string check would let `Payment`
+    and `payment` both land and make the suggestion impossible to apply."""
+    slug = slugify_tag(candidate)
+    return any(slugify_tag(other) == slug for i, other in enumerate(tags) if i != skip_index)
+
+
+def _tag_transitions(
+    tags: list[str], ops: list[dict[str, Any]]
+) -> Iterator[tuple[dict[str, Any], str | None, str | None]]:
+    """Apply each op to `tags` in place, yielding (op, before, after) only for ops that changed the
+    vocabulary — a no-op op must not mark an unchanged config as pending."""
+    for op in ops:
+        kind, tag = op["op"], op["tag"]
+        if kind == "add":
+            if not slugify_tag(tag) or _slug_taken(tags, tag):
+                continue
+            tags.append(tag)
+            yield op, None, tag
+        elif kind == "remove" and tag in tags:
+            tags.remove(tag)
+            yield op, tag, None
+        elif kind == "rename" and tag in tags:
+            index = tags.index(tag)
+            to = op["to"]
+            # Merge rather than duplicate when the destination slug is already present.
+            if _slug_taken(tags, to, skip_index=index):
+                tags.pop(index)
+            else:
+                tags[index] = to
+            yield op, tag, to
+
+
 def _apply_tag_ops(tags: list[str], ops: list[dict[str, Any]]) -> list[str]:
     result = list(tags)
-    for op in ops:
-        kind, tag = op.get("op"), op.get("tag")
-        # A malformed op (schema not honored) is skipped rather than raising, so one bad op can't turn a
-        # whole generation into a 500 instead of a usable suggestion.
-        if not kind or not tag:
-            continue
-        if kind == "add" and tag not in result:
-            result.append(tag)
-        elif kind == "remove" and tag in result:
-            result.remove(tag)
-        elif kind == "rename" and tag in result and op.get("to"):
-            _rename_tag(result, tag, op["to"])
+    deque(_tag_transitions(result, ops), maxlen=0)  # Drain for the in-place edits; the yields are for to_changes.
     return result
-
-
-def _rename_tag(tags: list[str], tag: str, to: str) -> None:
-    """Rename in place, but merge into the destination when another tag already shares its slug rather than
-    creating a duplicate. Tag uniqueness is slug-normalized (see api.scanners), so a plain string check would
-    still let `Payment` and `payment` both land and make the suggestion fail to apply."""
-    index = tags.index(tag)
-    to_slug = slugify_tag(to)
-    if any(slugify_tag(other) == to_slug for i, other in enumerate(tags) if i != index):
-        tags.pop(index)
-    else:
-        tags[index] = to

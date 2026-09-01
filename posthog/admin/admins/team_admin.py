@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib import parse
@@ -16,11 +16,12 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.forms import ModelForm, ValidationError
-from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import escapejs, format_html, format_html_join
 from django.utils.safestring import mark_safe
 
@@ -32,7 +33,6 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
@@ -69,11 +69,26 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier import recompute_email_sending_tier_for_team
+from products.workflows.backend.utils.email_sending_tiers import (
+    MIN_EMAIL_SENDING_TIER,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+)
 
 logger = get_logger()
 
 # Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
 MAX_CREDIT_USD = Decimal("1000000")
+
+
+def _format_group_type_created_at(value: datetime | None) -> str:
+    """Millisecond precision, matching the RPC, so the overview and the edit form agree.
+
+    The edit form prefills from this, so dropping the sub-second part here would make an
+    untouched save rewrite created_at.
+    """
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if value else ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,6 +186,8 @@ class TeamAdmin(admin.ModelAdmin):
         "group_type_mappings_display",
         "email_sending_suspension_state",
         "email_sending_suspension_actions",
+        "email_sending_tier_state",
+        "email_sending_tier_actions",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -178,7 +195,6 @@ class TeamAdmin(admin.ModelAdmin):
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
         TeamExperimentsConfigInline,
-        UserProductListInline,
     ]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
@@ -328,12 +344,16 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "email_sending_suspension_state",
                     "email_sending_suspension_actions",
+                    "email_sending_tier_state",
+                    "email_sending_tier_actions",
                 ],
                 "description": mark_safe(
                     "Kill switch for all workflow email from this team, used when its sender reputation "
                     "(hard bounce / spam complaint rates) endangers shared SES deliverability. Suspending "
                     "notifies the team by email and in-app; the CDP email worker picks the flag up within "
-                    "a few minutes."
+                    "a few minutes.<br><br>The trust tier below sets how fast this team may send. Teams "
+                    "earn tiers automatically by sending cleanly over time; pinning holds a team at a tier "
+                    "and stops both automatic promotion and automatic demotion."
                 ),
             },
         ),
@@ -391,6 +411,7 @@ class TeamAdmin(admin.ModelAdmin):
                     **m,
                     "detail_dashboard_id": detail_dashboard_id,
                     "detail_dashboard_url": detail_dashboard_url,
+                    "created_at_display": _format_group_type_created_at(m.get("created_at")),
                     "edit_url": reverse(
                         "admin:posthog_team_edit_group_type_mapping",
                         args=[team.pk, m["group_type_index"]],
@@ -452,6 +473,8 @@ class TeamAdmin(admin.ModelAdmin):
             messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
             return redirect(team_url)
 
+        existing_created_at = mapping_dict.get("created_at")
+
         if request.method == "GET":
             default_columns = mapping_dict.get("default_columns")
             default_columns_json = json.dumps(default_columns) if default_columns else ""
@@ -460,6 +483,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
+                "created_at_display": _format_group_type_created_at(existing_created_at),
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
@@ -483,6 +507,19 @@ class TeamAdmin(admin.ModelAdmin):
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
                 )
 
+        created_at_raw = request.POST.get("created_at", "").strip()
+        created_at_millis: int | None = None
+        if created_at_raw:
+            parsed_created_at = parse_datetime(created_at_raw)
+            if parsed_created_at is None:
+                messages.error(request, "Created at must be a valid datetime, e.g. 2026-01-15 10:30:00.")
+                return redirect(
+                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
+                )
+            if parsed_created_at.tzinfo is None:
+                parsed_created_at = parsed_created_at.replace(tzinfo=UTC)
+            created_at_millis = int(parsed_created_at.timestamp() * 1000)
+
         update_mask = ["name_singular", "name_plural"]
         update_kwargs: dict[str, Any] = {
             "project_id": team.project_id,
@@ -494,6 +531,13 @@ class TeamAdmin(admin.ModelAdmin):
             update_mask.append("default_columns")
             if parsed_default_columns is not None:
                 update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
+        # The form prefills created_at, so an untouched field matches what is stored and is left
+        # alone; a cleared field sends the mask path with no value, which nulls the column.
+        existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
+        if created_at_millis != existing_millis:
+            update_mask.append("created_at")
+            if created_at_millis is not None:
+                update_kwargs["created_at"] = created_at_millis
         update_kwargs["update_mask"] = update_mask
 
         try:
@@ -756,7 +800,22 @@ class TeamAdmin(admin.ModelAdmin):
                 suspended_at = timezone.now()
                 config.email_sending_suspended_at = suspended_at
                 config.email_sending_suspension_reason = reason
-                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+                # Drop the trust tier now, in the same locked transaction, rather than at the next
+                # daily sweep: a suspension is the strongest signal there is, and the tier sets how
+                # fast the team may send once reinstated. A suspension always maps to the lowest
+                # tier, and that mapping needs no metrics, so write it here instead of through the
+                # recompute. This does not depend on ClickHouse and it also covers pinned teams,
+                # which the periodic sweep skips.
+                config.email_sending_tier = MIN_EMAIL_SENDING_TIER
+                config.email_sending_tier_updated_at = suspended_at
+                config.save(
+                    update_fields=[
+                        "email_sending_suspended_at",
+                        "email_sending_suspension_reason",
+                        "email_sending_tier",
+                        "email_sending_tier_updated_at",
+                    ]
+                )
 
         if already_suspended_at is not None:
             self.message_user(
@@ -883,6 +942,173 @@ class TeamAdmin(admin.ModelAdmin):
                 },
             )
         )
+
+    @admin.display(description="Email sending tier")
+    def email_sending_tier_state(self, team: Team) -> str:
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        tier = config.email_sending_tier if config else 0
+        limits = get_email_sending_tier_limits(tier)
+        updated_at = config.email_sending_tier_updated_at if config else None
+        allowlist_note = ""
+        if team.pk in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
+            # A saved tier changes nothing while the team sits on the legacy allowlist, which the
+            # limit resolution checks first. Say so here rather than letting a staff tier write
+            # look effective when it is not.
+            allowlist_note = (
+                "<br><strong>Note:</strong> this team is on the legacy elevated allowlist "
+                "(HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS), which overrides the tier until the "
+                "team is removed from it."
+            )
+        return format_html(
+            "<strong>Tier {}</strong> of {} — {} emails/hour, {} emails/day, "
+            "{} max batch audience<br>Set at: {}<br>Pinned: {}<br>Rollout mode: <code>{}</code>{}",
+            tier,
+            max_email_sending_tier(),
+            f"{limits.per_hour:,}",
+            f"{limits.per_day:,}",
+            f"{limits.max_batch_audience:,}",
+            updated_at.isoformat() if updated_at else "never (team has not been evaluated yet)",
+            "yes" if config and config.email_sending_tier_pinned else "no",
+            settings.WORKFLOWS_EMAIL_TIER_MODE,
+            mark_safe(allowlist_note),  # noqa: S308 - static admin-only string, no user input
+        )
+
+    @admin.display(description="Email sending tier actions")
+    def email_sending_tier_actions(self, team: Team) -> str:
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        tiers = [
+            {
+                "tier": tier,
+                "per_hour": f"{get_email_sending_tier_limits(tier).per_hour:,}",
+                "per_day": f"{get_email_sending_tier_limits(tier).per_day:,}",
+                "selected": tier == (config.email_sending_tier if config else 0),
+            }
+            for tier in range(max_email_sending_tier() + 1)
+        ]
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/email_sending_tier_actions.html",
+                {
+                    "tiers": tiers,
+                    "pinned": bool(config and config.email_sending_tier_pinned),
+                    "set_tier_url": reverse("admin:posthog_team_set_email_sending_tier", args=[team.pk]),
+                    "recompute_url": reverse("admin:posthog_team_recompute_email_sending_tier", args=[team.pk]),
+                },
+                request=getattr(self, "_current_request", None),
+            )
+        )
+
+    def set_email_sending_tier_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+        top_tier = max_email_sending_tier()
+        try:
+            tier = int(request.POST.get("tier", ""))
+        except ValueError:
+            messages.error(request, "Tier must be a whole number.")
+            return redirect(team_url)
+        if tier < 0 or tier > top_tier:
+            messages.error(request, f"Tier must be between 0 and {top_tier}.")
+            return redirect(team_url)
+        pinned = request.POST.get("pinned") == "on"
+
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
+            previous_tier = config.email_sending_tier
+            config.email_sending_tier = tier
+            config.email_sending_tier_pinned = pinned
+            if tier != previous_tier:
+                # Only a real tier change restarts the dwell clock. Toggling the pin alone must not
+                # push the next earned promotion out by the full dwell.
+                config.email_sending_tier_updated_at = timezone.now()
+            config.save(
+                update_fields=[
+                    "email_sending_tier",
+                    "email_sending_tier_pinned",
+                    "email_sending_tier_updated_at",
+                ]
+            )
+
+        logger.info(
+            "admin_set_email_sending_tier",
+            team_id=team.id,
+            previous_tier=previous_tier,
+            new_tier=tier,
+            pinned=pinned,
+            # The admin guarantees an authenticated staff user, but the typed request carries
+            # User | AnonymousUser.
+            triggered_by=getattr(request.user, "email", ""),
+        )
+        self.message_user(
+            request,
+            f"Set team '{team.name}' to email sending tier {tier}"
+            f"{' and pinned it there' if pinned else ' (unpinned, so it can move automatically)'}.",
+            level=messages.SUCCESS,
+        )
+        return redirect(team_url)
+
+    def recompute_email_sending_tier_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+        # A team that only sent through the API may have no config row yet, and the sweep skips a
+        # rowless team. Create the row first so the recompute can move it off tier 0, matching the
+        # suspend and set-tier actions.
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        try:
+            decision = recompute_email_sending_tier_for_team(team.id)
+        except Exception:
+            logger.exception("admin_recompute_email_sending_tier_failed", team_id=team.id)
+            self.message_user(request, "Could not recompute the tier. Check the logs.", level=messages.ERROR)
+            return redirect(team_url)
+
+        if decision is None:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was not evaluated: it is pinned, or its config changed while recomputing.",
+                level=messages.INFO,
+            )
+        elif not decision.changed:
+            hold_reasons = {
+                "too_soon": "it has not held its current tier for the required number of days yet",
+                "tier_not_used_enough": "it has not used enough of its current tier's daily allowance "
+                "on enough separate days since the tier was set",
+                "demotion_cooldown": "a recent demotion's cooldown is still active",
+                "rates_recovering": "its complaint or bounce rate over the promotion window is not clean yet",
+                "ses_reputation_not_clean": "AWS currently flags its SES tenant reputation",
+                "already_top_tier": "it is already at the top tier",
+            }
+            explanation = hold_reasons.get(decision.reason, f"decision reason: {decision.reason}")
+            self.message_user(
+                request,
+                f"Team '{team.name}' keeps tier {decision.previous_tier}: {explanation}.",
+                level=messages.INFO,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' moved from tier {decision.previous_tier} to tier {decision.new_tier} "
+                f"({decision.reason}).",
+                level=messages.SUCCESS,
+            )
+        return redirect(team_url)
 
     def add_ai_gateway_credit_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
@@ -1196,6 +1422,16 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/unsuspend-email-sending/",
                 self.admin_site.admin_view(self.unsuspend_email_sending_view),
                 name="posthog_team_unsuspend_email_sending",
+            ),
+            path(
+                "<path:object_id>/set-email-sending-tier/",
+                self.admin_site.admin_view(self.set_email_sending_tier_view),
+                name="posthog_team_set_email_sending_tier",
+            ),
+            path(
+                "<path:object_id>/recompute-email-sending-tier/",
+                self.admin_site.admin_view(self.recompute_email_sending_tier_view),
+                name="posthog_team_recompute_email_sending_tier",
             ),
         ]
         return custom_urls + urls

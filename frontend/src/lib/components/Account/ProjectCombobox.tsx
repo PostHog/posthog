@@ -191,7 +191,9 @@ export function ProjectCombobox(): JSX.Element | null {
                             tooltip="Create a new project"
                             tooltipPlacement="right"
                             className="shrink-0"
-                            disabled={!!projectCreationForbiddenReason}
+                            disabledReasons={
+                                projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
+                            }
                         >
                             <IconPlusSmall className="text-tertiary" />
                             New project

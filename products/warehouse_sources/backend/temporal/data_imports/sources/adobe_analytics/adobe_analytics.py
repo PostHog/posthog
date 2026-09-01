@@ -18,7 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+# Rows created before this source declared versions carry the framework default "v1", which
+# maps to Adobe's legacy 1.4 API (vendor end-of-life 2026-08-12). This client has only ever
+# spoken the 2.0 REST API, so both pins hit the same wire — the version is metadata for the
+# deprecation warning and the repin migration, not a request input.
+ADOBE_ANALYTICS_API_VERSION_V1 = "v1"
+ADOBE_ANALYTICS_API_VERSION_2_0 = "2.0"
 
 # Adobe IMS issues the access token for OAuth Server-to-Server credentials. JWT ("Service
 # Account") credentials were retired on 2025-06-30, so this is the only server-side grant left.
@@ -214,19 +222,21 @@ def resolve_window(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     today: date,
-) -> tuple[date, date]:
+) -> SyncWindow[date]:
     earliest = today - timedelta(days=MAX_BACKFILL_DAYS)
 
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         last_value = parse_date(db_incremental_field_last_value)
         if last_value is not None:
-            return max(min(last_value - timedelta(days=INCREMENTAL_LOOKBACK_DAYS), today), earliest), today
+            return SyncWindow(
+                start=max(min(last_value - timedelta(days=INCREMENTAL_LOOKBACK_DAYS), today), earliest), end=today
+            )
 
     configured = parse_date(start_date)
     if configured is not None:
-        return max(min(configured, today), earliest), today
+        return SyncWindow(start=max(min(configured, today), earliest), end=today)
 
-    return today - timedelta(days=DEFAULT_BACKFILL_DAYS), today
+    return SyncWindow(start=today - timedelta(days=DEFAULT_BACKFILL_DAYS), end=today)
 
 
 def build_report_body(
@@ -313,23 +323,23 @@ def _report_batches(
     report_suite_id: str,
     dimension: str,
     metric_ids: list[str],
-    start: date,
-    end: date,
     manager: ResumableSourceManager[AdobeAnalyticsResumeConfig],
     resume: Optional[AdobeAnalyticsResumeConfig],
     logger: FilteringBoundLogger,
+    *,
+    window: SyncWindow[date],
 ) -> Iterator[list[dict[str, Any]]]:
     metric_columns = metric_column_names(metric_ids)
 
-    current = start
+    current = window.start
     page = 0
     if resume is not None and resume.next_date:
         resumed = parse_date(resume.next_date)
-        if resumed is not None and start <= resumed <= end:
+        if resumed is not None and window.start <= resumed <= window.end:
             current = resumed
             page = resume.page
 
-    while current <= end:
+    while current <= window.end:
         while True:
             payload = client.post_json(
                 "/reports", build_report_body(report_suite_id, dimension, metric_ids, current, page)
@@ -356,7 +366,7 @@ def _report_batches(
 
         current += timedelta(days=1)
         page = 0
-        if current <= end:
+        if current <= window.end:
             manager.save_state(AdobeAnalyticsResumeConfig(page=0, next_date=current.isoformat()))
 
     manager.clear_state()
@@ -408,7 +418,7 @@ def get_rows(
         yield from _metadata_batches(client, endpoint, report_suite_id, resumable_source_manager, resume)
         return
 
-    start, end = resolve_window(
+    window = resolve_window(
         start_date,
         should_use_incremental_field,
         db_incremental_field_last_value,
@@ -419,11 +429,10 @@ def get_rows(
         report_suite_id,
         (report_dimension or DEFAULT_REPORT_DIMENSION).strip() or DEFAULT_REPORT_DIMENSION,
         parse_metrics(report_metrics),
-        start,
-        end,
         resumable_source_manager,
         resume,
         logger,
+        window=window,
     )
 
 

@@ -54,3 +54,73 @@ pub fn get_composed_map(pair: &SourcePair) -> Result<Option<SourceMapFile>> {
         format!("reading composed map at {composed_path:?}"),
     )?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sourcemaps::args::ReleaseMode;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct HermesCli {
+        #[command(subcommand)]
+        command: HermesSubcommand,
+    }
+
+    fn parse(argv: &[&str]) -> HermesSubcommand {
+        HermesCli::parse_from(argv).command
+    }
+
+    #[test]
+    fn every_hermes_command_defaults_to_binding_the_release() {
+        // Every existing React Native build omits the flag. Those builds must keep uploading
+        // maps bound to their release. A different default here unbinds all of them, and
+        // nothing in the build output says so.
+        let HermesSubcommand::Clone(clone) = parse(&[
+            "hermes",
+            "clone",
+            "--minified-map-path",
+            "main.jsbundle.map",
+            "--composed-map-path",
+            "main.jsbundle.hbc.composed.map",
+        ]) else {
+            panic!("expected the clone subcommand");
+        };
+        assert_eq!(clone.release_mode, ReleaseMode::SymbolSet);
+
+        let HermesSubcommand::Upload(upload) = parse(&["hermes", "upload", "--directory", "dist"])
+        else {
+            panic!("expected the upload subcommand");
+        };
+        assert_eq!(upload.release_mode, ReleaseMode::SymbolSet);
+    }
+
+    #[test]
+    fn every_hermes_command_accepts_event_release_mode() {
+        let HermesSubcommand::Clone(clone) = parse(&[
+            "hermes",
+            "clone",
+            "--minified-map-path",
+            "main.jsbundle.map",
+            "--composed-map-path",
+            "main.jsbundle.hbc.composed.map",
+            "--release-mode",
+            "event",
+        ]) else {
+            panic!("expected the clone subcommand");
+        };
+        assert_eq!(clone.release_mode, ReleaseMode::Event);
+
+        let HermesSubcommand::Upload(upload) = parse(&[
+            "hermes",
+            "upload",
+            "--directory",
+            "dist",
+            "--release-mode",
+            "event",
+        ]) else {
+            panic!("expected the upload subcommand");
+        };
+        assert_eq!(upload.release_mode, ReleaseMode::Event);
+    }
+}

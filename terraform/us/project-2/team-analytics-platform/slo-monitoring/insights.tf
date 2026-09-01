@@ -35,6 +35,11 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    alert_delivery = {
+      name    = "Alert notification delivery"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     dashboard_widget_delivery = {
       name    = "Dashboard widget delivery"
       slo     = 99.95 # error budget = 0.05%
@@ -466,7 +471,7 @@ resource "posthog_insight" "slo_success_rate" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_volume" {
   name        = "SLO: 28d Volume by Operation"
-  description = "* = all regions, but events are only emitted from the US project (ph_scoped_capture hardcodes the US client)"
+  description = "* = all regions"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -516,4 +521,149 @@ resource "posthog_insight" "slo_volume" {
 
   dashboard_ids = [posthog_dashboard.slo_monitoring.id]
   tags          = ["managed-by:terraform", "slo"]
+}
+
+resource "posthog_insight" "alert_delivery_by_type" {
+  name        = "SLO: Alert notification delivery by alert type"
+  description = "Daily delivery success for each alert type and region. New alert types appear automatically."
+  query_json = jsonencode({
+    kind = "DataVisualizationNode"
+    source = {
+      kind = "HogQLQuery"
+      query = <<-SQL
+        WITH delivery_events AS (
+            SELECT
+                event,
+                timestamp,
+                coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
+                coalesce(nullIf(properties.region, ''), 'unknown') AS region,
+                coalesce(nullIf(properties.alert_type, ''), 'unknown') AS alert_type,
+                properties.outcome AS outcome
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND properties.operation = 'alert_delivery'
+              AND timestamp >= now() - INTERVAL 28 DAY
+        ),
+        per_delivery_day AS (
+            SELECT
+                correlation_id,
+                region,
+                alert_type,
+                toDate(timestamp) AS event_day,
+                countIf(event = 'slo_operation_started') AS starts,
+                countIf(event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+                min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+            FROM delivery_events
+            GROUP BY correlation_id, region, alert_type, event_day
+        ),
+        daily AS (
+            SELECT day, region, alert_type, sum(started) AS started, sum(successes) AS successes
+            FROM (
+                SELECT
+                    event_day AS day,
+                    region,
+                    alert_type,
+                    starts AS started,
+                    least(starts, successes) AS successes
+                FROM per_delivery_day
+                WHERE correlation_id = ''
+
+                UNION ALL
+
+                SELECT
+                    toDate(min(first_start)) AS day,
+                    region,
+                    alert_type,
+                    1 AS started,
+                    if(max(successes) > 0, 1, 0) AS successes
+                FROM per_delivery_day
+                WHERE correlation_id != ''
+                GROUP BY correlation_id, region, alert_type
+                HAVING day IS NOT NULL
+            )
+            GROUP BY day, region, alert_type
+        )
+        SELECT
+            day,
+            concat(region, ' / ', alert_type) AS series,
+            round(if(started > 0, successes / started * 100, 0), 4) AS success_rate,
+            started,
+            successes,
+            started - successes AS failures
+        FROM daily
+        ORDER BY day ASC, series ASC
+      SQL
+    }
+    display = "ActionsLineGraph"
+    chartSettings = {
+      xAxis                 = { column = "day" }
+      yAxis                 = [{ column = "success_rate", settings = { formatting = { suffix = "%" } } }]
+      seriesBreakdownColumn = "series"
+      showLegend            = true
+    }
+    tableSettings = {
+      columns = [
+        { column = "day" },
+        { column = "series" },
+        { column = "success_rate", settings = { formatting = { suffix = "%" } } },
+        { column = "started" },
+        { column = "successes" },
+        { column = "failures" },
+      ]
+    }
+  })
+
+  dashboard_ids = [posthog_dashboard.slo_monitoring.id]
+  tags          = ["managed-by:terraform", "slo"]
+}
+
+resource "posthog_insight" "alert_delivery_failure_rate" {
+  for_each = toset(["US", "EU"])
+
+  name        = "SLO: Alert notification delivery failure rate (${each.value})"
+  description = "Daily failed alert notification deliveries among completed attempts."
+  query_json = jsonencode({
+    kind = "InsightVizNode"
+    source = {
+      kind     = "TrendsQuery"
+      interval = "day"
+      dateRange = {
+        date_from = "-7d"
+      }
+      series = [
+        {
+          kind        = "EventsNode"
+          event       = "slo_operation_completed"
+          math        = "total"
+          custom_name = "Failed"
+          properties = [
+            { key = "operation", type = "event", value = "alert_delivery", operator = "exact" },
+            { key = "region", type = "event", value = each.value, operator = "exact" },
+            { key = "outcome", type = "event", value = "failure", operator = "exact" },
+          ]
+        },
+        {
+          kind        = "EventsNode"
+          event       = "slo_operation_completed"
+          math        = "total"
+          custom_name = "Completed"
+          properties = [
+            { key = "operation", type = "event", value = "alert_delivery", operator = "exact" },
+            { key = "region", type = "event", value = each.value, operator = "exact" },
+          ]
+        },
+      ]
+      trendsFilter = {
+        display = "ActionsLineGraph"
+        formulaNodes = [
+          { formula = "A/B", custom_name = "Failure rate" },
+        ]
+        aggregationAxisFormat   = "percentage_scaled"
+        decimalPlaces           = 4
+        showAlertThresholdLines = true
+      }
+    }
+  })
+
+  tags = ["managed-by:terraform", "slo"]
 }

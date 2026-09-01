@@ -9,6 +9,7 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust import adjust
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
     LOOKBACK_DAYS,
@@ -480,8 +481,12 @@ class TestAdjustSource:
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["day"]
-        # Blank dimension values (e.g. organic traffic with no campaign) can collide.
-        assert response.has_duplicate_primary_keys is True
+        # Blank dimension values (e.g. organic traffic with no campaign) can collide, but that's
+        # expected for report data and must not block incremental syncing (the only incremental
+        # field these reports offer is `day`) - regression test for the schema-wide incremental
+        # sync outage this caused when has_duplicate_primary_keys was set unconditionally.
+        assert not response.has_duplicate_primary_keys
+        validate_incremental_sync(True, response)
 
     def test_items_is_lazy(self) -> None:
         # Building the SourceResponse must not issue a request; the pipeline drives iteration.

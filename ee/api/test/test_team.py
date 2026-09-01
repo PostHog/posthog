@@ -14,8 +14,9 @@ from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 
 
 def team_enterprise_api_test_factory():

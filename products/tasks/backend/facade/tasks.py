@@ -10,8 +10,9 @@ from celery import shared_task
 
 from products.tasks.backend.loop_reconciliation import reconcile_loop_trigger_schedules_task
 from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
+from products.tasks.backend.task_auto_archive import sweep_inactive_tasks_task
 
-__all__ = ["reconcile_loop_trigger_schedules_task", "sweep_loop_task_retention_task"]
+__all__ = ["reconcile_loop_trigger_schedules_task", "sweep_inactive_tasks_task", "sweep_loop_task_retention_task"]
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,12 @@ def bake_dev_stack_image_task() -> None:
     )
 
     try:
-        execute_bake_dev_stack_image_workflow()
+        execute_bake_dev_stack_image_workflow(trigger="nightly")
     except Exception:
         # Without these, a Temporal-unreachable night is indistinguishable from the flag
         # being off in the bake metric. Re-raise so Celery still records the task failure.
         logger.exception("dev_stack_image_bake_dispatch_failed")
-        observe_dev_stack_image_bake("dispatch_failed")
+        observe_dev_stack_image_bake("dispatch_failed", trigger="nightly")
         raise
 
 

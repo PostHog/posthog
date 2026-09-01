@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -373,8 +373,9 @@ class TestTimeframeParams:
         assert abs((end - start) - int(VIDEO_VIEWS_INITIAL_LOOKBACK.total_seconds())) <= 5
 
     def test_full_refresh_aggregate_uses_wide_lookback(self) -> None:
-        # Aggregate endpoints ignore any watermark and window by the wide (~13 month) retention lookback,
-        # so a sync summarizes essentially all the history Mux keeps rather than a trailing month.
+        # Aggregate endpoints ignore any watermark and window by the aggregate retention lookback, which
+        # stays within Mux's standard 100-day retention so the request isn't rejected as an invalid
+        # timeframe on accounts without the 13-month add-on.
         params = _timeframe_params(
             MUX_ENDPOINTS["errors"],
             should_use_incremental_field=False,
@@ -382,6 +383,12 @@ class TestTimeframeParams:
         )
         start, end = params["timeframe[]"]
         assert abs((end - start) - int(AGGREGATE_LOOKBACK.total_seconds())) <= 5
+
+    def test_aggregate_lookback_stays_within_standard_retention(self) -> None:
+        # A window past the account's retention is rejected with `400 invalid_timeframe`, not clamped.
+        # Mux's standard retention floor is 100 days, so the aggregate lookback must not exceed it —
+        # this guards against widening it back toward the 13-month add-on window every plan doesn't have.
+        assert AGGREGATE_LOOKBACK <= timedelta(days=100)
 
 
 class TestMuxDataEndpoints:

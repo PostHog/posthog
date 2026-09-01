@@ -50,13 +50,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::time::timeout;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 pub const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
 /// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
 const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
+
+/// Metric name for tracking read-repair writes back into Redis after an S3 hit.
+/// Labels: `namespace`, `value`, `result` (success | skipped | error), where `skipped`
+/// means the key already existed and the repair deferred to it.
+const HYPERCACHE_READ_REPAIR_COUNTER_NAME: &str = "posthog_hypercache_read_repair";
 
 /// Per-tier latency histogram for the Redis read inside `get_typed_with_source`.
 /// Labels: `namespace`, `value`, `outcome` (hit | miss | timeout | error).
@@ -203,6 +208,19 @@ pub struct HyperCacheConfig {
     /// sorted set with an expiry-timestamp score, mirroring Python's
     /// `HyperCache._track_expiry`. `None` disables expiry tracking.
     pub expiry_sorted_set_key: Option<String>,
+    /// When set, an S3 hit that followed a Redis miss writes the payload back into Redis
+    /// with this TTL, so the next reader for the same key is served by Redis. `None`
+    /// (the default) leaves the reader read-only. Not supported on etag-enabled
+    /// namespaces: `HyperCacheReader` construction warns and disables it there. A value
+    /// above `HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS` is capped there too.
+    ///
+    /// Keep this short. It is a stampede damper for cold keys, not a substitute for the
+    /// writer: repaired entries are deliberately not registered in `expiry_sorted_set_key`,
+    /// so Django's refresh job stays the only thing that owns an entry's real lifetime.
+    /// Whether a repair can resurrect a key deleted by `HyperCacheWriter::delete` is fixed
+    /// at read time by whether the S3 read preceded the delete; the TTL doesn't affect that.
+    /// What the TTL bounds is how long a resurrected entry lingers before it expires.
+    pub read_repair_ttl_seconds: Option<u64>,
 }
 
 impl HyperCacheConfig {
@@ -225,6 +243,7 @@ impl HyperCacheConfig {
             enable_etag: false,
             django_cache_version: "1".to_string(),
             expiry_sorted_set_key: None,
+            read_repair_ttl_seconds: None,
         }
     }
 
@@ -248,6 +267,7 @@ impl HyperCacheConfig {
             enable_etag: false,
             django_cache_version,
             expiry_sorted_set_key: None,
+            read_repair_ttl_seconds: None,
         }
     }
 
@@ -303,6 +323,12 @@ pub struct HyperCacheReader {
 }
 
 impl HyperCacheReader {
+    /// Read repair is a stampede damper, not a writer. A TTL beyond this would outlive the
+    /// refresh cycle and widen how long a `HyperCacheWriter::delete` race can resurrect a
+    /// deleted key for. Caps a misconfigured env var (e.g. seconds vs. milliseconds) instead
+    /// of letting it silently disable the short-TTL invariant.
+    const MAX_READ_REPAIR_TTL_SECONDS: u64 = 3_600; // 1 hour
+
     pub async fn new(
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         config: HyperCacheConfig,
@@ -324,19 +350,42 @@ impl HyperCacheReader {
         let aws_s3_client = AwsS3SdkClient::from_conf(s3_config_builder.build());
         let s3_client = Arc::new(S3Impl::new(aws_s3_client)) as Arc<dyn S3Client + Send + Sync>;
 
-        Ok(Self {
-            redis_client,
-            s3_client,
-            config,
-        })
+        Ok(Self::new_with_s3_client(redis_client, s3_client, config))
     }
 
     /// Create a new HyperCacheReader with a custom S3 client (useful for testing)
     pub fn new_with_s3_client(
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         s3_client: Arc<dyn S3Client + Send + Sync>,
-        config: HyperCacheConfig,
+        mut config: HyperCacheConfig,
     ) -> Self {
+        // Read repair writes only the payload, but an etag-enabled namespace needs the
+        // payload and its companion etag written atomically (see
+        // `HyperCacheWriter::set_with_etag`). Repairing only the payload would leave the
+        // pair inconsistent, so those namespaces are left to the writer. The refusal is
+        // announced at construction rather than silently skipping every repair.
+        if config.enable_etag && config.read_repair_ttl_seconds.is_some() {
+            warn!(
+                namespace = %config.namespace,
+                value = %config.object_name,
+                "read repair is not supported for etag-enabled namespaces; disabling it for this reader"
+            );
+            config.read_repair_ttl_seconds = None;
+        }
+
+        if let Some(ttl) = config.read_repair_ttl_seconds {
+            if ttl > Self::MAX_READ_REPAIR_TTL_SECONDS {
+                warn!(
+                    namespace = %config.namespace,
+                    value = %config.object_name,
+                    configured_ttl_seconds = ttl,
+                    max_ttl_seconds = Self::MAX_READ_REPAIR_TTL_SECONDS,
+                    "read repair TTL exceeds maximum; capping at maximum"
+                );
+                config.read_repair_ttl_seconds = Some(Self::MAX_READ_REPAIR_TTL_SECONDS);
+            }
+        }
+
         Self {
             redis_client,
             s3_client,
@@ -600,12 +649,18 @@ impl HyperCacheReader {
             s3_start.elapsed().as_secs_f64() * 1000.0,
         );
         match s3_result {
-            Ok(Ok(data)) => {
+            Ok(Ok((data, raw_json))) => {
                 debug!(
                     cache_key = %s3_cache_key,
                     namespace = %self.config.namespace,
                     "HyperCache hit: S3"
                 );
+                // Repair only a confirmed Redis miss. Reaching S3 on a Redis error or
+                // timeout means the tier is degraded, and piling detached repair writes
+                // onto it would only add load.
+                if infra_error.is_none() {
+                    self.spawn_read_repair(redis_cache_key, raw_json);
+                }
                 inc(
                     HYPERCACHE_COUNTER_NAME,
                     &[
@@ -736,6 +791,28 @@ impl HyperCacheReader {
     ) -> Result<Option<T>, HyperCacheError> {
         let (data, _source) = self.get_typed_with_source::<T>(key).await?;
         Ok(data)
+    }
+
+    /// Fetch from Redis only — no S3 fallback and no read repair. For callers that
+    /// need to observe exactly what the Redis tier holds right now (e.g. shadow
+    /// verification comparing a fresh build against the live entry) rather than the
+    /// best available copy. Returns `Ok(None)` for the `__missing__` sentinel and
+    /// `Err(HyperCacheError::CacheMiss)` when the key is absent; a Redis timeout
+    /// surfaces as `Err(HyperCacheError::Timeout)` instead of cascading to S3.
+    pub async fn get_typed_from_redis<T: DeserializeOwned>(
+        &self,
+        key: &KeyType,
+    ) -> Result<Option<T>, HyperCacheError> {
+        let redis_cache_key = self.config.get_redis_cache_key(key);
+        match timeout(
+            self.config.redis_timeout,
+            self.try_get_typed_from_redis::<T>(&redis_cache_key),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(HyperCacheError::Timeout("redis timeout".to_string())),
+        }
     }
 
     /// Read the companion ETag string for `key` from Redis, if present.
@@ -880,25 +957,84 @@ impl HyperCacheReader {
         }
     }
 
+    /// Returns the deserialized value alongside the raw JSON it came from, so an S3 hit can
+    /// be written back into Redis verbatim without re-serializing (which would risk drifting
+    /// from the bytes Django wrote).
     async fn try_get_typed_from_s3<T: DeserializeOwned>(
         &self,
         cache_key: &str,
-    ) -> Result<T, HyperCacheError> {
+    ) -> Result<(T, String), HyperCacheError> {
         let body_str = self.try_get_json_string_from_s3(cache_key).await?;
-        serde_json::from_str::<T>(&body_str).map_err(|e| {
+        let value = serde_json::from_str::<T>(&body_str).map_err(|e| {
             debug!(
                 "Failed to parse JSON from S3 data for key '{}': {}",
                 cache_key, e
             );
             HyperCacheError::Json(e)
-        })
+        })?;
+        Ok((value, body_str))
+    }
+
+    /// Best-effort write-back of an S3 hit into Redis, after Django's read path
+    /// (`HyperCache.get_from_cache_with_source`, which repairs on S3 hit). Unlike Django,
+    /// the caller only invokes this for a confirmed Redis miss, not for an error or
+    /// timeout fall-through, where the Redis tier is degraded.
+    ///
+    /// Without this a key that is absent from Redis but present in S3 stays cold, so every
+    /// subsequent request for it pays another S3 read until the writer next touches it. The
+    /// work is detached and its failures are swallowed: a repair is an optimization, and the
+    /// caller already has the value it needs.
+    fn spawn_read_repair(&self, redis_cache_key: String, json_data: String) {
+        let Some(ttl_seconds) = self.config.read_repair_ttl_seconds else {
+            return;
+        };
+
+        let redis_client = self.redis_client.clone();
+        let namespace = self.config.namespace.clone();
+        let object_name = self.config.object_name.clone();
+
+        tokio::spawn(async move {
+            // NX: a repair must never overwrite an entry that already exists. The writer
+            // (or a concurrent repair) may have landed a fresher value after our S3 read.
+            let result = redis_client
+                .set_nx_ex_with_format(
+                    redis_cache_key,
+                    json_data,
+                    ttl_seconds,
+                    writer::REDIS_FORMAT,
+                )
+                .await;
+
+            let outcome = match result {
+                Ok(true) => "success",
+                Ok(false) => "skipped",
+                Err(ref e) => {
+                    debug!(
+                        namespace = %namespace,
+                        value = %object_name,
+                        error = %e,
+                        "HyperCache read repair failed"
+                    );
+                    "error"
+                }
+            };
+            inc(
+                HYPERCACHE_READ_REPAIR_COUNTER_NAME,
+                &[
+                    ("result".to_string(), outcome.to_string()),
+                    ("namespace".to_string(), namespace),
+                    ("value".to_string(), object_name),
+                ],
+                1,
+            );
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_redis::{CustomRedisError, MockRedisClient};
+    use common_redis::{CustomRedisError, MockRedisClient, RedisValueFormat};
     use serde_json::json;
 
     // Test helper functions
@@ -948,6 +1084,68 @@ mod tests {
             mock_s3,
             create_test_config(),
         )
+    }
+
+    /// Mocks wired for a failed Redis read followed by an S3 hit: Redis returns
+    /// `redis_err` for the fixture's key, S3 serves `s3_payload`. Tests drive whichever
+    /// read API they exercise and can inspect everything the reader asked Redis to do
+    /// via `redis`.
+    #[cfg(feature = "mock-client")]
+    struct RedisMissS3HitFixture {
+        reader: HyperCacheReader,
+        redis: Arc<MockRedisClient>,
+        team_key: KeyType,
+        cache_key: String,
+    }
+
+    #[cfg(feature = "mock-client")]
+    fn redis_miss_s3_hit_fixture(
+        config: HyperCacheConfig,
+        s3_payload: &str,
+    ) -> RedisMissS3HitFixture {
+        redis_failure_s3_hit_fixture(config, s3_payload, CustomRedisError::NotFound)
+    }
+
+    #[cfg(feature = "mock-client")]
+    fn redis_failure_s3_hit_fixture(
+        config: HyperCacheConfig,
+        s3_payload: &str,
+        redis_err: CustomRedisError,
+    ) -> RedisMissS3HitFixture {
+        let team_key = KeyType::string("123");
+        let cache_key = config.get_redis_cache_key(&team_key);
+        let s3_key = config.get_s3_cache_key(&team_key);
+
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Err(redis_err));
+        // Let a repair land, so the write-back path reaches its success outcome.
+        mock_redis = mock_redis.set_nx_ex_ret(&cache_key, Ok(true));
+        let redis = Arc::new(mock_redis);
+
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3
+            .expect_get_string()
+            .with(predicate::eq("test-bucket"), predicate::eq(s3_key))
+            .returning({
+                let payload = s3_payload.to_string();
+                move |_, _| {
+                    let data = payload.clone();
+                    Box::pin(async move { Ok(data) })
+                }
+            });
+
+        let reader = HyperCacheReader::new_with_s3_client(
+            redis.clone() as Arc<dyn RedisClient + Send + Sync>,
+            Arc::new(mock_s3),
+            config,
+        );
+
+        RedisMissS3HitFixture {
+            reader,
+            redis,
+            team_key,
+            cache_key,
+        }
     }
 
     #[test]
@@ -1150,47 +1348,17 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "mock-client")]
     async fn test_get_with_source_redis_miss_s3_hit() {
-        let team_key = KeyType::string("123");
         let test_data = json!({"key": "value", "nested": {"data": "test"}});
-        let test_data_str = serde_json::to_string(&test_data).unwrap();
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
+        let fixture = redis_miss_s3_hit_fixture(
+            create_test_config(),
+            &serde_json::to_string(&test_data).unwrap(),
         );
-        let expected_cache_key = config.get_redis_cache_key(&team_key);
-        let expected_s3_key = config.get_s3_cache_key(&team_key);
 
-        // Redis returns NotFound
-        let mut mock_redis = MockRedisClient::new();
-        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
-        // S3 returns data
-        let mut mock_s3 = MockS3Client::new();
-        mock_s3
-            .expect_get_string()
-            .with(
-                predicate::eq("test-bucket"),
-                predicate::eq(expected_s3_key.clone()),
-            )
-            .returning({
-                let test_data_str = test_data_str.clone();
-                move |_, _| {
-                    let data = test_data_str.clone();
-                    Box::pin(async move { Ok(data) })
-                }
-            });
-        let mock_s3 = Arc::new(mock_s3);
-
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: mock_s3,
-            config,
-        };
-
-        // Both Redis and S3 miss should result in CacheMiss error
-        let (result, source) = reader.get_with_source(&team_key).await.unwrap();
+        let (result, source) = fixture
+            .reader
+            .get_with_source(&fixture.team_key)
+            .await
+            .unwrap();
         assert_eq!(source, CacheSource::S3);
         assert_eq!(result, test_data);
     }
@@ -1266,48 +1434,15 @@ mod tests {
     #[cfg(feature = "mock-client")]
     async fn test_get_with_source_or_fallback_cache_hit_s3() {
         // Test that fallback is not called when S3 cache hits (after Redis miss)
-        let team_key = KeyType::string("123");
         let test_data = json!({"key": "value", "nested": {"data": "test"}});
-        let test_data_str = serde_json::to_string(&test_data).unwrap();
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
+        let fixture = redis_miss_s3_hit_fixture(
+            create_test_config(),
+            &serde_json::to_string(&test_data).unwrap(),
         );
-        let expected_cache_key = config.get_redis_cache_key(&team_key);
-        let expected_s3_key = config.get_s3_cache_key(&team_key);
 
-        // Redis returns NotFound
-        let mut mock_redis = MockRedisClient::new();
-        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
-
-        // S3 returns data
-        let mut mock_s3 = MockS3Client::new();
-        mock_s3
-            .expect_get_string()
-            .with(
-                predicate::eq("test-bucket"),
-                predicate::eq(expected_s3_key.clone()),
-            )
-            .returning({
-                let test_data_str = test_data_str.clone();
-                move |_, _| {
-                    let data = test_data_str.clone();
-                    Box::pin(async move { Ok(data) })
-                }
-            });
-        let mock_s3 = Arc::new(mock_s3);
-
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: mock_s3,
-            config,
-        };
-
-        let result: Result<(Value, CacheSource), HyperCacheError> = reader
-            .get_with_source_or_fallback(&team_key, || async {
+        let result: Result<(Value, CacheSource), HyperCacheError> = fixture
+            .reader
+            .get_with_source_or_fallback(&fixture.team_key, || async {
                 // If this is called, the test should fail because we expect cache hit
                 panic!("Fallback should not be called when S3 cache hits!");
             })
@@ -1317,6 +1452,125 @@ mod tests {
         let (data, source) = result.unwrap();
         assert_eq!(source, CacheSource::S3);
         assert_eq!(data, test_data);
+    }
+
+    /// Drive one fixture read to its S3 hit and return every call the reader made to Redis.
+    /// Callers run under paused tokio time: the sleep parks this task, the runtime drives the
+    /// detached repair task to idle, and only then advances the clock, so any spawned repair
+    /// has landed before inspection.
+    #[cfg(feature = "mock-client")]
+    async fn redis_calls_after_s3_hit(
+        fixture: &RedisMissS3HitFixture,
+    ) -> Vec<common_redis::MockRedisCall> {
+        let (_, source) = fixture
+            .reader
+            .get_with_source(&fixture.team_key)
+            .await
+            .unwrap();
+        assert_eq!(source, CacheSource::S3);
+
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        fixture.redis.get_calls()
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[cfg(feature = "mock-client")]
+    async fn test_s3_hit_repairs_redis_when_ttl_configured() {
+        let payload = r#"{"key":"value"}"#;
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(600);
+
+        let fixture = redis_miss_s3_hit_fixture(config, payload);
+        let calls = redis_calls_after_s3_hit(&fixture).await;
+
+        let repair = calls
+            .iter()
+            .find(|c| c.op == "set_nx_ex_with_format")
+            .expect("expected the S3 hit to be written back to Redis");
+        assert_eq!(repair.key, fixture.cache_key);
+        match &repair.value {
+            common_redis::MockRedisValue::StringWithTTLAndFormat(value, ttl, format) => {
+                // Written back verbatim, in the pickle format Django reads.
+                assert_eq!(value, payload);
+                assert_eq!(*ttl, 600);
+                assert_eq!(*format, RedisValueFormat::Pickle);
+            }
+            other => panic!("expected StringWithTTLAndFormat, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[cfg(feature = "mock-client")]
+    async fn test_s3_hit_does_not_repair_redis_by_default() {
+        // The reader is read-only unless a caller opts in.
+        let fixture = redis_miss_s3_hit_fixture(create_test_config(), r#"{"key":"value"}"#);
+        let calls = redis_calls_after_s3_hit(&fixture).await;
+        assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[cfg(feature = "mock-client")]
+    async fn test_s3_hit_does_not_repair_etag_enabled_namespace() {
+        // Repairing the payload alone would leave it inconsistent with its companion etag.
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(600);
+        config.enable_etag = true;
+
+        let fixture = redis_miss_s3_hit_fixture(config, r#"{"key":"value"}"#);
+        let calls = redis_calls_after_s3_hit(&fixture).await;
+        assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[test]
+    fn test_read_repair_ttl_is_capped_at_construction() {
+        // A misconfigured env var (e.g. seconds vs. milliseconds) must not silently disable
+        // the short-TTL invariant that bounds a resurrected orphan's lifetime.
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS + 1);
+
+        let reader = HyperCacheReader::new_with_s3_client(
+            Arc::new(MockRedisClient::new()) as Arc<dyn RedisClient + Send + Sync>,
+            create_dummy_s3_client(),
+            config,
+        );
+
+        assert_eq!(
+            reader.config().read_repair_ttl_seconds,
+            Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS)
+        );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[test]
+    fn test_read_repair_ttl_at_max_is_unchanged() {
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS);
+
+        let reader = HyperCacheReader::new_with_s3_client(
+            Arc::new(MockRedisClient::new()) as Arc<dyn RedisClient + Send + Sync>,
+            create_dummy_s3_client(),
+            config,
+        );
+
+        assert_eq!(
+            reader.config().read_repair_ttl_seconds,
+            Some(HyperCacheReader::MAX_READ_REPAIR_TTL_SECONDS)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[cfg(feature = "mock-client")]
+    async fn test_s3_hit_does_not_repair_after_redis_error() {
+        // Reaching S3 on a Redis error means the tier is degraded, not that the key is
+        // cold; writing to a degraded tier would only add load.
+        let mut config = create_test_config();
+        config.read_repair_ttl_seconds = Some(600);
+
+        let fixture =
+            redis_failure_s3_hit_fixture(config, r#"{"key":"value"}"#, CustomRedisError::Timeout);
+        let calls = redis_calls_after_s3_hit(&fixture).await;
+        assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
     #[tokio::test]
@@ -1615,6 +1869,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_typed_from_redis_hit() {
+        let expected = make_test_flags();
+        let pickled = pickle_json(&expected);
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let data = reader
+            .get_typed_from_redis::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(data, Some(expected));
+    }
+
+    #[tokio::test]
+    async fn test_get_typed_from_redis_sentinel_returns_none() {
+        let sentinel_pickled =
+            serde_pickle::to_vec(&HYPER_CACHE_EMPTY_VALUE, Default::default()).unwrap();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(99));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(sentinel_pickled));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let data = reader
+            .get_typed_from_redis::<TestFlags>(&KeyType::int(99))
+            .await
+            .unwrap();
+
+        assert_eq!(data, None);
+    }
+
+    /// A Redis miss must surface as `CacheMiss` even when S3 holds the value —
+    /// the whole point of the Redis-only getter is that it never cascades.
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_from_redis_miss_does_not_fall_back_to_s3() {
+        let payload = serde_json::to_string(&make_test_flags()).unwrap();
+        let fixture = redis_miss_s3_hit_fixture(create_test_config(), &payload);
+
+        // First prove S3 really holds the value — the cascading read returns it —
+        // so the Redis-only miss below is a refusal to fall back, not a vacuous
+        // pass against an empty fixture.
+        let (cascaded, source) = fixture
+            .reader
+            .get_typed_with_source::<TestFlags>(&fixture.team_key)
+            .await
+            .unwrap();
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(cascaded, Some(make_test_flags()));
+
+        let result = fixture
+            .reader
+            .get_typed_from_redis::<TestFlags>(&fixture.team_key)
+            .await;
+
+        assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
+    }
+
+    #[tokio::test]
     async fn test_get_typed_with_source_redis_hit() {
         let expected = make_test_flags();
         let pickled = pickle_json(&expected);
@@ -1656,29 +1973,14 @@ mod tests {
     #[tokio::test]
     async fn test_get_typed_with_source_redis_miss_s3_hit() {
         let expected = make_test_flags();
-        let json_string = serde_json::to_string(&expected).unwrap();
+        let fixture = redis_miss_s3_hit_fixture(
+            create_test_config(),
+            &serde_json::to_string(&expected).unwrap(),
+        );
 
-        let mut mock_redis = MockRedisClient::new();
-        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
-        mock_redis.get_raw_bytes_ret(&cache_key, Err(CustomRedisError::NotFound));
-
-        let mut mock_s3 = MockS3Client::new();
-        let s3_key = create_test_config().get_s3_cache_key(&KeyType::int(42));
-        let json_clone = json_string.clone();
-        mock_s3
-            .expect_get_string()
-            .with(
-                predicate::eq("test-bucket".to_string()),
-                predicate::eq(s3_key),
-            )
-            .returning(move |_, _| {
-                let val = json_clone.clone();
-                Box::pin(async move { Ok(val) })
-            });
-
-        let reader = create_test_reader_with_mocks(mock_redis, Arc::new(mock_s3));
-        let (data, source) = reader
-            .get_typed_with_source::<TestFlags>(&KeyType::int(42))
+        let (data, source) = fixture
+            .reader
+            .get_typed_with_source::<TestFlags>(&fixture.team_key)
             .await
             .unwrap();
 

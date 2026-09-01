@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 import posthog.settings.cohorts as cohorts_settings
 
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team, is_realtime_cohort_team
 
 
 class TestIsRealtimeCohortTeam(SimpleTestCase):
@@ -42,6 +42,23 @@ class TestIsRealtimeCohortTeam(SimpleTestCase):
     def test_membership_matches_rust_grammar(self, _name: str, allowlist: str, team_id: int, expected: bool) -> None:
         with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
             self.assertEqual(is_realtime_cohort_team(team_id), expected)
+
+
+class TestIsCohortBackfillTriggerTeam(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Only Python parses this setting, so unlike the realtime allowlist it fails closed on a
+            # set-but-empty value, the natural Helm rendering of "clear this".
+            ("empty_fails_closed", "", 2, False),
+            ("whitespace_fails_closed", "   ", 2, False),
+            ("all_keyword", "all", 2, True),
+            ("single_match", "2", 2, True),
+            ("single_miss", "2", 3, False),
+        ]
+    )
+    def test_membership(self, _name: str, allowlist: str, team_id: int, expected: bool) -> None:
+        with override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST=allowlist):
+            self.assertEqual(is_cohort_backfill_trigger_team(team_id), expected)
 
 
 class TestRealtimeCohortAllowlistSetting(SimpleTestCase):

@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
@@ -33,6 +33,7 @@ const HOG_FLOW_FIELDS = [
     'trigger_masking',
     'conversion',
     'exit_condition',
+    'email_sending_rate_limit',
     'edges',
     'actions',
     'encrypted_inputs',
@@ -64,7 +65,7 @@ export class HogFlowManagerService {
             refreshBackgroundAgeMs: 30 * 1000,
             // Absorb transient Postgres blips inside a single load attempt so failed background
             // refreshes don't re-fire at caller QPS and hard-cap refreshes don't fail the batch.
-            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+            loaderRetry: DEFAULT_LOADER_RETRY,
         }
 
         this.lazyLoaderByTeam = new LazyLoader({

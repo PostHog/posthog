@@ -37,6 +37,7 @@ import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
@@ -240,6 +241,7 @@ export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    aiPromptAuthorName?: string
     isAskAIDisabled?: boolean
     createAIConversationId?: () => string
     mode?: NotebookMode
@@ -271,7 +273,17 @@ export type MarkdownNotebookProps = {
     ) => NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null
     focusAIPromptRequest?: number
     aiWritingNodeIndexes?: number[]
+    /** In view mode, keep the filters toggle for definitions with `viewModeFilters` — for
+     * read-only canvases where the filters panel is the only way to configure a node. */
+    allowViewModeFilters?: boolean
+    /** Public/shared read-only renders: hide per-block resource links whose relative URLs would
+     * resolve against the viewer's project rather than the author's. */
+    hideResourceLinks?: boolean
     placeholder?: string
+    /** Content pinned above the canvas, laid out on the canvas's own column so it lines up with
+     * the blocks below it at any width. For a caller whose panel belongs to the notebook rather
+     * than to the document, e.g. its variables. */
+    canvasHeader?: ReactNode
     className?: string
     autoFocus?: boolean
     showDebug?: boolean
@@ -347,6 +359,17 @@ function createDefaultAIConversationId(): string {
         return window.crypto.randomUUID()
     }
     return makeEmptyParagraph('ai-conversation').id
+}
+
+function makeRetainedAIQuestionNode(authorName: string, question: string, idSeed: string): NotebookTextBlockNode {
+    return {
+        ...makeEmptyParagraph(idSeed),
+        children: [
+            { type: 'text', text: `${authorName.trim() || 'You'}:`, marks: [{ type: 'bold' }] },
+            { type: 'text', text: ' ' },
+            ...plainTextToInlineNodes(question),
+        ],
+    }
 }
 
 /** Below this container width, comment threads render inline instead of in the margin. */
@@ -562,6 +585,7 @@ function MarkdownNotebookEditor({
     value,
     onChange,
     onAskAI,
+    aiPromptAuthorName = 'You',
     isAskAIDisabled: isAIPromptSubmitDisabled = false,
     createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
@@ -579,7 +603,10 @@ function MarkdownNotebookEditor({
     convertExternalDataTransferToNodes,
     focusAIPromptRequest,
     aiWritingNodeIndexes,
+    allowViewModeFilters = false,
+    hideResourceLinks = false,
     placeholder = 'Start writing...',
+    canvasHeader,
     className,
     autoFocus = false,
     showDebug = false,
@@ -3938,6 +3965,9 @@ function MarkdownNotebookEditor({
         })
 
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
         window.getSelection()?.removeAllRanges()
@@ -4052,6 +4082,9 @@ function MarkdownNotebookEditor({
             props: { replies: [] },
         }
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         commitDocument({
             ...currentDocument,
             nodes: [...nodes.slice(0, insertIndex), commentNode, ...nodes.slice(insertIndex)],
@@ -5361,16 +5394,26 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
-        const nodesWithResponse = nodes.map((currentNode, index): NotebookBlockNode => {
+        const keepQuestion = currentPromptNode?.props.keepQuestion === true
+        const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
-                return currentNode
+                return [currentNode]
             }
-            responseNodeIndex = index
-            return {
+
+            const responseNode: NotebookTextBlockNode = {
                 id: currentNode.id,
                 type: 'paragraph',
                 children: plainTextToInlineNodes(NOTEBOOK_AI_WRITING_PLACEHOLDER),
             }
+            if (!keepQuestion) {
+                responseNodeIndex = index
+                return [responseNode]
+            }
+
+            responseNodeIndex = index + 1
+            const questionNode = makeRetainedAIQuestionNode(aiPromptAuthorName, query, `ai-question-${currentNode.id}`)
+            questionNode.startsGroup = currentNode.startsGroup
+            return [questionNode, responseNode]
         })
         if (responseNodeIndex === -1) {
             console.error('Prompt node not found for AI submission')
@@ -5391,14 +5434,8 @@ function MarkdownNotebookEditor({
             conversationId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(
-                          selectedMarkdown,
-                          query,
-                          responseMarker,
-                          selectedRefId,
-                          markdownWithResponse
-                      )
-                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
+                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId)
+                    : getAskAIInlineNotebookQuery(query, responseMarker),
             source,
             responseNodeId: nodeId,
             responseNodeIndex,
@@ -5736,14 +5773,21 @@ function MarkdownNotebookEditor({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
+        // View-mode toggles stay local so interacting with a read-only canvas does not edit the document.
         const persistComponentPanelVisibility =
-            node.type === 'component' ? shouldPersistComponentPanelProps(node, componentDefinition) : false
+            mode === 'edit' && node.type === 'component'
+                ? shouldPersistComponentPanelProps(node, componentDefinition)
+                : false
+        const fallbackComponentPanels =
+            mode === 'view' && allowViewModeFilters
+                ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nodeComponentPanels =
             node.type === 'component'
                 ? !persistComponentPanelVisibility && componentPanelCacheEntry?.current
                     ? componentPanelCacheEntry.current
-                    : getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                    : getComponentPanelVisibility(node, fallbackComponentPanels)
+                : fallbackComponentPanels
         const shouldShowInlineInsertMenuButton =
             !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
         const hasInvalidInsertMenuQuery =
@@ -5831,6 +5875,8 @@ function MarkdownNotebookEditor({
                     componentPanels: nodeComponentPanels,
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
+                    allowViewModeFilters,
+                    hideResourceLinks,
                     isSelected: selectedComponentNodeIds.has(node.id),
                     toggleComponentPanel: (panel) => {
                         const nextPanels = {
@@ -5929,6 +5975,7 @@ function MarkdownNotebookEditor({
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
                     handleSelectionChange,
                     startTextSelectionPointer,
+                    onInteractionStateChange,
                     restoreSelectionRef,
                     rootEditableInputHtmlByNodeIdRef,
                 })}
@@ -5975,6 +6022,7 @@ function MarkdownNotebookEditor({
                             ))}
                         </div>
                     ) : null}
+                    {canvasHeader ? <div className="MarkdownNotebook__canvas-header">{canvasHeader}</div> : null}
                     <div
                         className="MarkdownNotebook__canvas"
                         ref={canvasRef}

@@ -11,7 +11,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import type { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, type InsightLogicProps, type InsightShortId } from '~/types'
 
 import { TrendsPieChart } from './TrendsPieChart'
 
@@ -96,7 +96,7 @@ export const MinHeightParent: Story = {
     render: () => renderTrendsPieChart(trendsPieBreakdownFixture, MinHeightStage),
 }
 
-export const BreakdownWithLabels: Story = {
+export const Donut: Story = {
     render: () =>
         renderTrendsPieChart({
             ...trendsPieBreakdownFixture,
@@ -106,10 +106,35 @@ export const BreakdownWithLabels: Story = {
                     ...trendsPieBreakdownFixture.query.source,
                     trendsFilter: {
                         ...trendsPieBreakdownFixture.query.source.trendsFilter,
-                        showLabelOnSeries: true,
-                        showValuesOnSeries: true,
+                        display: ChartDisplayType.ActionsDonut,
                     },
                 },
             },
+        }),
+}
+
+function renderBreakdownPieWithFilter(trendsFilter: Record<string, unknown>): JSX.Element {
+    return renderTrendsPieChart({
+        ...trendsPieBreakdownFixture,
+        query: {
+            ...trendsPieBreakdownFixture.query,
+            source: {
+                ...trendsPieBreakdownFixture.query.source,
+                trendsFilter: { ...trendsPieBreakdownFixture.query.source.trendsFilter, ...trendsFilter },
+            },
+        },
+    })
+}
+
+export const BreakdownWithLabels: Story = {
+    render: () => renderBreakdownPieWithFilter({ showLabelsOnSeries: true, showValuesOnSeries: true }),
+}
+
+export const BreakdownWithValueAndPercentage: Story = {
+    render: () =>
+        renderBreakdownPieWithFilter({
+            showLabelsOnSeries: true,
+            showValuesOnSeries: true,
+            showPercentStackView: true,
         }),
 }

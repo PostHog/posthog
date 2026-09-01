@@ -11,6 +11,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    TrunkQuarantineDebt,
+    TrunkQuarantinedTest,
+    TrunkQuarantineTeamDebt,
 )
 from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
@@ -62,6 +65,71 @@ class FlakyTestItemSerializer(DataclassSerializer):
         }
 
 
+class TrunkQuarantinedTestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkQuarantinedTest
+        extra_kwargs = {
+            "runner": {"help_text": "Test runner: 'pytest' or 'jest'."},
+            "nodeid": {
+                "help_text": "Runner-native test id reconstructed from Trunk's (file, classname, name) key.",
+            },
+            "file": {"help_text": "Repo-relative path of the test file, as Trunk reports it."},
+            "owner_team": {
+                "help_text": "Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' "
+                "when no in-retention span carries one.",
+            },
+            "status": {"help_text": "Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'."},
+            "quarantine_setting": {
+                "help_text": "How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'.",
+            },
+            "quarantined_at": {"help_text": "When Trunk quarantined the test."},
+            "age_days": {"help_text": "Whole days since the quarantine started."},
+            "overdue": {"help_text": "True once age_days exceeds ttl_days: the quarantine has outlived the TTL."},
+            "trunk_url": {
+                "help_text": "The Trunk app's page for this test; null when the connected source has no "
+                "organization slug or the row carries no test case id.",
+            },
+        }
+
+
+class TrunkQuarantineTeamDebtSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkQuarantineTeamDebt
+        extra_kwargs = {
+            "owner_team": {"help_text": "Owning team slug, or 'unowned'."},
+            "test_count": {"help_text": "Tests this team owns that Trunk currently quarantines."},
+            "overdue_count": {"help_text": "Of those, tests quarantined longer than ttl_days."},
+            "oldest_age_days": {"help_text": "Age in days of the team's oldest standing quarantine."},
+        }
+
+
+class TrunkQuarantineDebtSerializer(DataclassSerializer):
+    teams = TrunkQuarantineTeamDebtSerializer(
+        many=True,
+        help_text="Per-team rollup, most indebted first: overdue count, then test count, then oldest age.",
+    )
+    tests = TrunkQuarantinedTestSerializer(
+        many=True,
+        help_text="Every currently quarantined test, oldest first.",
+    )
+
+    class Meta:
+        dataclass = TrunkQuarantineDebt
+        extra_kwargs = {
+            "available": {
+                "help_text": "False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error.",
+            },
+            "ttl_days": {"help_text": "Days a quarantine may stand before it counts as overdue."},
+            "repository": {
+                "help_text": "The 'owner/name' repository the debt was read for; test file paths are relative to it.",
+            },
+            "trunk_url": {
+                "help_text": "The Trunk app's flaky-tests page for this repository; null when the connected "
+                "source has no organization slug.",
+            },
+        }
+
+
 class FlakyTestListSerializer(DataclassSerializer):
     items = FlakyTestItemSerializer(
         many=True,
@@ -98,9 +166,10 @@ class BrokenTestRowSerializer(DataclassSerializer):
             "repo": {"help_text": "'owner/name' repository the failure belongs to."},
             "state": {
                 "help_text": "The classifier's verdict on how this failure is behaving right now: "
-                "'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a "
-                "day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but "
-                "trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
+                "'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped "
+                "a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new "
+                "within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk "
+                "but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
                 "(confined to one branch — one PR's own problem).",
             },
             "first_seen": {"help_text": "Earliest failure line for this fingerprint in the analysis window."},

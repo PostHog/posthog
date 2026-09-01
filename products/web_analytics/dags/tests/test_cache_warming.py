@@ -1,6 +1,7 @@
 import gzip
 import json
 import threading
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -14,12 +15,14 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_quer
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.query_cache import EntryFreshness
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
     WarmQueriesConfig,
     build_replay_runner,
+    canonicalize_lazy_replay_json,
     deepen_to_widest_warmable_range,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
@@ -246,6 +249,35 @@ class TestBuildReplayRunner(BaseTest):
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
+    @parameterized.expand(
+        [
+            # The shared gate rejects both shapes as submitted; canonicalizing
+            # before the check would erase the rejection (drop the modifier,
+            # step the over-cap lookback under MAX_PRECOMPUTE_DAYS) and build
+            # buckets the shape's real queries can never consume, held only to
+            # the lazy demand floor instead of the raw one.
+            ("uuid_join_mode", {"modifiers": {"sessionsV2JoinMode": "uuid"}}, ["-7d"], "-7d"),
+            ("only_over_cap_demand", {"dateRange": {"date_from": "-180d"}}, ["-180d"], "-180d"),
+        ]
+    )
+    def test_ineligible_shape_is_not_canonicalized_into_eligibility(
+        self, _name: str, extra: dict, observed: list[str], expected_from: str
+    ) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "properties": [],
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-7d"},
+            **extra,
+        }
+
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, observed)
+
+        self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
+        self.assertEqual(used_json["dateRange"]["date_from"], expected_from)
+        self.assertEqual(used_json, query)
+
     def test_outside_warming_context_gate_fails_closed(self) -> None:
         reset_query_tags()
         query = {
@@ -260,6 +292,115 @@ class TestBuildReplayRunner(BaseTest):
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
+
+    @parameterized.expand(
+        [
+            # A snapshot rotation that flips the representative to a sibling
+            # variant — compare toggled, a different sub-30d preset — must not
+            # rotate the staleness cache key; before canonicalization every such
+            # flip re-warmed the shape even though its buckets were fresh.
+            (
+                "overview_compare_and_preset_variant",
+                {"kind": "WebOverviewQuery", "properties": []},
+                {"dateRange": {"date_from": "wStart"}, "compareFilter": {"compare": True}},
+            ),
+            (
+                "stats_limit_variant",
+                {"kind": "WebStatsTableQuery", "properties": [], "breakdownBy": "Browser"},
+                {"dateRange": {"date_from": "dStart"}, "limit": 50},
+            ),
+        ]
+    )
+    def test_representative_variants_share_one_cache_key(self, _name: str, shape: dict, variant_extra: dict) -> None:
+        base = {**shape, "useWebAnalyticsPrecompute": True, "dateRange": {"date_from": "-7d"}}
+        variant = {**base, **variant_extra}
+
+        base_runner, _, base_eligible = build_replay_runner(self.team, base, ["-7d"])
+        variant_runner, _, variant_eligible = build_replay_runner(self.team, variant, ["-7d"])
+
+        assert base_runner is not None and variant_runner is not None
+        self.assertTrue(base_eligible)
+        self.assertTrue(variant_eligible)
+        self.assertEqual(base_runner.get_cache_key(), variant_runner.get_cache_key())
+
+
+class TestCanonicalizeLazyReplay(BaseTest):
+    @parameterized.expand(
+        [
+            ("steps_up_to_next_multiple", "-31d", "-45d"),
+            ("on_step_unchanged", "-45d", "-45d"),
+            ("weeks_convert_then_step", "-6w", "-45d"),
+            # 721h is just over 30 days; flooring to -30d would leave the
+            # oldest partial day of the real request's span cold.
+            ("hours_round_up", "-721h", "-45d"),
+            ("cap_holds", "-90d", "-90d"),
+        ]
+    )
+    def test_lookback_steps(self, _name: str, date_from: str, expected: str) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": date_from},
+        }
+
+        self.assertEqual(canonicalize_lazy_replay_json(query)["dateRange"]["date_from"], expected)
+
+    def test_variant_fields_dropped_shape_fields_kept(self) -> None:
+        query = {
+            "kind": "WebStatsTableQuery",
+            "useWebAnalyticsPrecompute": True,
+            "properties": [{"key": "$host", "value": "posthog.com", "type": "event"}],
+            "breakdownBy": "Browser",
+            "filterTestAccounts": True,
+            "dateRange": {"date_from": "-30d"},
+            "compareFilter": {"compare": True},
+            "limit": 50,
+            "modifiers": {"sessionTableVersion": "v2"},
+            "version": 2,
+        }
+
+        canonical = canonicalize_lazy_replay_json(query)
+
+        for dropped in ("compareFilter", "limit", "modifiers", "version"):
+            self.assertNotIn(dropped, canonical)
+        self.assertEqual(canonical["properties"], query["properties"])
+        self.assertEqual(canonical["breakdownBy"], "Browser")
+        self.assertIs(canonical["filterTestAccounts"], True)
+        self.assertIs(canonical["useWebAnalyticsPrecompute"], True)
+
+    @parameterized.expand(
+        [
+            (
+                "non_lazy_kind",
+                {"kind": "WebExternalClicksTableQuery", "useWebAnalyticsPrecompute": True, "compareFilter": {}},
+            ),
+            ("opted_out", {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": False, "compareFilter": {}}),
+        ]
+    )
+    def test_off_lazy_path_is_untouched(self, _name: str, query: dict) -> None:
+        self.assertIs(canonicalize_lazy_replay_json(query), query)
+
+    @parameterized.expand(
+        [
+            # A bounded span keeps its faithful range for the same reason
+            # deepening skips it, and non-exact forms have no monotonic depth
+            # to step — both still shed the variant fields.
+            ("bounded_range", {"date_from": "-7d", "date_to": "-1d"}),
+            ("month_start", {"date_from": "mStart"}),
+        ]
+    )
+    def test_unsteppable_ranges_keep_span_but_shed_variant_fields(self, _name: str, date_range: dict) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": date_range,
+            "compareFilter": {"compare": True},
+        }
+
+        canonical = canonicalize_lazy_replay_json(query)
+
+        self.assertEqual(canonical["dateRange"], date_range)
+        self.assertNotIn("compareFilter", canonical)
 
 
 class TestSplitWarmableQueries(BaseTest):
@@ -450,7 +591,7 @@ class TestWarmQueriesOp(BaseTest):
             ),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),
@@ -502,7 +643,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.time.sleep") as mock_sleep,
             patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),
@@ -588,11 +729,8 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            entry = None
-            if has_entry:
-                entry = MagicMock()
-                entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
-            mock_cm.return_value.lookup.return_value.entry = entry
+            freshness = EntryFreshness(last_refresh="2026-07-01T00:00:00Z") if has_entry else None
+            mock_cm.return_value.freshness.return_value = freshness
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(mode=mode),
@@ -653,7 +791,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
             patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             shapes = [
                 {
                     "team_id": self.team.pk,
@@ -674,6 +812,63 @@ class TestWarmQueriesOp(BaseTest):
         if not expect_exit:
             self.assertEqual(runner.run.call_count, n_shapes)
 
+    def test_crawling_pass_fails_at_deadline(self) -> None:
+        # A pass that completes one shape per stall window never trips the
+        # no-progress guard, but crawling like that holds the job's single run
+        # slot indefinitely and blocks every scheduled tick. It must fail at
+        # the pass deadline via a clean dagster.Failure (in-flight shapes are
+        # healthy, so no hard exit).
+        class _Exited(BaseException):
+            pass
+
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        real_wait = cache_warming.wait
+        fake_time = SimpleNamespace(now=0.0)
+        fake_time.monotonic = lambda: fake_time.now
+        fake_time.sleep = lambda _s: None
+        wait_timeouts: list[float | None] = []
+
+        def fake_wait(
+            pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set, set]:
+            wait_timeouts.append(timeout)
+            fake_time.now += 10000.0
+            first = next(iter(pending))
+            real_wait({first}, timeout=5)
+            return {first}, pending - {first}
+
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
+            patch("products.web_analytics.dags.cache_warming.time", new=fake_time),
+            patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+        ):
+            mock_cm.return_value.freshness.return_value = None
+            shapes = [
+                {
+                    "team_id": self.team.pk,
+                    "query_json": {"kind": "WebOverviewQuery", "properties": [], "n": i},
+                    "query_count": 5,
+                    "representative_query_count": 5,
+                    "normalized_query_hash": f"h{i}",
+                }
+                for i in range(3)
+            ]
+            with self.assertRaises(dagster.Failure) as raised:
+                warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+
+        self.assertFalse(mock_exit.called)
+        # Retrying would reset the deadline clock and hold the schedule slot
+        # for another full deadline per attempt.
+        self.assertIs(raised.exception.allow_retries, False)
+        # The wait is truncated to the remaining deadline (second window has
+        # only 800s left of the 10800s budget), so a quiet window cannot
+        # overshoot the deadline by a full stall timeout.
+        self.assertEqual(wait_timeouts[0], cache_warming.WARMING_STALL_TIMEOUT_SECONDS)
+        self.assertEqual(wait_timeouts[1], 800.0)
+
     def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
         # Shapes warmed together go stale together (fixed threshold), so a bulk
         # pass turns into a synchronized expiry storm hours later. The warmer
@@ -690,9 +885,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            entry = MagicMock()
-            entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
-            mock_cm.return_value.lookup.return_value.entry = entry
+            mock_cm.return_value.freshness.return_value = EntryFreshness(last_refresh="2026-07-01T00:00:00Z")
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),
@@ -749,7 +942,7 @@ class TestWarmQueriesOp(BaseTest):
                 patch("products.web_analytics.dags.cache_warming.wait", side_effect=interrupting_wait),
                 patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
             ):
-                mock_cm.return_value.lookup.return_value.entry = None
+                mock_cm.return_value.freshness.return_value = None
                 with self.assertRaises(_Exited):
                     warm_queries_op(
                         dagster.build_op_context(),
@@ -786,7 +979,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(team_ids=[self.team.pk], limit=2),
@@ -806,7 +999,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),

@@ -274,9 +274,6 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
         is_numerical: false,
         event_type: PropertyParentType::Event,
         group_type_index: None,
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     };
 
     let initial_updates = vec![Update::Property(initial_prop)];
@@ -309,9 +306,6 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
         is_numerical: true,
         event_type: PropertyParentType::Event,
         group_type_index: None,
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     };
 
     let updated_updates = vec![Update::Property(updated_prop)];
@@ -368,9 +362,6 @@ fn prop(
         is_numerical,
         event_type,
         group_type_index: None,
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     })
 }
 
@@ -496,6 +487,101 @@ async fn test_property_definitions_keeps_rows_that_differ_on_conflict_key(db: Pg
     .await
     .unwrap();
     assert_eq!(count, Some(2));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_property_definitions_rewrite_the_row_only_when_a_type_is_resolved(db: PgPool) {
+    // `xmin` is the id of the transaction that wrote the live tuple, so an unchanged xmin proves
+    // no new row version was written. Both halves of the DO UPDATE guard are load-bearing here:
+    // without the EXCLUDED-side check, "stays_untyped" rewrites the row on every repeat sighting
+    // of an already-known untyped property, which is the dominant path through this statement in
+    // production; without the stored-side check, "ignores_a_retype" overwrites a resolved type.
+    let config = Config::init_with_defaults().unwrap();
+    let is_numeric = |t: &Option<PropertyValueType>| matches!(t, Some(PropertyValueType::Numeric));
+
+    // (name, stored type, incoming type, expected final type, expect the tuple to be rewritten)
+    let cases = [
+        ("stays_untyped", None, None, None, false),
+        (
+            "gains_a_type",
+            None,
+            Some(PropertyValueType::Numeric),
+            Some("Numeric"),
+            true,
+        ),
+        (
+            "keeps_its_type",
+            Some(PropertyValueType::Numeric),
+            None,
+            Some("Numeric"),
+            false,
+        ),
+        (
+            "ignores_a_retype",
+            Some(PropertyValueType::Numeric),
+            Some(PropertyValueType::String),
+            Some("Numeric"),
+            false,
+        ),
+    ];
+
+    for (name, stored, incoming, expected_type, expect_rewrite) in cases {
+        let cache = setup_cache(&config);
+
+        process_batch(
+            &config,
+            cache.clone(),
+            &db,
+            vec![prop(
+                name,
+                stored.clone(),
+                is_numeric(&stored),
+                PropertyParentType::Event,
+            )],
+            &test_lifecycle_handle(),
+        )
+        .await;
+
+        let xmin_before: String =
+            sqlx::query_scalar("SELECT xmin::text FROM posthog_propertydefinition WHERE name = $1")
+                .bind(name)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+
+        process_batch(
+            &config,
+            cache,
+            &db,
+            vec![prop(
+                name,
+                incoming.clone(),
+                is_numeric(&incoming),
+                PropertyParentType::Event,
+            )],
+            &test_lifecycle_handle(),
+        )
+        .await;
+
+        let (xmin_after, property_type): (String, Option<String>) = sqlx::query_as(
+            "SELECT xmin::text, property_type FROM posthog_propertydefinition WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            property_type.as_deref(),
+            expected_type,
+            "{name}: unexpected final property_type"
+        );
+        assert_eq!(
+            xmin_after != xmin_before,
+            expect_rewrite,
+            "{name}: expected rewritten={expect_rewrite}, xmin {xmin_before} -> {xmin_after}"
+        );
+    }
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

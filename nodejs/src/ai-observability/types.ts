@@ -13,7 +13,7 @@ export type EvaluationStatusReason =
     | 'provider_key_rate_limited'
     | 'model_not_found'
     | 'hog_error'
-export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 
 /** Settle config stored on the evaluation. Rows saved before strategies existed have no

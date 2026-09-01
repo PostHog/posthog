@@ -23,7 +23,7 @@ class Db2Source(SimpleSource[Db2SourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.DB2,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["ibm db2"],
+            keywords=["ibm db2", "sql"],
             label="IBM Db2",
             iconPath="/static/services/db2.png",
             fields=cast(list[FieldType], []),

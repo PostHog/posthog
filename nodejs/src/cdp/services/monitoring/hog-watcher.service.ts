@@ -53,6 +53,39 @@ export type HogWatcherFunctionState = {
     state: HogWatcherState
 }
 
+/**
+ * Compares a watcher read across Redis and Valkey on `state` alone, for `dualRead`.
+ *
+ * `tokens` is refilled from the wall clock at read time (see `getPersistedStates`), so the two
+ * stores disagree on it whenever their reads land on different seconds. Comparing it would leave
+ * the mismatch metric permanently saturated, and that metric is the signal we need to trust
+ * before moving watcher reads to Valkey. `state` is what decides whether an invocation runs.
+ */
+export function sameWatcherState(
+    primary: HogWatcherFunctionState | null,
+    secondary: HogWatcherFunctionState | null
+): boolean {
+    return primary?.state === secondary?.state
+}
+
+/** `sameWatcherState` over a keyed batch — the id set has to agree as well as each state. */
+export function sameWatcherStates(
+    primary: Record<string, HogWatcherFunctionState>,
+    secondary: Record<string, HogWatcherFunctionState>
+): boolean {
+    const ids = Object.keys(primary ?? {})
+    return (
+        ids.length === Object.keys(secondary ?? {}).length &&
+        ids.every((id) => primary[id]?.state === secondary[id]?.state)
+    )
+}
+
+type FunctionCostEntry = {
+    hogFunction?: HogFunctionType
+    functionId: string
+    cost: number
+}
+
 const hogFunctionStateChange = new Counter({
     name: 'cdp_hog_function_state_change',
     help: 'Number of times a transformation state changed',
@@ -93,7 +126,8 @@ export class HogWatcherService {
         results: CyclotronJobInvocationResult[]
         promise: Promise<void>
         timeout: NodeJS.Timeout
-        complete: () => void
+        resolve: () => void
+        reject: (error: unknown) => void
     } | null = null
 
     private redisReader: RedisV2
@@ -387,14 +421,7 @@ export class HogWatcherService {
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        const functionCosts: Record<
-            CyclotronJobInvocation['functionId'],
-            {
-                hogFunction?: HogFunctionType
-                functionId: CyclotronJobInvocation['functionId']
-                cost: number
-            }
-        > = {}
+        const functionCosts: Record<CyclotronJobInvocation['functionId'], FunctionCostEntry> = {}
 
         results.forEach((result) => {
             if (!isHogFunctionResult(result)) {
@@ -423,23 +450,71 @@ export class HogWatcherService {
             functionCosts[result.invocation.functionId] = functionCost
         })
 
-        const functionCostEntries = Object.values(functionCosts)
+        await this.applyCostsAndTransitionStates(Object.values(functionCosts))
+    }
 
+    /**
+     * Per-(function, Kafka message) cost reporting for log transformations.
+     *
+     * The events path allocates one CyclotronJobInvocationResult per event; at log-record
+     * volumes that is prohibitive, so the logs transformer reports a single aggregated VM
+     * duration per function per message instead. Cost is derived from that aggregate via the
+     * same piecewise-linear curve (bounds come from this instance's config, so a logs-tuned
+     * HogWatcher charges on a logs-appropriate scale). Everything downstream — token bucket,
+     * state reads, transition rules — is shared with observeResults.
+     */
+    public async observeAggregatedResults(
+        observations: { hogFunction: HogFunctionType; totalDurationMs: number }[]
+    ): Promise<void> {
+        const functionCosts: Record<string, FunctionCostEntry> = {}
+        const costConfig = this.costsMapping.hog
+        if (!costConfig) {
+            return
+        }
+
+        for (const { hogFunction, totalDurationMs } of observations) {
+            const functionCost = functionCosts[hogFunction.id] ?? {
+                functionId: hogFunction.id,
+                cost: 0,
+                hogFunction,
+            }
+            const ratio =
+                Math.max(totalDurationMs - costConfig.lowerBound, 0) / (costConfig.upperBound - costConfig.lowerBound)
+            functionCost.cost += Math.round(costConfig.cost * ratio)
+            functionCosts[hogFunction.id] = functionCost
+        }
+
+        await this.applyCostsAndTransitionStates(Object.values(functionCosts))
+    }
+
+    private async applyCostsAndTransitionStates(functionCostEntries: FunctionCostEntry[]): Promise<void> {
         if (functionCostEntries.length === 0) {
             return
         }
 
         // Split reads (state/lock) to the reader and writes (token bucket) to the writer.
         // These can run concurrently since the reads don't depend on the write results.
-        // Uses mget to batch all state keys and lock keys into 2 commands instead of 2N individual gets.
         const stateKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE}/${fc.functionId}`)
         const lockKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE_LOCK}/${fc.functionId}`)
 
-        const readStates = (pool: RedisV2) =>
-            pool.useClient({ name: 'readStatesForObserve' }, async (client) => {
-                const [states, locks] = await Promise.all([client.mget(...stateKeys), client.mget(...lockKeys)])
-                return { states, locks }
+        const readStates = async (pool: RedisV2) => {
+            // Single-key pipeline commands avoid CROSSSLOT errors when function IDs map to different cluster slots.
+            const results = await pool.usePipeline({ name: 'readStatesForObserve' }, (pipeline) => {
+                stateKeys.forEach((key) => pipeline.get(key))
+                lockKeys.forEach((key) => pipeline.get(key))
             })
+            if (!results) {
+                return null
+            }
+            const commandError = results.find(([error]) => error)?.[0]
+            if (commandError) {
+                throw commandError
+            }
+            return {
+                states: stateKeys.map((_, index) => results[index]?.[1]),
+                locks: lockKeys.map((_, index) => results[stateKeys.length + index]?.[1]),
+            }
+        }
 
         const requests = functionCostEntries.map((fc) => ({ id: fc.functionId, cost: fc.cost }))
         const [stateRes, rateLimitRes] = await Promise.all([
@@ -490,36 +565,43 @@ export class HogWatcherService {
         // We need to make sure that we only process the results once
         if (!this.queuedResults) {
             let resolvePromise: () => void
-            const promise = new Promise<void>((resolve) => {
+            let rejectPromise: (error: unknown) => void
+            const promise = new Promise<void>((resolve, reject) => {
                 resolvePromise = resolve
+                rejectPromise = reject
             })
 
             this.queuedResults = {
                 results: [],
                 promise,
-                complete: resolvePromise!,
-                timeout: setTimeout(() => this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
+                resolve: resolvePromise!,
+                reject: rejectPromise!,
+                timeout: setTimeout(() => void this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
             }
         }
 
         this.queuedResults.results.push(result)
+        const bufferedPromise = this.queuedResults.promise
 
         if (this.queuedResults.results.length >= this.config.observeResultsBufferMaxResults) {
-            await this.flushBufferedResults()
-        } else {
-            await this.queuedResults.promise
+            void this.flushBufferedResults()
         }
+        await bufferedPromise
     }
 
-    private async flushBufferedResults() {
+    private async flushBufferedResults(): Promise<void> {
         if (!this.queuedResults) {
             return
         }
 
-        const { results, timeout, complete } = this.queuedResults
+        const { results, timeout, resolve, reject } = this.queuedResults
         clearTimeout(timeout)
         this.queuedResults = null
-        await this.observeResults(results)
-        complete()
+        try {
+            await this.observeResults(results)
+            resolve()
+        } catch (error) {
+            reject(error)
+        }
     }
 }

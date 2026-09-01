@@ -1,0 +1,17 @@
+{
+    "name": "@posthog/products-canvas",
+    "scripts": {
+        "prebackend:test": "npm ci --ignore-scripts --omit=dev --prefix packages/canvas_builder",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@testing-library/react": "^14.3.1",
+        "jest": "^29.7.0"
+    },
+    "peerDependencies": {
+        "@types/react": "*",
+        "react": "*",
+        "react-dom": "*"
+    }
+}

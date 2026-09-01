@@ -770,7 +770,8 @@ async fn rapid_pod_joins(
                 .iter()
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
-            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            let members = personhog_coordination::strategy::Member::active_all(&pods);
+            let desired = strategy.compute_assignments(&current, &members, MANY_PARTITIONS);
             assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
@@ -1058,7 +1059,8 @@ async fn debounce_batches_rapid_pod_changes(
                 .iter()
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
-            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            let members = personhog_coordination::strategy::Member::active_all(&pods);
+            let desired = strategy.compute_assignments(&current, &members, MANY_PARTITIONS);
             assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
@@ -1418,6 +1420,7 @@ async fn a_dead_new_owner_handoff_is_reaffirmed_to_the_current_owner() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1548,6 +1551,7 @@ async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
             started_at: 0,
             handoff_id: "h-stale-addr".to_string(),
             freeze_quorum: None,
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
         })
@@ -1772,6 +1776,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1839,6 +1844,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1894,6 +1900,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1976,6 +1983,7 @@ async fn a_dead_new_owner_handoff_in_warming_is_reaffirmed() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2077,6 +2085,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2087,6 +2096,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
             pod_name: "writer-1".to_string(),
             partition: 6,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2159,6 +2169,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2206,6 +2217,7 @@ async fn draining_old_owner_blocks_phase_advance() {
             pod_name: "writer-draining".to_string(),
             partition: 7,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2263,6 +2275,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2270,7 +2283,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // triggers a pod-change event and runs the dead-new-owner cancellation,
     // which must leave the handoff alone: the new owner is live, and the
     // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
@@ -2373,6 +2386,7 @@ async fn a_handoff_that_can_never_reach_quorum_is_cancelled() {
                 .as_secs() as i64,
             handoff_id: "wedged-handoff".to_string(),
             freeze_quorum: Some(vec!["silent-router".to_string()]),
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
         })
@@ -2412,7 +2426,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // Register both owner pods: the new owner so the dead-new-owner cancellation
     // doesn't delete the injected handoff, the old owner so the scenario
     // matches a live in-flight handoff. They don't run real handlers — we
     // just need their etcd registrations to exist.
@@ -2458,6 +2472,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2484,6 +2499,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
             router_name: "slow-router".to_string(),
             partition: 1,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2528,7 +2544,7 @@ async fn initial_assignment_skips_draining_phase() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register the new_owner pod so `cleanup_stale_handoffs` doesn't
+    // Register the new_owner pod so the dead-new-owner cancellation doesn't
     // delete the injected handoff for missing-target reasons.
     let lease = store.grant_lease(60).await.unwrap();
     let new_pod = RegisteredPod {
@@ -2557,6 +2573,7 @@ async fn initial_assignment_skips_draining_phase() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2619,6 +2636,7 @@ async fn dead_old_owner_in_draining_recovers() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2721,6 +2739,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2732,6 +2751,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
             pod_name: "writer-old".to_string(),
             partition: 5,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2783,6 +2803,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2870,6 +2891,7 @@ async fn a_dead_new_owner_handoff_in_draining_is_reaffirmed() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3099,10 +3121,10 @@ async fn stuck_handoff_defers_only_its_own_partition() {
 }
 
 /// Concurrent planners can both read a partition as unpinned and plan it;
-/// handoff creation is guarded create-if-absent so the second plan's txn
-/// fails whole instead of replacing the first handoff and orphaning its
-/// acks. The losing plan's writes — including its innocent assignments —
-/// must not land either: it was computed against a stale snapshot.
+/// handoff creation is guarded create-if-absent so the second plan
+/// cannot replace the first handoff and orphan its acks. Atomicity is
+/// per partition: the losing plan's uncontested writes still land, and
+/// only the contested partition stands down.
 #[tokio::test]
 async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
     use personhog_coordination::types::{
@@ -3119,12 +3141,13 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         started_at: 0,
         handoff_id: "first".to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
     };
     assert!(store
-        .create_assignments_and_handoffs(&[], std::slice::from_ref(&first), &[])
+        .create_assignments_and_handoffs(&[], std::slice::from_ref(&first), &[], 128)
         .await
         .unwrap());
 
@@ -3138,6 +3161,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         started_at: 0,
         handoff_id: "second".to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3149,17 +3173,19 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         advertise_address: None,
     };
     assert!(!store
-        .create_assignments_and_handoffs(&[stable], &[competing], &[])
+        .create_assignments_and_handoffs(&[stable], &[competing], &[], 128)
         .await
         .unwrap());
 
-    // The in-flight handoff survives with its original identity, and the
-    // losing plan's assignment never landed.
+    // The in-flight handoff survives with its original identity; the
+    // losing plan's uncontested assignment landed on its own.
     let handoffs = store.list_handoffs().await.unwrap();
     assert_eq!(handoffs.len(), 1);
     assert_eq!(handoffs[0].handoff_id, "first");
     assert_eq!(handoffs[0].new_owner, "writer-1");
-    assert!(store.list_assignments().await.unwrap().is_empty());
+    let assignments = store.list_assignments().await.unwrap();
+    assert_eq!(assignments.len(), 1);
+    assert_eq!(assignments[0].partition, 1);
 }
 
 /// The reviewer's stale-plan scenario at the store level: a plan whose
@@ -3189,6 +3215,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         started_at: 0,
         handoff_id: id.to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3196,7 +3223,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
 
     // The world the stale planner reads: partition 0 owned by A.
     assert!(store
-        .create_assignments_and_handoffs(&[assignment("pod-a")], &[], &[])
+        .create_assignments_and_handoffs(&[assignment("pod-a")], &[], &[], 128)
         .await
         .unwrap());
     let snapshot = store.list_assignments_with_mod_revisions().await.unwrap();
@@ -3205,7 +3232,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
     // Concurrently, a full move to B lands: by the time the stale plan's
     // txn arrives, the handoff key is gone and only the assignment moved.
     assert!(store
-        .create_assignments_and_handoffs(&[assignment("pod-b")], &[], &[])
+        .create_assignments_and_handoffs(&[assignment("pod-b")], &[], &[], 128)
         .await
         .unwrap());
 
@@ -3219,6 +3246,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
                 partition: 0,
                 mod_revision: stale_revision,
             }],
+            128,
         )
         .await
         .unwrap();
@@ -3240,6 +3268,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
                 partition: 0,
                 mod_revision: *fresh_revision,
             }],
+            128
         )
         .await
         .unwrap());
@@ -3251,8 +3280,8 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
 /// A fresh-partition handoff asserts the assignment is still absent: if
 /// one appeared since the snapshot (the partition got born through a
 /// concurrent handoff's completion), the plan's old_owner: None is a lie
-/// and the plan must be rejected — and one stale precondition rejects the
-/// whole plan, valid handoffs included.
+/// and that partition must be rejected — alone: a stale precondition
+/// stands down its own partition, not the plan's valid handoffs.
 #[tokio::test]
 async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
     use personhog_coordination::types::{
@@ -3269,6 +3298,7 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
         started_at: 0,
         handoff_id: id.to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3285,13 +3315,15 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
             }],
             &[],
             &[],
+            128
         )
         .await
         .unwrap());
 
     // The plan carries one stale fresh-handoff (partition 0) and one
-    // genuinely fresh one (partition 1): all-or-nothing rejection.
-    let rejected = store
+    // genuinely fresh one (partition 1): the stale partition stands
+    // down alone, the innocent one applies.
+    let all_applied = store
         .create_assignments_and_handoffs(
             &[],
             &[fresh_handoff(0, "stale"), fresh_handoff(1, "innocent")],
@@ -3299,22 +3331,15 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
                 AssignmentPrecondition::Absent { partition: 0 },
                 AssignmentPrecondition::Absent { partition: 1 },
             ],
+            128,
         )
         .await
         .unwrap();
-    assert!(!rejected);
-    assert!(store.list_handoffs().await.unwrap().is_empty());
-
-    // Replanned against reality, partition 1 alone applies.
-    assert!(store
-        .create_assignments_and_handoffs(
-            &[],
-            &[fresh_handoff(1, "replanned")],
-            &[AssignmentPrecondition::Absent { partition: 1 }],
-        )
-        .await
-        .unwrap());
-    assert_eq!(store.list_handoffs().await.unwrap().len(), 1);
+    assert!(!all_applied);
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].partition, 1);
+    assert_eq!(handoffs[0].handoff_id, "innocent");
 }
 
 /// The rebalance must never write assignment records — handoff completion
@@ -3382,4 +3407,27 @@ async fn rebalance_never_writes_assignment_records() {
             );
         }
     }
+}
+
+/// The store stamps `acked_at_ms` at put time so span metrics can measure
+/// ack-to-advance lag; writers all pass zero and must get a real stamp back.
+#[tokio::test]
+async fn store_stamps_ack_millis_on_put() {
+    let store = test_store("ack-ms-stamp").await;
+    store
+        .put_freeze_ack(&personhog_coordination::types::RouterFreezeAck {
+            router_name: "router-0".to_string(),
+            partition: 3,
+            acked_at: 1_700_000_000,
+            acked_at_ms: 0,
+            handoff_id: "h-1".to_string(),
+        })
+        .await
+        .expect("put freeze ack");
+    let acks = store.list_freeze_acks(3).await.expect("list freeze acks");
+    assert_eq!(acks.len(), 1);
+    assert!(
+        acks[0].acked_at_ms > 0,
+        "store must stamp the millisecond clock on ack writes"
+    );
 }

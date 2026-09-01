@@ -11,6 +11,8 @@ import type {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
@@ -29,7 +31,6 @@ import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
@@ -121,6 +122,7 @@ export function FunnelLineChart({
         [seriesBase, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
     )
 
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'funnel', seriesCount: series.length })
     const legendConfig = useMemo<ChartLegendConfig>(
         () =>
             buildBaseLegendConfig({
@@ -128,8 +130,9 @@ export function FunnelLineChart({
                 legendPosition,
                 canEditInsight,
                 inSharedMode,
+                renderItem: legendRenderItem,
             }),
-        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
+        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode, legendRenderItem]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
@@ -163,7 +166,11 @@ export function FunnelLineChart({
     )
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
-    const labels = steps[0]?.labels ?? EMPTY_STRINGS
+    // The chart keys x positions off these strings, so they must be unique per point. Display
+    // labels are not (week and hour labels omit the year), which draws a multi-year funnel
+    // trend backwards. Use the ISO days; ticks and tooltips format from them.
+    const days = steps[0]?.days
+    const labels = (days?.length ? days : steps[0]?.labels) ?? EMPTY_STRINGS
     const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
     const showAnnotations = !inSharedMode && funnelsFilter?.showAnnotations !== false
 

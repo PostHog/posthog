@@ -1,0 +1,1721 @@
+"""Gateway API — the team control plane for MCP servers.
+
+Registrations (`MCPGatewayServer`) are the unit everything hangs off:
+enablement, per-scope tool policies, agent access, member revocations, org
+rules, and the audit log. Personal/shared credentials stay on
+`MCPServerInstallation` (see views.py); this module only adds the team layer.
+"""
+
+from collections.abc import Sequence
+from functools import cached_property
+from typing import Any, cast
+
+from django.db import transaction
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When, prefetch_related_objects
+from django.utils import timezone
+
+import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
+from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.mixins import validated_request
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
+from posthog.models import User
+from posthog.models.organization import OrganizationMembership
+from posthog.permissions import DenyMCPBuiltInAgentOAuth
+
+from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
+from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
+from ..models import (
+    AGENT_GRANT_SCOPE_CHOICES,
+    APPROVAL_STATES,
+    AUTH_TYPE_CHOICES,
+    POLICY_PRESET_CHOICES,
+    POLICY_SCOPE_TYPE_CHOICES,
+    SERVICE_ACCOUNT_STATUS_CHOICES,
+    MCPAuditEvent,
+    MCPGatewayServer,
+    MCPMemberServerRevocation,
+    MCPOrgRule,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    MCPServerTemplate,
+    MCPServiceAccount,
+    MCPServiceAccountServerAccess,
+    MCPToolPolicy,
+    TeamMCPGatewayConfig,
+)
+from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
+
+logger = structlog.get_logger(__name__)
+
+RESOLVED_DECIDED_BY_CHOICES = ["rule", "scope", "team", "preset", "legacy", "default"]
+
+AUDIT_QUICK_FILTER_CHOICES = ["all", "agents", "approvals", "blocked"]
+
+# The UI sends whole catalogs, so keep headroom while bounding per-entry writes.
+MAX_TOOL_POLICIES_PER_REQUEST = 1_000
+
+AGENT_SERVER_CONNECTION_STATE_CHOICES = [
+    "ready",
+    "pending_oauth",
+    "needs_reauth",
+    "disabled",
+    "missing_credential",
+]
+
+
+def get_gateway_config(team_id: int) -> TeamMCPGatewayConfig | None:
+    return TeamMCPGatewayConfig.objects.for_team(team_id).first()
+
+
+def _ordered_gateway_tool_rows(
+    server: MCPGatewayServer,
+    *,
+    tool_names: list[str] | None = None,
+    include_removed_fallback: bool = False,
+) -> QuerySet[MCPServerInstallationTool]:
+    """Order rows so the first per tool is the newest active row, then the newest removed row."""
+    queryset = MCPServerInstallationTool.objects.filter(installation__gateway_server=server)
+    if tool_names is not None:
+        queryset = queryset.filter(tool_name__in=tool_names)
+    if include_removed_fallback:
+        return queryset.annotate(
+            removed_rank=Case(
+                When(removed_at__isnull=True, then=0),
+                default=1,
+                output_field=IntegerField(),
+            )
+        ).order_by("tool_name", "removed_rank", "-last_seen_at", "-id")
+    return queryset.filter(removed_at__isnull=True).order_by("tool_name", "-last_seen_at", "-id")
+
+
+def policy_entries_above_team_ceiling(
+    *,
+    team_id: int,
+    server: MCPGatewayServer,
+    caller: GatewayCaller,
+    entries: list[dict[str, Any]],
+) -> list[str]:
+    """Return entries that try to make a caller scope more permissive than its team ceiling."""
+    context = PolicyContext(team_id=team_id, caller=caller, gateway_server=server)
+    annotations_by_tool: dict[str, dict[str, Any]] = {}
+    tool_rows = _ordered_gateway_tool_rows(
+        server,
+        tool_names=[entry["tool_name"] for entry in entries],
+        include_removed_fallback=True,
+    ).values_list("tool_name", "annotations")
+    for tool_name, annotations in tool_rows:
+        annotations_by_tool.setdefault(tool_name, annotations or {})
+    return [
+        entry["tool_name"]
+        for entry in entries
+        if not is_policy_state_allowed(
+            entry["policy_state"],
+            context.team_state(entry["tool_name"], annotations_by_tool.get(entry["tool_name"])),
+        )
+    ]
+
+
+def raise_for_policies_above_team_ceiling(tool_names: list[str]) -> None:
+    if tool_names:
+        raise serializers.ValidationError(
+            {
+                "policies": (
+                    "A team admin set a stricter ceiling for: "
+                    + ", ".join(sorted(tool_names))
+                    + ". Choose the ceiling or a more restrictive state."
+                )
+            }
+        )
+
+
+class GatewayAdminMixin:
+    """Admin gate shared by gateway viewsets.
+
+    Mirrors MCPServerInstallationViewSet._is_project_admin: organization
+    admins/owners, or users explicitly granted admin on this project.
+    `explicit=True` keeps open-project defaults from making every member an
+    effective admin.
+    """
+
+    def _is_project_admin(self) -> bool:
+        if self.user_access_control.is_organization_admin:  # type: ignore[attr-defined]
+            return True
+        return bool(
+            self.user_access_control.check_access_level_for_object(self.team, "admin", explicit=True)  # type: ignore[attr-defined]
+        )
+
+    def _require_project_admin(self) -> None:
+        if not self._is_project_admin():
+            raise PermissionDenied("Only project admins can manage the MCP gateway.")
+
+    def _can_manage_agent_access(self) -> bool:
+        return self._is_project_admin() or members_can_manage_agent_access(self.team_id)  # type: ignore[attr-defined]
+
+    def _require_agent_access_manager(self) -> None:
+        if not self._can_manage_agent_access():
+            raise PermissionDenied("Only project admins can manage agent access for this project.")
+
+
+# ---------------------------------------------------------------------------
+# Serializers
+# ---------------------------------------------------------------------------
+
+
+class GatewayConnectionSerializer(serializers.Serializer):
+    """One member's personal connection to a gateway server."""
+
+    installation_id = serializers.UUIDField(help_text="Installation row backing this connection.")
+    user = UserBasicSerializer(help_text="The member who connected.")
+    last_used_at = serializers.DateTimeField(
+        allow_null=True, help_text="When this connection last proxied a tool call. Null if never used."
+    )
+    pending_oauth = serializers.BooleanField(help_text="True when the OAuth round-trip has not completed yet.")
+    needs_reauth = serializers.BooleanField(help_text="True when the stored token was invalidated and needs reauth.")
+
+
+class GatewayYourConnectionSerializer(serializers.Serializer):
+    """The requesting user's own connection to a gateway server."""
+
+    installation_id = serializers.UUIDField(help_text="The caller's installation row for this server.")
+    is_enabled = serializers.BooleanField(help_text="Per-connection switch — false when self-disabled.")
+    pending_oauth = serializers.BooleanField(help_text="True when the OAuth round-trip has not completed yet.")
+    needs_reauth = serializers.BooleanField(help_text="True when the stored token was invalidated and needs reauth.")
+    last_used_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the caller last proxied a call through this connection."
+    )
+
+
+class GatewayAgentAccessSerializer(serializers.Serializer):
+    """One agent's access to a gateway server, on behalf of one member."""
+
+    service_account_id = serializers.UUIDField(help_text="Service account granted access.")
+    user = UserBasicSerializer(help_text="The member whose connection the agent uses.")
+    scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        help_text=(
+            "'personal' lets the agent use this connection only when working for the member who shared it. "
+            "'team' lets it use the connection for the whole project's agent runs."
+        ),
+    )
+    name = serializers.CharField(help_text="Agent display name.")
+    handle = serializers.CharField(help_text="Agent identity handle, e.g. posthog-support.")
+    status = serializers.ChoiceField(
+        choices=SERVICE_ACCOUNT_STATUS_CHOICES, help_text="active, or paused (all access off)."
+    )
+    last_active_at = serializers.DateTimeField(allow_null=True, help_text="When the agent last made a call.")
+    granted_by = UserBasicSerializer(allow_null=True, help_text="Member who shared this server with the agent.")
+
+
+def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
+    if installation.auth_type != "oauth":
+        return False
+    return not (installation.sensitive_configuration or {}).get("access_token")
+
+
+def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:
+    if installation.auth_type != "oauth":
+        return False
+    return bool((installation.sensitive_configuration or {}).get("needs_reauth"))
+
+
+def _connection_payload(installation: MCPServerInstallation) -> dict[str, Any]:
+    return {
+        "installation_id": installation.id,
+        "user": UserBasicSerializer(installation.user).data,
+        "last_used_at": installation.last_used_at,
+        "pending_oauth": _installation_pending_oauth(installation),
+        "needs_reauth": _installation_needs_reauth(installation),
+    }
+
+
+class MCPGatewayServerSerializer(serializers.ModelSerializer):
+    """A server registered in the team's gateway, with connection summary."""
+
+    template_auth_type = serializers.ChoiceField(
+        choices=AUTH_TYPE_CHOICES,
+        source="template.auth_type",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Fixed authentication type for catalog templates. Null for custom servers, where members choose.",
+    )
+    icon_key = serializers.CharField(
+        source="template.icon_key",
+        read_only=True,
+        default="",
+        help_text="Deprecated brand icon key from the linked template. Empty for custom servers.",
+    )
+    icon_domain = serializers.CharField(
+        source="template.icon_domain",
+        read_only=True,
+        default="",
+        help_text="Brand domain from the linked template. Empty for custom servers.",
+    )
+    docs_url = serializers.CharField(
+        source="template.docs_url", read_only=True, default="", help_text="Documentation URL from the template."
+    )
+    template_id = serializers.UUIDField(
+        source="template.id", read_only=True, allow_null=True, default=None, help_text="Linked catalog template."
+    )
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="Who registered the server. Null when that user was deleted."
+    )
+    tool_count = serializers.SerializerMethodField(help_text="Number of live tools known for this server.")
+    connections = serializers.SerializerMethodField(
+        help_text="Members with a connection to this server. Only project admins receive this list."
+    )
+    your_connection = serializers.SerializerMethodField(
+        help_text="The requesting user's own connection, or null when not connected."
+    )
+    agents = serializers.SerializerMethodField(help_text="Agents this server is shared with.")
+    revoked_user_ids = serializers.SerializerMethodField(
+        help_text="Ids of members whose access an admin has turned off. Only project admins receive this list."
+    )
+    is_revoked_for_you = serializers.SerializerMethodField(
+        help_text="True when an admin has turned this server off for the requesting user."
+    )
+
+    class Meta:
+        model = MCPGatewayServer
+        fields = [
+            "id",
+            "name",
+            "url",
+            "description",
+            "category",
+            "template_auth_type",
+            "is_team_enabled",
+            "icon_key",
+            "icon_domain",
+            "docs_url",
+            "template_id",
+            "tool_count",
+            "connections",
+            "your_connection",
+            "agents",
+            "revoked_user_ids",
+            "is_revoked_for_you",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "name",
+            "url",
+            "description",
+            "category",
+            "is_team_enabled",
+            "created_at",
+            "updated_at",
+        ]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_tool_count(self, obj: MCPGatewayServer) -> int:
+        annotated = getattr(obj, "tool_count_annotated", None)
+        if annotated is not None:
+            return annotated
+        return (
+            MCPServerInstallationTool.objects.filter(installation__gateway_server=obj, removed_at__isnull=True)
+            .values("tool_name")
+            .distinct()
+            .count()
+        )
+
+    @extend_schema_field(GatewayConnectionSerializer(many=True))
+    def get_connections(self, obj: MCPGatewayServer) -> list[dict[str, Any]]:
+        if not self.context.get("is_admin"):
+            return []
+        return [_connection_payload(installation) for installation in obj.installations.all()]
+
+    @extend_schema_field(GatewayYourConnectionSerializer(allow_null=True))
+    def get_your_connection(self, obj: MCPGatewayServer) -> dict[str, Any] | None:
+        request = self.context.get("request")
+        if request is None:
+            return None
+        own = [installation for installation in obj.installations.all() if installation.user_id == request.user.id]
+        # A personal row wins over a legacy team-shared row the user owns.
+        own.sort(key=lambda installation: installation.scope != "personal")
+        if not own:
+            return None
+        installation = own[0]
+        return {
+            "installation_id": installation.id,
+            "is_enabled": installation.is_enabled,
+            "pending_oauth": _installation_pending_oauth(installation),
+            "needs_reauth": _installation_needs_reauth(installation),
+            "last_used_at": installation.last_used_at,
+        }
+
+    @extend_schema_field(GatewayAgentAccessSerializer(many=True))
+    def get_agents(self, obj: MCPGatewayServer) -> list[dict[str, Any]]:
+        return [
+            {
+                "service_account_id": access.service_account_id,
+                "user": UserBasicSerializer(access.user).data,
+                "scope": access.scope,
+                "name": access.service_account.name,
+                "handle": access.service_account.handle,
+                "status": access.service_account.status,
+                "last_active_at": access.service_account.last_active_at,
+                "granted_by": UserBasicSerializer(access.granted_by).data if access.granted_by else None,
+            }
+            # A grant written by a pod on the previous release can still be
+            # missing its user while the deploy rolls. It resolves for nobody,
+            # and `user` is not nullable on the serializer. The list queryset
+            # already excludes those, but this serializer is also used on
+            # objects fetched without that prefetch.
+            for access in obj.agent_access.all()
+            if access.user_id is not None
+        ]
+
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_revoked_user_ids(self, obj: MCPGatewayServer) -> list[int]:
+        if not self.context.get("is_admin"):
+            return []
+        return [revocation.user_id for revocation in obj.member_revocations.all()]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_revoked_for_you(self, obj: MCPGatewayServer) -> bool:
+        request = self.context.get("request")
+        if request is None:
+            return False
+        return any(revocation.user_id == request.user.id for revocation in obj.member_revocations.all())
+
+
+class SetTemplateEnabledSerializer(serializers.Serializer):
+    template_id = serializers.UUIDField(help_text="Active catalog template to enable or disable for the team.")
+    enabled = serializers.BooleanField(
+        help_text="True lets the team see and call the server; false hides it from members and blocks connections."
+    )
+
+
+class MCPGatewayServerUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MCPGatewayServer
+        fields = ["name", "description", "category", "is_team_enabled"]
+        extra_kwargs = {
+            "name": {"required": False, "help_text": "Display name shown across the gateway."},
+            "description": {"required": False, "help_text": "Short description shown on server cards."},
+            "category": {"required": False, "help_text": "Catalog category used for filter chips."},
+            "is_team_enabled": {
+                "required": False,
+                "help_text": "Whether the team can see and call the server. Turning it off also blocks agent access.",
+            },
+        }
+
+
+class ToolPolicyEntrySerializer(serializers.Serializer):
+    tool_name = serializers.CharField(max_length=200, help_text="Tool to set the policy for, up to 200 characters.")
+    policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="State to apply for this scope.")
+
+
+class GatewayPoliciesQuerySerializer(serializers.Serializer):
+    scope_type = serializers.ChoiceField(
+        choices=POLICY_SCOPE_TYPE_CHOICES,
+        required=False,
+        default="team",
+        help_text="Which scope to resolve: the team default, one member, or one agent.",
+    )
+    scope_user_id = serializers.IntegerField(
+        required=False, help_text="Member scope target. Defaults to the requesting user."
+    )
+    scope_service_account_id = serializers.UUIDField(
+        required=False, help_text="Agent scope target. Required when scope_type is agent."
+    )
+
+
+class GatewayPoliciesUpsertSerializer(GatewayPoliciesQuerySerializer):
+    policies = serializers.ListField(
+        child=ToolPolicyEntrySerializer(),
+        max_length=MAX_TOOL_POLICIES_PER_REQUEST,
+        help_text=f"Per-tool states to upsert for the scope. At most {MAX_TOOL_POLICIES_PER_REQUEST:,} entries per request.",
+    )
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class MCPToolInputSchemaField(serializers.JSONField):
+    pass
+
+
+class ResolvedToolPolicySerializer(serializers.Serializer):
+    """One tool with its effective policy for the requested scope."""
+
+    tool_name = serializers.CharField(help_text="Tool name as exposed by the upstream server.")
+    description = serializers.CharField(allow_blank=True, help_text="Tool description from the upstream server.")
+    input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
+    is_destructive = serializers.BooleanField(
+        help_text="Whether the canonical gateway heuristic treats this tool as destructive."
+    )
+    policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
+    team_state = serializers.ChoiceField(
+        choices=APPROVAL_STATES,
+        allow_null=True,
+        help_text="What the team-level chain (row or preset) yields, ignoring the scope. Null when the team imposes nothing.",
+    )
+    locked = serializers.BooleanField(
+        help_text="True when no state is editable for this scope (a rule match or a Blocked team ceiling)."
+    )
+    decided_by = serializers.ChoiceField(
+        choices=RESOLVED_DECIDED_BY_CHOICES, help_text="Which policy layer decided the state."
+    )
+    rule_name = serializers.CharField(allow_blank=True, help_text="Matching org rule name, when decided_by is rule.")
+    rule_description = serializers.CharField(
+        allow_blank=True, help_text="Matching org rule description, when decided_by is rule."
+    )
+
+
+# many=False keeps spectacular from wrapping this in an array for the `list` action,
+# which returns the team's single config object rather than a collection.
+@extend_schema_serializer(many=False)
+class TeamMCPGatewayConfigSerializer(serializers.ModelSerializer):
+    registered_template_ids = serializers.SerializerMethodField(
+        help_text=(
+            "Catalog template ids that already have a gateway registration, including registrations hidden from "
+            "the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new."
+        )
+    )
+    is_admin = serializers.SerializerMethodField(
+        help_text="Whether the requesting user can administer the gateway (org admin or explicit project admin)."
+    )
+
+    class Meta:
+        model = TeamMCPGatewayConfig
+        fields = [
+            "allow_custom_servers",
+            "allow_member_agent_access",
+            "default_servers_enabled",
+            "member_default_preset",
+            "agent_default_preset",
+            "registered_template_ids",
+            "is_admin",
+        ]
+        extra_kwargs = {
+            "allow_custom_servers": {
+                "help_text": "Whether non-admin members may register custom MCP servers with the gateway."
+            },
+            "default_servers_enabled": {
+                "help_text": (
+                    "Whether servers with no gateway registration — including catalog templates published later — "
+                    "are enabled for the team. A registered server's own toggle always wins."
+                )
+            },
+            "allow_member_agent_access": {
+                "help_text": (
+                    "Whether non-admin members may share their available MCP connections with agents "
+                    "and manage agent tool policies."
+                )
+            },
+            "member_default_preset": {
+                "help_text": "Baseline preset for members. Empty until an admin applies one from Team settings."
+            },
+            "agent_default_preset": {
+                "help_text": "Baseline preset deriving default policies for tools an agent has no explicit row for."
+            },
+        }
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_registered_template_ids(self, obj: TeamMCPGatewayConfig) -> list[str]:
+        template_ids = (
+            MCPGatewayServer.objects.for_team(obj.team_id)
+            .exclude(template_id__isnull=True)
+            .order_by("template_id")
+            .values_list("template_id", flat=True)
+        )
+        return [str(template_id) for template_id in template_ids]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_admin(self, obj: TeamMCPGatewayConfig) -> bool:
+        return bool(self.context.get("is_admin"))
+
+
+class GatewayConfigUpdateSerializer(serializers.Serializer):
+    allow_custom_servers = serializers.BooleanField(
+        required=False, help_text="Whether non-admin members may register custom MCP servers."
+    )
+    allow_member_agent_access = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether non-admin members may share their available MCP connections with agents "
+            "and manage agent tool policies."
+        ),
+    )
+    default_servers_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether servers with no gateway registration — including catalog templates published later — "
+            "are enabled for the team. A registered server's own toggle always wins."
+        ),
+    )
+    member_default_preset = serializers.ChoiceField(
+        choices=POLICY_PRESET_CHOICES, required=False, allow_blank=True, help_text="Baseline preset for members."
+    )
+    agent_default_preset = serializers.ChoiceField(
+        choices=POLICY_PRESET_CHOICES, required=False, allow_blank=True, help_text="Baseline preset for agents."
+    )
+
+
+class SetAllServersEnabledSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text=(
+            "True enables every MCP server for the team; false disables them all. Applies to every registered "
+            "server and becomes the default for untouched and future catalog servers."
+        )
+    )
+
+
+class ApplyPresetSerializer(serializers.Serializer):
+    audience = serializers.ChoiceField(
+        choices=["members", "agents"], help_text="Which audience's baseline to overwrite."
+    )
+    preset = serializers.ChoiceField(choices=POLICY_PRESET_CHOICES, help_text="Preset to apply.")
+
+
+class MCPServiceAccountServerSerializer(serializers.Serializer):
+    """A credential-safe summary of a server configured for an agent."""
+
+    id = serializers.UUIDField(help_text="Gateway server granted to the agent.")
+    shared_by = UserBasicSerializer(help_text="The member whose connection the agent uses.")
+    scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        help_text=(
+            "'personal' lets the agent use this connection only when working for the member who shared it. "
+            "'team' lets it use the connection for the whole project's agent runs."
+        ),
+    )
+    name = serializers.CharField(help_text="Server display name.")
+    description = serializers.CharField(help_text="Server description.")
+    icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
+    icon_domain = serializers.CharField(help_text="Brand domain. Empty for custom servers.")
+    connection_state = serializers.ChoiceField(
+        choices=AGENT_SERVER_CONNECTION_STATE_CHOICES,
+        help_text="Whether the credential delegated to the agent is ready to use.",
+    )
+
+
+class MCPServiceAccountSerializer(serializers.ModelSerializer):
+    agent_key = serializers.SerializerMethodField(help_text="Stable PostHog agent identifier.")
+    server_ids = serializers.SerializerMethodField(help_text="Gateway servers configured for this agent.")
+    servers = serializers.SerializerMethodField(
+        help_text="Credential-safe summaries of the gateway servers configured for this agent."
+    )
+
+    class Meta:
+        model = MCPServiceAccount
+        fields = [
+            "id",
+            "name",
+            "description",
+            "handle",
+            "agent_key",
+            "status",
+            "server_ids",
+            "servers",
+            "last_active_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "name",
+            "description",
+            "handle",
+            "agent_key",
+            "status",
+            "last_active_at",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "handle": {"help_text": "Stable internal identity handle for this PostHog agent."},
+            "status": {"help_text": "active, or paused (all MCP access off)."},
+            "last_active_at": {"help_text": "When the agent last made a call through the gateway."},
+        }
+
+    @extend_schema_field(serializers.ChoiceField(choices=["support", "scout"]))
+    def get_agent_key(self, obj: MCPServiceAccount) -> str:
+        spec = get_built_in_agent_spec(obj)
+        return spec.key if spec is not None else ""
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_server_ids(self, obj: MCPServiceAccount) -> list[str]:
+        return [str(access.gateway_server_id) for access in obj.server_access.all()]
+
+    @extend_schema_field(MCPServiceAccountServerSerializer(many=True))
+    def get_servers(self, obj: MCPServiceAccount) -> list[dict[str, Any]]:
+        servers: list[dict[str, Any]] = []
+        for access in obj.server_access.all():
+            server = access.gateway_server
+            installation = installation_for_agent_access(access)
+            connection_state = "ready"
+            if installation is None:
+                connection_state = "missing_credential"
+            elif not installation.is_enabled:
+                connection_state = "disabled"
+            elif _installation_needs_reauth(installation):
+                connection_state = "needs_reauth"
+            elif _installation_pending_oauth(installation):
+                connection_state = "pending_oauth"
+
+            servers.append(
+                {
+                    "id": server.id,
+                    "shared_by": UserBasicSerializer(access.user).data,
+                    "scope": access.scope,
+                    "name": server.name,
+                    "description": server.description,
+                    "icon_key": server.template.icon_key if server.template else "",
+                    "icon_domain": server.template.icon_domain if server.template else "",
+                    "connection_state": connection_state,
+                }
+            )
+        return servers
+
+
+class MCPServiceAccountUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MCPServiceAccount
+        fields = ["status"]
+        extra_kwargs = {
+            "status": {"required": False, "help_text": "active, or paused (all MCP access off)."},
+        }
+
+
+class ServiceAccountAccessUpdateSerializer(serializers.Serializer):
+    gateway_server_id = serializers.UUIDField(help_text="Gateway server to share or stop sharing.")
+    enabled = serializers.BooleanField(
+        help_text="True shares the caller's own connection with the agent, false removes the caller's share."
+    )
+    scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        required=False,
+        default="personal",
+        help_text=(
+            "Applies to the caller's own share, and only alongside enabled=true. "
+            "'personal' lets the agent use the connection when it works for the caller. "
+            "'team' lets it use the connection for the whole project's agent runs, including "
+            "runs nobody started. It never lets another person use the connection. "
+            "Defaults to personal, so re-sharing without this field resets the caller's share to personal."
+        ),
+    )
+    all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Only valid with enabled=false. Removes every member's share of this server with this agent, "
+            "along with the agent's tool policies for it. Project admins only."
+        ),
+    )
+    policies = serializers.ListField(
+        child=ToolPolicyEntrySerializer(),
+        max_length=MAX_TOOL_POLICIES_PER_REQUEST,
+        required=False,
+        default=list,
+        help_text=(
+            "Optional agent-scope tool policies to set alongside the grant. "
+            f"At most {MAX_TOOL_POLICIES_PER_REQUEST:,} entries per request."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("all") and attrs["enabled"]:
+            raise serializers.ValidationError({"all": "Removing every member's share requires enabled=false."})
+        return attrs
+
+
+class MCPOrgRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MCPOrgRule
+        fields = [
+            "id",
+            "name",
+            "description",
+            "applies_to",
+            "effect",
+            "tool_pattern",
+            "enabled",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "name": {"help_text": "Short rule name shown wherever the rule locks a tool."},
+            "description": {"required": False, "help_text": "Why this guardrail exists."},
+            "applies_to": {"required": False, "help_text": "Audience the rule constrains."},
+            "effect": {"required": False, "help_text": "State the rule forces on matching tools."},
+            "tool_pattern": {
+                "required": False,
+                "help_text": "fnmatch pattern against tool names. Blank matches destructive tools heuristically.",
+            },
+            "enabled": {"required": False, "help_text": "Disabled rules are kept but not evaluated."},
+        }
+
+
+class AuditActorServiceAccountSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Service account id.")
+    name = serializers.CharField(help_text="Agent display name.")
+    handle = serializers.CharField(help_text="Agent identity handle.")
+
+
+class MCPAuditEventSerializer(serializers.ModelSerializer):
+    actor_user = UserBasicSerializer(read_only=True, allow_null=True, help_text="Member who made the call, if any.")
+    actor_service_account = serializers.SerializerMethodField(
+        help_text="Agent that made the call, if any. Null for member calls."
+    )
+    credential_owner = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Member whose connection an agent call used. Null for member calls "
+            "and for owners whose account has since been deleted."
+        ),
+    )
+    grant_scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
+        allow_blank=True,
+        read_only=True,
+        help_text="Scope of the agent grant the call used. Blank for member calls.",
+    )
+
+    class Meta:
+        model = MCPAuditEvent
+        fields = [
+            "id",
+            "created_at",
+            "server_name",
+            "tool_name",
+            "decision",
+            "actor_user",
+            "actor_service_account",
+            "actor_label",
+            "credential_owner",
+            "grant_scope",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "server_name",
+            "tool_name",
+            "decision",
+            "actor_label",
+        ]
+        extra_kwargs = {
+            "server_name": {"help_text": "Gateway server name at call time (denormalized)."},
+            "tool_name": {"help_text": "Tool that was called."},
+            "decision": {"help_text": "How the gateway decided the call."},
+            "actor_label": {"help_text": "Denormalized actor label (email or handle) that survives deletion."},
+        }
+
+    @extend_schema_field(AuditActorServiceAccountSerializer(allow_null=True))
+    def get_actor_service_account(self, obj: MCPAuditEvent) -> dict[str, Any] | None:
+        account = obj.actor_service_account
+        if account is None:
+            return None
+        return {"id": account.id, "name": account.name, "handle": account.handle}
+
+
+class AuditQuerySerializer(serializers.Serializer):
+    quick_filter = serializers.ChoiceField(
+        choices=AUDIT_QUICK_FILTER_CHOICES,
+        required=False,
+        default="all",
+        help_text="all, agents (agent calls only), approvals (approved or pending), or blocked.",
+    )
+    actor_service_account_id = serializers.UUIDField(
+        required=False, help_text="Only calls made by this service account."
+    )
+
+
+class AuditCountsQuerySerializer(serializers.Serializer):
+    actor_service_account_id = serializers.UUIDField(
+        required=False, help_text="Only count calls made by this service account."
+    )
+
+
+class AuditCountsSerializer(serializers.Serializer):
+    all = serializers.IntegerField(help_text="Every audited tool call visible to the requesting user.")
+    agents = serializers.IntegerField(help_text="Visible calls made by service accounts.")
+    approvals = serializers.IntegerField(help_text="Visible calls that were approved or are awaiting approval.")
+    blocked = serializers.IntegerField(help_text="Visible calls the gateway blocked.")
+
+
+class GatewayMemberSummarySerializer(serializers.Serializer):
+    """One team member's gateway posture (admin overview)."""
+
+    user = UserBasicSerializer(help_text="The member.")
+    is_org_admin = serializers.BooleanField(help_text="Whether the member is an organization admin or owner.")
+    connected_server_ids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="Gateway servers the member has a personal connection to."
+    )
+    revoked_server_ids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="Gateway servers an admin turned off for this member."
+    )
+
+
+class MemberAccessUpdateSerializer(serializers.Serializer):
+    gateway_server_id = serializers.UUIDField(help_text="Gateway server to toggle for the member.")
+    enabled = serializers.BooleanField(help_text="False turns the server off for the member; true restores it.")
+
+
+# ---------------------------------------------------------------------------
+# Viewsets
+# ---------------------------------------------------------------------------
+
+
+class MCPGatewayServerViewSet(
+    GatewayAdminMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """The team's gateway server registry. The registry is sparse: rows appear
+    through the install/share/OAuth-start flows in views.py, or when an admin
+    toggles an untouched catalog template here (`set_template_enabled`).
+    Servers with no row follow the team config's `default_servers_enabled`."""
+
+    scope_object = "project"
+    scope_object_read_actions = ["list", "retrieve", "tools"]
+    scope_object_write_actions = ["update", "partial_update", "destroy", "policies", "set_template_enabled"]
+    serializer_class = MCPGatewayServerSerializer
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    # Fail-closed manager raises if `.all()` runs at import; the real per-request
+    # scoping happens in safely_get_queryset.
+    queryset = MCPGatewayServer.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPGatewayServer]) -> QuerySet[MCPGatewayServer]:
+        servers = MCPGatewayServer.objects.for_team(self.team_id)
+        if not self._is_project_admin():
+            user_id = cast(int, self.request.user.id)
+            servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=user_id)
+        return (
+            servers.select_related("template", "created_by")
+            .prefetch_related(
+                Prefetch(
+                    "installations",
+                    queryset=MCPServerInstallation.objects.select_related("user").order_by("created_at"),
+                ),
+                Prefetch(
+                    "agent_access",
+                    # A grant written by a pod on the previous release can still
+                    # be missing its user while the deploy rolls. Such a row
+                    # resolves for nobody, and GatewayAgentAccessSerializer.user
+                    # is not nullable, so it must not reach the serializer.
+                    queryset=MCPServiceAccountServerAccess.objects.unscoped()
+                    .exclude(user__isnull=True)
+                    .select_related("service_account", "granted_by", "user"),
+                ),
+                "member_revocations",
+            )
+            .annotate(
+                tool_count_annotated=Count(
+                    "installations__tools__tool_name",
+                    filter=Q(installations__tools__removed_at__isnull=True),
+                    distinct=True,
+                )
+            )
+            .order_by("name")
+        )
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if self.action == "policies" and isinstance(request.successful_authenticator, SessionAuthentication):
+            return ["project:read"]
+        return None
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action in ("update", "partial_update"):
+            return MCPGatewayServerUpdateSerializer
+        return MCPGatewayServerSerializer
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        if not getattr(self, "swagger_fake_view", False):
+            context["is_admin"] = self._is_project_admin()
+        return context
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_project_admin()
+        server = cast(MCPGatewayServer, serializer.save())
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway server updated",
+            properties={
+                "server_name": server.name,
+                "is_team_enabled": server.is_team_enabled,
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance: MCPGatewayServer) -> None:
+        """Disconnect every member (their credentials are disabled) and drop the
+        registration. Nothing recreates rows, so the server durably returns to
+        the catalog default posture (`default_servers_enabled`)."""
+        self._require_project_admin()
+        properties = {"server_name": instance.name, "server_url": instance.url}
+        with transaction.atomic():
+            locked_instance = MCPGatewayServer.objects.for_team(self.team_id).select_for_update().get(pk=instance.pk)
+            MCPServerInstallation.objects.filter(team_id=self.team_id, gateway_server=locked_instance).update(
+                is_enabled=False, updated_at=timezone.now()
+            )
+            locked_instance.delete()
+
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway server removed",
+            properties=properties,
+            team=self.team,
+            request=self.request,
+        )
+
+    def _resolve_scope(self, data: dict) -> tuple[str, User | None, MCPServiceAccount | None]:
+        scope_type = data.get("scope_type", "team")
+        if scope_type == "member":
+            raw_user_id = data.get("scope_user_id")
+            user_id = int(raw_user_id) if raw_user_id is not None else cast(User, self.request.user).id
+            membership_exists = OrganizationMembership.objects.filter(
+                organization_id=self.team.organization_id, user_id=user_id
+            ).exists()
+            if not membership_exists:
+                raise NotFound("User is not a member of this organization.")
+            return "member", User.objects.get(id=user_id), None
+        if scope_type == "agent":
+            account_id = data.get("scope_service_account_id")
+            if not account_id:
+                raise serializers.ValidationError("scope_service_account_id is required for agent scope.")
+            try:
+                account = MCPServiceAccount.objects.for_team(self.team_id).get(id=account_id)
+            except MCPServiceAccount.DoesNotExist:
+                raise NotFound("Service account not found.")
+            return "agent", None, account
+        return "team", None, None
+
+    def _require_scope_permission(self, scope_type: str, scope_user: User | None, write: bool = False) -> None:
+        """Members may view team defaults and manage their own member scope;
+        agent scopes follow the team's agent-access setting."""
+        if self._is_project_admin():
+            return
+        if scope_type == "member" and scope_user is not None and scope_user.id == self.request.user.id:
+            return
+        if scope_type == "agent" and self._can_manage_agent_access():
+            return
+        if scope_type == "team" and not write:
+            return
+        raise PermissionDenied("Only project admins can manage this scope.")
+
+    def _member_installation(self, server: MCPGatewayServer, scope_user: User) -> MCPServerInstallation | None:
+        """The credential this member calls the server through.
+
+        Mirrors ``get_your_connection``: a personal row wins over a legacy
+        team-shared row the same user happens to own.
+        """
+        own = [installation for installation in server.installations.all() if installation.user_id == scope_user.id]
+        own.sort(key=lambda installation: installation.scope != "personal")
+        return own[0] if own else None
+
+    def _resolve_policies_for_scope(
+        self,
+        server: MCPGatewayServer,
+        scope_type: str,
+        scope_user: User | None,
+        scope_account: MCPServiceAccount | None,
+    ) -> list[dict[str, Any]]:
+        if scope_type == "agent" and scope_account is not None:
+            caller = GatewayCaller(kind="agent", service_account_id=str(scope_account.id))
+        else:
+            # Team scope resolves as a member with no scope rows of their own.
+            caller = GatewayCaller(kind="member", user_id=scope_user.id if scope_user else None)
+        # The member's own preference lives in the legacy per-installation
+        # column, which PolicyContext only loads when given the installation.
+        # The proxy and the installation tools endpoint both pass it, so
+        # without it this view would show a laxer state than gets enforced.
+        # Team scope resolves the ceiling itself and agent scope has no legacy
+        # rows, so neither needs one.
+        installation = self._member_installation(server, scope_user) if scope_type == "member" and scope_user else None
+        context = PolicyContext(
+            team_id=self.team_id,
+            caller=caller,
+            gateway_server=server,
+            installation=installation,
+        )
+
+        tools: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
+        seen: set[str] = set()
+        tool_rows = _ordered_gateway_tool_rows(server).values_list(
+            "tool_name", "description", "input_schema", "annotations"
+        )
+        for tool_name, description, input_schema, annotations in tool_rows:
+            if tool_name in seen:
+                continue
+            seen.add(tool_name)
+            tools.append((tool_name, description or "", input_schema or {}, annotations or {}))
+
+        rows: list[dict[str, Any]] = []
+        for tool_name, description, input_schema, annotations in tools:
+            resolved = (
+                context.resolve_team(tool_name, annotations)
+                if scope_type == "team"
+                else context.resolve(tool_name, annotations)
+            )
+            rows.append(
+                {
+                    "tool_name": tool_name,
+                    "description": description,
+                    "input_schema": input_schema,
+                    "is_destructive": is_destructive_tool(tool_name, annotations),
+                    "policy_state": resolved.state,
+                    "team_state": resolved.team_state,
+                    "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),
+                    "decided_by": resolved.decided_by,
+                    "rule_name": resolved.rule_name,
+                    "rule_description": resolved.rule_description,
+                }
+            )
+        return rows
+
+    @validated_request(
+        request_serializer=SetTemplateEnabledSerializer,
+        responses={200: OpenApiResponse(response=MCPGatewayServerSerializer)},
+    )
+    @action(detail=False, methods=["post"], url_path="set_template_enabled")
+    def set_template_enabled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Enable or disable a catalog template for the team (admin-only),
+        materializing its gateway registration on the first toggle."""
+        self._require_project_admin()
+        data = request.validated_data
+        try:
+            template = MCPServerTemplate.objects.get(id=data["template_id"], is_active=True)
+        except MCPServerTemplate.DoesNotExist:
+            raise NotFound("Template not found.")
+
+        enabled = data["enabled"]
+        server, created = MCPGatewayServer.objects.for_team(self.team_id).get_or_create(
+            url=template.url,
+            defaults={
+                "team_id": self.team_id,
+                "name": template.name,
+                "description": template.description,
+                "category": template.category,
+                "template": template,
+                "created_by": cast(User, request.user),
+                "is_team_enabled": enabled,
+            },
+        )
+        if not created:
+            update_fields: list[str] = []
+            if server.is_team_enabled != enabled:
+                server.is_team_enabled = enabled
+                update_fields.append("is_team_enabled")
+            if server.template_id is None:
+                server.template = template
+                update_fields.append("template")
+            if update_fields:
+                server.save(update_fields=[*update_fields, "updated_at"])
+
+        report_user_action(
+            cast(User, request.user),
+            "mcp_gateway server toggled",
+            properties={"server_url": server.url, "enabled": enabled},
+            team=self.team,
+            request=request,
+        )
+        return Response(MCPGatewayServerSerializer(server, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        query_serializer=GatewayPoliciesQuerySerializer,
+        responses={200: OpenApiResponse(response=ResolvedToolPolicySerializer(many=True))},
+    )
+    @action(detail=True, methods=["get"], url_path="tools")
+    def tools(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Tool catalog with the resolved policy for a scope."""
+        server = self.get_object()
+        scope_type, scope_user, scope_account = self._resolve_scope(request.validated_query_data)
+        self._require_scope_permission(scope_type, scope_user)
+        rows = self._resolve_policies_for_scope(server, scope_type, scope_user, scope_account)
+        return Response({"count": len(rows), "next": None, "previous": None, "results": rows})
+
+    @validated_request(
+        request_serializer=GatewayPoliciesUpsertSerializer,
+        responses={200: OpenApiResponse(response=ResolvedToolPolicySerializer(many=True))},
+    )
+    @action(detail=True, methods=["post"], url_path="policies")
+    def policies(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Upsert per-tool states for a scope, returning the re-resolved catalog."""
+        server = self.get_object()
+        data = request.validated_data
+        scope_type, scope_user, scope_account = self._resolve_scope(data)
+        self._require_scope_permission(scope_type, scope_user, write=True)
+
+        if scope_type != "team":
+            if scope_type == "agent" and scope_account is not None:
+                caller = GatewayCaller(kind="agent", service_account_id=str(scope_account.id))
+            else:
+                caller = GatewayCaller(kind="member", user_id=scope_user.id if scope_user else None)
+            raise_for_policies_above_team_ceiling(
+                policy_entries_above_team_ceiling(
+                    team_id=self.team_id,
+                    server=server,
+                    caller=caller,
+                    entries=data["policies"],
+                )
+            )
+
+        with transaction.atomic():
+            for entry in data["policies"]:
+                MCPToolPolicy.objects.update_or_create(
+                    team_id=self.team_id,
+                    gateway_server=server,
+                    tool_name=entry["tool_name"],
+                    scope_type=scope_type,
+                    scope_user=scope_user,
+                    scope_service_account=scope_account,
+                    defaults={"state": entry["policy_state"]},
+                )
+
+        report_user_action(
+            cast(User, request.user),
+            "mcp_gateway tool policies updated",
+            properties={
+                "server_name": server.name,
+                "scope_type": scope_type,
+                "tool_count": len(data["policies"]),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        rows = self._resolve_policies_for_scope(server, scope_type, scope_user, scope_account)
+        return Response({"count": len(rows), "next": None, "previous": None, "results": rows})
+
+
+class MCPServiceAccountViewSet(
+    GatewayAdminMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """PostHog's built-in agents and their MCP access grants.
+
+    The catalog is fixed. Projects can pause an agent's MCP access and grant or
+    revoke servers, but cannot create, rename, rotate, or delete agents.
+    """
+
+    scope_object = "project"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["update", "partial_update", "access"]
+    serializer_class = MCPServiceAccountSerializer
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    queryset = MCPServiceAccount.objects.unscoped()
+
+    @cached_property
+    def _synced_built_in_accounts(self) -> list[MCPServiceAccount]:
+        return sync_built_in_agents(self.team)
+
+    def _server_access_prefetch(self) -> Prefetch:
+        return Prefetch(
+            "server_access",
+            # See MCPGatewayServerViewSet.safely_get_queryset: a user-less grant
+            # from a previous-release pod resolves for nobody, and
+            # MCPServiceAccountServerSerializer.shared_by is not nullable.
+            queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
+            .exclude(user__isnull=True)
+            .select_related("gateway_server__template", "installation", "user")
+            .order_by("gateway_server__name"),
+        )
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPServiceAccount]) -> QuerySet[MCPServiceAccount]:
+        catalog_order = Case(
+            *(When(id=account.id, then=position) for position, account in enumerate(self._synced_built_in_accounts)),
+            output_field=IntegerField(),
+        )
+        accounts_queryset = MCPServiceAccount.objects.for_team(self.team_id).filter(handle__in=built_in_agent_handles())
+        if self.action in ("list", "retrieve"):
+            accounts_queryset = accounts_queryset.prefetch_related(self._server_access_prefetch())
+        return accounts_queryset.order_by(catalog_order)
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if self.action == "access" and isinstance(request.successful_authenticator, SessionAuthentication):
+            return ["project:read"]
+        return None
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action in ("update", "partial_update"):
+            return MCPServiceAccountUpdateSerializer
+        return MCPServiceAccountSerializer
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_project_admin()
+        account = cast(MCPServiceAccount, serializer.save())
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway agent updated",
+            properties={"handle": account.handle, "status": account.status},
+            team=self.team,
+            request=self.request,
+        )
+
+    @validated_request(
+        request_serializer=ServiceAccountAccessUpdateSerializer,
+        responses={200: OpenApiResponse(response=MCPServiceAccountSerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path="access")
+    def access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Share, or stop sharing, one gateway server with this agent.
+
+        Sharing is personal. `enabled=true` delegates the caller's own
+        connection, and the agent may use it only when acting for the caller,
+        unless the caller sends `scope=team` to lend it to the project's agent
+        runs generally. Scope only ever applies to the caller's own share: it is
+        their credential to lend, so no admin permission is involved and no
+        member can change someone else's share.
+        `enabled=false` removes the caller's own share and leaves other members'
+        shares, and the agent's tool policies, in place.
+
+        Project admins can send `all=true` alongside `enabled=false` to remove
+        every member's share of this server with this agent, along with the
+        agent's tool policies for it.
+        """
+        self._require_agent_access_manager()
+        account = self.get_object()
+        data = request.validated_data
+        try:
+            server = MCPGatewayServer.objects.for_team(self.team_id).get(id=data["gateway_server_id"])
+        except MCPGatewayServer.DoesNotExist:
+            raise NotFound("Gateway server not found.")
+
+        if data["enabled"]:
+            user = cast(User, request.user)
+            if (
+                MCPMemberServerRevocation.objects.for_team(self.team_id)
+                .filter(gateway_server=server, user_id=user.id)
+                .exists()
+            ):
+                raise PermissionDenied(
+                    "Your access to this server is turned off. Ask a project admin to restore it before sharing it with an agent."
+                )
+
+            installation = installation_for_agent_grant(self.team_id, server, user.id)
+            if installation is None:
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Connect this server before sharing access with an agent."}
+                )
+            if not installation.is_enabled:
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Turn on your connection before sharing access with an agent."}
+                )
+            if _installation_needs_reauth(installation):
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Reconnect this server before sharing access with an agent."}
+                )
+            if _installation_pending_oauth(installation):
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Finish connecting this server before sharing access with an agent."}
+                )
+
+            policies = data.get("policies") or []
+            raise_for_policies_above_team_ceiling(
+                policy_entries_above_team_ceiling(
+                    team_id=self.team_id,
+                    server=server,
+                    caller=GatewayCaller(kind="agent", service_account_id=str(account.id)),
+                    entries=policies,
+                )
+            )
+            with transaction.atomic():
+                MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
+                    service_account=account,
+                    gateway_server=server,
+                    user=user,
+                    defaults={
+                        "team_id": self.team_id,
+                        "installation": installation,
+                        "granted_by": user,
+                        "scope": data.get("scope", "personal"),
+                    },
+                )
+                for entry in policies:
+                    MCPToolPolicy.objects.update_or_create(
+                        team_id=self.team_id,
+                        gateway_server=server,
+                        tool_name=entry["tool_name"],
+                        scope_type="agent",
+                        scope_user=None,
+                        scope_service_account=account,
+                        defaults={"state": entry["policy_state"]},
+                    )
+        elif data.get("all"):
+            self._require_project_admin()
+            with transaction.atomic():
+                MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
+                    service_account=account,
+                    gateway_server=server,
+                ).delete()
+                MCPToolPolicy.objects.for_team(self.team_id).filter(
+                    gateway_server=server, scope_type="agent", scope_service_account=account
+                ).delete()
+        else:
+            # Agent-scope tool policies describe what the agent may call for
+            # every member sharing this server, so one member withdrawing their
+            # own connection must leave them alone.
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
+                service_account=account,
+                gateway_server=server,
+                user=cast(User, request.user),
+            ).delete()
+
+        report_user_action(
+            cast(User, request.user),
+            "mcp_gateway agent access changed",
+            properties={
+                "handle": account.handle,
+                "server_name": server.name,
+                "enabled": data["enabled"],
+                "scope": data.get("scope", "personal"),
+                "all_members": bool(data.get("all")),
+            },
+            team=self.team,
+            request=request,
+        )
+        prefetch_related_objects([account], self._server_access_prefetch())
+        return Response(MCPServiceAccountSerializer(account, context=self.get_serializer_context()).data)
+
+
+class MCPOrgRuleViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Team guardrails evaluated before any scope policy."""
+
+    scope_object = "project"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
+    serializer_class = MCPOrgRuleSerializer
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    queryset = MCPOrgRule.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPOrgRule]) -> QuerySet[MCPOrgRule]:
+        return MCPOrgRule.objects.for_team(self.team_id).order_by("name")
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_project_admin()
+        rule = cast(MCPOrgRule, serializer.save(team_id=self.team_id, created_by=cast(User, self.request.user)))
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway rule created",
+            properties={"rule_name": rule.name, "effect": rule.effect},
+            team=self.team,
+            request=self.request,
+        )
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_project_admin()
+        rule = cast(MCPOrgRule, serializer.save())
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway rule updated",
+            properties={"rule_name": rule.name, "enabled": rule.enabled},
+            team=self.team,
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance: MCPOrgRule) -> None:
+        self._require_project_admin()
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway rule deleted",
+            properties={"rule_name": instance.name},
+            team=self.team,
+            request=self.request,
+        )
+        instance.delete()
+
+
+class MCPAuditEventViewSet(
+    GatewayAdminMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Read-only trail of proxied tool calls. Project admins see all calls.
+    Members see calls made through their connections, including calls made by
+    agents using connections they shared."""
+
+    scope_object = "project"
+    scope_object_read_actions = ["list", "retrieve", "counts"]
+    serializer_class = MCPAuditEventSerializer
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    queryset = MCPAuditEvent.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPAuditEvent]) -> QuerySet[MCPAuditEvent]:
+        events = MCPAuditEvent.objects.for_team(self.team_id)
+        if not self._is_project_admin():
+            events = events.filter(installation__user_id=cast(User, self.request.user).id)
+        return events.select_related("actor_user", "actor_service_account", "credential_owner").order_by("-created_at")
+
+    @validated_request(
+        query_serializer=AuditQuerySerializer,
+        responses={200: OpenApiResponse(response=MCPAuditEventSerializer(many=True))},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = request.validated_query_data
+        queryset = self.filter_queryset(self.get_queryset())
+
+        quick_filter = query.get("quick_filter", "all")
+        if quick_filter == "agents":
+            queryset = queryset.filter(actor_service_account__isnull=False)
+        elif quick_filter == "approvals":
+            queryset = queryset.filter(decision__in=["approved", "pending"])
+        elif quick_filter == "blocked":
+            queryset = queryset.filter(decision="blocked")
+
+        if account_id := query.get("actor_service_account_id"):
+            queryset = queryset.filter(actor_service_account_id=account_id)
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+    @validated_request(
+        query_serializer=AuditCountsQuerySerializer,
+        responses={200: OpenApiResponse(response=AuditCountsSerializer)},
+    )
+    @action(detail=False, methods=["get"], url_path="counts")
+    def counts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Totals backing the quick-filter chips."""
+        queryset = self.get_queryset()
+        if account_id := request.validated_query_data.get("actor_service_account_id"):
+            queryset = queryset.filter(actor_service_account_id=account_id)
+        return Response(
+            queryset.aggregate(
+                all=Count("id"),
+                agents=Count("id", filter=Q(actor_service_account__isnull=False)),
+                approvals=Count("id", filter=Q(decision__in=["approved", "pending"])),
+                blocked=Count("id", filter=Q(decision="blocked")),
+            )
+        )
+
+
+class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Team-wide gateway settings. `list` returns the single config object."""
+
+    scope_object = "project"
+    scope_object_read_actions = ["list"]
+    scope_object_write_actions = ["update_settings", "apply_preset", "set_all_servers_enabled"]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    pagination_class = None
+    # Plain ViewSet: spectacular needs a fallback serializer for schema generation.
+    serializer_class = TeamMCPGatewayConfigSerializer
+
+    def _get_or_create_config(self) -> TeamMCPGatewayConfig:
+        config, _ = TeamMCPGatewayConfig.objects.get_or_create(team_id=self.team_id)
+        return config
+
+    def _serialize_config(self, config: TeamMCPGatewayConfig) -> dict[str, Any]:
+        return TeamMCPGatewayConfigSerializer(config, context={"is_admin": self._is_project_admin()}).data
+
+    @extend_schema(responses={200: OpenApiResponse(response=TeamMCPGatewayConfigSerializer)})
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The team's gateway settings, plus whether the caller can administer them."""
+        return Response(self._serialize_config(self._get_or_create_config()))
+
+    @validated_request(
+        request_serializer=GatewayConfigUpdateSerializer,
+        responses={200: OpenApiResponse(response=TeamMCPGatewayConfigSerializer)},
+    )
+    @action(detail=False, methods=["post"], url_path="update_settings")
+    def update_settings(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update team gateway settings (admin-only)."""
+        self._require_project_admin()
+        config = self._get_or_create_config()
+        data = request.validated_data
+        for field, value in data.items():
+            setattr(config, field, value)
+        config.save()
+        if "allow_custom_servers" in data:
+            report_user_action(
+                request.user,
+                "mcp_gateway custom servers toggled",
+                properties={"allow_custom_servers": data["allow_custom_servers"]},
+                team=self.team,
+                request=request,
+            )
+        if "allow_member_agent_access" in data:
+            report_user_action(
+                request.user,
+                "mcp_gateway member agent access toggled",
+                properties={"allow_member_agent_access": data["allow_member_agent_access"]},
+                team=self.team,
+                request=request,
+            )
+        return Response(self._serialize_config(config))
+
+    @validated_request(
+        request_serializer=SetAllServersEnabledSerializer,
+        responses={200: OpenApiResponse(response=TeamMCPGatewayConfigSerializer)},
+    )
+    @action(detail=False, methods=["post"], url_path="set_all_servers_enabled")
+    def set_all_servers_enabled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Enable or disable every MCP server for the team (admin-only): flips
+        each registered server and the default for untouched catalog servers,
+        so newly published templates follow the same posture."""
+        self._require_project_admin()
+        enabled = request.validated_data["enabled"]
+        with transaction.atomic():
+            config = self._get_or_create_config()
+            config.default_servers_enabled = enabled
+            config.save(update_fields=["default_servers_enabled", "updated_at"])
+            MCPGatewayServer.objects.for_team(self.team_id).update(is_team_enabled=enabled, updated_at=timezone.now())
+        report_user_action(
+            request.user,
+            "mcp_gateway all servers toggled",
+            properties={"enabled": enabled},
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_config(config))
+
+    @validated_request(
+        request_serializer=ApplyPresetSerializer,
+        responses={200: OpenApiResponse(response=TeamMCPGatewayConfigSerializer)},
+    )
+    @action(detail=False, methods=["post"], url_path="apply_preset")
+    def apply_preset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Set the policy baseline for members or agents (admin-only)."""
+        self._require_project_admin()
+        data = request.validated_data
+        audience = data["audience"]
+        preset = data["preset"]
+        config = self._get_or_create_config()
+        if audience == "members":
+            config.member_default_preset = preset
+        else:
+            config.agent_default_preset = preset
+        config.save(update_fields=["member_default_preset", "agent_default_preset", "updated_at"])
+        report_user_action(
+            request.user,
+            "mcp_gateway preset applied",
+            properties={"audience": audience, "preset": preset},
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_config(config))
+
+
+class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Admin overview of each member's gateway posture, plus the per-member
+    server kill switch."""
+
+    scope_object = "project"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["set_access"]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    serializer_class = GatewayMemberSummarySerializer
+
+    def _memberships(self) -> QuerySet[OrganizationMembership]:
+        return (
+            OrganizationMembership.objects.filter(organization_id=self.team.organization_id)
+            .select_related("user")
+            .order_by("user__first_name", "user__email")
+        )
+
+    def _member_rows(self, memberships: Sequence[OrganizationMembership]) -> list[dict[str, Any]]:
+        user_ids = [membership.user_id for membership in memberships]
+        connected: dict[int, list[str]] = {}
+        for user_id, server_id in MCPServerInstallation.objects.filter(
+            team_id=self.team_id,
+            user_id__in=user_ids,
+            scope="personal",
+            gateway_server__isnull=False,
+        ).values_list("user_id", "gateway_server_id"):
+            connected.setdefault(user_id, []).append(str(server_id))
+
+        revoked: dict[int, list[str]] = {}
+        for user_id, server_id in (
+            MCPMemberServerRevocation.objects.for_team(self.team_id)
+            .filter(user_id__in=user_ids)
+            .values_list("user_id", "gateway_server_id")
+        ):
+            revoked.setdefault(user_id, []).append(str(server_id))
+
+        rows: list[dict[str, Any]] = []
+        for membership in memberships:
+            rows.append(
+                {
+                    "user": UserBasicSerializer(membership.user).data,
+                    "is_org_admin": membership.level >= OrganizationMembership.Level.ADMIN,
+                    "connected_server_ids": connected.get(membership.user_id, []),
+                    "revoked_server_ids": revoked.get(membership.user_id, []),
+                }
+            )
+        return rows
+
+    @extend_schema(responses={200: GatewayMemberSummarySerializer(many=True)})
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_project_admin()
+        memberships = self.paginate_queryset(self._memberships())
+        if memberships is None:
+            return Response(self._member_rows(list(self._memberships())))
+        return self.get_paginated_response(self._member_rows(memberships))
+
+    @extend_schema(responses={200: GatewayMemberSummarySerializer})
+    def retrieve(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        self._require_project_admin()
+        try:
+            user_id = int(pk or "")
+            membership = self._memberships().get(user_id=user_id)
+        except (OrganizationMembership.DoesNotExist, ValueError):
+            raise NotFound("Member not found.")
+        return Response(self._member_rows([membership])[0])
+
+    @validated_request(
+        request_serializer=MemberAccessUpdateSerializer,
+        responses={204: None},
+    )
+    @action(detail=True, methods=["post"], url_path="set_access")
+    def set_access(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """Turn one gateway server off (or back on) for one member."""
+        self._require_project_admin()
+        try:
+            user_id = int(pk or "")
+        except ValueError:
+            raise NotFound("Member not found.")
+        if not OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user_id=user_id
+        ).exists():
+            raise NotFound("Member not found.")
+
+        data = request.validated_data
+        try:
+            server = MCPGatewayServer.objects.for_team(self.team_id).get(id=data["gateway_server_id"])
+        except MCPGatewayServer.DoesNotExist:
+            raise NotFound("Gateway server not found.")
+
+        if data["enabled"]:
+            MCPMemberServerRevocation.objects.filter(gateway_server=server, user_id=user_id).delete()
+        else:
+            MCPMemberServerRevocation.objects.for_team(self.team_id).get_or_create(
+                gateway_server=server,
+                user_id=user_id,
+                defaults={"team_id": self.team_id, "revoked_by": cast(User, request.user)},
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "mcp_gateway member access changed",
+            properties={"server_name": server.name, "enabled": data["enabled"]},
+            team=self.team,
+            request=request,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)

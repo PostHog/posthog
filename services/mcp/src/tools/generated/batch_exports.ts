@@ -195,6 +195,9 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
         if (params.exclude !== undefined) {
             body['exclude'] = params.exclude
         }
+        if (params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
+        }
         if (params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
         }
@@ -230,11 +233,14 @@ const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExpo
         if ('exclude' in params && params.exclude !== undefined) {
             body['exclude'] = params.exclude
         }
-        if (params.data_interval_start !== undefined) {
+        if ('data_interval_start' in params && params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
         }
-        if (params.data_interval_end !== undefined) {
+        if ('data_interval_end' in params && params.data_interval_end !== undefined) {
             body['data_interval_end'] = params.data_interval_end
+        }
+        if ('hogql_query' in params && params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

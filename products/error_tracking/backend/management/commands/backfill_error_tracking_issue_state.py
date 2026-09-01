@@ -200,6 +200,7 @@ class Command(BaseCommand):
             "issue_name": issue.name,
             "issue_description": issue.description,
             "issue_status": issue.status,
+            "issue_severity": issue.severity,
             "assigned_user_id": assigned_user_id,
             "assigned_role_id": assigned_role_id,
             "first_seen": first_seen,

@@ -64,17 +64,9 @@
         "bin/**"
     ],
     "smoke_subset": ["playwright/e2e/auth.spec.ts"],
-    "scenes_smoke_only": [
-        "billing",
-        "groups",
-        "heatmaps",
-        "hog-functions",
-        "inbox",
-        "integrations",
-        "max",
-        "web-analytics"
-    ],
+    "scenes_smoke_only": ["billing", "groups", "hog-functions", "integrations", "max", "web-analytics"],
     "products": {
+        "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
         "replay": ["products/replay/frontend/e2e/"],
         "surveys": ["products/surveys/frontend/e2e/"]
@@ -86,7 +78,7 @@
         "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
         "trends": ["playwright/e2e/product-analytics/"],
-        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts"],
+        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts", "playwright/e2e/data-quality-overview.spec.ts"],
         "dashboard": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
             "playwright/e2e/shared-dashboard-styling.spec.ts",
@@ -108,15 +100,29 @@
         "retention": ["playwright/e2e/product-analytics/retention.spec.ts"],
         "persons": ["playwright/e2e/persons/persons.spec.ts"],
         "persons-management": ["playwright/e2e/persons/persons.spec.ts"],
-        "authentication": ["playwright/e2e/auth.spec.ts", "playwright/e2e/auth-password-reset.spec.ts"],
+        "authentication": [
+            "playwright/e2e/auth.spec.ts",
+            "playwright/e2e/auth-password-reset.spec.ts",
+            "playwright/e2e/two-factor.spec.ts",
+            "playwright/e2e/invite-signup.spec.ts"
+        ],
         "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
         "data-management": ["playwright/e2e/event-definitions.spec.ts", "playwright/e2e/annotations.spec.ts"],
         "annotations": ["playwright/e2e/annotations.spec.ts"],
         "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"],
-        "settings": ["playwright/e2e/before-onboarding.spec.ts"],
-        "feature-flags": ["products/surveys/frontend/e2e/quickcreate.spec.ts"]
+        "settings": [
+            "playwright/e2e/before-onboarding.spec.ts",
+            "playwright/e2e/api-keys.spec.ts",
+            "playwright/e2e/two-factor.spec.ts",
+            "playwright/e2e/invite-signup.spec.ts",
+            "playwright/e2e/settings-danger-zone.spec.ts"
+        ],
+        "feature-flags": ["playwright/e2e/feature-flags.spec.ts", "products/surveys/frontend/e2e/quickcreate.spec.ts"]
     },
     "explicit": {
+        "products/web_analytics/frontend/heatmaps/**": ["playwright/e2e/auth.spec.ts"],
+        "products/signals/frontend/inbox/**": ["playwright/e2e/auth.spec.ts"],
+        "products/feature_flags/frontend/**": ["playwright/e2e/feature-flags.spec.ts"],
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
         "products/dashboards/frontend/**": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
@@ -134,7 +140,11 @@
         "products/early_access_features/frontend/**": ["playwright/e2e/early-access-management.spec.ts"],
         "products/event_definitions/frontend/**": ["playwright/e2e/event-definitions.spec.ts"],
         "products/annotations/frontend/**": ["playwright/e2e/annotations.spec.ts"],
-        "products/data_warehouse/frontend/**": ["playwright/e2e/sql-editor*.spec.ts"],
+        "products/data_warehouse/frontend/**": [
+            "playwright/e2e/sql-editor*.spec.ts",
+            "playwright/e2e/data-quality-overview.spec.ts"
+        ],
+        "products/data_quality/frontend/**": ["playwright/e2e/data-quality-overview.spec.ts"],
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"
@@ -143,7 +153,7 @@
     },
     "full_suite_only": [
         "playwright/e2e/oauth-mcp-consent.spec.ts",
-        "playwright/e2e/preflight.spec.ts",
-        "playwright/e2e/system-status.spec.ts"
+        "playwright/e2e/system-status.spec.ts",
+        "playwright/e2e/ingestion-capture.spec.ts"
     ]
 }

@@ -232,10 +232,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         all_goals = runner._get_team_conversion_goals()
         assert len(all_goals) == 3  # 1 valid + 2 invalid
 
-        valid_goals, warnings = runner._filter_invalid_conversion_goals(all_goals)
+        valid_goals, skipped = runner._filter_invalid_conversion_goals(all_goals)
         assert len(valid_goals) == 1  # Only the valid goal remains
         assert valid_goals[0].conversion_goal_name == "Valid Purchase Goal"
-        assert len(warnings) == 2
+        assert len(skipped) == 2
 
         with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
             mock_get_adapters.return_value = []
@@ -285,12 +285,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([dw_goal])
 
         assert len(valid_goals) == 0
-        assert len(warnings) == 1
-        assert "nonexistent_table" in warnings[0]
-        assert "not found" in warnings[0]
+        assert len(skipped) == 1
+        assert "nonexistent_table" in skipped[0].message
+        assert "not found" in skipped[0].message
 
     def test_dw_goal_with_missing_columns_filtered_out(self):
         """DataWarehouseNode goals referencing missing columns are filtered out with a warning"""
@@ -319,12 +319,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([dw_goal])
 
         assert len(valid_goals) == 0
-        assert len(warnings) == 1
-        assert "utm_campaign" in warnings[0]
-        assert "utm_source" in warnings[0]
+        assert len(skipped) == 1
+        assert "utm_campaign" in skipped[0].message
+        assert "utm_source" in skipped[0].message
 
     def test_dw_goal_with_valid_columns_passes(self):
         """DataWarehouseNode goals with valid column mappings pass validation"""
@@ -355,10 +355,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([dw_goal])
 
         assert len(valid_goals) == 1
-        assert len(warnings) == 0
+        assert len(skipped) == 0
         assert valid_goals[0].conversion_goal_name == "Valid DW Goal"
 
     def test_mixed_valid_and_invalid_goals(self):
@@ -386,12 +386,12 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([event_goal, dw_goal])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([event_goal, dw_goal])
 
         assert len(valid_goals) == 1
         assert valid_goals[0].conversion_goal_name == "Test Goal"
-        assert len(warnings) == 1
-        assert "Bad DW Goal" in warnings[0]
+        assert len(skipped) == 1
+        assert "Bad DW Goal" in skipped[0].message
 
     def test_duplicate_named_goals_deduped(self):
         """Goals sharing a name collapse to the first with a warning, to avoid alias collisions"""
@@ -413,13 +413,13 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         runner = self._create_query_runner()
-        valid_goals, warnings = runner._filter_invalid_conversion_goals([first, second])
+        valid_goals, skipped = runner._filter_invalid_conversion_goals([first, second])
 
         assert len(valid_goals) == 1
         assert valid_goals[0].conversion_goal_id == "goal_a"
-        assert len(warnings) == 1
-        assert "duplicate name" in warnings[0]
-        assert "Signups" in warnings[0]
+        assert len(skipped) == 1
+        assert "duplicate name" in skipped[0].message
+        assert "Signups" in skipped[0].message
 
     def test_get_filtered_select_columns_dedupes_repeated_request(self):
         """A column requested twice is emitted once, avoiding 'Cannot redefine an alias'"""

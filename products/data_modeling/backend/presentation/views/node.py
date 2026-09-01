@@ -16,17 +16,20 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
+from posthog.hogql.database.database import Database
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
-from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -321,6 +324,15 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         node_ids.add(str(node.id))
 
+        # A run materializes every node it touches (the workflow sets is_materialized), and the
+        # resulting rows then resolve under each view's own access rules. So this is the same
+        # declassification as enabling materialization directly, and needs the same check.
+        database = Database.create_for(team_id=self.team_id, user=cast(User, req.user))
+        for saved_query in DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id, node__id__in=node_ids
+        ).distinct():
+            assert_user_can_read_query(saved_query.query, self.team_id, cast(User, req.user), database=database)
+
         # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
         # for exactly the nodes that need it most.
         resume_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
@@ -451,6 +463,12 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": "Cannot materialize a table node"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Publishes the same rows as a DAG run of this node, so it needs the same check as `run`.
+        # A DB constraint guarantees non-table nodes have a saved query, so the None branch never
+        # skips the check for a real node; it exists because the FK is typed as nullable.
+        if node.saved_query is not None:
+            assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
 
         start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
 

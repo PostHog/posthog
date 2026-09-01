@@ -9,6 +9,8 @@ import abc
 import dataclasses
 from typing import Any, Optional
 
+from posthog.exceptions_capture import capture_exception
+
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.transform import transform_harmonic_company
 
@@ -41,10 +43,50 @@ class EnrichmentProvider(abc.ABC):
         """
 
 
+def _parent_company_urn(company: dict[str, Any]) -> Optional[str]:
+    """Pick the parent-company URN from `relatedCompanies`: subsidiaryOf wins over acquiredBy.
+
+    Both links are beta and sparse (often present with a null companyUrn even when
+    ownershipStatus says the company was acquired), so absence here is normal.
+    """
+    related = company.get("relatedCompanies")
+    if not isinstance(related, dict):
+        return None
+    for key in ("subsidiaryOf", "acquiredBy"):
+        link = related.get(key)
+        if isinstance(link, dict) and isinstance(urn := link.get("companyUrn"), str) and urn:
+            return urn
+    return None
+
+
 class HarmonicEnrichmentProvider(EnrichmentProvider):
     name = "harmonic"
 
     async def enrich_by_domain(self, domain: str) -> ProviderLookup:
         async with AsyncHarmonicClient() as client:
             company = await client.enrich_company_by_domain_strict(domain)
-        return ProviderLookup(fields=transform_harmonic_company(company), raw_payload=company)
+            fields = transform_harmonic_company(company)
+            if fields is not None and company is not None:
+                fields = await self._with_parent_company(client, company, fields)
+        return ProviderLookup(fields=fields, raw_payload=company)
+
+    async def _with_parent_company(
+        self, client: AsyncHarmonicClient, company: dict[str, Any], fields: EnrichmentFields
+    ) -> EnrichmentFields:
+        """Best-effort parent-company resolution: never fails the lookup, just leaves the fields unset."""
+        urn = _parent_company_urn(company)
+        if urn is None:
+            return fields
+
+        try:
+            parent = await client.get_company_by_urn(urn)
+        except Exception as e:
+            capture_exception(e)
+            return fields
+
+        if not isinstance(parent, dict):
+            return fields
+
+        website = parent.get("website")
+        domain = website.get("domain") if isinstance(website, dict) else None
+        return dataclasses.replace(fields, parent_company=parent.get("name"), parent_company_domain=domain)

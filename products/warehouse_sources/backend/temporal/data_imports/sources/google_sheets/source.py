@@ -51,7 +51,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
+            "the header row in the worksheet contains duplicates": "Import failed: two or more columns in the worksheet share the same header. Give each one a distinct name and resync.",
             # Raised by `_assert_unique_normalized_column_names`: two headers that look distinct
             # collapse to the same normalized column name. Deterministic — retrying can't recover, and
             # the message already names the offending headers, so keep it as-is.
@@ -80,11 +80,27 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         # reword. Temporal then retries the whole activity, so the failure is transient and
         # self-recovering.
         return {
+            "APIError: [409]",
             "APIError: [429]",
             "APIError: [500]",
             "APIError: [502]",
             "APIError: [503]",
             "APIError: [504]",
+            # `_retry_on_transient_api_error` also retries a dropped connection or read timeout
+            # (`requests.exceptions.ConnectionError`/`Timeout`/`ChunkedEncodingError`) before
+            # re-raising once that budget is exhausted. urllib3 wraps all of those as "... Max
+            # retries exceeded with url: ..." regardless of the underlying cause (refused
+            # connection, read timeout, dropped socket), so match that stable prefix rather than
+            # the per-request URL or nested error detail.
+            "Max retries exceeded with url",
+            # `_retry_on_transient_api_error` also retries a `RefreshError`/`TransportError` raised
+            # while refreshing our own service-account token, when its message carries Google's
+            # stable "Error 5xx (...)" frontend-outage page (see `_is_transient_refresh_error`),
+            # before re-raising once that budget is exhausted.
+            "Error 500 (",
+            "Error 502 (",
+            "Error 503 (",
+            "Error 504 (",
         }
 
     def get_schemas(
@@ -143,6 +159,15 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None
+        except gspread.exceptions.NoValidUrlKeyFound:
+            # gspread couldn't find a spreadsheet key in the value — it isn't a Sheets URL. Its
+            # str() is empty, so the generic fallback below would surface a bare "Invalid
+            # credentials" for what's really a URL-format problem. Guide the user instead.
+            return (
+                False,
+                "That doesn't look like a Google Sheets URL. Paste the full URL of your sheet, "
+                "for example https://docs.google.com/spreadsheets/d/<id>/edit.",
+            )
         except gspread.SpreadsheetNotFound:
             return False, "Spreadsheet not found at URL provided"
         except PermissionError:

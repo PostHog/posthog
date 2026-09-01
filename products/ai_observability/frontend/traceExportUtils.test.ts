@@ -1,7 +1,7 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './aiObservabilityTraceDataLogic'
-import { buildMinimalTraceJSON } from './traceExportUtils'
+import { buildMinimalTraceJSON, buildTraceJSONFragments } from './traceExportUtils'
 
 describe('traceExportUtils', () => {
     const mockTrace: LLMTrace = {
@@ -484,6 +484,49 @@ describe('traceExportUtils', () => {
                 { role: 'user', content: 'Hello' },
                 { role: 'assistant', content: 'Hi there!' },
             ])
+        })
+    })
+
+    describe('buildTraceJSONFragments', () => {
+        const leaf = (event: LLMTraceEvent, children?: EnrichedTraceTreeNode[]): EnrichedTraceTreeNode => ({
+            event,
+            children,
+            displayTotalCost: 0,
+            displayLatency: 0,
+            displayUsage: null,
+            attachedFeedback: [],
+        })
+
+        const trees: [string, EnrichedTraceTreeNode[]][] = [
+            ['no events', []],
+            ['a single event', [leaf(mockSpanEvent)]],
+            ['sibling events', [leaf(mockSpanEvent), leaf(mockGenerationEvent), leaf(mockErrorEvent)]],
+            ['nested children', [leaf(mockSpanEvent, [leaf(mockGenerationEvent), leaf(mockErrorEvent)])]],
+            ['several levels of nesting', [leaf(mockSpanEvent, [leaf(mockSpanEvent, [leaf(mockGenerationEvent)])])]],
+            [
+                'siblings and nesting combined',
+                [
+                    leaf(mockSpanEvent, [leaf(mockGenerationEvent), leaf(mockSpanEvent, [leaf(mockErrorEvent)])]),
+                    leaf(mockGenerationEvent),
+                ],
+            ],
+        ]
+
+        test.each(trees)('joined fragments parse back to the same trace for %s', (_name, tree) => {
+            const fragments = buildTraceJSONFragments(mockTrace, tree)
+
+            expect(JSON.parse(fragments.join(''))).toEqual(
+                JSON.parse(JSON.stringify(buildMinimalTraceJSON(mockTrace, tree)))
+            )
+        })
+
+        it('keeps every fragment smaller than the whole trace', () => {
+            const tree = [leaf(mockSpanEvent, [leaf(mockGenerationEvent), leaf(mockErrorEvent)])]
+
+            const fragments = buildTraceJSONFragments(mockTrace, tree)
+
+            const longestFragment = Math.max(...fragments.map((fragment) => fragment.length))
+            expect(longestFragment).toBeLessThan(JSON.stringify(buildMinimalTraceJSON(mockTrace, tree)).length)
         })
     })
 })

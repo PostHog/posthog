@@ -138,7 +138,7 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
             placeholders={
                 "breakdown_value": breakdown,
                 "event_where": self.runner.event_type_expr,
-                "all_properties": self.runner._all_properties(),
+                "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
             },
         )
@@ -174,7 +174,7 @@ class NoJoinSimpleBreakdownStrategy(SimpleBreakdownStrategy):
             placeholders={
                 "breakdown_value": breakdown,
                 "event_where": self.runner.event_type_expr,
-                "all_properties": self.runner._all_properties(),
+                "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
             },
         )
@@ -220,7 +220,7 @@ class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
                 "breakdown_value": breakdown,
                 "first_pageview_properties": self.runner._first_pageview_properties_expr(),
                 "event_where": self.runner.event_type_expr,
-                "all_properties": self.runner._all_properties(),
+                "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
                 "session_id_present": self.runner.events_session_id_present,
             },
@@ -252,7 +252,7 @@ class PathBounceStrategy(StatsTableQueryStrategy):
                 timings=self.runner.timings,
                 placeholders={
                     "breakdown_value": self.runner._counts_breakdown_value(),
-                    "session_properties": self.runner._session_properties(),
+                    "session_properties": self.runner.session_properties(),
                     "event_properties": self.runner._event_properties(),
                     "bounce_event_properties": self.runner._event_properties_for_bounce_rate(),
                     "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown(),
@@ -275,7 +275,7 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
                 timings=self.runner.timings,
                 placeholders={
                     "breakdown_value": self.runner._counts_breakdown_value(),
-                    "session_properties": self.runner._session_properties(),
+                    "session_properties": self.runner.session_properties(),
                     "event_properties": self.runner._event_properties(),
                     "time_on_page_event_properties": self.runner._event_properties_for_scroll(),
                     "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
@@ -429,7 +429,7 @@ class FrustrationMetricsStrategy(StatsTableQueryStrategy):
                 "event_where": parse_expr(
                     "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
                 ),
-                "all_properties": self.runner._all_properties(),
+                "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
             },
         )

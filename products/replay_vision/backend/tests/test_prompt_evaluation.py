@@ -14,7 +14,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -22,9 +22,11 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
-    EVALUATION_SESSION_DEFAULT,
+    build_running_evaluation,
     classify_outcome,
     evaluation_supported,
+    in_flight_evaluation_credits,
+    in_flight_evaluation_credits_by_scanner,
     is_preview_evaluation,
     primary_outcome,
     select_evaluation_observations,
@@ -42,6 +44,7 @@ from products.replay_vision.backend.temporal.evaluation_types import (
     RecordEvaluationResultInputs,
     SelectEvaluationSessionsInputs,
 )
+from products.replay_vision.backend.tests.helpers import seed_scanner_spend
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
@@ -88,7 +91,11 @@ class TestPromptEvaluation(_VisionAPITestCase):
         [
             ({"verdict": "Yes "}, "Verdict: yes"),
             ({"verdict": "no", "tags": ["a"]}, "Verdict: no"),
-            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn, churn"),
+            # Slug-normalized and deduped, so casing and spacing can't read as a changed outcome.
+            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn"),
+            # Freeform tags count too: a rewrite that only moves those must not evaluate as "no change".
+            ({"tags": ["bug"], "tags_freeform": ["Payment Issues"]}, "Tags: bug, payment_issues"),
+            ({"tags": [], "tags_freeform": ["checkout"]}, "Tags: checkout"),
             # Preview types: scorer shows the raw score, summarizer prefers the title then falls back to the summary.
             ({"score": 7}, "Score: 7"),
             ({"score": 3.5}, "Score: 3.5"),
@@ -257,6 +264,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
         # The retried run charged the org's quota exactly once, priced by the re-run's model.
         receipts = ReplayObservationUsage.objects.filter(organization_id=self.team.organization_id)
         self.assertEqual(receipts.count(), 1)
+        self.assertEqual(receipts.get().scanner_id, self.scanner.id)
         self.assertEqual(
             compute_quota_snapshot(self.team.organization_id).credits_used,
             observation_credits_for_model(self.scanner.model),
@@ -426,10 +434,29 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertEqual(resp.json()["evaluation"]["total"], 1)
         client.start_workflow.assert_awaited_once()
         self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
-        # Without an explicit session_limit the test runs the small default, not the full cap.
-        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_DEFAULT)
+        # The workflow gets the admitted count, not the raw default: ratings added after the
+        # budget check must not widen the run past what was charged for.
+        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, 1)
         # No edited config posted, so the run tests the stored suggestion.
         self.assertIsNone(client.start_workflow.await_args.args[1].config_override)
+        # Receipt ids are keyed on started_at, so the run must carry the stamp it was started with rather
+        # than re-reading a row a concurrent re-test can restamp underneath it.
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        self.assertEqual(client.start_workflow.await_args.args[1].started_at, suggestion.evaluation["started_at"])
+
+    def test_evaluate_bounds_the_run_to_the_admitted_session_count(self) -> None:
+        # An explicit limit above the rated count is admitted (and budget-checked) at the rated
+        # count; the workflow must not select more if extra ratings land before it runs.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id), {"session_limit": 5}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["evaluation"]["total"], 1)
+        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, 1)
 
     def test_evaluate_passes_edited_config_to_workflow(self) -> None:
         self._create_rated()
@@ -513,7 +540,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
-            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
         ):
             resp = self.client.post(self._url(suggestion.id))
 
@@ -538,7 +565,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
-            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
         ):
             # The default limit plans 3 re-runs but only 2 observations remain this month.
             resp = self.client.post(self._url(suggestion.id))
@@ -574,6 +601,45 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 402)
         client.start_workflow.assert_not_awaited()
+
+    def test_in_flight_reservation_prices_from_the_frozen_model(self) -> None:
+        # Receipts bill the model frozen at workflow start. Pricing the reservation from the scanner's
+        # current model instead lets an edit mid-run silently re-price committed spend.
+        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        scanner = self._create_scanner(name="frozen-model", model=expensive)
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="p",
+            status=SuggestionStatus.PENDING,
+            scanner_version=1,
+            evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
+        )
+        reserved = in_flight_evaluation_credits(self.team.organization_id)
+
+        scanner.model = cheap
+        scanner.save(update_fields=["model"])
+        self.assertEqual(in_flight_evaluation_credits(self.team.organization_id), reserved)
+        self.assertEqual(reserved, 3 * observation_credits_for_model(expensive))
+
+    def test_per_scanner_reservation_prices_from_the_frozen_model(self) -> None:
+        # The per-scanner split must price like the org total: from the model frozen at workflow start.
+        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        scanner = self._create_scanner(name="frozen-model-per-scanner", model=expensive)
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="p",
+            status=SuggestionStatus.PENDING,
+            scanner_version=1,
+            evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
+        )
+        scanner.model = cheap
+        scanner.save(update_fields=["model"])
+
+        reserved = in_flight_evaluation_credits_by_scanner(self.team.organization_id, [scanner.id])
+
+        self.assertEqual(reserved, {scanner.id: 3 * observation_credits_for_model(expensive)})
 
     @parameterized.expand([("zero", 0), ("above_cap", EVALUATION_SESSION_CAP + 1)])
     def test_evaluate_rejects_out_of_range_session_limit(self, _name: str, limit: int) -> None:
@@ -620,4 +686,49 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["evaluation"]["status"], "running")
+        client.start_workflow.assert_awaited_once()
+
+    def test_evaluate_is_refused_when_the_scanner_limit_cannot_cover_the_test(self) -> None:
+        for i in range(3):
+            self._create_rated(f"sess-{i}")
+        suggestion = self._create_pending_suggestion()
+        session_credits = observation_credits_for_model(self.scanner.model)
+        # Spend leaves exactly one re-run's worth of credits, but the default plans three.
+        seed_scanner_spend(self.scanner, 2 * session_credits)
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=3 * session_credits)
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 402, resp.json())
+        client.start_workflow.assert_not_awaited()
+        suggestion.refresh_from_db()
+        self.assertIsNone(suggestion.evaluation)
+
+    def test_evaluate_scanner_limit_leaves_org_message_precedence_when_org_is_also_exhausted(self) -> None:
+        # The org check runs first, so an org that is also out of budget must still report the org
+        # message even though the scanner limit would also refuse this test.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=1)
+        quota = MagicMock(remaining=0, credit_limit=100, period_end=timezone.now())
+        connect_patch, client = self._mock_temporal()
+        with (
+            connect_patch,
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
+        ):
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 402)
+        self.assertIn("monthly Replay Vision credit limit", resp.json()["detail"])
+        client.start_workflow.assert_not_awaited()
+
+    def test_evaluate_is_unaffected_when_no_scanner_limit_is_set(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
         client.start_workflow.assert_awaited_once()

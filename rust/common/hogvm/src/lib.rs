@@ -25,6 +25,9 @@ pub use program::Module;
 pub use program::Program;
 pub use program::Token;
 
+// The opcode vocabulary, for consumers that read bytecode without running it
+pub use ops::Operation;
+
 // VM, and helpers
 pub use vm::sync_execute;
 pub use vm::HogVM;

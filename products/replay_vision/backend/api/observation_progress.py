@@ -11,7 +11,11 @@ import structlog
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    TERMINAL_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.temporal.types import (
     OBSERVATION_PHASE_INDEX,
     OBSERVATION_PHASE_ORDER,
@@ -26,8 +30,6 @@ PROGRESS_POLL_INTERVAL_S = 1.5
 # Hard cap on how long we hold an ASGI worker for one stream, in case the workflow is stuck or the
 # client never disconnects. Observations finish in minutes; well past that we close and free the worker.
 MAX_STREAM_DURATION_S = 10 * 60
-
-_TERMINAL_STATUSES = frozenset({ObservationStatus.SUCCEEDED, ObservationStatus.FAILED, ObservationStatus.INELIGIBLE})
 
 
 def _sse_event(label: str, data: str) -> str:
@@ -105,7 +107,7 @@ async def stream_observation_progress(observation: ReplayObservation) -> AsyncGe
     team_id = observation.team_id
 
     # Fast path: already settled (e.g. details page opened after completion) — close immediately.
-    if observation.status in _TERMINAL_STATUSES:
+    if observation.status in TERMINAL_STATUSES:
         yield _sse_event("observation-complete", json.dumps({"status": observation.status}))
         return
 
@@ -127,7 +129,7 @@ async def stream_observation_progress(observation: ReplayObservation) -> AsyncGe
                 yield _sse_event("observation-error", "Observation not found")
                 return
             status, workflow_id = state.status, state.workflow_id
-            if status in _TERMINAL_STATUSES:
+            if status in TERMINAL_STATUSES:
                 yield _sse_event("observation-complete", json.dumps({"status": status}))
                 return
 

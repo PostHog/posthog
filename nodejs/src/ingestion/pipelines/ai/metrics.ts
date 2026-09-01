@@ -20,7 +20,12 @@ export const aiCostModalityExtractionCounter = new Counter({
 
 export const aiCostTotalOutcomeCounter = new Counter({
     name: 'llma_ai_cost_outcome_total',
-    help: 'Outcome of total cost calculation (positive, zero, negative)',
+    // "unknown" means nothing priced the event — no token counts, no request or
+    // web search charge, and no cost the client sent — so no cost was recorded.
+    // "zero" is a usage report of nothing, which is a different fact. "error"
+    // means the computed total came out NaN, which takes an Infinity-sized cost
+    // component surviving the write guards; it should never fire.
+    help: 'Outcome of total cost calculation (positive, zero, negative, unknown, error)',
     labelNames: ['outcome'],
 })
 
@@ -69,6 +74,12 @@ export const aiCacheExclusiveFallbackCounter = new Counter({
     labelNames: ['prior'], // prior: inclusive | anthropic_inclusive
 })
 
+export const aiOtelUnknownPartTypeCounter = new Counter({
+    name: 'aio_ai_otel_unknown_part_type_total',
+    help: 'OTel GenAI message parts whose type no renderer handles, bucketed into a fixed label set, so new semconv part types surface here instead of as blank output',
+    labelNames: ['part_type'],
+})
+
 export const aiBlobOffloadS3Duration = new Histogram({
     name: 'aio_blob_offload_s3_request_duration_seconds',
     help: 'Latency of S3 requests made by the AI blob offload store',
@@ -109,7 +120,7 @@ export const aiBlobOffloadBelowFloorBytes = new Counter({
 export const aiBlobOffloadBlobBytes = new Histogram({
     name: 'aio_blob_offload_blob_bytes',
     help: 'Decoded size of offloaded blobs',
-    labelNames: ['mime_family'],
+    labelNames: ['mime_family', 'outcome'],
     buckets: [1024, 8192, 65536, 262144, 1048576, 4194304, 8388608],
 })
 

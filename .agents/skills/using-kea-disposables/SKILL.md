@@ -63,6 +63,34 @@ Note: `popstate` cannot fire on a hidden tab (it's user-driven), so pausing on h
 
 `cache.disposables.dispose('key')` tears down one specific resource without unmounting the logic. Use it when a state transition should end the resource — pause/resume a poller, stop a hover-only ticker on mouseleave, close a modal-scoped listener.
 
+## Calling into the manager after unmount
+
+`add()` and `dispose()` are no-ops once the logic has unmounted, so call them plainly.
+Don't write `cache.disposables?.dispose(...)` or `if (!cache.disposables) return`; the manager is never null after mount.
+
+An async continuation usually has to skip more than the disposable, though, because dispatching an action or reading `values` on a torn-down logic is its own bug.
+Branch on `isDisposed` for that:
+
+```ts
+// The stream teardown aborts this request, so the catch can resume after the unmount
+if (cache.disposables.isDisposed) {
+  return
+}
+actions.connectionErrored(reason)
+```
+
+This matters most in a `finally`.
+A request the unmount aborted rejects, and the `finally` then runs against a logic that no longer exists.
+
+One caveat on a logic that mounts again.
+The next mount puts a fresh manager on the cache, so a continuation left over from the previous life can reach `cache.disposables` and find a live one.
+`isDisposed` reads `false` there, and disposing a shared key tears down the new life's resource.
+Capture what the continuation needs while the logic is alive when that matters.
+
+Do not guard a timer callback with `isDisposed` alone if it reads `values`.
+The flag only moves on unmount, and replacing the kea context (which storybook does on every story mount) drops the logic from the store without unmounting it, so the cleanup never runs.
+Compare `getContext()` against the context the resource was set up in — see `frontend/src/scenes/notebooks/Notebook/notebookKernelInfoLogic.ts`.
+
 ## Examples in the codebase
 
 **Unnamed `setInterval` poller** — see the canonical example in [The pattern](#the-pattern) (`frontend/src/layout/navigation/noEventsBannerLogic.ts:14-21`).
@@ -197,4 +225,4 @@ afterMount(({ actions, cache }) => {
 Other open conversion targets:
 
 - `frontend/src/scenes/welcome/welcomeDialogLogic.ts:325-345` — bare `window.addEventListener('storage', ...)` with `cache.storageHandler` stashed manually
-- `frontend/src/scenes/inbox/inboxSceneLogic.ts:260-267` — bare `setInterval` cleared by hand on every state change
+- `products/signals/frontend/inbox/inboxSceneLogic.ts:260-267` — bare `setInterval` cleared by hand on every state change

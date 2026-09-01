@@ -93,6 +93,7 @@ export interface MinimalFeatureFlagApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -105,6 +106,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -442,7 +444,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -454,7 +456,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -493,7 +495,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -505,7 +507,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -534,7 +536,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -546,7 +548,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -589,7 +591,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -601,7 +603,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -636,7 +638,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -648,7 +650,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -696,7 +698,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -742,7 +744,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -1249,12 +1251,12 @@ export interface SurveyAppearanceSchemaApi {
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
     readonly id: string
     /**
-     * Survey name.
+     * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name: string
-    /** Survey description. */
+    /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -1686,12 +1688,12 @@ export interface SurveySerializerCreateUpdateOnlyApi {
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     readonly id?: string
     /**
-     * Survey name.
+     * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name?: string
-    /** Survey description. */
+    /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -2154,6 +2156,10 @@ export interface SurveyGlobalStatsResponseApi {
 export type SurveysListParams = {
     archived?: boolean
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[]
@@ -2170,6 +2176,14 @@ export type SurveysListParams = {
      */
     search?: string
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -2177,6 +2191,14 @@ export type SurveysListParams = {
      */
     type?: SurveysListType
 }
+
+export type SurveysListStatus = (typeof SurveysListStatus)[keyof typeof SurveysListStatus]
+
+export const SurveysListStatus = {
+    Complete: 'complete',
+    Draft: 'draft',
+    Running: 'running',
+} as const
 
 export type SurveysListType = (typeof SurveysListType)[keyof typeof SurveysListType]
 

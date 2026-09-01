@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
+use common_ingestion_warnings::{WarningRequestContext, UNKNOWN_ATTRIBUTION};
 use uuid::Uuid;
 
 use crate::token::validate_token;
@@ -65,6 +66,24 @@ impl RequestContext {
             return None;
         }
         Some((lib, version))
+    }
+
+    /// Attribution stamped onto every ingestion warning this request produces.
+    ///
+    /// [`Self::sdk_lib_and_version`] is all-or-nothing — the header is a single
+    /// `name/version` string — so both fields fall back together. Unlike the
+    /// injection callers, a warning always needs both keys present, so this
+    /// stamps the unknown placeholder rather than skipping them.
+    pub fn warning_context(&self) -> WarningRequestContext {
+        let (lib, lib_version) = self
+            .sdk_lib_and_version()
+            .unwrap_or((UNKNOWN_ATTRIBUTION, UNKNOWN_ATTRIBUTION));
+        WarningRequestContext {
+            token: self.api_token.clone(),
+            lib: lib.to_string(),
+            lib_version: lib_version.to_string(),
+            path: self.path.to_string(),
+        }
     }
 
     pub fn new(

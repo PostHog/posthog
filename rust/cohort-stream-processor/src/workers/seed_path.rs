@@ -766,7 +766,8 @@ fn admit_reconcile(
         return;
     }
 
-    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), offset) {
+    let kind = tile.scope().kind();
+    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset) {
         SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset),
         SupersedeOutcome::Replaced(superseded) => {
             let (replacement, outcome) = merge
@@ -783,7 +784,7 @@ fn admit_reconcile(
                     );
                 }
             }
-            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL).increment(1);
+            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "kind" => kind.as_str()).increment(1);
             replacement
         }
         SupersedeOutcome::RetainedNewerOrEqual => {
@@ -802,7 +803,7 @@ fn admit_reconcile(
     };
 
     queue.enqueue(tile.clone(), deferred);
-    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL).increment(1);
+    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
 }
 
 /// What one tile staged across its referencing leaves.
@@ -975,14 +976,17 @@ mod tests {
     use tempfile::TempDir;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, SChunkMs, SeedTile,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, SChunkMs,
+        SeedTile,
     };
 
     use crate::consumers::seeds::SeedSkipReason;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
-    use crate::producer::{CaptureSeedTileSink, CaptureSink, MembershipStatus};
+    use crate::producer::{
+        CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, MembershipStatus,
+    };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
     use crate::store::{
@@ -1781,7 +1785,7 @@ mod tests {
         ReconcileTile::new(
             TEAM,
             CohortId(cohort_id),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(run_id)),
         )
     }
@@ -1794,6 +1798,7 @@ mod tests {
         sink: CaptureSink,
         seed_sink: CaptureSeedTileSink,
         cascade_sink: crate::producer::CaptureCascadeSink,
+        marker_sink: CaptureReconcileMarkerSink,
         deps: MergeWorkerDeps,
         queue: EvictionQueue<BehavioralKey>,
         reconcile_queue: ReconcileQueue,
@@ -1848,6 +1853,7 @@ mod tests {
                 TEAM,
                 build_filters(cohorts, UTC),
             )])));
+            let marker_sink = CaptureReconcileMarkerSink::new();
             let deps = MergeWorkerDeps {
                 transfer_sink: Arc::new(crate::producer::CaptureTransferSink::new()),
                 stream_event_sink: Arc::new(crate::producer::CaptureStreamEventSink::new()),
@@ -1864,7 +1870,10 @@ mod tests {
                 seed_tracker: Arc::new(OffsetTracker::new()),
                 live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
                 register_transfer_enabled: false,
-                reconcile: crate::workers::ReconcileDeps::default(),
+                reconcile: crate::workers::ReconcileDeps {
+                    marker_sink: Arc::new(marker_sink.clone()),
+                    ..crate::workers::ReconcileDeps::default()
+                },
                 person_seed: crate::workers::PersonSeedDeps::default(),
             };
             let reconcile_queue =
@@ -1877,6 +1886,7 @@ mod tests {
                 sink,
                 seed_sink,
                 cascade_sink,
+                marker_sink,
                 deps,
                 queue: EvictionQueue::new(),
                 reconcile_queue,
@@ -1938,7 +1948,7 @@ mod tests {
         assert_eq!(shell.reconcile_queue.len(), 0);
         assert!(shell.deps.reconcile.backlog.is_empty());
         assert!(shell.sink.changes().is_empty());
-        assert!(shell.sink.markers().is_empty());
+        assert!(shell.marker_sink.markers().is_empty());
     }
 
     #[tokio::test]

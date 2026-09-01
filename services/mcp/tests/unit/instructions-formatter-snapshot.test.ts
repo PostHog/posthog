@@ -8,10 +8,10 @@ import type { GroupType } from '@/api/client'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
-import { buildActiveEnvironmentContextPrompt, type QueryToolInfo } from '@/lib/instructions'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { buildActiveEnvironmentContextPrompt, buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
-import { getToolDefinitions } from '@/tools/toolDefinitions'
+import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
 import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
@@ -51,6 +51,13 @@ const STATIC_CTX: InstructionsContext = {
     queryTools: STATIC_QUERY_TOOLS,
     renderUiEnabled: true,
 }
+
+/** The domain index is the only pipe-delimited line in the compact payload. */
+const domainsIn = (payload: string): string[] =>
+    payload
+        .split('\n')
+        .find((line) => line.includes('|'))
+        ?.split('|') ?? []
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SNAPSHOT_DIR = path.resolve(__dirname, '__snapshots__', 'instructions')
@@ -110,25 +117,37 @@ describe('InstructionsFormatter prompt snapshots', () => {
     })
 
     // claude.ai never surfaces server `instructions`, so the exec command reference is the
-    // only always-visible catalog-steering surface. The compact metrics/trust one-liner must
-    // render there when the data-catalog flag is on and stay absent when it's off — otherwise
-    // skill-less claude.ai clients get zero catalog routing. The flag-off case is covered by
-    // the snapshot above; this locks the gating in both directions.
-    it('renders the compact metrics/trust one-liner for claude.ai only when the data-catalog flag is on', () => {
-        const buildClaudeChatReference = (dataCatalogEnabled: boolean): string => {
+    // only always-visible catalog-steering surface: without the compact metrics/trust
+    // one-liner, skill-less claude.ai clients get zero catalog routing.
+    it('renders the compact metrics/trust one-liner for claude.ai', () => {
+        const state = {
+            allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
+            toolFeatureFlags: {},
+            renderUiEnabled: STATIC_CTX.renderUiEnabled,
+            metadata: STATIC_CTX.metadata,
+            groupTypes: STATIC_CTX.groupTypes,
+        } as unknown as ResolvedState
+
+        expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)).toContain(
+            'Metrics & SQL trust'
+        )
+    })
+
+    // `notebooks-add-cell` is flag-gated, so the Python-in-a-notebook guidance has to
+    // follow the advertised tool set rather than assume the cell surface exists.
+    it('derives notebookCellsEnabled from the advertised tools', () => {
+        const buildContextFor = (toolNames: string[]): InstructionsContext => {
             const state = {
-                allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
-                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-                toolFeatureFlags: dataCatalogEnabled ? { [PRODUCT_DATA_CATALOG_FLAG]: true } : {},
-                renderUiEnabled: STATIC_CTX.renderUiEnabled,
-                metadata: STATIC_CTX.metadata,
-                groupTypes: STATIC_CTX.groupTypes,
+                allTools: toolNames.map((name) => ({ name })),
+                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+                toolFeatureFlags: {},
             } as unknown as ResolvedState
-            return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+            return new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state)
         }
 
-        expect(buildClaudeChatReference(true)).toContain('Metrics & SQL trust')
-        expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
+        expect(buildContextFor(['dashboard-create']).notebookCellsEnabled).toBe(false)
+        expect(buildContextFor(['dashboard-create', 'notebooks-add-cell']).notebookCellsEnabled).toBe(true)
     })
 
     // ------------------------------------------------------------------------------------------------
@@ -157,21 +176,35 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
         // the longer person-on-events branch, so a long org/project/user cannot
         // push the real schema past the cap while this test passes.
+        const worstCaseUser = {
+            first_name: 'F'.repeat(150),
+            last_name: 'L'.repeat(150),
+            email: `${'e'.repeat(242)}@example.com`,
+        } as CachedUser
+        const worstCaseOrg = { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg
+        const worstCaseProject = {
+            name: 'P'.repeat(200),
+            id: 9_999_999,
+            api_token: `phc_${'x'.repeat(43)}`,
+            timezone: 'America/Argentina/ComodRivadavia',
+            person_on_events_querying_enabled: true,
+        } as CachedProject
         const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
-            {
-                first_name: 'F'.repeat(150),
-                last_name: 'L'.repeat(150),
-                email: `${'e'.repeat(242)}@example.com`,
-            } as CachedUser,
-            { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg,
-            {
-                name: 'P'.repeat(200),
-                id: 9_999_999,
-                api_token: `phc_${'x'.repeat(43)}`,
-                timezone: 'America/Argentina/ComodRivadavia',
-                person_on_events_querying_enabled: true,
-            } as CachedProject,
+            worstCaseUser,
+            worstCaseOrg,
+            worstCaseProject,
             'https://us.posthog.com'
+        )
+        // The claude.ai reference renders the compact metadata variant: the
+        // product/integration context lines are excluded from this surface by
+        // design because they do not fit under the cap (see
+        // `buildClaudeExecCommandReference` and `ResolvedState.metadataCompact`).
+        const worstCaseMetadataCompact = buildActiveEnvironmentContextPrompt(
+            worstCaseUser,
+            worstCaseOrg,
+            worstCaseProject,
+            'https://us.posthog.com',
+            { includeProductContext: false }
         )
         // Five group types (the product cap) with generously long names.
         const worstCaseGroupTypes = Array.from({ length: 5 }, (_, i) => ({
@@ -183,11 +216,10 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Data catalog on: the analytics learn-topic description is longer with
-            // the flag, and topic descriptions are inlined in the command reference.
-            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
+            toolFeatureFlags: {},
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
+            metadataCompact: worstCaseMetadataCompact,
             groupTypes: worstCaseGroupTypes,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
@@ -200,5 +232,63 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         expect(properties).toHaveProperty('context')
         expect(inputSchemaSize).toBeLessThan(16_384)
+    })
+
+    // ------------------------------------------------------------------------------------------------
+    // DO NOT weaken or delete this test. Claude Code truncates a server's `instructions`
+    // payload at MCP_INSTRUCTIONS_CHAR_BUDGET chars, silently and mid-token. The payload
+    // is a single alphabetical tool-domain index, so an overrun does not degrade evenly —
+    // it deletes the tail. Measured 2026-08-07 before this budget existed: 2,923 chars
+    // rendered, 148 domains, of which the 67 from `marketing-analytics` down never
+    // reached the model, including every `scout-*`, `survey`, `session-recording`,
+    // `web-analytics`, `workflows-*` and `vision-*` domain. Agents concluded those
+    // products had no tools and reached for their own built-ins instead.
+    //
+    // If this fails, do NOT trim the domain index by hand — `toCompact` already collapses
+    // sub-families to fit. It means a fixed section grew; move it to the exec command
+    // reference, which has no such cap.
+    // ------------------------------------------------------------------------------------------------
+    it('keeps the compact exec instructions under the Claude Code truncation cap', () => {
+        // The full live tool catalog, plus env context and group types that the payload no
+        // longer carries — if either is ever spliced back into the compact template, the
+        // budget has to account for it here rather than fail silently in production.
+        const ctx: InstructionsContext = {
+            ...STATIC_CTX,
+            metadata: STATIC_METADATA,
+            tools: Object.keys(getToolDefinitions()).map((name) => ({
+                name,
+                category: getToolCategory(name) ?? 'Other',
+            })),
+        }
+        const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
+        const domains = domainsIn(rendered)
+
+        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+        // Families past the old cutoff point must remain searchable after the index compacts.
+        const toolNames = Object.keys(getToolDefinitions())
+        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+            const familyTools = toolNames.filter((name) => name.startsWith(family))
+            expect(familyTools.length).toBeGreaterThan(0)
+            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+        }
+    })
+
+    // Exercises the re-render branch, which the live catalog no longer reaches now that it
+    // fits on the first pass. 40 families of 30 tools each split into long sub-family roots
+    // that blow the cap unbudgeted, and collapse to 40 short roots that clear it.
+    it('collapses an over-budget domain index until the payload fits', () => {
+        const tools = Array.from({ length: 40 }, (_, family) =>
+            Array.from({ length: 30 }, (_, i) => ({
+                name: `family${family}-subfamily${i % 5}-verylongtoolname${i}`,
+                category: 'Other',
+            }))
+        ).flat()
+        const formatter = new InstructionsFormatter()
+
+        expect(buildToolDomainsCompact(tools).length).toBeGreaterThan(MCP_INSTRUCTIONS_CHAR_BUDGET)
+
+        const rendered = formatter.buildExecInstructions({ guidelines: '', tools })
+        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+        expect(domainsIn(rendered)).toHaveLength(40)
     })
 })

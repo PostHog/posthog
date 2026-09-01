@@ -20,7 +20,9 @@ from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
+from products.logs.backend.facade.retention import suggest_retention_rule_name
 from products.logs.backend.models import LogsRetentionRule
 from products.logs.backend.presentation.filter_group_validation import (
     MAX_FILTER_GROUP_DEPTH,
@@ -40,6 +42,39 @@ from products.logs.backend.presentation.filter_group_validation import (
 # tier the org couldn't set team-wide, and a new tier (e.g. 90) becomes available here the moment it
 # gets an entitlement mapping.
 VALID_RETENTION_DAYS = {14} | set(LOGS_RETENTION_FEATURES_BY_DAYS.keys())
+
+
+def retention_filter_group_error(filter_group: Any) -> str | None:
+    """Shape and size validation shared by rule writes and the name-suggestion endpoint.
+
+    Returns a message describing the problem, or None when the group is valid. Callers nest the
+    message under whichever field key their payload uses.
+    """
+    # A retention rule with no filter_group would match every log, silently overriding the
+    # team default for all traffic — require an explicit selector.
+    if filter_group is None:
+        return "A retention rule requires a filter_group."
+    # Validate shape against PropertyGroupFilter so malformed payloads are rejected at write time
+    # rather than flowing through to the ingestion worker. Mirrors sampling_api / alerts_api.
+    try:
+        PropertyGroupFilter.model_validate(filter_group)
+    except PydanticValidationError as e:
+        return f"Invalid filter_group shape: {e.errors()[0]['msg']}"
+    # Bound depth and total node count — the Node ingestion worker recurses per record over this
+    # tree, so an adversarially deep or wide group is a stack-overflow + CPU footgun on every log
+    # line. Matches MAX_FILTER_GROUP_DEPTH / MAX_FILTER_GROUP_NODES shared with the sampling rules.
+    if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
+        return f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."
+    if filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
+        return f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
+    # A single leaf can smuggle a huge value array or multi-megabyte string while counting as one
+    # node — the ingestion matcher would then scan that per record. Bound total leaf values and
+    # per-value length, matching the metric-rules validator.
+    if filter_group_leaf_value_count(filter_group) > MAX_FILTER_GROUP_LEAF_VALUES:
+        return f"filter_group has too many filter values (max {MAX_FILTER_GROUP_LEAF_VALUES} across all filters)."
+    if filter_group_has_oversized_value(filter_group):
+        return f"filter_group contains a value longer than {MAX_FILTER_GROUP_VALUE_LENGTH} characters."
+    return None
 
 
 class LogsRetentionRuleSerializer(serializers.ModelSerializer):
@@ -117,56 +152,39 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
         return attrs
 
     def _validate_filter_group(self, filter_group: Any) -> None:
-        # A retention rule with no filter_group would match every log, silently overriding the
-        # team default for all traffic — require an explicit selector.
-        if filter_group is None:
-            raise ValidationError({"config": {"filter_group": "A retention rule requires a filter_group."}})
-        # Validate shape against PropertyGroupFilter so malformed payloads are rejected at write time
-        # rather than flowing through to the ingestion worker. Mirrors sampling_api / alerts_api.
-        try:
-            PropertyGroupFilter.model_validate(filter_group)
-        except PydanticValidationError as e:
-            raise ValidationError({"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}})
-        # Bound depth and total node count — the Node ingestion worker recurses per record over this
-        # tree, so an adversarially deep or wide group is a stack-overflow + CPU footgun on every log
-        # line. Matches MAX_FILTER_GROUP_DEPTH / MAX_FILTER_GROUP_NODES shared with the sampling rules.
-        if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
-            raise ValidationError(
-                {"config": {"filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."}}
-            )
-        if filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
-            raise ValidationError(
-                {
-                    "config": {
-                        "filter_group": f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
-                    }
-                }
-            )
-        # A single leaf can smuggle a huge value array or multi-megabyte string while counting as one
-        # node — the ingestion matcher would then scan that per record. Bound total leaf values and
-        # per-value length, matching the metric-rules validator.
-        if filter_group_leaf_value_count(filter_group) > MAX_FILTER_GROUP_LEAF_VALUES:
-            raise ValidationError(
-                {
-                    "config": {
-                        "filter_group": f"filter_group has too many filter values (max {MAX_FILTER_GROUP_LEAF_VALUES} across all filters)."
-                    }
-                }
-            )
-        if filter_group_has_oversized_value(filter_group):
-            raise ValidationError(
-                {
-                    "config": {
-                        "filter_group": f"filter_group contains a value longer than {MAX_FILTER_GROUP_VALUE_LENGTH} characters."
-                    }
-                }
-            )
+        message = retention_filter_group_error(filter_group)
+        if message:
+            raise ValidationError({"config": {"filter_group": message}})
 
 
 class LogsRetentionRuleReorderSerializer(serializers.Serializer):
     ordered_ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="Rule IDs in the desired evaluation order (first element is highest priority / lowest order index).",
+    )
+
+
+class LogsRetentionRuleSuggestNameSerializer(serializers.Serializer):
+    retention_days = serializers.IntegerField(help_text="Retention tier the rule would assign, in days.")
+    filter_group = serializers.JSONField(help_text="PropertyGroupFilter tree the rule would match on.")
+
+    def validate_retention_days(self, value: int) -> int:
+        if value not in VALID_RETENTION_DAYS:
+            raise ValidationError(f"Must be one of {sorted(VALID_RETENTION_DAYS)} days.")
+        return value
+
+    def validate_filter_group(self, value: Any) -> Any:
+        # Same bounds as a real write — an unbounded tree must never reach the LLM prompt.
+        message = retention_filter_group_error(value)
+        if message:
+            raise ValidationError(message)
+        return value
+
+
+class LogsRetentionRuleNameSuggestionSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        allow_blank=True,
+        help_text="Suggested rule name. Empty when no suggestion could be generated — clients hide the hint.",
     )
 
 
@@ -256,3 +274,37 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
         qs = self.safely_get_queryset(LogsRetentionRule.objects.all()).order_by("priority", "created_at")
         return Response(LogsRetentionRuleSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=LogsRetentionRuleSuggestNameSerializer,
+        responses={200: LogsRetentionRuleNameSuggestionSerializer},
+        description=(
+            "Suggest a human-readable name for a retention rule from its retention tier and filter "
+            "group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty "
+            "name when a suggestion can't be generated."
+        ),
+    )
+    # Each call is an inline LLM request, so it takes the shared AI rate limits. pagination_class=None
+    # keeps drf-spectacular from attaching limit/offset params to a non-list response.
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="suggest_name",
+        pagination_class=None,
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def suggest_name(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied("AI data processing must be approved by your organization to suggest names")
+        serializer = LogsRetentionRuleSuggestNameSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        # A suggestion doesn't grant a retention tier, so entitlement is deliberately not checked here —
+        # unlike a write, where LOGS_RETENTION_FEATURES_BY_DAYS gates the paid tiers.
+        name = suggest_retention_rule_name(
+            serializer.validated_data["retention_days"],
+            serializer.validated_data["filter_group"],
+            distinct_id=str(user.distinct_id) if user.is_authenticated else "logs-retention-name",
+            team_id=self.team_id,
+        )
+        return Response({"name": name}, status=status.HTTP_200_OK)

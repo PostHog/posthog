@@ -14,8 +14,7 @@ Temporal provides us with abstractions that handle the distributed execution whi
 
 That being said, if you do decide to develop an application or feature with Temporal, this README will guide you through how we develop with Temporal, common pitfalls, and useful additional abstractions we have developed over time.
 
-> DuckLake copy workflow configuration lives in `posthog/ducklake/README.md`.
-> DuckLake copy workflow configuration lives in `posthog/ducklake/TEMPORAL.md`.
+> DuckLake copy workflow configuration lives in `products/managed_warehouse/backend/README.md`.
 
 ## Temporal concepts
 
@@ -583,4 +582,4 @@ The per-test cost is the same as N separate functions, but the file shrinks and 
 
 - All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
 - [Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.
-- DuckLake data modeling writes leverage Temporal too; follow the [DuckLake copy workflow configuration guide](../ducklake/README.md) to see how we configure environment variables, bucket layouts, and IAM perms for the copy workflow.
+- DuckLake data modeling writes leverage Temporal too. See the [DuckLake copy workflow configuration guide](../../products/managed_warehouse/backend/README.md) for environment variables, bucket layouts, and IAM permissions.

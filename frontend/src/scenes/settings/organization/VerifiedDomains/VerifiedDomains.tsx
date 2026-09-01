@@ -9,7 +9,6 @@ import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -20,6 +19,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
@@ -29,7 +29,9 @@ import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
 import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
-import { verifiedDomainsLogic } from './verifiedDomainsLogic'
+import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
+import { RemoveDomainModal } from './VerifiedDomainImpactModals'
+import { getIdentityProviderConfigForDomain, verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
 
 // One distinctive icon per integration type, reused across each integration's status badges.
@@ -80,7 +82,7 @@ export function VerifiedDomains(): JSX.Element {
     })
 
     return (
-        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
+        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING} featureDetail="verified-domains">
             <p>
                 Enable users to sign up automatically with an email address on verified domains and enforce SSO for
                 accounts under your domains.
@@ -103,22 +105,25 @@ function VerifiedDomainsTable(): JSX.Element {
     const {
         verifiedDomains,
         verifiedDomainsLoading,
+        identityProviderConfigsLoading,
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
         isSCIMAvailable,
         isXAAAuthenticationAvailable,
+        ownVerifiedDomain,
+        identityProviderConfigs,
     } = useValues(verifiedDomainsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const {
         updateDomain,
-        deleteVerifiedDomain,
         setVerifyModal,
         setConfigureSAMLModalId,
         setConfigureSCIMModalId,
         setConfigureIdJagModalId,
         setScimLogsModalId,
     } = useActions(verifiedDomainsLogic)
+    const { promptRemoveDomain } = useActions(verifiedDomainImpactLogic)
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -131,6 +136,17 @@ function VerifiedDomainsTable(): JSX.Element {
 
     const verifiedDomainsList = verifiedDomains.filter((d) => d.is_verified)
     const unverifiedDomainsList = verifiedDomains.filter((d) => !d.is_verified)
+
+    // Mirrors the guard on `OrganizationDomainViewSet.destroy`: with the restriction on, an admin
+    // can't remove a domain if their own email would be left outside the verified ones.
+    const removeBlockedReason = (domain: OrganizationDomainType): string | undefined => {
+        if (!currentOrganization?.enforce_verified_domains || !domain.is_verified) {
+            return undefined
+        }
+        return ownVerifiedDomain && ownVerifiedDomain.id !== domain.id
+            ? undefined
+            : 'Your own email address would no longer be allowed. Turn off the domain restriction first'
+    }
 
     const verifiedColumns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -180,7 +196,10 @@ function VerifiedDomainsTable(): JSX.Element {
                     </Tooltip>
                 </div>
             ),
-            render: function SSOEnforcement(_, { sso_enforcement, id, has_saml }) {
+            render: function SSOEnforcement(_, { sso_enforcement, id }) {
+                const hasSaml = Boolean(
+                    getIdentityProviderConfigForDomain(identityProviderConfigs, id, ConfigScopeEnumApi.Saml)?.has_saml
+                )
                 if (!isSSOEnforcementAvailable) {
                     return (
                         <Link
@@ -196,7 +215,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         value={sso_enforcement}
                         loading={updatingDomainLoading}
                         onChange={(val) => updateDomain({ id, sso_enforcement: val })}
-                        samlAvailable={has_saml}
+                        samlAvailable={hasSaml}
                         disabledReason={restrictionReason}
                     />
                 )
@@ -205,7 +224,22 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'integrations',
             title: 'Integrations',
-            render: function Integrations(_, { has_saml, has_scim, has_id_jag }) {
+            render: function Integrations(_, { id }) {
+                const samlConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Saml
+                )
+                const scimConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Scim
+                )
+                const idJagConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Xaa
+                )
                 const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
                 const badges: JSX.Element[] = []
 
@@ -220,7 +254,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (has_saml) {
+                } else if (samlConfig?.has_saml) {
                     badges.push(
                         <IntegrationBadge
                             key="saml"
@@ -253,7 +287,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (has_scim) {
+                } else if (scimConfig?.has_scim) {
                     badges.push(
                         <IntegrationBadge
                             key="scim"
@@ -275,7 +309,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     )
                 }
 
-                if (showXAAControls && has_id_jag) {
+                if (showXAAControls && idJagConfig?.has_id_jag) {
                     badges.push(
                         <IntegrationBadge
                             key="xaa"
@@ -298,7 +332,8 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'actions',
             width: 32,
             align: 'center',
-            render: function RenderActions(_, { id, domain }) {
+            render: function RenderActions(_, domainRecord) {
+                const { id } = domainRecord
                 return (
                     <More
                         overlay={
@@ -341,24 +376,10 @@ function VerifiedDomainsTable(): JSX.Element {
                                 )}
                                 <LemonButton
                                     status="danger"
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Remove ${domain}?`,
-                                            description:
-                                                'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.',
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: 'Remove domain',
-                                                onClick: () => deleteVerifiedDomain(id),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    }
+                                    onClick={() => promptRemoveDomain(domainRecord)}
                                     fullWidth
                                     icon={<IconTrash />}
-                                    disabledReason={restrictionReason}
+                                    disabledReason={restrictionReason ?? removeBlockedReason(domainRecord)}
                                 >
                                     Remove domain
                                 </LemonButton>
@@ -415,26 +436,13 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'actions',
             width: 32,
             align: 'center',
-            render: function RenderActions(_, { id, domain }) {
+            render: function RenderActions(_, domainRecord) {
                 return (
                     <More
                         overlay={
                             <LemonButton
                                 status="danger"
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: `Remove ${domain}?`,
-                                        description: 'This cannot be undone.',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Remove domain',
-                                            onClick: () => deleteVerifiedDomain(id),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }
+                                onClick={() => promptRemoveDomain(domainRecord)}
                                 fullWidth
                                 icon={<IconTrash />}
                                 disabledReason={restrictionReason}
@@ -453,7 +461,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <LemonTable
                 dataSource={verifiedDomainsList}
                 columns={verifiedColumns}
-                loading={verifiedDomainsLoading}
+                loading={verifiedDomainsLoading || identityProviderConfigsLoading}
                 rowKey="id"
                 emptyState="You haven't registered any authentication domains yet."
             />
@@ -463,7 +471,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     <LemonTable
                         dataSource={unverifiedDomainsList}
                         columns={unverifiedColumns}
-                        loading={verifiedDomainsLoading}
+                        loading={verifiedDomainsLoading || identityProviderConfigsLoading}
                         rowKey="id"
                     />
                 </>
@@ -474,6 +482,7 @@ function VerifiedDomainsTable(): JSX.Element {
             {showXAAControls && <ConfigureIdJagModal />}
             <ScimLogsModal />
             <VerifyDomainModal />
+            <RemoveDomainModal />
         </div>
     )
 }

@@ -11,13 +11,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { FunnelVizType } from '~/types'
-
 import {
     computeDaysOfWeekUpdate,
     daysOfWeekSetsEqual,
     getExcludedDaysOfWeek,
     parseIsoDaysOfWeek,
+    querySupportsDaysOfWeek,
 } from './daysOfWeekFilterUtils'
 
 type InsightDateFilterProps = {
@@ -26,32 +25,28 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, interval, querySource, trendsFilter, funnelsFilter, isTrends, isFunnels, isLifecycle } =
-        useValues(insightVizDataLogic(insightProps))
+    const { dateRange, interval, querySource, trendsFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
-    const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
+    const { reportInsightDatePickerOpened, reportInsightDateExclusionsChanged } = useActions(eventUsageLogic)
 
     // The picker speaks excluded days; the query schema stores included days
     const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
-    // Funnel steps and time-to-convert deliberately lack backend daysOfWeek support: dropping
-    // mid-sequence events has ambiguous semantics (see funnel_event_query.py)
-    const supportsDaysOfWeek =
-        isTrends || isLifecycle || (isFunnels && funnelsFilter?.funnelVizType === FunnelVizType.Trends)
+    const supportsDaysOfWeek = querySupportsDaysOfWeek(querySource)
     // The backend rejects daysOfWeek together with smoothing, so don't offer it
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
     const showDaysOfWeekExclusions = supportsDaysOfWeek && !smoothingActive
 
-    // Enabling smoothing hides the control, so clear daysOfWeek on that transition (never on
-    // mount): the backend rejects the combination and there'd be no UI left to remove it
+    // Hiding the control for any reason (smoothing turned on, or the insight changed to an
+    // unsupported kind) must clear daysOfWeek too, or it lingers with no UI left to remove it
     const prevShowDaysOfWeekExclusions = useRef(showDaysOfWeekExclusions)
     useEffect(() => {
         const wasShown = prevShowDaysOfWeekExclusions.current
         prevShowDaysOfWeekExclusions.current = showDaysOfWeekExclusions
-        if (wasShown && !showDaysOfWeekExclusions && smoothingActive && dateRange?.daysOfWeek?.length) {
+        if (wasShown && !showDaysOfWeekExclusions && dateRange?.daysOfWeek?.length) {
             updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
         }
-    }, [showDaysOfWeekExclusions, smoothingActive, dateRange, updateQuerySource])
+    }, [showDaysOfWeekExclusions, dateRange, updateQuerySource])
 
     const exclusions: DateFilterExclusions = {
         days: showDaysOfWeekExclusions ? excludedDaysOfWeek.map(String) : [],
@@ -59,11 +54,19 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     }
     const handleExclusionsChange = (next: DateFilterExclusions): void => {
         const nextExcludedDaysOfWeek = parseIsoDaysOfWeek(next.days)
-        if (showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)) {
-            updateQuerySource(computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange))
+        const daysChanged = showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)
+        const incompleteChanged = next.incomplete !== exclusions.incomplete
+        const daysUpdate = daysChanged ? computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange) : null
+        if (daysUpdate) {
+            updateQuerySource(daysUpdate)
         }
-        if (next.incomplete !== exclusions.incomplete) {
+        if (incompleteChanged) {
             updateDateRange({ excludeIncompletePeriods: next.incomplete ? true : null }, true)
+        }
+        if (daysChanged || incompleteChanged) {
+            // Report what got persisted, not what was picked: a full-week selection normalizes back to "exclude nothing"
+            const persistedExcludedDays = daysUpdate ? getExcludedDaysOfWeek(daysUpdate.dateRange) : excludedDaysOfWeek
+            reportInsightDateExclusionsChanged(querySource?.kind, next.incomplete, persistedExcludedDays.length)
         }
     }
 

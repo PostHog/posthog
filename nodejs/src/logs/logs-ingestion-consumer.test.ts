@@ -10,21 +10,25 @@ import {
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { compileHog } from '~/cdp/templates/compiler'
+import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/common/config/kafka-topics'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
+import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
-import { LogRecord, encodeLogRecords } from './log-record-avro'
+import { logsPatternBodyKindCounter } from './log-pattern-stage'
+import { LogRecord, decodeLogRecords, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
@@ -46,11 +50,13 @@ import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
-import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
+import { LogsTransformerService } from './transformations/logs-transformer.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
+
+const SNAPSHOT_OVERRIDES = { overrides: { team_id: 'TEAM_ID' } }
 
 jest.mock('~/common/utils/posthog', () => {
     const original = jest.requireActual('~/common/utils/posthog')
@@ -192,12 +198,16 @@ describe('LogsIngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
     let logMessageDroppedCounterSpy: jest.SpyInstance
+    let recordLogMessageDroppedSpy: jest.SpyInstance
 
     const createLogsIngestionConsumer = async (
         hub: Hub,
         overrides: any = {},
         depsPartial: Partial<
-            Pick<LogsIngestionConsumerDeps, 'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter'>
+            Pick<
+                LogsIngestionConsumerDeps,
+                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+            >
         > = {}
     ) => {
         const consumer = new LogsIngestionConsumer(
@@ -219,6 +229,7 @@ describe('LogsIngestionConsumer', () => {
                         'test'
                     ),
                 }),
+                usageBatch: new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
                 ...depsPartial,
             },
             overrides
@@ -247,17 +258,16 @@ describe('LogsIngestionConsumer', () => {
         jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
-        await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         consumer = await createLogsIngestionConsumer(hub)
 
-        await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         logMessageDroppedCounterSpy = jest.spyOn(logMessageDroppedCounter, 'inc')
+        recordLogMessageDroppedSpy = jest.spyOn(otelMetrics, 'recordLogMessageDropped')
 
         // Default to not quota limited - tests can override this
         jest.spyOn(hub.quotaLimiting, 'isTeamTokenQuotaLimited').mockResolvedValue(false)
@@ -329,7 +339,12 @@ describe('LogsIngestionConsumer', () => {
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            expect(forSnapshot(getProducedKafkaMessages().map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    getProducedKafkaMessages().map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
 
         it('should process multiple log messages', async () => {
@@ -346,7 +361,12 @@ describe('LogsIngestionConsumer', () => {
 
             const producedMessages = getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(3)
-            expect(forSnapshot(producedMessages.map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    producedMessages.map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
     })
 
@@ -384,7 +404,12 @@ describe('LogsIngestionConsumer', () => {
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = getProducedKafkaMessages()
-            expect(forSnapshot(producedMessages.map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    producedMessages.map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
 
         it('should overwrite existing headers', async () => {
@@ -395,7 +420,12 @@ describe('LogsIngestionConsumer', () => {
             })
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-            expect(forSnapshot(getProducedKafkaMessages().map((m) => m.headers))).toMatchSnapshot()
+            expect(
+                forSnapshot(
+                    getProducedKafkaMessages().map((m) => m.headers),
+                    SNAPSHOT_OVERRIDES
+                )
+            ).toMatchSnapshot()
         })
 
         it('should handle parse errors gracefully', async () => {
@@ -1736,7 +1766,6 @@ describe('LogsIngestionConsumer', () => {
                     {},
                     { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
                 )
-                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
             })
 
             it('should emit sampling_records_dropped_by_rule when head sampling drops log lines', async () => {
@@ -1812,7 +1841,6 @@ describe('LogsIngestionConsumer', () => {
                     { LOGS_BILLING_PRORATE_ENABLED: true },
                     { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
                 )
-                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
 
                 await sendDroppedAndKeptMessages()
 
@@ -1839,7 +1867,6 @@ describe('LogsIngestionConsumer', () => {
                         { LOGS_BILLING_PRORATE_ENABLED: true },
                         { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
                     )
-                    await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
                 }
 
                 const message = await createMultiRecordKafkaMessage(
@@ -1889,7 +1916,6 @@ describe('LogsIngestionConsumer', () => {
                 metricsEmitter: mockEmitter as unknown as LogsMetricsEmitter,
                 ...depsPartial,
             })
-            await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         }
 
         beforeEach(async () => {
@@ -2012,62 +2038,6 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
-    describe('thread relief', () => {
-        jest.setTimeout(30000)
-
-        beforeEach(async () => {
-            // Parent beforeEach mocks Date.now/toISOString — restore for real-time tracking.
-            jest.spyOn(Date, 'now').mockRestore()
-            jest.spyOn(Date.prototype, 'toISOString').mockRestore()
-
-            // Enable PII scrub + JSON parse so processLogMessageBuffer does real CPU work
-            // (without these settings it short-circuits and never decodes the buffer).
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET logs_settings = $1 WHERE id = $2`,
-                [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: true }), team.id],
-                'updateTeamLogsForThreadRelief'
-            )
-            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
-        })
-
-        it('should process large batches without blocking the main thread', async () => {
-            // Body large enough that JSON parse + PII scrub do meaningful sync work per message.
-            const body = JSON.stringify({
-                user_id: 'usr_abc123',
-                email: 'jane.doe@example.com',
-                nested: { a: 1, b: 'two', c: [1, 2, 3, 4, 5] },
-                message: 'A long log message ' + 'x'.repeat(500),
-            })
-
-            const numberToTest = 2000
-            const messages = await createKafkaMessages(
-                Array.from({ length: numberToTest }, () => ({ message: body })),
-                { token: team.api_token }
-            )
-
-            // Track event-loop lag only during the consumer's processing.
-            let lastCheck = Date.now()
-            let longestDelay = 0
-            const interval = setInterval(() => {
-                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-                lastCheck = Date.now()
-            }, 0)
-
-            try {
-                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-            } finally {
-                clearInterval(interval)
-            }
-
-            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
-            expect(logsMessages).toHaveLength(numberToTest)
-
-            console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
-            expect(longestDelay).toBeLessThan(120)
-        })
-    })
-
     describe('TracesIngestionConsumer billing identity', () => {
         const createTracesIngestionConsumer = (configOverrides: Record<string, any> = {}): TracesIngestionConsumer => {
             const tracesConsumer = new TracesIngestionConsumer(
@@ -2096,6 +2066,7 @@ describe('LogsIngestionConsumer', () => {
                             'test'
                         ),
                     }),
+                    usageBatch: new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
                 }
             )
             tracesConsumer['kafkaConsumer'] = {
@@ -2105,6 +2076,12 @@ describe('LogsIngestionConsumer', () => {
             } as any
             return tracesConsumer
         }
+
+        it('leaves pattern masking off even on a wildcard allowlist, because a trace record has no body', () => {
+            const tracesConsumer = createTracesIngestionConsumer({ LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' })
+
+            expect(tracesConsumer['isPatternMaskingEnabledForTeam'](team.id)).toEqual(false)
+        })
 
         it('meters usage as traces, not logs', async () => {
             const tracesConsumer = createTracesIngestionConsumer()
@@ -2151,6 +2128,188 @@ describe('LogsIngestionConsumer', () => {
 
             expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
             expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
+        })
+    })
+
+    describe('hog log transformations', () => {
+        let transformerConsumer: LogsIngestionConsumer
+
+        const buildTransformer = async (hog: string): Promise<LogsTransformerService> => {
+            const fn = {
+                id: '00000000-0000-0000-0000-000000000001',
+                team_id: team.id,
+                name: 'Test log transformation',
+                type: 'transformation_log',
+                enabled: true,
+                bytecode: await compileHog(hog),
+                inputs: {},
+                encrypted_inputs: null,
+                execution_order: 1,
+                created_at: new Date().toISOString(),
+            } as unknown as HogFunctionType
+            const manager = {
+                getHogFunctionsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn] }),
+                getHogFunctionIdsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn.id] }),
+            }
+            const monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
+            return new LogsTransformerService(manager as any, monitoring as any, {
+                siteUrl: 'http://localhost:8010',
+                hogTimeoutMs: 10,
+                messageBudgetMs: 100,
+                batchBudgetMs: 2000,
+                maxErrorLogsPerFunctionPerMessage: 3,
+            })
+        }
+
+        afterEach(async () => {
+            await transformerConsumer?.stop()
+        })
+
+        it('applies an enabled transformation to produced records', async () => {
+            const logsTransformer = await buildTransformer(`
+                let rec := record
+                rec.body := replaceAll(rec.body, 'sensitive', '[REDACTED]')
+                return rec
+            `)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage({ message: 'something sensitive here' })], {
+                token: team.api_token,
+            })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+            const [, , records] = await decodeLogRecords(logsMessages[0].value as Buffer)
+            expect(records).toHaveLength(1)
+            expect(records[0].body).toContain('[REDACTED]')
+            expect(records[0].body).not.toContain('sensitive')
+        })
+
+        it('does not produce a message when transformations drop every record', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'transformations_all_dropped', team_id: team.id.toString() },
+                1
+            )
+            // The OTel counter has to carry the same reason as the Prometheus one above —
+            // they were allowed to disagree, so a transformations drop read as sampling.
+            expect(recordLogMessageDroppedSpy).toHaveBeenCalledWith('transformations_all_dropped', team.id.toString())
+        })
+
+        it('attributes the full-message drop to transformations when sampling kept survivors', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            // Drop rule that does not match the record, so sampling keeps it and the
+            // transformation is what removes the last survivor.
+            const mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                getCompiledRuleSet: () =>
+                    Promise.resolve(
+                        compileRuleSet([
+                            {
+                                id: '00000000-0000-0000-0000-0000000000ab',
+                                rule_type: 'severity_sampling',
+                                scope_service: 'test-service',
+                                scope_path_pattern: null,
+                                scope_attribute_filters: [],
+                                config: { actions: { INFO: { type: 'drop' } } },
+                            },
+                        ])
+                    ),
+            }
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                { logsTransformer, samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage({ level: 'error' })], {
+                token: team.api_token,
+            })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'transformations_all_dropped', team_id: team.id.toString() },
+                1
+            )
+        })
+
+        it('does not run transformations when the team is not in the allowlist', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+        })
+
+        it('does not run transformations when the killswitch is on', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_KILLSWITCH: true },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+        })
+    })
+
+    describe('pattern masking (measure-only)', () => {
+        let maskingConsumer: LogsIngestionConsumer | undefined
+
+        afterEach(async () => {
+            await maskingConsumer?.stop()
+            maskingConsumer = undefined
+        })
+
+        it.each([
+            ['a wildcard allowlist runs the masking stage', () => '*', true],
+            ['an empty allowlist does not run the masking stage', () => '', false],
+            ["the team's id in the allowlist runs the masking stage", () => String(team.id), true],
+            ["only another team's id in the allowlist does not run the masking stage", () => String(team2.id), false],
+        ])('%s', async (_name, allowlist, expectMasked) => {
+            const bodyKindIncSpy = jest.spyOn(logsPatternBodyKindCounter, 'inc')
+            maskingConsumer = await createLogsIngestionConsumer(hub, {
+                LOGS_PATTERN_MASKING_ENABLED_TEAMS: allowlist(),
+            })
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+            if (expectMasked) {
+                expect(bodyKindIncSpy).toHaveBeenCalled()
+            } else {
+                expect(bodyKindIncSpy).not.toHaveBeenCalled()
+            }
         })
     })
 })

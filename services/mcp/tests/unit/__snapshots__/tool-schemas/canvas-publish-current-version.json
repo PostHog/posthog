@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_current_version_id": {
+            "description": "Current source version to publish. A changed head returns a 409 version_conflict.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this canvas.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "expected_current_version_id"],
+    "type": "object"
+}

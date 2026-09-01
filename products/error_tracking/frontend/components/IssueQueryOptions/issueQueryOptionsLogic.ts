@@ -3,9 +3,14 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { isUUIDLike } from 'lib/utils/guards'
 import { Params } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import {
+    ErrorTrackingIssue,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryIssueSeverity,
+} from '~/queries/schema/schema-general'
 
 import type {
     ErrorTrackingIssueAssignee,
@@ -17,6 +22,7 @@ export type ErrorTrackingQueryOrderBy = ErrorTrackingQuery['orderBy']
 export type ErrorTrackingQueryOrderDirection = ErrorTrackingQuery['orderDirection']
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
+export type ErrorTrackingQuerySeverity = ErrorTrackingQueryIssueSeverity | null
 
 export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
     last_seen: 'Last seen',
@@ -37,6 +43,56 @@ export function isValidOrderBy(orderBy: unknown): orderBy is ErrorTrackingQueryO
 const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
+const DEFAULT_SEVERITY = null
+
+// Like isValidOrderBy, but the assignee is an object, so it can be malformed in more ways: a bare
+// string, a missing or null id, a type outside user/role, or a resolved {id, type, user} object.
+// The query schema forbids unknown keys, so any of those makes every issues query fail with a 400
+// while the filter button still renders as unset — and the value is persisted, so it keeps failing
+// until someone finds "Remove assignee" in the dropdown. Keep only the two fields the query accepts.
+export function sanitizeAssignee(assignee: unknown): ErrorTrackingIssueAssignee | null {
+    if (!assignee || typeof assignee !== 'object') {
+        return DEFAULT_ASSIGNEE
+    }
+    const { id, type } = assignee as Partial<ErrorTrackingIssueAssignee>
+    if (type === 'user' && typeof id === 'number' && Number.isInteger(id)) {
+        return { id, type }
+    }
+    if (type === 'role' && typeof id === 'string' && isUUIDLike(id)) {
+        return { id, type }
+    }
+    return DEFAULT_ASSIGNEE
+}
+
+// The statuses the filter accepts: the query's status union minus archived/pending_release,
+// which are deprecated (writes rejected, legacy rows backfilled to resolved) and not offered by
+// the picker. Exhaustive over the rest, so removing a status from the schema fails typechecking.
+type FilterableStatus = Exclude<NonNullable<ErrorTrackingQueryStatus>, 'archived' | 'pending_release'>
+const VALID_STATUSES: Record<FilterableStatus, true> = {
+    all: true,
+    active: true,
+    resolved: true,
+    suppressed: true,
+}
+
+// Like isValidOrderBy: a persisted (localStorage), URL-provided, or tool-provided status can hold
+// a value outside the accepted set (a deprecated or renamed status, or free text produced by an
+// AI tool). Passing it through breaks the query or crashes the status filter render, so anything
+// unrecognized falls back to the default.
+export function isValidStatus(status: unknown): status is FilterableStatus {
+    return typeof status === 'string' && Object.hasOwn(VALID_STATUSES, status)
+}
+
+const VALID_SEVERITIES: Record<ErrorTrackingQueryIssueSeverity, true> = {
+    low: true,
+    medium: true,
+    high: true,
+    critical: true,
+}
+
+export function isValidSeverity(severity: unknown): severity is ErrorTrackingQueryIssueSeverity {
+    return typeof severity === 'string' && Object.hasOwn(VALID_SEVERITIES, severity)
+}
 
 export interface IssueQueryOptionsLogicProps {
     logicKey: string
@@ -47,6 +103,7 @@ export interface issueQueryOptionsLogicValues {
     assignee: ErrorTrackingQueryAssignee | null
     orderBy: ErrorTrackingQueryOrderBy
     orderDirection: ErrorTrackingQueryOrderDirection
+    severity: ErrorTrackingQuerySeverity
     status: ErrorTrackingQueryStatus
 }
 
@@ -60,6 +117,9 @@ export interface issueQueryOptionsLogicActions {
     }
     setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => {
         orderDirection: 'ASC' | 'DESC' | undefined
+    }
+    setSeverity: (severity: ErrorTrackingQuerySeverity) => {
+        severity: ErrorTrackingQuerySeverity
     }
     setStatus: (status: ErrorTrackingQueryStatus) => {
         status: ErrorTrackingQueryStatus | undefined
@@ -87,6 +147,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
+        setSeverity: (severity: ErrorTrackingQuerySeverity) => ({ severity }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
     }),
 
@@ -109,14 +170,21 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             DEFAULT_ASSIGNEE as ErrorTrackingQueryAssignee | null,
             { persist: true },
             {
-                setAssignee: (_, { assignee }) => assignee,
+                setAssignee: (_, { assignee }) => sanitizeAssignee(assignee),
             },
         ],
         status: [
             DEFAULT_STATUS as ErrorTrackingQueryStatus,
             { persist: true },
             {
-                setStatus: (_, { status }) => status,
+                setStatus: (_, { status }) => (isValidStatus(status) ? status : DEFAULT_STATUS),
+            },
+        ],
+        severity: [
+            DEFAULT_SEVERITY as ErrorTrackingQuerySeverity,
+            { persist: true },
+            {
+                setSeverity: (_, { severity }) => (isValidSeverity(severity) ? severity : DEFAULT_SEVERITY),
             },
         ],
     }),
@@ -148,6 +216,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'assignee', values.assignee, DEFAULT_ASSIGNEE)
                 updateSearchParams(params, 'status', values.status, DEFAULT_STATUS)
+                updateSearchParams(params, 'severity', values.severity, DEFAULT_SEVERITY)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 updateSearchParams(params, 'orderDirection', values.orderDirection, DEFAULT_ORDER_DIRECTION)
                 return params
@@ -157,6 +226,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         return {
             setOrderBy: () => buildURL(),
             setStatus: () => buildURL(),
+            setSeverity: () => buildURL(),
             setAssignee: () => buildURL(),
             setOrderDirection: () => buildURL(),
         }
@@ -169,11 +239,20 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                     actions.setOrderBy(params.orderBy)
                 }
             }
-            if (params.status && !equal(params.status, values.status)) {
-                actions.setStatus(params.status)
+            // Presence check rather than truthiness, since kea-router decodes `?status=` as ''
+            // and bare `?status` as null, which must also reset instead of being ignored.
+            if ('status' in params && !equal(params.status, values.status)) {
+                // Fall back to the default (which also lets actionToUrl scrub the param) so a
+                // stale link doesn't silently keep querying the previously persisted status.
+                actions.setStatus(isValidStatus(params.status) ? params.status : DEFAULT_STATUS)
             }
-            if (params.assignee && !equal(params.assignee, values.assignee)) {
+            // Presence check like status, so a link with a cleared assignee resets the persisted one.
+            if ('assignee' in params && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
+            }
+            const severity = isValidSeverity(params.severity) ? params.severity : DEFAULT_SEVERITY
+            if (!equal(severity, values.severity)) {
+                actions.setSeverity(severity)
             }
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
                 actions.setOrderDirection(params.orderDirection)
@@ -185,10 +264,20 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        // The persisted orderBy is loaded straight into state (bypassing the reducer), so an
-        // invalid stored value would otherwise reach the query and break the page. Reset it.
+        // Persisted values are loaded straight into state (bypassing the reducers), so an invalid
+        // stored value would otherwise reach the query and break the page. Reset them.
         if (!isValidOrderBy(values.orderBy)) {
             actions.setOrderBy(DEFAULT_ORDER_BY)
+        }
+        if (!isValidStatus(values.status)) {
+            actions.setStatus(DEFAULT_STATUS)
+        }
+        if (values.severity !== null && !isValidSeverity(values.severity)) {
+            actions.setSeverity(DEFAULT_SEVERITY)
+        }
+        const sanitizedAssignee = sanitizeAssignee(values.assignee)
+        if (!equal(values.assignee, sanitizedAssignee)) {
+            actions.setAssignee(sanitizedAssignee)
         }
     }),
 ])

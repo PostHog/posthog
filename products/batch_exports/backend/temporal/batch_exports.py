@@ -14,8 +14,9 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.cdp.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from posthog.kafka_client.routing import async_producer_scope
-from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings.base_variables import TEST
@@ -38,9 +39,9 @@ from products.batch_exports.backend.service import (
     update_batch_export_run,
 )
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
+from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -66,6 +67,8 @@ RecordsGenerator = collections.abc.Generator[pa.RecordBatch]
 
 AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes]
 AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch]
+
+KafkaPayload = dict[str, typing.Any]
 
 
 def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
@@ -157,6 +160,7 @@ def default_fields() -> list[BatchExportField]:
             expression="set_once",
             alias="set_once",
         ),
+        BatchExportField(expression="person_properties", alias="person_properties"),
     ]
 
 
@@ -174,6 +178,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
+        BatchExportField(expression="person_properties", alias="person_properties"),
     ]
 
 
@@ -365,9 +370,17 @@ def iter_records(
     yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
-def get_data_interval(
-    interval: str, data_interval_end: str | None, timezone: str | None = None
-) -> tuple[dt.datetime, dt.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DataInterval:
+    start: dt.datetime
+    end: dt.datetime
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DataInterval start must not be after end: start={self.start}, end={self.end}")
+
+
+def get_data_interval(interval: str, data_interval_end: str | None, timezone: str | None = None) -> DataInterval:
     """Return the start and end of an export's data interval.
 
     Args:
@@ -383,7 +396,7 @@ def get_data_interval(
         ValueError: If passing an unsupported interval value.
 
     Returns:
-        A tuple of two dt.datetime indicating start and end of the data_interval.
+        A DataInterval with the start and end of the data interval.
     """
     data_interval_end_str = data_interval_end
 
@@ -432,10 +445,10 @@ def get_data_interval(
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
-    return (data_interval_start_dt, data_interval_end_dt)
+    return DataInterval(start=data_interval_start_dt, end=data_interval_end_dt)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StartBatchExportRunInputs:
     """Inputs to the 'start_batch_export_run' activity.
 
@@ -473,6 +486,17 @@ class OverBillingLimitError(Exception):
         super().__init__(f"Team {team_id} is over billing limit for batch exports")
 
 
+def is_over_billing_limit_error(e: exceptions.ActivityError) -> bool:
+    """Check if an activity failed because a team is over billing limit.
+
+    Temporal doesn't propagate original exception classes across the activity
+    boundary: workflows see an `ActivityError` whose cause is an `ApplicationError`
+    carrying the original class name in its `type` attribute. So workflows cannot
+    catch `OverBillingLimitError` directly and must use this check instead.
+    """
+    return isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == OverBillingLimitError.__name__
+
+
 @activity.defn
 async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
     """Activity that creates an BatchExportRun and returns the run id.
@@ -508,17 +532,38 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
             status=BatchExportRun.Status.FAILED_BILLING,
             backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
         )
+        # Pre-fetch fields in async context, otherwise they would be lazily
+        # fetched below using blocking calls.
+        await run.arefresh_from_db(
+            from_queryset=BatchExportRun.objects.select_related("batch_export", "batch_export__destination")
+        )
 
         logger.info("Over billing limit")
         EXTERNAL_LOGGER.warning("Batch export run failed due to exceeding billing limits. No data has been exported.")
 
-        await try_produce_app_metrics(
-            status=BatchExportRun.Status.FAILED_BILLING,
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
-            batch_export_run_id=str(run.id),
-            rows_exported=0,
+        metric_payloads = make_app_metrics_payloads(
+            BatchExportRun.Status.FAILED_BILLING,
+            inputs.team_id,
+            inputs.batch_export_id,
+            str(run.id),
+            0,
         )
+        event_payloads = make_internal_events_payload(
+            BatchExportRun.Status.FAILED_BILLING,
+            inputs.team_id,
+            inputs.batch_export_id,
+            str(run.id),
+            run.batch_export.name if run.batch_export is not None else "Batch export on demand",
+            run.data_interval_start,
+            run.data_interval_end,
+            run.batch_export.destination.type if run.batch_export is not None else "On demand",
+            0,
+            "Over billing limit",
+            # TODO: Should we auto-pause on billing limit exceeded?
+            False,
+        )
+        await try_produce(metric_payloads, topic=KAFKA_APP_METRICS2)
+        await try_produce(event_payloads, topic=KAFKA_CDP_INTERNAL_EVENTS)
 
         raise OverBillingLimitError(inputs.team_id)
     else:
@@ -539,17 +584,20 @@ async def check_is_over_limit(team_id: int) -> bool:
     """
     team: Team = await Team.objects.aget(id=team_id)
 
-    limited_team_tokens_rows_synced = await asyncio.to_thread(
+    # The ROWS_EXPORTED resource stores a team attribute for each team that has
+    # exceeded their quota and thus is limited. The term "attribute" refers to
+    # a team identifier, which in our case is the team's API token.
+    limited_team_tokens_rows_exported = await asyncio.to_thread(
         list_limited_team_attributes, QuotaResource.ROWS_EXPORTED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
-    if team.api_token in limited_team_tokens_rows_synced:
+    if team.api_token in limited_team_tokens_rows_exported:
         return True
 
     return False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FinishBatchExportRunInputs:
     """Inputs to the 'finish_batch_export_run' activity.
 
@@ -596,9 +644,12 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     that's the case. Also, a notification is sent to users on every failure.
     """
     bind_contextvars(
-        team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status, on_demand=inputs.on_demand
+        team_id=inputs.team_id,
+        batch_export_id=inputs.batch_export_id,
+        status=inputs.status,
+        on_demand=inputs.on_demand,
+        batch_export_run_id=inputs.id,
     )
-    logger = LOGGER.bind()
     external_logger = EXTERNAL_LOGGER.bind()
 
     not_model_params = (
@@ -655,38 +706,29 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             failure_threshold=inputs.failure_threshold,
         )
 
-        if not is_over_failure_threshold:
-            return
+        was_paused = False
+        if is_over_failure_threshold:
+            was_paused = await try_pause_batch_export(inputs.batch_export_id)
+            await try_cancel_running_backfills(inputs.batch_export_id)
 
-        try:
-            was_paused = await pause_batch_export_over_failure_threshold(inputs.batch_export_id)
-        except Exception:
-            # Pausing could error if the underlying schedule is deleted.
-            # Our application logic should prevent that, but I want to log it in case it ever happens
-            # as that would indicate a bug.
-            logger.exception("Batch export could not be automatically paused")
-        else:
-            if was_paused:
-                external_logger.warning(
-                    "Batch export was automatically paused due to exceeding failure threshold and exhausting "
-                    "all automated retries."
-                    "The batch export can be unpaused after addressing any errors."
-                )
-
-        try:
-            total_cancelled = await cancel_running_backfills(
-                inputs.batch_export_id,
-            )
-        except Exception:
-            logger.exception("Ongoing backfills could not be automatically cancelled")
-        else:
-            if total_cancelled > 0:
-                external_logger.warning(
-                    f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
-                    f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
-                    " and exhausting all automated retries."
-                    "The backfill can be triggered again after addressing any errors."
-                )
+        payloads = make_internal_events_payload(
+            batch_export_run.status,
+            inputs.team_id,
+            inputs.batch_export_id,
+            inputs.id,
+            batch_export_run.batch_export.name
+            if batch_export_run.batch_export is not None
+            else "Batch export on demand",
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+            batch_export_run.batch_export.destination.type
+            if batch_export_run.batch_export is not None
+            else "On demand",
+            inputs.records_completed or 0,
+            batch_export_run.latest_error or "Unknown error",
+            was_paused,
+        )
+        await try_produce(payloads, topic=KAFKA_CDP_INTERNAL_EVENTS)
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         external_logger.warning(
@@ -703,19 +745,142 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             inputs.records_completed if inputs.records_completed is not None else "no",
         )
 
-    await try_produce_app_metrics(
-        batch_export_run.status, inputs.team_id, inputs.batch_export_id, inputs.id, inputs.records_completed or 0
+    payloads = make_app_metrics_payloads(
+        batch_export_run.status,
+        inputs.team_id,
+        inputs.batch_export_id,
+        inputs.id,
+        inputs.records_completed or 0,
     )
+    await try_produce(payloads, topic=KAFKA_APP_METRICS2)
 
 
-async def try_produce_app_metrics(
+async def try_pause_batch_export(batch_export_id: str) -> bool:
+    was_paused = False
+
+    try:
+        was_paused = await pause_batch_export_over_failure_threshold(batch_export_id)
+    except Exception:
+        # Pausing could error if the underlying schedule is deleted.
+        # Our application logic should prevent that, but I want to log it in case it ever happens
+        # as that would indicate a bug.
+        LOGGER.exception("Batch export could not be automatically paused")
+    else:
+        if was_paused:
+            EXTERNAL_LOGGER.warning(
+                "Batch export was automatically paused due to exceeding failure threshold and exhausting "
+                "all automated retries."
+                "The batch export can be unpaused after addressing any errors."
+            )
+    return was_paused
+
+
+async def try_cancel_running_backfills(batch_export_id: str) -> int | None:
+    total_cancelled = None
+
+    try:
+        total_cancelled = await cancel_running_backfills(
+            batch_export_id,
+        )
+    except Exception:
+        LOGGER.exception("Ongoing backfills could not be automatically cancelled")
+    else:
+        if total_cancelled > 0:
+            EXTERNAL_LOGGER.warning(
+                f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
+                f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
+                " and exhausting all automated retries."
+                "The backfill can be triggered again after addressing any errors."
+            )
+    return total_cancelled
+
+
+def make_internal_events_payload(
+    status: BatchExportRun.Status | str,
+    team_id: int,
+    batch_export_id: str,
+    batch_export_run_id: str,
+    batch_export_name: str,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime,
+    destination_type: str,
+    rows_exported: int,
+    error: str | None,
+    was_paused: bool,
+) -> list[KafkaPayload]:
+    """Generate kafka payloads for internal events.
+
+    Internal events are generated for each batch export result status and when
+    a batch export is paused. Initially intended only to communicate failure
+    states, but with support for all possible batch export status.
+    """
+    base_properties = {
+        "batch_export_id": batch_export_id,
+        "batch_export_run_id": batch_export_run_id,
+        "batch_export_name": batch_export_name,
+        "data_interval_start": data_interval_start.isoformat() if data_interval_start is not None else None,
+        "data_interval_end": data_interval_end.isoformat(),
+        "destination_type": destination_type,
+    }
+
+    extra_properties: dict[str, str | int | None] = {}
+    match status:
+        case BatchExportRun.Status.COMPLETED:
+            event = "$batch_export_run_completed"
+            assert rows_exported is not None
+            extra_properties["rows_exported"] = rows_exported
+        case BatchExportRun.Status.CANCELLED:
+            event = "$batch_export_run_cancelled"
+        case BatchExportRun.Status.FAILED_BILLING:
+            event = "$batch_export_run_failed_billing"
+            assert error is not None
+            extra_properties["error"] = error
+        case _:
+            event = "$batch_export_run_failed"
+            assert error is not None
+            # Truncation roughly matching other products, realistically we shouldn't hit it
+            extra_properties["error"] = error[:1000]
+
+    properties = {**base_properties, **extra_properties}
+    payloads = [
+        internal_event_to_dict(
+            create_internal_event(
+                team_id,
+                event=InternalEventEvent(
+                    event=event,
+                    properties=properties,
+                    distinct_id=f"team_{team_id}",
+                ),
+            )
+        )
+    ]
+
+    if not was_paused:
+        return payloads
+
+    payloads.append(
+        internal_event_to_dict(
+            create_internal_event(
+                team_id,
+                event=InternalEventEvent(
+                    event="$batch_export_paused",
+                    properties=properties,
+                    distinct_id=f"team_{team_id}",
+                ),
+            )
+        )
+    )
+    return payloads
+
+
+def make_app_metrics_payloads(
     status: BatchExportRun.Status | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,
     rows_exported: int,
-):
-    """Attempt to produce batch export run status to app_metrics2.
+) -> list[KafkaPayload]:
+    """Generate payloads with batch export run status for app_metrics2.
 
     The metric name and kind will depend on the reported status.
     """
@@ -753,18 +918,20 @@ async def try_produce_app_metrics(
         "metric_name": "rows_exported",
         "timestamp": timestamp,
     }
+    return [run_metric, rows_metric]
+
+
+async def try_produce(payloads: list[KafkaPayload], topic: str) -> None:
+    """Attempt to produce given payloads to kafka on topic."""
+    if not payloads:
+        return
 
     try:
-        async with async_producer_scope(topic=KAFKA_APP_METRICS2) as producer:
-            await producer.produce(topic=KAFKA_APP_METRICS2, data=run_metric)
-            await producer.produce(topic=KAFKA_APP_METRICS2, data=rows_metric)
+        async with async_producer_scope(topic=topic) as producer:
+            for payload in payloads:
+                await producer.produce(topic=topic, data=payload)
     except Exception:
-        LOGGER.exception(
-            "Metrics production failed",
-            team_id=team_id,
-            batch_export_id=batch_export_id,
-            metric_kind=metric_kind,
-        )
+        LOGGER.exception("Producer failed", topic=topic)
 
 
 async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):

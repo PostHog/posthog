@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { LemonButton, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useChart } from 'lib/hooks/useChart'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
@@ -19,110 +22,84 @@ const SIMULATION_RANGE_OPTIONS = [
     { value: '-7d', label: 'Last 7 days' },
 ]
 
-const CHART_COLORS = {
-    normal: { bg: 'rgba(99, 102, 241, 0.6)', border: 'rgba(67, 56, 202, 1)' },
-    breached: { bg: 'rgba(245, 158, 11, 0.6)', border: 'rgba(180, 83, 9, 1)' },
-    fired: { bg: 'rgba(220, 38, 38, 0.7)', border: 'rgba(153, 27, 27, 1)' },
-    threshold: { border: 'rgba(220, 38, 38, 0.5)' },
-} as const
+function BucketTooltipDetails({ bucket }: { bucket: LogsAlertSimulateBucketApi | undefined }): JSX.Element | null {
+    if (!bucket) {
+        return null
+    }
+    const details = [`State: ${bucket.state}`]
+    if (bucket.threshold_breached) {
+        details.push('Threshold breached')
+    }
+    if (bucket.notification === 'fire') {
+        details.push('Notification sent')
+    } else if (bucket.notification === 'resolve') {
+        details.push('Resolved notification sent')
+    }
+    return (
+        <div className="flex flex-col text-left">
+            {details.map((detail) => (
+                <span key={detail}>{detail}</span>
+            ))}
+        </div>
+    )
+}
 
 function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
-    const { canvasRef } = useChart({
-        getConfig: () => ({
-            type: 'bar' as const,
-            data: {
-                labels: result.buckets.map((b: LogsAlertSimulateBucketApi) =>
-                    dayjs(b.timestamp).format('MMM D, HH:mm')
-                ),
-                datasets: [
-                    {
-                        label: 'Log count',
-                        data: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.count),
-                        backgroundColor: result.buckets.map((b: LogsAlertSimulateBucketApi) =>
-                            b.notification === 'fire'
-                                ? CHART_COLORS.fired.bg
-                                : b.threshold_breached
-                                  ? CHART_COLORS.breached.bg
-                                  : CHART_COLORS.normal.bg
-                        ),
-                        borderColor: result.buckets.map((b: LogsAlertSimulateBucketApi) =>
-                            b.notification === 'fire'
-                                ? CHART_COLORS.fired.border
-                                : b.threshold_breached
-                                  ? CHART_COLORS.breached.border
-                                  : CHART_COLORS.normal.border
-                        ),
-                        borderWidth: 1,
-                    },
-                    {
-                        label: `Threshold (${result.threshold_count})`,
-                        data: Array(result.buckets.length).fill(result.threshold_count),
-                        type: 'line' as const,
-                        borderColor: CHART_COLORS.threshold.border,
-                        borderWidth: 1.5,
-                        borderDash: [4, 4],
-                        pointRadius: 0,
-                        fill: false,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    crosshair: false,
-                    legend: {
-                        display: true,
-                        position: 'bottom' as const,
-                        labels: {
-                            boxWidth: 8,
-                            boxHeight: 2,
-                            font: { size: 10 },
-                            padding: 8,
-                        },
-                    },
-                    tooltip: {
-                        enabled: true,
-                        callbacks: {
-                            label: (ctx) => {
-                                const bucket = result.buckets[ctx.dataIndex]
-                                if (!bucket) {
-                                    return `Count: ${ctx.parsed.y}`
-                                }
-                                const lines = [`Count: ${ctx.parsed.y}`, `State: ${bucket.state}`]
-                                if (bucket.threshold_breached) {
-                                    lines.push('Threshold breached')
-                                }
-                                if (bucket.notification === 'fire') {
-                                    lines.push('Notification sent')
-                                } else if (bucket.notification === 'resolve') {
-                                    lines.push('Resolved notification sent')
-                                }
-                                return lines
-                            },
-                        },
-                    },
+    const { labels, series } = useMemo(
+        () => ({
+            labels: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.timestamp),
+            series: [
+                {
+                    key: 'count',
+                    label: 'Log count',
+                    data: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.count),
+                    // One series with per-bar colors, so a bucket's simulated outcome is visible without
+                    // splitting the counts across three mutually exclusive series.
+                    bars: result.buckets.map((b: LogsAlertSimulateBucketApi) => {
+                        if (b.notification === 'fire') {
+                            return { color: getColorVar('danger') }
+                        }
+                        return b.threshold_breached ? { color: getColorVar('warning') } : {}
+                    }),
                 },
-                scales: {
-                    x: {
-                        display: true,
-                        ticks: { maxTicksLimit: 12, font: { size: 10 }, maxRotation: 45 },
-                    },
-                    y: {
-                        display: true,
-                        beginAtZero: true,
-                        ticks: { maxTicksLimit: 5, font: { size: 10 } },
-                        grid: { drawTicks: false },
-                    },
-                },
-            },
+            ] as Series[],
         }),
-        deps: [result],
-    })
+        [result]
+    )
+
+    const theme = useChartTheme()
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
+            showCrosshair: false,
+            // Buckets are minutes apart, and the surrounding incident table renders in local time.
+            xAxis: { interval: 'minute', timezone: dayjs.tz.guess() },
+            goalLines: [
+                {
+                    value: result.threshold_count,
+                    label: 'Threshold',
+                    displayLabel: true,
+                },
+            ],
+        }),
+        [result.threshold_count]
+    )
 
     return (
-        <div className="h-56">
-            <canvas ref={canvasRef} />
+        // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
+        <div className="h-56 flex flex-col">
+            <TimeSeriesBarChart
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={config}
+                tooltip={(ctx) => (
+                    <DefaultTooltip
+                        {...ctx}
+                        labelFormatter={(label) => dayjs(label).format('MMM D, HH:mm')}
+                        footer={<BucketTooltipDetails bucket={result.buckets[ctx.dataIndex]} />}
+                    />
+                )}
+            />
         </div>
     )
 }
@@ -203,14 +180,15 @@ function SimulationSummary({
     )
 }
 
-function SimulationIncidents({ incidents, threshold }: { incidents: Incident[]; threshold: number }): JSX.Element {
+function SimulationIncidents({
+    incidents,
+    threshold,
+}: {
+    incidents: Incident[]
+    threshold: number
+}): JSX.Element | null {
     if (incidents.length === 0) {
-        return (
-            <div className="text-center py-4 text-secondary text-sm border rounded">
-                No alerts — the alert would not have fired during this period.
-                {threshold > 0 && ' Consider lowering the threshold.'}
-            </div>
-        )
+        return null
     }
 
     return (
@@ -283,12 +261,39 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
     )
 }
 
-export function LogsAlertSimulation(): JSX.Element {
+function SimulationPlaceholder(): JSX.Element {
+    return (
+        <div className="relative h-56 overflow-hidden rounded border border-dashed border-border bg-bg-light">
+            <div aria-hidden className="space-y-4 p-4 opacity-60">
+                <LemonSkeleton className="h-32" />
+                <div className="flex gap-6">
+                    <LemonSkeleton className="h-8 w-16" repeat={3} />
+                </div>
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-bg-light/80 p-4 text-center">
+                <div>
+                    <div className="text-sm font-medium">Select a time range, then run a simulation</div>
+                    <p className="m-0 mt-1 text-xs text-secondary">
+                        Historical log counts and alert outcomes will appear here.
+                    </p>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { simulationResult, simulationResultLoading, simulationDateFrom } = useValues(logsAlertFormLogic)
     const { simulateAlert, setSimulationDateFrom } = useActions(logsAlertFormLogic)
 
-    return (
-        <div className="space-y-4 p-4">
+    const simulation = (
+        <div className="space-y-4">
+            {embedded ? (
+                <div>
+                    <h4 className="m-0">Preview</h4>
+                    <p className="m-0 text-xs text-secondary">Check how this alert would behave on historical data.</p>
+                </div>
+            ) : null}
             <div className="flex gap-2 items-center">
                 <LemonSelect
                     size="small"
@@ -310,12 +315,17 @@ export function LogsAlertSimulation(): JSX.Element {
 
             {simulationResult && <SimulationResults result={simulationResult} />}
 
-            {!simulationResult && !simulationResultLoading && (
-                <div className="text-center py-8 text-secondary text-sm">
-                    Select a time range and click "Run simulation" to preview how this alert would behave on historical
-                    data.
-                </div>
-            )}
+            {!simulationResult && !simulationResultLoading && <SimulationPlaceholder />}
         </div>
     )
+
+    if (embedded) {
+        return (
+            <LemonCard className="p-4" hoverEffect={false}>
+                {simulation}
+            </LemonCard>
+        )
+    }
+
+    return <div className="p-4">{simulation}</div>
 }

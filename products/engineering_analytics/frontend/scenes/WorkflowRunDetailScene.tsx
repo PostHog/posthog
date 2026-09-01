@@ -55,7 +55,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     if (!isValidRunId) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
                 <span className="text-secondary">That run id isn't valid.</span>
             </SceneContent>
@@ -98,7 +98,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -113,7 +113,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
             <SceneTitleSection
                 name="Workflow run"

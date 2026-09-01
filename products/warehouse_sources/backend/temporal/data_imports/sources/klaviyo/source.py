@@ -87,7 +87,7 @@ Grant read permissions for the data you want to sync. Tables you have not grante
 - Tags
 - Templates
 - Web feeds
-- Webhooks
+- Webhooks (requires Klaviyo's Advanced KDP add-on)
 
 The campaign and flow performance tables need a conversion metric. Leave the conversion metric ID blank to use your Placed Order metric, or paste the ID of another metric from [your Klaviyo metrics](https://www.klaviyo.com/analytics/metrics).
 """,
@@ -124,7 +124,14 @@ The campaign and flow performance tables need a conversion metric. Leave the con
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Ordered most-specific first: the first matching entry supplies the user-facing message
+        # (see `update_external_data_job_model`), so plan gating must precede the blanket 403 entry.
         return {
+            # Klaviyo gates some endpoints (webhooks today) behind its paid Advanced KDP add-on and
+            # 403s with this body detail even when the key's read scope is granted. `_fetch_page`
+            # appends the detail to the HTTPError message so it's matchable here; without this entry
+            # the blanket 403 mapping below blames the key's scopes, which the user can never fix.
+            "You must have Advanced KDP enabled": "Your Klaviyo plan does not include API access to this table. Klaviyo limits this endpoint to accounts with the Advanced KDP add-on, even when the API key has the required read scope. Syncing is paused for this table; re-enable it if you add Advanced KDP to your Klaviyo account.",
             # An invalid, revoked, or insufficiently-scoped Klaviyo API key surfaces as a requests
             # HTTPError when `fetch_page` calls `raise_for_status()`. Retrying can never satisfy a
             # credential problem, so stop the sync. Match the stable status text and base host, not
@@ -144,10 +151,13 @@ The campaign and flow performance tables need a conversion metric. Leave the con
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
-        # An endpoint's incremental lookback intentionally re-pulls a window of rows each run; only
-        # merge dedupes those on the primary key, append would materialize them as duplicates.
+        # An endpoint's incremental lookback intentionally re-pulls a window of rows each run, and a
+        # report re-posts its whole window every run; only merge dedupes those on the primary key,
+        # append would materialize them as duplicates.
         merge_only_endpoints = {
-            name for name, endpoint_config in KLAVIYO_ENDPOINTS.items() if endpoint_config.incremental_lookback
+            name
+            for name, endpoint_config in KLAVIYO_ENDPOINTS.items()
+            if endpoint_config.incremental_lookback or endpoint_config.values_report is not None
         }
 
         def _build_schema(endpoint: str) -> SourceSchema:

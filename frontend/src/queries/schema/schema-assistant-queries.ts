@@ -1,4 +1,5 @@
 import {
+    BehavioralPropertyFilter,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
@@ -271,6 +272,19 @@ export type AssistantPropertyFilter =
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
 
+export type AssistantBehavioralPropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
+
+export interface AssistantBehavioralPropertyFilter extends Omit<BehavioralPropertyFilter, 'operator'> {
+    operator?: AssistantBehavioralPropertyFilterOperator
+}
+
+export type AssistantInsightPropertyFilter = AssistantPropertyFilter | AssistantBehavioralPropertyFilter
+
 /**
  * Extended property filter union for recordings queries that also supports
  * recording-specific metric filters (e.g. duration, click_count, activity_score).
@@ -295,7 +309,7 @@ export interface AssistantInsightsQueryBase {
      *
      * @default []
      */
-    properties?: AssistantPropertyFilter[]
+    properties?: AssistantInsightPropertyFilter[]
 
     /**
      * Sampling rate from 0 to 1 where 1 is 100% of the data.
@@ -1342,6 +1356,20 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
@@ -1373,6 +1401,20 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1399,6 +1441,20 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1428,6 +1484,20 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call
+     * again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1460,6 +1530,20 @@ export interface AssistantStickinessActorsQuery {
 
     /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1523,6 +1607,20 @@ export interface AssistantFunnelsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1711,6 +1809,8 @@ export interface AssistantInsightVizNode {
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ * - `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.
+ * - `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.
  */
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
@@ -1721,6 +1821,8 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
+    | ChartDisplayType.ScatterPlot
+    | ChartDisplayType.BoxPlot
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
@@ -1742,14 +1844,14 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
 export interface AssistantDataVisualizationAxisFormatting {
     /** Text prepended to each value (e.g. `$`). */
     prefix?: string
-    /** Text appended to each value (e.g. `%` or ` ms`). */
+    /** Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign. */
     suffix?: string
     /**
      * Number formatting style.
      * - `none` — no formatting.
      * - `number` — thousands separators (e.g. `1,234`).
      * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
-     * - `percent` — render the value as a percentage.
+     * - `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
@@ -1790,8 +1892,32 @@ export interface AssistantDataVisualizationYAxisSettings {
     showGridLines?: boolean
 }
 
+export interface AssistantDataVisualizationBoxPlotSettings {
+    /** X-axis category column. Set to `null` for one overall distribution or one box per series. */
+    xAxisColumn?: string | null
+    /** Optional column that groups each X-axis value into separate colored series. Set to `null` for one series. */
+    seriesColumn?: string | null
+    /** Numeric column containing the minimum for each box. */
+    minColumn: string
+    /** Numeric column containing the 25th percentile for each box. */
+    p25Column: string
+    /** Numeric column containing the median for each box. */
+    medianColumn: string
+    /** Numeric column containing the mean for each box. */
+    meanColumn: string
+    /** Numeric column containing the 75th percentile for each box. */
+    p75Column: string
+    /** Numeric column containing the maximum for each box. */
+    maxColumn: string
+    /** Clip whiskers to 1.5 times the interquartile range. Defaults to true. */
+    excludeOutliers?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
-    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    /**
+     * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
+     * plots two measures against each other, so it needs a numeric column here too.
+     */
     xAxis?: AssistantDataVisualizationAxis
     /** Label rendered under the X axis. */
     xAxisLabel?: string
@@ -1801,9 +1927,12 @@ export interface AssistantDataVisualizationChartSettings {
     leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
     rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair. */
+    boxPlot?: AssistantDataVisualizationBoxPlotSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
-     * a line chart by `country`. Set to `null` or omit to disable.
+     * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
+     * x value, so it is ignored when `display` is `ScatterPlot`.
      */
     seriesBreakdownColumn?: string | null
     /** Horizontal goal lines drawn across the chart. */
@@ -1850,6 +1979,8 @@ export interface AssistantDataVisualizationNode {
      * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
+     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
      * - Otherwise → `ActionsTable`.
      */
     display?: AssistantDataVisualizationDisplayType

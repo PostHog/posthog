@@ -31,7 +31,12 @@ TERMINAL_JOB_STATUSES: frozenset[str] = frozenset(_TERMINAL_STATUS_TO_METRIC)
 
 # latest_error written when lock takeover force-fails a stuck-RUNNING job; sentinel that
 # lets update_external_job_status permit Failed -> Completed for takeover-failed jobs only.
-LOCK_TAKEOVER_LATEST_ERROR = "Lock takeover: workflow terminated but job was stuck in RUNNING"
+# Shown to the customer verbatim, so keep it plain; the exact string is the recovery sentinel,
+# so all comparisons must go through this constant rather than the literal.
+LOCK_TAKEOVER_LATEST_ERROR = (
+    "A previous sync run did not shut down cleanly and was still marked as running. "
+    "PostHog cleaned it up so syncing can continue. No action is needed."
+)
 
 
 def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:
@@ -48,6 +53,14 @@ def get_v3_lock_skipped_metric() -> MetricCounter:
     # counter a schema can silently miss every scheduled slot for days.
     return workflow.metric_meter().create_counter(
         "data_import_v3_lock_skipped", "Scheduled v3 runs skipped because the pipeline lock was not acquired."
+    )
+
+
+def get_version_check_skipped_metric() -> MetricCounter:
+    # Same visibility gap as the lock metric: the skip leaves no job row, so a persistently
+    # failing version check silently costs a schema every scheduled slot.
+    return workflow.metric_meter().create_counter(
+        "data_import_version_check_skipped", "Scheduled runs skipped because the pipeline version check failed."
     )
 
 

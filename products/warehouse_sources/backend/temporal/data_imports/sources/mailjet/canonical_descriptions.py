@@ -148,4 +148,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "UserAgent": "The user agent of the device that clicked the link.",
         },
     },
+    "messageevent": {
+        "description": (
+            "A delivery or engagement event pushed by the Mailjet Event API: sent, open, click, "
+            "bounce, blocked, spam or unsub. Mailjet has no list endpoint for this stream, so the "
+            "table is populated by webhook deliveries only."
+        ),
+        "docs_url": "https://dev.mailjet.com/email/guides/webhooks/",
+        "columns": {
+            "event_id": "Identifier PostHog derives from the delivery body so repeated deliveries of the same event collapse onto one row.",
+            "event": "The event type: sent, open, click, bounce, blocked, spam or unsub.",
+            "time": "Unix timestamp of the event.",
+            "email": "Email address of the recipient that triggered the event.",
+            "mj_campaign_id": "The internal Mailjet campaign identifier for the message.",
+            "mj_contact_id": "The internal Mailjet contact identifier for the recipient.",
+            "customcampaign": "Value of the X-Mailjet-Campaign header, when one was provided at send time.",
+            "MessageID": "The unique message identifier.",
+            "Message_GUID": "The globally unique identifier for the message.",
+            "CustomID": "The custom identifier provided at send time, if any.",
+            "Payload": "The event payload provided at send time, if any.",
+            "mj_message_id": "The unique message identifier as a string. Deprecated in favor of MessageID.",
+            "smtp_reply": "The raw SMTP response message. Sent events only.",
+            "ip": "IP address that triggered the event. Open, click and unsub events only.",
+            "geo": "Country code of the IP address that triggered the event.",
+            "agent": "User agent of the device that triggered the event.",
+            "url": "The link that was clicked. Click events only.",
+            "blocked": "Whether the bounce led to the recipient being blocked.",
+            "hard_bounce": "Whether the delivery error was permanent.",
+            "error_related_to": "The category the delivery error belongs to, such as recipient, domain or content.",
+            "error": "The delivery error, such as user unknown or invalid domain.",
+            "comment": "The raw SMTP error, including the reason for the bounce.",
+            "source": "The feedback loop program that reported the spam complaint. Spam events only.",
+            "mj_list_id": "The internal Mailjet contact list identifier. Unsub events only.",
+        },
+    },
 }

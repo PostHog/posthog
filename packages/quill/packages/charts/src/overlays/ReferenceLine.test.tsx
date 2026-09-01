@@ -76,6 +76,17 @@ describe('ReferenceLine', () => {
             expect(getByText('Target')).toBeTruthy()
         })
 
+        it('reveals the value on line hover even when the line has no text label', () => {
+            const { container, getByText, queryByText } = renderInChart(<ReferenceLine value={50} />)
+            expect(queryByText('50')).toBeNull() // nothing shown at rest
+            const hitArea = container.querySelector('[data-attr="hog-chart-reference-line-hit-area"]')!
+            expect(hitArea).not.toBeNull()
+            fireEvent.mouseEnter(hitArea)
+            expect(getByText('50')).toBeTruthy()
+            fireEvent.mouseLeave(hitArea)
+            expect(queryByText('50')).toBeNull()
+        })
+
         it('anchors the label at the start when labelPosition="start"', () => {
             const { getByText } = renderInChart(<ReferenceLine value={50} label="T" labelPosition="start" />)
             const label = getByText('T') as HTMLDivElement
@@ -114,9 +125,7 @@ describe('ReferenceLine', () => {
 
         it('renders a fill rect above the line when fillSide="above"', () => {
             const { container } = renderInChart(<ReferenceLine value={50} fillSide="above" />)
-            const divs = container.querySelectorAll<HTMLDivElement>('div')
-            expect(divs).toHaveLength(2)
-            const fill = divs[0]
+            const fill = container.querySelector<HTMLDivElement>('div[style*="background-color"]')!
             // above fill runs from plotTop down to the line y
             expect(fill.style.top).toBe('16px')
             expect(parseFloat(fill.style.height)).toBeGreaterThan(0)
@@ -124,9 +133,7 @@ describe('ReferenceLine', () => {
 
         it('renders a fill rect below the line when fillSide="below"', () => {
             const { container } = renderInChart(<ReferenceLine value={50} fillSide="below" />)
-            const divs = container.querySelectorAll<HTMLDivElement>('div')
-            expect(divs).toHaveLength(2)
-            const fill = divs[0]
+            const fill = container.querySelector<HTMLDivElement>('div[style*="background-color"]')!
             expect(parseFloat(fill.style.top)).toBeGreaterThan(DIMENSIONS.plotTop)
         })
 

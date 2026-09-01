@@ -33,6 +33,7 @@ from posthog.utils import (
     HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
     HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
     HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
+    DayRange,
     PotentialSecurityProblemException,
     _build_flag_provider,
     _read_preload_manifest,
@@ -112,6 +113,13 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/an.external.domain.com/something-outside-posthog",
             ),
+            # A relative path has no authority to judge, so reserved characters encoded in
+            # its query are ordinary data. absolute_uri builds most of our emailed links.
+            (
+                "/signup?email=someone%40example.com",
+                "https://app.posthog.com",
+                "https://app.posthog.com/signup?email=someone%40example.com",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
@@ -149,9 +157,14 @@ class TestAbsoluteUrls(TestCase):
             # passes, but HTTP clients/browsers route to attacker.example.
             ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
             ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+            # urljoin hands an absolute URL straight back, so the authority the caller
+            # embeds in a link or a redirect is the one supplied here.
+            ("percent_encoded_slash", "https://attacker.example%2F@app.posthog.com/path"),
+            ("percent_encoded_question_mark", "https://attacker.example%3F@app.posthog.com/path"),
+            ("percent_encoded_hash", "https://attacker.example%23@app.posthog.com/path"),
         ]
     )
-    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+    def test_absolute_uri_rejects_ambiguous_authority(self, _name: str, url: str) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri(url)
@@ -1091,7 +1104,7 @@ class TestSharingOverrideProtection(TestCase):
         ]
     )
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
@@ -1112,7 +1125,7 @@ class TestSharingOverrideProtection(TestCase):
         assert result == {"var1": {"value": "safe"}}
 
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_allowed_for_normal_auth(self, _mock):
@@ -1168,7 +1181,7 @@ class TestSharingOverrideProtection(TestCase):
         assert result == {"date_from": "-30d"}
 
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_blocked_for_shared_context_without_authenticator(self, _mock):
@@ -1402,6 +1415,12 @@ class TestSelfCaptureBrowserFlagToken(TestCase):
         # is the first one. Cascade deletes roll back with the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        # POSTHOG_SELF_TEAM_ID steers the browser token as well as the flag provider, so set the
+        # environment per test instead of inheriting whatever the ambient one holds.
+        env_patch = patch.dict(os.environ, {}, clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
     def test_browser_token_uses_dogfood_flags_team_not_self_capture_team(self):
@@ -1425,6 +1444,40 @@ class TestSelfCaptureBrowserFlagToken(TestCase):
 
         assert context["js_posthog_api_key"] == first_team.api_token
         assert first_team.api_token != recent_team.api_token
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_honors_explicit_self_team_id(self):
+        # A deploy that pins POSTHOG_SELF_TEAM_ID bootstraps flags from that team, so the browser
+        # token has to follow the pin. Reading the first team by PK instead hands posthog-js the
+        # token of whichever team is oldest, which on a long-lived deploy is a seed team that holds
+        # no internal flag definitions.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        pinned_team = Team.objects.create(organization=organization, name="Pinned")
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = str(pinned_team.id)
+        context = get_context_for_template("head.html", request)
+
+        assert context["js_posthog_api_key"] == pinned_team.api_token
+        assert pinned_team.api_token != first_team.api_token
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_unset_when_pinned_team_is_absent(self):
+        # The provider still pins flag definitions to the missing id, so falling back to another
+        # team's token would recreate the mismatch the pin exists to remove.
+        organization = Organization.objects.create(name="Org")
+        Team.objects.create(organization=organization, name="First")
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = "987654321"
+        context = get_context_for_template("head.html", request)
+
+        assert context.get("js_posthog_api_key") is None
 
 
 VALID_PRELOAD_MANIFEST = {
@@ -1481,3 +1534,16 @@ class TestReadPreloadManifest(SimpleTestCase):
         path = self._write_manifest(content)
 
         assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")
+
+
+class TestDayRange(SimpleTestCase):
+    START = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+
+    @parameterized.expand([("same_instant", timedelta(0)), ("full_day", timedelta(days=1))])
+    def test_accepts_ordered_bounds(self, _name: str, delta: timedelta) -> None:
+        day_range = DayRange(start=self.START, end=self.START + delta)
+        assert day_range.end - day_range.start == delta
+
+    def test_rejects_reversed_bounds(self) -> None:
+        with pytest.raises(ValueError, match="start"):
+            DayRange(start=self.START, end=self.START - timedelta(seconds=1))

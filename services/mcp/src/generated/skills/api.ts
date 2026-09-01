@@ -26,6 +26,12 @@ export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    owner_id: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.'
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
 })
 
@@ -39,7 +45,7 @@ export const LlmSkillsCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsCreateBodyNameMax = 64
 
-export const llmSkillsCreateBodyDescriptionMax = 4096
+export const llmSkillsCreateBodyDescriptionMax = 1024
 
 export const llmSkillsCreateBodyLicenseMax = 255
 
@@ -61,7 +67,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
-            .describe('What this skill does and when to use it. Max 4096 characters.'),
+            .describe('What this skill does and when to use it. Max 1024 characters.'),
         body: zod.string().describe('The SKILL.md instruction content (markdown).'),
         license: zod
             .string()
@@ -177,7 +183,7 @@ export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     skill_name: zod.string().regex(llmSkillsNamePartialUpdatePathSkillNameRegExp),
 })
 
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
+export const llmSkillsNamePartialUpdateBodyDescriptionMax = 1024
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
 
@@ -191,6 +197,8 @@ export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
 
 export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
+
+export const llmSkillsNamePartialUpdateBodyVersionDescriptionMax = 400
 
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
@@ -286,6 +294,11 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).'
         ),
+    version_description: zod
+        .string()
+        .max(llmSkillsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')

@@ -4,7 +4,7 @@ import re
 import ssl
 import math
 import time
-import functools
+import threading
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -18,6 +18,8 @@ from clickhouse_connect.driver.client import Client as ClickHouseClient
 from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
+from urllib3 import PoolManager
+from urllib3.response import HTTPResponse
 
 from posthog.exceptions_capture import capture_exception
 
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -43,6 +46,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+
+# Why a connection is allowed to skip the egress proxy, or None to stay proxied. A reason
+# rather than a bool so `_get_client` — where every call site converges — can check the
+# claim against the address it was given instead of trusting the caller's pairing.
+BypassEnvProxy = Literal["tunnel_loopback", "internal_team"] | None
 
 # ClickHouse default ports
 CLICKHOUSE_HTTP_PORT = 8123
@@ -142,6 +150,14 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
     "returned response code 429",
+    # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
+    # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
+    # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
+    # being briefly unreachable, not a customer config problem, so a fresh attempt recovers.
+    # Matching the full inner exception keeps this distinct from `Tunnel connection failed:
+    # 407` above, which wraps the same "Cannot connect to proxy." prefix around a deterministic
+    # proxy-auth response and must stay non-retryable.
+    "Cannot connect to proxy.', TimeoutError('timed out')",
 )
 
 
@@ -168,8 +184,25 @@ def _is_rate_limited(error_message: str) -> bool:
     return _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
 
 
+# The source server's own concurrency limit ("Code: 202. DB::Exception: Too many
+# simultaneous queries for all users. Current: N, maximum: N. (TOO_MANY_SIMULTANEOUS_QUERIES)")
+# rejects even the client-construction probe query when the server is already at capacity.
+# Like a 429, this is the server asking us to back off, not a config error, and it clears on
+# its own as other queries finish — so a backed-off retry recovers it the same way. The
+# "Current"/"maximum" counts are volatile; the ClickHouse error-code name is stable.
+_TRANSIENT_TOO_MANY_QUERIES_SUBSTRING = "TOO_MANY_SIMULTANEOUS_QUERIES"
+
+
+def _is_too_many_queries(error_message: str) -> bool:
+    return _TRANSIENT_TOO_MANY_QUERIES_SUBSTRING in error_message
+
+
 def _is_retryable_connect_error(error_message: str) -> bool:
-    return _is_transient_connect_drop(error_message) or _is_rate_limited(error_message)
+    return (
+        _is_transient_connect_drop(error_message)
+        or _is_rate_limited(error_message)
+        or _is_too_many_queries(error_message)
+    )
 
 
 def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
@@ -194,8 +227,39 @@ def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) 
             )
 
 
-@functools.cache
-def _no_env_proxy_pool_manager(verify: bool) -> Any:
+class _NoRedirectPoolManager(PoolManager):
+    """A urllib3 manager that refuses to follow redirects.
+
+    Only proxy-bypassing connections use this manager. urllib3 follows a cross-host redirect
+    on the same manager, so without this the host we connect to could answer with a redirect
+    to an arbitrary address and we would fetch it directly from the worker, which is the
+    reachability the egress proxy exists to deny. A ClickHouse HTTP endpoint has no reason to
+    redirect us, so refusing costs nothing: the 3xx response goes back to clickhouse-connect,
+    which reports it as a connection error.
+
+    Enforced by overriding `urlopen` rather than through the pool's `retries` option because
+    clickhouse-connect passes its own `retries` on every request, which would take precedence
+    over a pool-level default.
+    """
+
+    # The urllib3 1.26 stub types `urlopen` with the generic `RequestMethods` parameters and
+    # omits `redirect`, even though it is the real third parameter of `PoolManager.urlopen`.
+    # Declaring the stub's parameters instead would forward `encode_multipart` down to
+    # `HTTPConnectionPool.urlopen`, which rejects it, so match the runtime signature.
+    def urlopen(self, method: str, url: str, redirect: bool = True, **kw: Any) -> HTTPResponse:  # type: ignore[override]
+        return super().urlopen(method, url, redirect=False, **kw)
+
+
+# Bounds the manager cache below. `server_hostname` is user-controlled (the source's
+# configured host), so an unbounded cache would let repeated credential validations with
+# distinct hostnames retain a manager each for the life of the worker. Far above the number
+# of distinct tunneled HTTPS hostnames a worker legitimately serves concurrently.
+_POOL_MANAGER_CACHE_MAX = 32
+_pool_managers: collections.OrderedDict[tuple[bool, str | None], Any] = collections.OrderedDict()
+_pool_managers_lock = threading.Lock()
+
+
+def _no_env_proxy_pool_manager(verify: bool, server_hostname: str | None = None) -> Any:
     """A shared urllib3 pool manager that never consults HTTP(S)_PROXY env vars.
 
     clickhouse-connect only checks the proxy env vars when it builds its own
@@ -203,8 +267,43 @@ def _no_env_proxy_pool_manager(verify: bool) -> Any:
     from the egress proxy (see posthog/security/outbound_proxy.py for the
     requests/httpx equivalents). Cached because clients don't own an injected
     manager (`close()` leaves it alive), so per-call managers would leak.
+
+    `server_hostname` keeps TLS verification honest through an SSH tunnel: we dial the
+    tunnel's loopback bind, but SNI and hostname validation must run against the database's
+    own hostname or the certificate can never match. Mirrors what clickhouse-connect does
+    with `server_host_name` when it builds its own manager — a branch it skips entirely
+    when handed a `pool_mgr`.
+
+    LRU-bounded: eviction closes the manager's pools and removes it from the library's
+    process-global registry, the two places that would otherwise retain it forever. An
+    evicted manager still held by a live client keeps working — urllib3 rebuilds pools on
+    demand — it just stops being shared or expiry-swept.
+
+    Built from clickhouse-connect's own options factory so the TCP keepalive tuning and
+    certificate handling match a direct connection, then recorded where the library tracks
+    its own managers so connection expiry and interpreter-exit cleanup cover this one too.
     """
-    return httputil.get_pool_manager(verify=verify)
+    key = (verify, server_hostname)
+    with _pool_managers_lock:
+        manager = _pool_managers.get(key)
+        if manager is not None:
+            _pool_managers.move_to_end(key)
+            return manager
+
+        options = httputil.get_pool_manager_options(verify=verify)
+        if server_hostname:
+            if verify:
+                options["assert_hostname"] = server_hostname
+            options["server_hostname"] = server_hostname
+        manager = _NoRedirectPoolManager(**options)
+        httputil.all_managers[manager] = int(time.time())
+        _pool_managers[key] = manager
+
+        while len(_pool_managers) > _POOL_MANAGER_CACHE_MAX:
+            _, evicted = _pool_managers.popitem(last=False)
+            httputil.all_managers.pop(evicted, None)
+            evicted.clear()
+        return manager
 
 
 def _get_client(
@@ -218,7 +317,8 @@ def _get_client(
     verify: bool,
     query_timeout: int = DATA_QUERY_TIMEOUT_SECONDS,
     settings: Optional[dict[str, Any]] = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> ClickHouseClient:
     """Create a ClickHouse HTTP client.
 
@@ -227,11 +327,27 @@ def _get_client(
     reader that we use to read very large tables without buffering them in
     memory.
 
-    `bypass_env_proxy` connects directly instead of honouring the
-    HTTP(S)_PROXY env vars. Only ever set for PostHog-internal teams
-    (`is_team_allowlisted_for_internal_hosts`) — for customer-supplied config
-    the egress proxy is the SSRF backstop and must stay in the path.
+    `bypass_env_proxy` names why the connection may skip the HTTP(S)_PROXY env
+    vars: "internal_team" for PostHog-internal teams
+    (`is_team_allowlisted_for_internal_hosts`), "tunnel_loopback" for an
+    address that came out of our own SSH tunnel — the proxy blocks the tunnel's
+    loopback bind, and no request would reach the forwarded port. For a
+    customer-supplied host the egress proxy is the SSRF backstop and must stay
+    in the path, so the tunnel claim is checked against the address here: the
+    flag and the host travel to this point independently, and a caller pairing
+    "tunnel_loopback" with a non-loopback host has lost that pairing.
+
+    `server_hostname` (tunnel only) is the database's own hostname, so TLS SNI
+    and certificate hostname validation run against it rather than against the
+    loopback address we dial — disabling verification is not the supported way
+    to make HTTPS work through a tunnel.
     """
+    if bypass_env_proxy == "tunnel_loopback":
+        _require_loopback(host)
+    pool_mgr = None
+    if bypass_env_proxy:
+        tunnel_tls_hostname = server_hostname if bypass_env_proxy == "tunnel_loopback" and secure else None
+        pool_mgr = _no_env_proxy_pool_manager(verify, tunnel_tls_hostname)
     attempt = 0
     while True:
         try:
@@ -248,7 +364,7 @@ def _get_client(
                 send_receive_timeout=query_timeout,
                 query_limit=0,  # we manage limits ourselves
                 compress=True,
-                pool_mgr=_no_env_proxy_pool_manager(verify) if bypass_env_proxy else None,
+                pool_mgr=pool_mgr,
             )
         except (ClickHouseError, OSError, ssl.SSLError) as e:
             # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
@@ -258,10 +374,15 @@ def _get_client(
             attempt += 1
             message = str(e)
             if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
-                # A 429 is the server asking us to slow down, so back off
-                # exponentially to give the rate limit room to clear; a dropped
-                # connection just needs a re-dial, so a short linear wait is enough.
-                wait = _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) if _is_rate_limited(message) else attempt
+                # A 429 or a too-many-queries rejection is the server asking us to
+                # slow down, so back off exponentially to give it room to clear; a
+                # dropped connection just needs a re-dial, so a short linear wait
+                # is enough.
+                wait = (
+                    _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                    if _is_rate_limited(message) or _is_too_many_queries(message)
+                    else attempt
+                )
                 structlog.get_logger().warning(
                     "Transient ClickHouse connect error; retrying",
                     attempt=attempt,
@@ -353,7 +474,8 @@ def get_schemas(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Discover columns for all tables in the given database.
 
@@ -372,6 +494,7 @@ def get_schemas(
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
         bypass_env_proxy=bypass_env_proxy,
+        server_hostname=server_hostname,
     )
 
     try:
@@ -469,7 +592,8 @@ def get_clickhouse_row_count(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, int]:
     """Return total_rows per table from `system.tables`.
 
@@ -492,6 +616,7 @@ def get_clickhouse_row_count(
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
         bypass_env_proxy=bypass_env_proxy,
+        server_hostname=server_hostname,
     )
 
     try:
@@ -595,7 +720,8 @@ def get_connection_metadata(
     password: str | None,
     secure: bool,
     verify: bool,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, Any]:
     """Probe the server for version metadata.
 
@@ -613,6 +739,7 @@ def get_connection_metadata(
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
         bypass_env_proxy=bypass_env_proxy,
+        server_hostname=server_hostname,
     )
 
     try:
@@ -784,11 +911,16 @@ def _is_materialized_view_engine(engine: str | None) -> bool:
 
 def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Table[ClickHouseColumn]:
     """Read columns + table type for a single table from system tables."""
+    # Skip ALIAS and EPHEMERAL columns, matching `get_schemas`'s discovery query — see its
+    # comment for why: our `SELECT *` expands to an explicit column list, and an included
+    # ALIAS whose defining expression no longer resolves fails the whole sync query with
+    # UNKNOWN_IDENTIFIER (code 47), while EPHEMERAL columns aren't selectable at all.
     cols_result = client.query(
         """
         SELECT name, type
         FROM system.columns
         WHERE database = %(database)s AND table = %(table)s
+          AND default_kind NOT IN ('ALIAS', 'EPHEMERAL')
         ORDER BY position ASC
         """,
         parameters={"database": database, "table": table_name},
@@ -847,7 +979,8 @@ def get_primary_keys_for_schemas(
     secure: bool,
     verify: bool,
     table_names: list[str],
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys (sorting key columns) for multiple tables.
 
@@ -870,6 +1003,7 @@ def get_primary_keys_for_schemas(
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
             bypass_env_proxy=bypass_env_proxy,
+            server_hostname=server_hostname,
         )
         try:
             for table_name in table_names:
@@ -1272,7 +1406,8 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
-    bypass_env_proxy: bool = False,
+    bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1296,6 +1431,7 @@ def clickhouse_source(
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
             bypass_env_proxy=bypass_env_proxy,
+            server_hostname=server_hostname,
         )
 
         try:
@@ -1335,6 +1471,7 @@ def clickhouse_source(
                 verify=verify,
                 names=[table_name],
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=server_hostname,
             )
             rows_to_sync: int | None = row_counts.get(table_name)
 
@@ -1381,6 +1518,7 @@ def clickhouse_source(
                 query_timeout=DATA_QUERY_TIMEOUT_SECONDS,
                 settings=_query_settings(chunk_size),
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=server_hostname,
             )
 
             try:

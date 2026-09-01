@@ -27,7 +27,9 @@ Two PR keys, by design: ``pr_number`` is the runs builder's association-derived 
 run has no own-repo ``pull_requests`` association — pushes to master, fork PRs), and
 ``commit_pr_number`` resolves the merged PR that produced the head commit. The latter is how a
 master push run gets PR attribution at all, since its association is empty (SPEC §6). Both come
-straight off the runs builder, which defines each key once for every consumer.
+straight off the runs builder, which defines each key once for every consumer. On a merge-queue
+gate run ``pr_number`` is the PR the queue was landing rather than an association, and
+``is_merge_queue`` is what tells the two apart.
 
 ``created_at_raw`` is the unparsed jobs ``created_at`` string riding alongside the parsed
 ``created_at``. Consumers windowing this view pair their precise ``created_at`` bound with a coarse
@@ -42,7 +44,13 @@ Nothing here is registered as a global HogQL view; it is provisioned per-team as
 
 from typing import TYPE_CHECKING
 
-from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, IntegerDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+)
 
 from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
@@ -79,6 +87,11 @@ FIELDS: dict[str, FieldOrTable] = {
     "commit_author_email": StringDatabaseField(name="commit_author_email", nullable=True),
     "commit_message": StringDatabaseField(name="commit_message", nullable=True),
     "commit_pr_number": IntegerDatabaseField(name="commit_pr_number", nullable=True),
+    "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
+    # A job GitHub re-listed under a later run_attempt without re-running it (see the workflow_jobs
+    # builder). Its timestamps and conclusion are the earlier attempt's, so a boundary or duration
+    # read that counts it counts one execution twice.
+    "is_rerun_copy": BooleanDatabaseField(name="is_rerun_copy"),
 }
 
 
@@ -139,7 +152,11 @@ def build_query(*, jobs_table: str, runs_table: str, pull_requests_table: str | 
             hc.commit_author_name AS commit_author_name,
             hc.commit_author_email AS commit_author_email,
             hc.commit_message AS commit_message,
-            r.commit_pr_number AS commit_pr_number
+            r.commit_pr_number AS commit_pr_number,
+            -- The run ran on a merge-queue gate branch, so pr_number above is the PR it was landing
+            -- rather than an association. Without this the two populations are indistinguishable.
+            r.is_merge_queue AS is_merge_queue,
+            j.is_rerun_copy AS is_rerun_copy
         FROM ({jobs}) AS j
         LEFT JOIN ({runs}) AS r ON j.run_id = r.id
         LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id

@@ -11,7 +11,12 @@ import { UserUIConfiguration } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { uiCustomizationLogic, withSidebarItemVisibility, withSidebarSectionVisibility } from './uiCustomizationLogic'
+import {
+    uiCustomizationLogic,
+    withSidebarItemVisibility,
+    withSidebarPatch,
+    withSidebarSectionVisibility,
+} from './uiCustomizationLogic'
 
 describe('uiCustomizationLogic', () => {
     let logic: ReturnType<typeof uiCustomizationLogic.build>
@@ -111,6 +116,55 @@ describe('uiCustomizationLogic', () => {
         expect(withSidebarSectionVisibility(null, 'my_tools', false)).toEqual({
             version: 1,
             sidebar: { sections: { my_tools: { visible: false } } },
+        })
+    })
+
+    it('defaults to comfortable density when no configuration is set', () => {
+        seedUser(null)
+        expect(logic.values.sidebarDensity).toBe('comfortable')
+    })
+
+    it('returns the stored density from the configuration', () => {
+        seedUser({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+        expect(logic.values.sidebarDensity).toBe('compact')
+    })
+
+    it('ignores stored density when the customization flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        seedUser({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+        expect(logic.values.sidebarDensity).toBe('comfortable')
+    })
+
+    it('persists density change optimistically', async () => {
+        seedUser({ version: 1, sidebar: { density: 'comfortable' } })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSidebarDensity('compact')
+        }).toFinishAllListeners()
+
+        expect(logic.values.sidebarDensity).toBe('compact')
+        expect(patchedUser?.ui_configuration).toEqual({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+    })
+
+    it('withSidebarPatch merges density into configuration', () => {
+        expect(withSidebarPatch(null, { density: 'compact' })).toEqual({
+            version: 1,
+            sidebar: { density: 'compact' },
+        })
+        expect(
+            withSidebarPatch({ version: 1, sidebar: { items: { data: { visible: false } } } }, { density: 'compact' })
+        ).toEqual({
+            version: 1,
+            sidebar: { items: { data: { visible: false } }, density: 'compact' },
         })
     })
 })

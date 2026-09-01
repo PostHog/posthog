@@ -27,10 +27,17 @@ from typing import Any, NoReturn
 
 import click
 import requests
+from hogli import telemetry
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-_TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
+_TAILSCALE_RUNBOOK_URL = "https://wiki.posthog.com/access/vpn#which-tailnet"
+# The only tailnet that routes to devboxes. PostHog also runs per-environment
+# tailnets (dev, prod-us, prod-eu, internal) for CI runners and subnet routers;
+# none of them reach the Coder control plane. Tailscale only asks which tailnet
+# to join at first sign-in, so someone who picked wrong there stays wrong
+# silently and forever -- worth naming as its own diagnosis.
+EXPECTED_TAILNET = "posthog.com"
 DEFAULT_TEMPLATE = "posthog-linux"
 # Newer coder versions added an interactive "Select a preset" prompt to `coder
 # create` that `--yes` does not bypass. Callers must always forward `--preset`
@@ -119,9 +126,15 @@ class CoderUserInfo(dict[str, str]):
     """Normalized subset of Coder user fields used by hogli."""
 
 
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
+def _fail(message: str, *, cause: str | None = None) -> NoReturn:
+    """Print a short actionable error and exit.
+
+    ``cause`` is a stable slug recorded on the command's telemetry event.
+    Without it every distinct failure reads as one undifferentiated error.
+    """
     click.echo(click.style(message, fg="red"))
+    if cause:
+        telemetry.add_command_properties(devbox_failure_cause=cause)
     raise SystemExit(1)
 
 
@@ -353,10 +366,34 @@ def _tailscale_status() -> dict[str, Any] | None:
         return None
 
 
+def _backend_running(status: dict[str, Any] | None) -> bool:
+    """Return whether a `tailscale status --json` blob reports a live backend."""
+    return bool(status and status.get("BackendState") == "Running")
+
+
+def _tailnet_name(status: dict[str, Any] | None) -> str | None:
+    """Return the active tailnet's name from a `tailscale status --json` blob."""
+    current_tailnet = (status or {}).get("CurrentTailnet")
+    if not isinstance(current_tailnet, dict):
+        return None
+    name = current_tailnet.get("Name")
+    return name if isinstance(name, str) and name else None
+
+
 def tailscale_connected() -> bool:
     """Check if Tailscale is running and connected."""
+    return _backend_running(_tailscale_status())
+
+
+def tailscale_state() -> tuple[bool, str | None]:
+    """Return ``(connected, tailnet name)`` from a single `tailscale status` probe.
+
+    Bundled because each `_tailscale_status()` call is a subprocess, and the
+    two facts are always reported next to each other. The name is ``None``
+    when Tailscale is down or the blob does not name a tailnet.
+    """
     status = _tailscale_status()
-    return bool(status and status.get("BackendState") == "Running")
+    return _backend_running(status), _tailnet_name(status)
 
 
 def _tailscale_install_hint() -> str:
@@ -386,6 +423,21 @@ def _tailscale_cli_missing_on_macos() -> bool:
     return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
 
 
+def _tailnet_switch_hint() -> str:
+    """Return the command for moving to the PostHog tailnet.
+
+    On macOS the GUI is how most people signed in, and `tailscale` is often
+    not on PATH at all -- so name the app-bundle CLI there instead.
+    """
+    cli = _MACOS_TAILSCALE_CLI if _tailscale_cli_missing_on_macos() else "tailscale"
+    return (
+        f"`{cli} switch {EXPECTED_TAILNET}` if you have signed into it before, "
+        f"otherwise `{cli} logout && {cli} login` and pick {EXPECTED_TAILNET} "
+        "at the tailnet picker (in the GUI: Add account, sign in, select "
+        f"{EXPECTED_TAILNET})."
+    )
+
+
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     """Fail fast when the host is not connected to a Tailscale tailnet.
 
@@ -402,7 +454,8 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "Tailscale is not installed.\n"
             f"  {_tailscale_install_hint()}\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_installed",
         )
 
     # CLI is resolvable, but the daemon is not running -- the user needs to
@@ -417,14 +470,16 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "  To use the CLI from your shell, symlink it once:\n"
             f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_connected_cli_missing",
         )
 
     _fail(
         "Tailscale is installed but not connected.\n"
         f"  {_tailscale_connect_hint()}\n"
         f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-        f"  Then {setup_hint}"
+        f"  Then {setup_hint}",
+        cause="tailscale_not_connected",
     )
 
 
@@ -448,6 +503,10 @@ def ensure_tailscale_routes_accepted() -> None:
     if _tailscale_routes_accepted():
         return
 
+    # The fix below is silent, so without this the number of hosts that land
+    # here stays unknowable.
+    telemetry.add_command_properties(devbox_routes_were_off=True)
+
     tailscale_path = _resolve_tailscale()
     if not tailscale_path:
         return
@@ -460,7 +519,10 @@ def ensure_tailscale_routes_accepted() -> None:
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
         manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
-        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
+        _fail(
+            f"Failed to enable Tailscale subnet routes. Run manually: {manual}",
+            cause="accept_routes_failed",
+        )
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -481,8 +543,12 @@ class CoderReachabilityDiagnosis:
     fix rather than a list of commands the user has to interpret. ``facts``
     is a short list of diagnostic data (tailnet name, resolved IP, peer
     health) that is safe to share verbatim when asking for help.
+
+    ``code`` is the same cause as a stable slug. ``cause`` interpolates
+    hostnames and peer names, so it cannot be grouped on.
     """
 
+    code: str
     cause: str
     next_step: str
     facts: list[str]
@@ -527,26 +593,39 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     status = _tailscale_status()
     tailnet_name: str | None = None
     if status:
-        current_tailnet = status.get("CurrentTailnet")
-        if isinstance(current_tailnet, dict):
-            name = current_tailnet.get("Name")
-            if isinstance(name, str) and name:
-                tailnet_name = name
-                facts.append(f"Tailscale tailnet: {name}")
-        if tailnet_name is None:
-            facts.append("Tailscale tailnet: <unknown>")
+        tailnet_name = _tailnet_name(status)
+        facts.append(f"Tailscale tailnet: {tailnet_name or '<unknown>'}")
     else:
         facts.append("Tailscale status: unavailable")
+
+    # Checked before DNS and TCP because every downstream probe fails the same
+    # way from the wrong tailnet, and their fixes (MagicDNS, the ACL grant)
+    # would all be red herrings.
+    if tailnet_name is not None and tailnet_name != EXPECTED_TAILNET:
+        return CoderReachabilityDiagnosis(
+            code="wrong_tailnet",
+            cause=f"Signed into the '{tailnet_name}' tailnet, not '{EXPECTED_TAILNET}'.",
+            next_step=(
+                f"Devboxes only exist on '{EXPECTED_TAILNET}' — the other tailnets are for CI "
+                f"runners and subnet routers. Switch: {_tailnet_switch_hint()} "
+                f"Details: {_TAILSCALE_RUNBOOK_URL}"
+            ),
+            facts=facts,
+        )
 
     resolved_ip = _resolve_host_ip(host)
     if resolved_ip is None:
         facts.append(f"DNS for {host}: failed")
         return CoderReachabilityDiagnosis(
+            code="dns_lookup_failed",
             cause=f"DNS lookup for {host} failed.",
             next_step=(
-                "MagicDNS may be off or you may be on the wrong tailnet. "
-                "Verify the tailnet name above is PostHog's, then run "
-                "`sudo tailscale up --accept-dns`."
+                "MagicDNS is probably off — turn on 'Use Tailscale DNS' in the "
+                "client, or run `sudo tailscale up --accept-dns`. If it is "
+                "already on, a stale router/ISP resolver is the usual culprit: "
+                "add 8.8.8.8 or 1.1.1.1 to this machine's DNS settings. Do not "
+                "reach for an exit node — devboxes are reached as tailnet peers, "
+                "so it only slows everything down and hides the real cause."
             ),
             facts=facts,
         )
@@ -555,6 +634,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if _tcp_reachable(host, 443):
         facts.append(f"TCP {host}:443: open")
         return CoderReachabilityDiagnosis(
+            code="https_probe_failed",
             cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
             next_step=(
                 "The Coder deployment may be restarting, or your system clock "
@@ -591,12 +671,13 @@ def _diagnose_blocked_route(
 
     if not routers:
         return CoderReachabilityDiagnosis(
+            code="no_subnet_routes_advertised",
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
-                "Either you are not on the PostHog tailnet (check the name "
-                "above), or your account has not been added to the Tailscale "
-                f"policy yet. See {_TAILSCALE_RUNBOOK_URL} for the policy "
-                "request flow, then reach out to Team DevEx with the facts below."
+                f"Either you are not on the '{EXPECTED_TAILNET}' tailnet (check "
+                "the name above), or your account has not been added to the "
+                f"Tailscale policy yet. See {_TAILSCALE_RUNBOOK_URL} for both, "
+                "then reach out to Team DevEx with the facts below."
             ),
             facts=facts,
         )
@@ -604,6 +685,7 @@ def _diagnose_blocked_route(
     if not online_routers:
         names = ", ".join(str(p.get("HostName") or "?") for p in routers)
         return CoderReachabilityDiagnosis(
+            code="subnet_router_offline",
             cause=f"Subnet router peer is offline ({names}).",
             next_step=(
                 "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
@@ -612,6 +694,7 @@ def _diagnose_blocked_route(
         )
 
     return CoderReachabilityDiagnosis(
+        code="tcp_blocked",
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
@@ -647,7 +730,7 @@ def ensure_coder_reachable() -> None:
             *(f"  - {fact}" for fact in diagnosis.facts),
         ]
     )
-    _fail(body)
+    _fail(body, cause=diagnosis.code)
 
 
 def _encode_ssh_option(value: str) -> str:
@@ -830,7 +913,7 @@ def ensure_coder_authenticated() -> None:
         return
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
     click.echo(f"Logging in to {coder_url}...")
@@ -846,10 +929,10 @@ def ensure_runtime_ready() -> None:
     ensure_coder_reachable()
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 

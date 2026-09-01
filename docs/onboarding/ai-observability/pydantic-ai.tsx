@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -17,7 +18,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-pydantic-ai)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
                             wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-pydantic-ai).
                         </Markdown>
@@ -118,6 +119,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
     ]
 }
 

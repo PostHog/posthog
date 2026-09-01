@@ -49,6 +49,8 @@ class TestAddPyarrowSchema:
             ("timestamp_us", pa.timestamp("us"), "DateTimeDatabaseField"),
             ("date32", pa.date32(), "DateDatabaseField"),
             ("decimal128", pa.decimal128(10, 2), "FloatDatabaseField"),
+            ("binary", pa.binary(), "StringDatabaseField"),
+            ("large_binary", pa.large_binary(), "StringDatabaseField"),
         ]
     )
     def test_maps_arrow_type(self, _name: str, arrow_type: pa.DataType, expected: str):
@@ -56,13 +58,6 @@ class TestAddPyarrowSchema:
         fields: list[pa.Field] = [pa.field("col", arrow_type)]
         schema.add_pyarrow_schema(pa.schema(fields))
         assert schema.schema["col"] == expected
-
-    def test_skips_binary_fields(self):
-        arrow_schema = pa.schema([pa.field("bin_col", pa.binary())])
-        schema = HogQLSchema()
-        schema.add_pyarrow_schema(arrow_schema)
-
-        assert "bin_col" not in schema.schema
 
     def test_does_not_overwrite_non_string_types(self):
         schema = HogQLSchema()
@@ -192,3 +187,16 @@ class TestMergeColumnsRaceCondition:
 
         assert "user_id" in result
         assert "new_col" not in result
+
+    def test_merge_columns_keeps_binary_column_registered_by_hogql_schema(self):
+        # A binary Arrow column (e.g. a BigQuery BYTES field) is read back by ClickHouse's
+        # deltaLake() reader as String, so HogQLSchema must register a type for it or this
+        # column is dropped from `columns` on every sync.
+        table = pa.table({"key": pa.array([b"abc"], type=pa.binary())})
+        schema = HogQLSchema()
+        schema.add_pyarrow_table(table)
+
+        db_columns = {"key": "String"}
+        result = merge_columns(db_columns, schema.to_hogql_types(), {})
+
+        assert result["key"] == {"clickhouse": "String", "hogql": "StringDatabaseField"}

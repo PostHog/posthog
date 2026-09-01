@@ -1,4 +1,5 @@
 import uuid
+from functools import cached_property
 from typing import Any, NoReturn, cast, get_args
 from urllib.parse import urlparse
 
@@ -10,7 +11,13 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -21,15 +28,18 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 from posthog.models.integration import Integration
-from posthog.models.user import User
 
+from products.replay_vision.backend.api import vision_actions_shim
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
-from products.replay_vision.backend.feature_flag import (
-    ReplayVisionActionsEnabledPermission,
-    ReplayVisionEnabledPermission,
+from products.replay_vision.backend.api.vision_actions_shim import (
+    MAX_ENABLED_ALERTS_PER_SCANNER,
+    redact_webhook_url as _redact_webhook_url,
 )
+from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
@@ -43,8 +53,10 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
-from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
+from products.replay_vision.backend.scanner_access import readable_scanner_ids, selection_target_ids
+from products.replay_vision.backend.scanner_config import acting_user
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
+from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 
 logger = structlog.get_logger(__name__)
 
@@ -148,6 +160,15 @@ class AlertConfigSerializer(serializers.Serializer):
             "every_match ignores it (each check covers what's new since the previous one)."
         ),
     )
+    include_reasoning = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, each example line in the alert message includes the scanner's full reasoning "
+            "for that observation, not just its verdict/score/tags. Useful when piping the message "
+            "somewhere else to read or act on. Defaults to false."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         frequency = attrs.get("frequency", AlertFrequency.ON_BREACH)
@@ -226,24 +247,10 @@ class DeliveryTargetSerializer(serializers.Serializer):
 
 # Alerts ride the scanner's sweep, so each enabled alert adds evaluation work to every sweep tick —
 # cap the fan-out one scanner can accumulate.
-MAX_ENABLED_ALERTS_PER_SCANNER = 10
 
 # Each delivery target provisions one enabled HogFunction that POSTs to its destination on every run,
 # so cap the list to stop a single action from being turned into a webhook fan-out to many hosts.
 MAX_DELIVERY_TARGETS = 5
-
-
-def _redact_webhook_url(url: str) -> str:
-    # Show the scheme + host so a viewer can see *where* it delivers, but drop everything a credential
-    # can hide in: the path, the query, AND any `user:pass@` userinfo (which `netloc` would carry, so
-    # rebuild the authority from hostname/port only). IPv6 hosts keep their brackets. Falls back to a
-    # fully-opaque marker if the URL can't be parsed.
-    parsed = urlparse(url)
-    if parsed.scheme and parsed.hostname:
-        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-        authority = f"{host}:{parsed.port}" if parsed.port else host
-        return f"{parsed.scheme}://{authority}/…"
-    return "(hidden)"
 
 
 class VisionActionSerializer(serializers.ModelSerializer):
@@ -425,11 +432,11 @@ class VisionActionSerializer(serializers.ModelSerializer):
         requested = [str(s) for s in (selection.get("scanner_ids") or ([scanner.id] if scanner else []))]
         if not requested:
             return
-        request = self.context.get("request")
-        if request is None or not getattr(request.user, "is_authenticated", False):
+        user = acting_user(self.context)
+        if user is None or not getattr(user, "is_authenticated", False):
             return
         team = self.context["get_team"]()
-        readable = set(readable_scanner_ids(request.user, team, requested))
+        readable = set(readable_scanner_ids(user, team, requested))
         if set(requested) - readable:
             raise serializers.ValidationError(
                 {"scanner": "You don't have access to one or more scanners this action targets."}
@@ -488,12 +495,25 @@ class VisionActionSerializer(serializers.ModelSerializer):
         name = attrs.get("name")
         if name is None:
             return
+        # A brand-new digest whose name is exactly the auto-derived one came from the one-click
+        # "Turn on featured digest" button, so create() makes it collision-safe instead of 400-ing.
+        # A user-typed name (even on a digest) still gets the explicit duplicate error below.
+        if self.instance is None and attrs.get("is_scanner_digest") and self._has_derived_digest_name(attrs):
+            return
         team = self.context["get_team"]()
         duplicates = VisionAction.objects.for_team(team.id).filter(name=name)
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
+        # A migrated row is invisible to every read path, so holding its name against a new one
+        # rejects a name nothing shows the caller.
+        duplicates = vision_actions_shim.unmigrated(duplicates)
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
+
+    @staticmethod
+    def _has_derived_digest_name(attrs: dict[str, Any]) -> bool:
+        scanner = attrs.get("scanner")
+        return scanner is not None and attrs.get("name") == digest_name_for_scanner(scanner)
 
     def _validate_digest(self, attrs: dict[str, Any]) -> None:
         # The overview card renders the featured digest as a synthesized summary, so an alert can't
@@ -520,8 +540,8 @@ class VisionActionSerializer(serializers.ModelSerializer):
         demote.update(is_scanner_digest=False)
 
     def _authorize_demotions(self, actions: QuerySet[VisionAction]) -> None:
-        request = self.context.get("request")
-        if request is None or not getattr(request.user, "is_authenticated", False):
+        user = acting_user(self.context)
+        if user is None or not getattr(user, "is_authenticated", False):
             return
         # The bound scanner is the promotion target (already editor-checked upstream); the exposure is
         # each demoted digest's selection.scanner_ids, which _validate_scanner_access guards on a direct
@@ -533,7 +553,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if not requested:
             return
         team = self.context["get_team"]()
-        readable = set(readable_scanner_ids(request.user, team, list(requested)))
+        readable = set(readable_scanner_ids(user, team, list(requested)))
         if requested - readable:
             raise serializers.ValidationError(
                 {"is_scanner_digest": "You don't have access to a scanner the current digest reads from."}
@@ -541,9 +561,13 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        user = acting_user(self.context)
         if validated_data.get("is_scanner_digest"):
             self._demote_existing_digest(validated_data["scanner"])
+            if self._has_derived_digest_name(validated_data):
+                # Another action may already hold the derived name (a user-named action, or a digest
+                # demoted earlier), so dedupe to keep the (team, name) constraint from rejecting it.
+                validated_data["name"] = unique_digest_name(team.id, validated_data["name"])
         try:
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
@@ -563,14 +587,8 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if "vision_action_unique_team_name" in str(error):
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
         if "vision_action_unique_scanner_digest" in str(error):
-            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a featured digest."})
         raise error
-
-
-def _selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
-    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`."""
-    configured = (selection or {}).get("scanner_ids") or []
-    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
 
 
 def _check_action_scanner_access(
@@ -584,7 +602,7 @@ def _check_action_scanner_access(
     scanner's data into another scanner's summary.
     """
     view.check_object_permissions(view.request, scanner)
-    other_ids = _selection_target_ids(scanner.id, selection)
+    other_ids = selection_target_ids(scanner.id, selection)
     if not other_ids:
         return
     other_scanners = ReplayScanner.objects.filter(team_id=scanner.team_id, id__in=other_ids)
@@ -620,7 +638,13 @@ class RunActionResponseSerializer(serializers.Serializer):
     )
 )
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
+    """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+
+    Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+    shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+    response contract stays exactly as documented here, but nothing reads or writes VisionAction
+    rows anymore. The runs endpoints keep serving the pre-migration run history.
+    """
 
     # Deliberately NOT an AccessControlViewSetMixin: vision_action inherits its access level
     # from replay_scanner (see RESOURCE_INHERITANCE_MAP) so the product is configured via a
@@ -629,7 +653,6 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionAction.objects.unscoped()
@@ -649,8 +672,132 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "session_recording", required_level="viewer"
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
+        if self._serves_new_systems:
+            # One gate for every shim-served action: scouts canonicalize to the parent team, so a
+            # key scoped only to a child environment must not reach them through this surface.
+            self._require_canonical_team_access()
 
-    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
+    def _accessible_scanner_ids(self) -> list[str]:
+        scanners = self.user_access_control.filter_queryset_by_access_level(
+            ReplayScanner.objects.filter(team_id=self.team_id)
+        )
+        return [str(scanner_id) for scanner_id in scanners.values_list("id", flat=True)]
+
+    def _shim_entities(self) -> list[tuple[str, Any]]:
+        """The entities this request operates on, resolved and authorized exactly once.
+
+        `get_object()` runs the resolution through `safely_get_object` below, so every shim-served
+        write acts on the objects that were checked. Resolving separately for the check and for
+        the write is what once left a fanned-out alert's later successors unchecked.
+        """
+        self.get_object()
+        return self._resolved_entries
+
+    def _can_edit_scanner(self, scanner: ReplayScanner) -> bool:
+        return self.user_access_control.check_access_level_for_object(scanner, required_level="editor")
+
+    def _validated_legacy_payload(self, request: Request, *, partial: bool) -> dict[str, Any]:
+        """Run the incoming payload through the legacy serializer without saving a legacy row.
+
+        This is what keeps the shim's writes as safe as the legacy path: the serializer team-scopes
+        `scanner`, checks Slack integrations belong to this team, rejects non-https and userinfo
+        webhook URLs, and applies the selection allowlist.
+        """
+        serializer = VisionActionSerializer(data=request.data, partial=partial, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        return dict(serializer.validated_data)
+
+    def _require_canonical_team_access(self) -> None:
+        """Scouts canonicalize to the parent team, so authorize against the team that owns them.
+
+        The shim reads and writes scouts on `team.parent_team or team`, while this viewset's
+        default gate only checks the URL team. Without this, a key scoped solely to a child
+        environment is authorized against one team while touching another's rows. The native
+        scout endpoints carry the same permission for the same reason.
+        """
+        permission = ScoutCanonicalTeamAccessPermission()
+        if not permission.has_permission(self.request, self):
+            raise PermissionDenied(permission.message)
+
+    @cached_property
+    def _serves_new_systems(self) -> bool:
+        # One switch for the whole surface, shared with the UI: while the org is flagged onto the
+        # new alerts product, the legacy contract is served from the new systems.
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 — keeps the analytics client off the import path
+        )
+
+        user = self.request.user
+        return feature_enabled_or_false(
+            "replay-vision-alerts",
+            getattr(user, "distinct_id", str(getattr(user, "id", "server"))),
+            groups={"organization": str(self.team.organization_id)},
+            send_feature_flag_events=False,
+        )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self._serves_new_systems:
+            return super().list(request, *args, **kwargs)
+        scanner_ids = self._accessible_scanner_ids()
+        requested = request.query_params.get("scanner")
+        if requested:
+            scanner_ids = [scanner_id for scanner_id in scanner_ids if scanner_id == requested]
+        editable = {
+            scanner_id
+            for scanner_id in scanner_ids
+            if self._can_edit_scanner(ReplayScanner(id=scanner_id, team_id=self.team_id))
+        }
+        actions = vision_actions_shim.list_actions(self.team, scanner_ids, editable_scanner_ids=editable)
+        return Response({"count": len(actions), "next": None, "previous": None, "results": actions})
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self._serves_new_systems:
+            return super().retrieve(request, *args, **kwargs)
+        entries = self._shim_entities()
+        return Response(
+            vision_actions_shim.render_entity(entries[0], can_edit=self._can_edit_scanner(self._resolved_scanner))
+        )
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self._serves_new_systems:
+            return super().create(request, *args, **kwargs)
+        validated = self._validated_legacy_payload(request, partial=False)
+        # Same object-level check `perform_create` makes, against the scanner the payload names and
+        # every scanner its selection reads from.
+        _check_action_scanner_access(self, validated["scanner"], validated.get("selection"))
+        return Response(vision_actions_shim.create_action(self.team, cast(User, request.user), validated), status=201)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self._serves_new_systems:
+            return super().partial_update(request, *args, **kwargs)
+        entries = self._shim_entities()
+        validated = self._validated_legacy_payload(request, partial=True)
+        if "scanner" in validated:
+            _check_action_scanner_access(self, validated["scanner"], validated.get("selection"))
+        return Response(vision_actions_shim.update_action(self.team, entries, validated, cast(User, request.user)))
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self._serves_new_systems:
+            return super().destroy(request, *args, **kwargs)
+        vision_actions_shim.destroy_action(self.team, self._shim_entities())
+        return Response(status=204)
+
+    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> Any:
+        if self._serves_new_systems:
+            entries = vision_actions_shim.resolve_entities(self.team, str(self.kwargs["pk"]))
+            if not entries:
+                raise NotFound()
+            scanner_ids = vision_actions_shim.scanner_ids_for_entities(entries)
+            scanners = list(ReplayScanner.objects.filter(team_id=self.team_id, id__in=scanner_ids))
+            if len(scanners) != len(scanner_ids):
+                raise NotFound()
+            for scanner in scanners:
+                _check_action_scanner_access(self, scanner, None)
+            self._resolved_entries = entries
+            self._resolved_scanner = scanners[0]
+            # The scanner is what access is inherited from, so it is also the right object for the
+            # base `get_object` to run `check_object_permissions` against.
+            return scanners[0]
         action = get_object_or_404(queryset, pk=self.kwargs["pk"])
         # Per-scanner object-level grants are stored against `replay_scanner` + the scanner's id, not
         # `vision_action` + the action's id — the generic check_object_permissions() call the base
@@ -696,7 +843,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # action that looks created but never delivers.
         with transaction.atomic():
             action = serializer.save()
-            provision_delivery(action, request=self.request, team=self.team)
+            provision_delivery(action, user=acting_user(self.get_serializer_context()), team=self.team)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
@@ -720,13 +867,21 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # enabled flag, or the name (each destination is named after the action). Cadence/selection
             # edits don't touch the destinations, so they must not churn them.
             if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
-                provision_delivery(action, request=self.request, team=self.team)
+                provision_delivery(action, user=acting_user(self.get_serializer_context()), team=self.team)
 
     def perform_destroy(self, instance: VisionAction) -> None:
         archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)
 
-    @extend_schema(request=None, responses={202: RunActionResponseSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            202: RunActionResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The summary run couldn't be started."
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -737,6 +892,11 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Run this summary now, without waiting for its schedule — synthesizes a group summary over the
         observations since the last summary (or the last 24h). The recurring schedule is untouched: the
         engine advances next_run_at only at scheduled claim time, never in the run itself."""
+        if self._serves_new_systems:
+            # safely_get_object returns the scanner in shim mode, and there is no legacy run to
+            # start: scouts run on their own schedule and from the scout surface.
+            self.get_object()
+            raise ValidationError("On-demand runs moved to the scout that replaced this summary.")
         # get_object() runs safely_get_object, which object-checks the bound scanner's access.
         action_obj = self.get_object()
         # The summary reads recording-derived observations and delivers off-platform, so require
@@ -946,7 +1106,6 @@ class VisionActionRunViewSet(
     scope_object = "vision_action"
     # Runs surface recording-derived summaries, so reading them requires session_recording read too.
     required_scopes = ["vision_action:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionRunSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionActionRun.objects.unscoped()

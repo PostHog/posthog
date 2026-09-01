@@ -64,7 +64,6 @@ export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }:
                                     e.preventDefault()
                                     openSupportForm({
                                         kind: 'support',
-                                        target_area: 'login',
                                         email,
                                     })
                                 }}

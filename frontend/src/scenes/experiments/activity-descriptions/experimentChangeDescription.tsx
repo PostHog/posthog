@@ -6,12 +6,13 @@ import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
+
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 
 import { getMetricChanges } from './metricChangeDescriptions'
 
@@ -233,6 +234,24 @@ export const getExperimentChangeDescription = (
                         }
                         return null
                     })
+                    .with('activation_config', () => {
+                        const afterConfig = typedAfter?.activation_config
+                        const beforeConfig = typedBefore?.activation_config
+
+                        if (equal(afterConfig, beforeConfig)) {
+                            return null
+                        }
+
+                        if (afterConfig) {
+                            const displayName = getExposureConfigDisplayName(afterConfig)
+                            return (
+                                <span>
+                                    set the activation event to <LemonTag color="purple">{displayName}</LemonTag>
+                                </span>
+                            )
+                        }
+                        return null
+                    })
                     .exhaustive()
             )
 
@@ -244,6 +263,9 @@ export const getExperimentChangeDescription = (
                         default
                     </span>
                 )
+            }
+            if (typedBefore?.activation_config && !typedAfter?.activation_config) {
+                changes.push('removed the activation event')
             }
 
             return changes.filter(Boolean) as (string | JSX.Element)[]

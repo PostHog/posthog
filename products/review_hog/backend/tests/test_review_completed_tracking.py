@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODEL
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -16,8 +18,10 @@ from products.review_hog.backend.reviewer.persistence import (
 )
 from products.review_hog.backend.temporal.activities import (
     TrackReviewCompletedInput,
+    TrackReviewFailedInput,
     _track_review_completed,
     _track_review_completed_safe,
+    _track_review_failed,
 )
 
 _PR_URL = "https://github.com/o/r/pull/7"
@@ -57,7 +61,11 @@ def _issue(issue_id: str) -> Issue:
 
 class TestTrackReviewCompleted(BaseTest):
     def _review_report(self) -> str:
-        return upsert_review_report(team_id=self.team.id, repository="o/r", pr_url=_PR_URL, pr_metadata=_pr_metadata())
+        # The upsert draws a random experiment arm; pin it so arm-property assertions are deterministic.
+        with patch("products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=DEFAULT_REVIEW_ARM):
+            return upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url=_PR_URL, pr_metadata=_pr_metadata()
+            )
 
     def _tracking_input(self, report_id: str, *, published: bool = True) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
@@ -92,7 +100,11 @@ class TestTrackReviewCompleted(BaseTest):
             issues=issues,
             run_index=1,
             validations={
-                "1-1-1": IssueValidation(is_valid=True, argumentation="real", category="bug"),
+                # The validator downgrades the must_fix finding: the severity-mix props must count
+                # the override (effective_priority), not the reviewer's original call.
+                "1-1-1": IssueValidation(
+                    is_valid=True, argumentation="real", category="bug", adjusted_priority=IssuePriority.SHOULD_FIX
+                ),
                 "1-1-2": IssueValidation(is_valid=False, argumentation="not real", category="bug"),
             },
         )
@@ -114,6 +126,13 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["published"] is published
         assert props["findings_total"] == 2
         assert props["findings_valid"] == 1
+        assert props["findings_must_fix"] == 0  # downgraded by the validator's adjusted_priority
+        assert props["findings_should_fix"] == 1
+        assert props["findings_consider"] == 0
+        assert props["review_model"] == REVIEW_MODEL
+        assert props["review_runtime_adapter"] == DEFAULT_REVIEW_ARM.runtime_adapter.value
+        assert props["review_reasoning_effort"] == DEFAULT_REVIEW_ARM.reasoning_effort.value
+        assert props["review_arm_fallback"] is False
         assert props["pr_additions"] == 120
         assert props["pr_deletions"] == 30
         assert props["pr_changed_files"] == 7
@@ -159,3 +178,61 @@ class TestTrackReviewCompleted(BaseTest):
             side_effect=RuntimeError("analytics down"),
         ):
             _track_review_completed_safe(self._tracking_input(report_id))
+
+    def test_events_report_the_reports_persisted_arm(self) -> None:
+        # The experiment's per-arm split reads review_model off both events; an event that falls
+        # back to the module pins while the report ran its persisted Codex arm mislabels every
+        # Sol review as Sonnet and the whole comparison dissolves.
+        report_id = self._review_report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+            review_runtime_adapter="codex",
+            review_model="gpt-5.6-sol",
+            review_reasoning_effort="xhigh",
+            review_initial_permission_mode="full-access",
+        )
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(self._tracking_input(report_id))
+            _track_review_failed(TrackReviewFailedInput(team_id=self.team.id, report_id=report_id, run_index=1))
+
+        completed, failed = capture.call_args_list
+        for call in (completed, failed):
+            props = call.kwargs["properties"]
+            assert props["review_model"] == "gpt-5.6-sol"
+            assert props["review_runtime_adapter"] == "codex"
+            assert props["review_reasoning_effort"] == "xhigh"
+            assert props["review_arm_fallback"] is False
+        assert failed.kwargs["event"] == "reviewhog_review_failed"
+        assert failed.kwargs["properties"]["run_index"] == 1
+        # The failed event needs its own stable uuid namespace: colliding with the completed event's
+        # would make ingestion dedupe a real failure against a later success of the same turn.
+        assert failed.kwargs["uuid"] != completed.kwargs["uuid"]
+
+    @parameterized.expand(
+        [
+            ("stale_model", "codex", "gpt-9-vanished", "high", "full-access"),
+            # The model string matches the default pins, so a model-only comparison would miss the
+            # failed assignment; only the full-bundle comparison flags it.
+            ("default_model_unknown_adapter", "warp", REVIEW_MODEL, "xhigh", None),
+        ]
+    )
+    def test_stale_arm_events_flag_the_fallback(
+        self, _name: str, adapter: str, model: str, effort: str, permission_mode: str | None
+    ) -> None:
+        # A persisted assignment that fails resolution runs the default pins; the event must both
+        # say what ran AND flag the deviation, or contaminated turns are indistinguishable from
+        # genuine default-arm turns in the per-arm dashboards.
+        report_id = self._review_report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+            review_runtime_adapter=adapter,
+            review_model=model,
+            review_reasoning_effort=effort,
+            review_initial_permission_mode=permission_mode,
+        )
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(self._tracking_input(report_id))
+
+        props = capture.call_args.kwargs["properties"]
+        assert props["review_model"] == REVIEW_MODEL
+        assert props["review_arm_fallback"] is True

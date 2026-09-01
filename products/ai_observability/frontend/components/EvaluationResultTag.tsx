@@ -7,7 +7,7 @@ import { capitalize } from '../sentimentUtils'
 
 type EvaluationResultLike = Pick<
     EvaluationRun,
-    'status' | 'result' | 'result_type' | 'evaluation_type' | 'sentiment_label'
+    'status' | 'result' | 'result_type' | 'evaluation_type' | 'sentiment_label' | 'skipped'
 >
 
 interface EvaluationResultDisplay {
@@ -33,6 +33,11 @@ export function getEvaluationResultDisplay(run: EvaluationResultLike): Evaluatio
     }
     if (run.status === 'running') {
         return { type: 'primary', icon: <IconMinus />, label: 'Running', sortValue: -1 }
+    }
+    // Before the result checks: a skip still carries `result: false` when the evaluation disallows
+    // N/A, so reading the result first would report a session that was never graded as failing.
+    if (run.skipped) {
+        return { type: 'muted', icon: <IconMinus />, label: 'Skipped', sortValue: 0.4 }
     }
     if (isSentimentRun(run)) {
         const sentimentLabel = (run.sentiment_label || 'unknown').toLowerCase()

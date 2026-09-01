@@ -38,7 +38,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AccountBillingLogicProps, accountBillingLogic } from './accountBillingLogic'
+import { AccountBillingLogicProps, accountBillingLogic, getBillingDataVisualizationKey } from './accountBillingLogic'
 import { AccountBillingSeriesToggle } from './AccountBillingSeriesToggle'
 
 const RENDERABLE_DISPLAY_TYPES = new Set<ChartDisplayType>([
@@ -220,10 +220,10 @@ export function AccountBillingChart({
 }): JSX.Element {
     const billingLogic = accountBillingLogic(logicProps)
     const { ephemeralHiddenSeriesKeysByShortId } = useValues(billingLogic)
-    const { toggleHiddenSeriesKey } = useActions(billingLogic)
+    const { toggleHiddenSeriesKey, setAllSeriesHidden } = useActions(billingLogic)
 
     const vizLogic = dataVisualizationLogic({
-        key: queryKey,
+        key: getBillingDataVisualizationKey(queryKey),
         query,
         dataNodeCollectionId: queryKey,
         variablesOverride,
@@ -272,6 +272,13 @@ export function AccountBillingChart({
                     series={chipItems}
                     hiddenKeys={hiddenKeys}
                     onToggle={(seriesKey) => toggleHiddenSeriesKey(shortId, seriesKey, chipItems.length)}
+                    onToggleAll={(hidden) =>
+                        setAllSeriesHidden(
+                            shortId,
+                            chipItems.map(({ key }) => key),
+                            hidden
+                        )
+                    }
                 />
             )}
         </div>

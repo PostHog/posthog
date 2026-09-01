@@ -551,6 +551,30 @@ class TestProjectFanOut:
 
         assert [(r["project_id"], r["id"]) for r in rows] == [("proj_1", "user_1")]
 
+    @mock.patch(TENACITY_SLEEP_PATCH, return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_one_project_500ing_is_skipped_and_others_land(self, MockSession, _sleep) -> None:
+        # proj_1's resource keeps returning 500 past the client's retry budget; without per-project
+        # tolerance that would fail the whole schema. The fan-out must skip proj_1 and still yield
+        # proj_2's rows.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "proj_1"}, {"id": "proj_2"}], has_more=False, last_id="proj_2"),
+                *[_response({}, status=500) for _ in range(5)],
+                _entity_page([{"id": "user_2"}], has_more=False, last_id="user_2"),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("project_users", manager))
+
+        assert [(r["project_id"], r["id"]) for r in rows] == [("proj_2", "user_2")]
+        # The skipped project stays off the completed checkpoint so a later run re-attempts it.
+        final = [call.args[0] for call in manager.save_state.call_args_list][-1].fanout_state
+        assert final["completed"] == [PROJECT_USERS_PATH.format(project_id="proj_2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -640,6 +664,34 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = OpenAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
+
+
+class TestRetryableErrors:
+    @parameterized.expand(
+        [
+            ("server_error", "HTTP 500 for https://api.openai.com/v1/organization/projects/proj_1/api_keys"),
+            ("rate_limited", "HTTP 429 for https://api.openai.com/v1/organization/costs"),
+            ("connection_error", "Connection error (ConnectionError) for https://api.openai.com/v1/organization/users"),
+            ("timeout", "Request timed out (ReadTimeout) for https://api.openai.com/v1/organization/usage/completions"),
+            (
+                "malformed_json",
+                "Malformed JSON response from https://api.openai.com/v1/organization/costs: Expecting value: line 1 column 1 (char 0)",
+            ),
+        ]
+    )
+    def test_exhausted_transient_failures_are_recognized(self, _name: str, observed_error: str) -> None:
+        retryable = OpenAISource().get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable)
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.openai.com/v1/organization/users"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.openai.com/v1/organization/costs"),
+        ]
+    )
+    def test_credential_errors_are_not_misclassified(self, _name: str, other_error: str) -> None:
+        retryable = OpenAISource().get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable)
 
 
 class TestToolCallUsageGroupBy:

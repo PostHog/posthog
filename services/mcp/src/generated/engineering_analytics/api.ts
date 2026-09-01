@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, blocking the merge queue, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to catch, and it is holding up landings. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
  */
 export const EngineeringAnalyticsBrokenTestsParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -88,6 +88,7 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .describe(
             "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
+    runner: zod.enum(['jest', 'pytest']).optional().describe("Optional test runner to return: 'pytest' or 'jest'."),
     source_id: zod
         .string()
         .optional()
@@ -241,7 +242,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod

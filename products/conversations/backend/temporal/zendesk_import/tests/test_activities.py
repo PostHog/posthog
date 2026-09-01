@@ -10,7 +10,7 @@ from parameterized import parameterized
 from posthog.models import Tag
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
 from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.conversations.backend.temporal.zendesk_import.activities import (
     ImportBatchInput,
@@ -229,9 +229,17 @@ class TestZendeskImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=205)
         self.assertEqual(ticket.anonymous_traits, {"name": "Ada Lovelace", "email": "requester@x.com"})
 
-    def _make_channel(self, from_email: str, token: str) -> EmailChannel:
+    def _make_channel(
+        self,
+        from_email: str,
+        token: str,
+        *,
+        kind: str = EmailChannelKind.SUPPORT,
+    ) -> EmailChannel:
         return EmailChannel.objects.create(
             team=self.team,
+            kind=kind,
+            owner=self.user if kind == EmailChannelKind.CUSTOMER_COMMUNICATION else None,
             inbound_token=token,
             from_email=from_email,
             from_name="Support",
@@ -268,6 +276,23 @@ class TestZendeskImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=210)
         expected_id = {"matched": matched.id, "default": default.id, None: None}[expected]
         self.assertEqual(ticket.email_config_id, expected_id)
+
+    def test_customer_communication_channel_is_not_used_for_zendesk_ticket(self) -> None:
+        self._make_channel(
+            "csm@acme.com",
+            "tok-customer",
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+        )
+
+        self._run_batch(
+            [211],
+            tickets=[_zd_ticket(211, 10, recipient="csm@acme.com")],
+            users={10: _zd_user(10, "requester@x.com", name="Ada")},
+            comments_by_ticket={211: []},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=211)
+        self.assertIsNone(ticket.email_config_id)
 
     @parameterized.expand(
         [
@@ -572,6 +597,23 @@ class TestZendeskImportBatchActivity(BaseTest):
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=403)
         stored = Comment.objects.get(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
         self.assertEqual(stored.content, "body survives")
+
+    def test_build_error_drops_the_whole_ticket(self) -> None:
+        # A raise during Phase 2 build must leave nothing persisted: no partial ticket row. Here a
+        # malformed collaborator id forces the raise after the Ticket object is built but before it
+        # is collected. All-or-nothing keeps the zendesk_ticket_id free so a rerun re-imports it,
+        # and counts the ticket once as failed instead of both imported and failed.
+        ticket = _zd_ticket(404, 10)
+        ticket["collaborator_ids"] = ["not-a-number"]
+        result, _ = self._run_batch(
+            [404],
+            tickets=[ticket],
+            users={10: _zd_user(10, "requester@x.com")},
+            comments_by_ticket={404: [_zd_comment(1, 10, body="hi")]},
+        )
+
+        self.assertEqual((result.imported, result.skipped, result.failed), (0, 0, 1))
+        self.assertFalse(Ticket.objects.filter(team=self.team, zendesk_ticket_id=404).exists())
 
 
 class TestZendeskImportJobUpdates(BaseTest):

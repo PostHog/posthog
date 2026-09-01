@@ -240,6 +240,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ScatterPlot]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.Metric]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series
@@ -249,6 +250,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.BoldNumber]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsDonut]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
 
     // separate: different breakdown limit (250)
@@ -303,6 +305,9 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showMean: undefined,
             meanRetentionCalculation: undefined,
             yAxisScaleType: undefined,
+            yAxisStartAtZero: undefined,
+            yAxisMin: undefined,
+            yAxisMax: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,

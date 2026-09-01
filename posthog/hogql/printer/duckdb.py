@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from typing import ClassVar
 
+from posthog.hogql import ast
 from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.escape_sql import escape_duckdb_identifier
-from posthog.hogql.printer.duckdb_functions import DUCKDB_FUNCTION_RENAMES_LOWER
+from posthog.hogql.printer.duckdb_functions import DUCKDB_FUNCTION_HANDLERS_LOWER, DUCKDB_FUNCTION_RENAMES_LOWER
 from posthog.hogql.printer.postgres import PostgresPrinter
 
 
@@ -34,14 +35,30 @@ class DuckDBPrinter(PostgresPrinter):
         parent_renames = super()._get_function_renames()
         self._duckdb_function_renames: dict[str, str] = {**parent_renames, **DUCKDB_FUNCTION_RENAMES_LOWER}
         parent_handlers = super()._get_function_handlers()
-        self._duckdb_function_handlers: dict[str, Callable[[list[str]], str]] = {
+        inherited_handlers = {
             # PG emulates these HogQL names via handler functions; DuckDB prefers the
             # native renames, so strip the parent handler entries whose names we remap.
             k: v
             for k, v in parent_handlers.items()
             if k not in DUCKDB_FUNCTION_RENAMES_LOWER
         }
+        self._duckdb_function_handlers: dict[str, Callable[[list[str]], str]] = {
+            **inherited_handlers,
+            **DUCKDB_FUNCTION_HANDLERS_LOWER,
+        }
         self._jsonpath_placeholders: dict[str, str] = {}
+
+    def _print_table_sql(self, table) -> str:
+        # Direct MotherDuck tables render as `db.schema.table`; everything else keeps the
+        # inherited Postgres-wire rendering (DuckDB shares its quoting rules).
+        if hasattr(table, "to_printed_duckdb"):
+            return table.to_printed_duckdb(self.context)
+        return super()._print_table_sql(table)
+
+    def _print_table(self, table) -> str:
+        if hasattr(table, "to_printed_duckdb"):
+            return table.to_printed_duckdb(self.context)
+        return super()._print_table(table)
 
     def _print_identifier(self, name: str) -> str:
         # DuckDB has no practical identifier length limit, so skip the Postgres
@@ -54,6 +71,13 @@ class DuckDBPrinter(PostgresPrinter):
 
     def _get_function_handlers(self) -> dict[str, Callable[[list[str]], str]]:
         return self._duckdb_function_handlers
+
+    def visit_call(self, node: ast.Call) -> str:
+        rendered = super().visit_call(node)
+        return_type = node.type.return_type if isinstance(node.type, ast.CallType) else node.type
+        if node.name.lower() in {"dateadd", "datetrunc", "date_trunc"} and isinstance(return_type, ast.DateType):
+            return f"CAST({rendered} AS DATE)"
+        return rendered
 
     def _assert_with_ties_supported(self) -> None:
         # DuckDB supports the ``LIMIT N WITH TIES`` shape this printer emits via the

@@ -13,6 +13,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings, _normalize_cost_key
 
@@ -144,6 +145,7 @@ def _inject_modal_params(kwargs: dict[str, Any], api_base: str, modal_key: str, 
 
 def make_modal_anthropic_call(api_base: str, modal_key: str, modal_secret: str) -> Callable[..., Awaitable[Any]]:
     async def llm_call(**kwargs: Any) -> Any:
+        kwargs = convert_enabled_thinking_to_adaptive(kwargs)
         _inject_modal_params(kwargs, api_base, modal_key, modal_secret)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):

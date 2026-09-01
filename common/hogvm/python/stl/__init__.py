@@ -12,7 +12,7 @@ import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
 from ..utils import HogVMException, _require_string, get_nested_value, like
-from .crypto import md5, sha256, sha256HmacChain
+from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
     fromUnixTimestamp,
@@ -1016,10 +1016,10 @@ STL: dict[str, STLFunction] = {
     "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
     "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
-    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=1),
+    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=2),
     "JSONHas": STLFunction(fn=JSONHas, minArgs=2, maxArgs=None),
     "isValidJSON": STLFunction(fn=isValidJSON, minArgs=1, maxArgs=1),
-    "JSONLength": STLFunction(fn=JSONLength, minArgs=2, maxArgs=None),
+    "JSONLength": STLFunction(fn=JSONLength, minArgs=1, maxArgs=None),
     "JSONExtractBool": STLFunction(fn=JSONExtractBool, minArgs=1, maxArgs=None),
     "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
@@ -1060,9 +1060,25 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=2,
     ),
+    "sha1Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha1(args[0]), minArgs=1, maxArgs=1),
+    "sha1": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
+    ),
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
     "md5": STLFunction(
         fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
+    ),
+    "sha1HmacChainHex": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], "hex"),
+        minArgs=1,
+        maxArgs=1,
+    ),
+    "sha1HmacChain": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
     ),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),
@@ -1117,7 +1133,9 @@ STL: dict[str, STLFunction] = {
     "toDateTime": STLFunction(fn=lambda args, team, stdout, timeout: toDateTime(args[0]), minArgs=1, maxArgs=2),
     "formatDateTime": STLFunction(fn=_formatDateTime, minArgs=2, maxArgs=3),
     "HogError": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error(args[0], args[1], args[2] if len(args) > 2 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            args[0], args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None
+        ),
         minArgs=1,
         maxArgs=3,
     ),
@@ -1129,13 +1147,15 @@ STL: dict[str, STLFunction] = {
         maxArgs=2,
     ),
     "RetryError": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error("RetryError", args[0], args[1] if len(args) > 1 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            "RetryError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
+        ),
         minArgs=0,
         maxArgs=2,
     ),
     "NotImplementedError": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
-            "NotImplementedError", args[0], args[1] if len(args) > 1 else None
+            "NotImplementedError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
         ),
         minArgs=0,
         maxArgs=2,
@@ -1146,7 +1166,7 @@ STL: dict[str, STLFunction] = {
     "JSONExtractFloat": STLFunction(fn=JSONExtractFloat, minArgs=1),
     "JSONExtractInt": STLFunction(fn=JSONExtractInt, minArgs=1),
     "JSONExtractString": STLFunction(fn=JSONExtractString, minArgs=1),
-    "and": STLFunction(fn=and_fn, minArgs=2, maxArgs=2),
+    "and": STLFunction(fn=and_fn, minArgs=1, maxArgs=None),
     "addDays": STLFunction(fn=addDays, minArgs=2, maxArgs=2),
     "assumeNotNull": STLFunction(fn=assumeNotNull, minArgs=1, maxArgs=1),
     "coalesce": STLFunction(fn=coalesce, minArgs=1, maxArgs=None),
@@ -1168,7 +1188,7 @@ STL: dict[str, STLFunction] = {
     "multiIf": STLFunction(fn=multiIf, minArgs=3),
     "not": STLFunction(fn=not_fn, minArgs=1, maxArgs=1),
     "notEquals": STLFunction(fn=notEquals, minArgs=2, maxArgs=2),
-    "or": STLFunction(fn=or_fn, minArgs=2, maxArgs=2),
+    "or": STLFunction(fn=or_fn, minArgs=1, maxArgs=None),
     "plus": STLFunction(fn=plus, minArgs=2, maxArgs=2),
     "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
     "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=1),

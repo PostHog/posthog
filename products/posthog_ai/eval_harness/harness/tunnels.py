@@ -1,197 +1,227 @@
 from __future__ import annotations
 
-import os
 import json
-import time
 import shutil
-import signal
 import logging
-import tempfile
 import subprocess
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
-from urllib.error import URLError
-from urllib.request import urlopen
-
-import yaml
-
-from .ports import NGROK_WEB_PORT
 
 logger = logging.getLogger(__name__)
 
 SETUP_GUIDE = "docs/internal/sandboxes-setup-guide.md"
 
-NGROK_DEFAULT_CONFIG_PATHS: tuple[Path, ...] = (
-    Path.home() / ".config" / "ngrok" / "ngrok.yml",
-    Path.home() / "Library" / "Application Support" / "ngrok" / "ngrok.yml",
-    Path.home() / ".ngrok2" / "ngrok.yml",
-)
-"""Where the ngrok agent keeps the token written by ``ngrok config add-authtoken``,
-on Linux, macOS, and the legacy v2 location respectively."""
+FUNNEL_PUBLIC_PORTS: tuple[int, ...] = (443, 8443, 10000)
+"""The only public ports Tailscale Funnel will serve — the daemon rejects any
+other. Three is exactly enough for the harness's Django, LLM gateway, and MCP
+callbacks; each requested service is assigned one in the order the caller lists
+them."""
 
 
-class NgrokError(RuntimeError):
-    """ngrok tunnels could not be established for the eval run."""
+class TailscaleFunnelError(RuntimeError):
+    """Tailscale Funnel could not expose the host services for the eval run."""
 
 
-def resolve_authtoken() -> str | None:
-    """Find the user's ngrok authtoken without inheriting the rest of their config.
+@dataclass(frozen=True, kw_only=True)
+class _Assignment:
+    """A service's local port and the public Funnel port it is served on. Both are
+    ports, so keyword-only construction keeps the two from being swapped."""
 
-    The harness generates its own config (its tunnels point at eval ports, not the
-    dev-stack ports the setup guide documents), so it cannot just hand ngrok the
-    user's file. The token is the one thing worth lifting out of it.
+    local_port: int
+    public_port: int
+
+
+def _run_tailscale(args: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["tailscale", *args], capture_output=True, text=True, timeout=timeout)
+
+
+def tailscale_status() -> dict[str, Any] | None:
+    """Return the parsed ``tailscale status --json`` payload, or ``None`` when the
+    binary is missing, the daemon is unreachable, or the output is unparseable."""
+    try:
+        result = _run_tailscale(["status", "--json"], timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def funnel_preflight_error() -> str | None:
+    """Return a one-line-fixable message if Tailscale Funnel can't be used yet, else None.
+
+    Checked before any infrastructure boots so a missing binary or an unauthenticated
+    node fails fast, rather than surfacing only when the first sandbox can't reach the host.
+    Funnel enablement (tailnet ACLs, HTTPS certs) is left to ``TailscaleFunnel.start``,
+    which surfaces the daemon's own actionable error immediately.
     """
-    from_env = os.environ.get("NGROK_AUTHTOKEN")
-    if from_env:
-        return from_env
-
-    for path in NGROK_DEFAULT_CONFIG_PATHS:
-        if not path.is_file():
-            continue
-        try:
-            config = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
-            continue
-        if not isinstance(config, dict):
-            continue
-        # Config version 3 nests it under ``agent``; version 2 keeps it top-level.
-        agent = config.get("agent")
-        token = agent.get("authtoken") if isinstance(agent, dict) else None
-        token = token or config.get("authtoken")
-        if isinstance(token, str) and token:
-            return token
+    if shutil.which("tailscale") is None:
+        return (
+            "`tailscale` not found on PATH. Modal sandboxes run outside this host, so the "
+            "Django API, LLM gateway, and MCP server must be publicly reachable via Tailscale Funnel. "
+            f"See {SETUP_GUIDE}."
+        )
+    status = tailscale_status()
+    if status is None:
+        return f"Could not reach the Tailscale daemon. Start tailscaled and run `tailscale up`. See {SETUP_GUIDE}."
+    state = status.get("BackendState")
+    if state != "Running":
+        return (
+            f"Tailscale is not connected (backend state: {state or 'unknown'}). "
+            f"Run `tailscale up` and sign in. See {SETUP_GUIDE}."
+        )
     return None
 
 
-class NgrokTunnels:
-    """Modal-only ngrok lifecycle: publicly exposes the host services a remote
-    Modal sandbox must reach (Django API, LLM gateway, MCP server).
+def _public_url(host: str, public_port: int) -> str:
+    # Funnel always terminates TLS. Port 443 is implicit in an https URL; the other
+    # two Funnel ports must be spelled out.
+    if public_port == 443:
+        return f"https://{host}"
+    return f"https://{host}:{public_port}"
 
-    While a run is live the tunnel URLs are reachable by anyone on the internet
-    who learns them, so they exist only for the duration of the run.
+
+def _configured_public_ports() -> set[int]:
+    """Public ports that already carry Tailscale Serve/Funnel config, parsed from
+    ``tailscale serve status --json``. Empty when nothing is configured or the
+    status can't be read — so a collision is only ever reported on evidence, never
+    guessed."""
+    try:
+        result = _run_tailscale(["serve", "status", "--json"], timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode != 0:
+        return set()
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    ports: set[int] = set()
+    # Web/AllowFunnel keys are "host:port"; TCP keys are a bare port.
+    for section in ("Web", "AllowFunnel", "TCP"):
+        entries = payload.get(section)
+        if not isinstance(entries, dict):
+            continue
+        for key in entries:
+            try:
+                ports.add(int(str(key).rsplit(":", 1)[-1]))
+            except ValueError:
+                continue
+    return ports
+
+
+class TailscaleFunnel:
+    """Modal-only Tailscale Funnel lifecycle: publicly exposes the host services a
+    remote Modal sandbox must reach (Django API, LLM gateway, MCP server).
+
+    Each service is served over HTTPS on one of Tailscale's three permitted public
+    ports and is reachable by anyone on the internet who learns the URL, so the
+    mappings exist only for the duration of the run and are turned off on ``stop``.
+    Unlike a tunnel agent that drops its tunnels when killed, ``--bg`` Funnel config
+    lives in tailscaled and outlives this process, so teardown must run — the caller
+    registers ``stop`` on its cleanup stack.
     """
 
     def __init__(self, ports: dict[str, int]) -> None:
-        self._ports: dict[str, int] = dict(ports)
-        self._proc: subprocess.Popen[bytes] | None = None
-        self._config_dir: Path | None = None
-        self._log_path: Path | None = None
+        if len(ports) > len(FUNNEL_PUBLIC_PORTS):
+            raise TailscaleFunnelError(
+                f"Tailscale Funnel exposes at most {len(FUNNEL_PUBLIC_PORTS)} public ports "
+                f"({', '.join(map(str, FUNNEL_PUBLIC_PORTS))}), but {len(ports)} services were requested."
+            )
+        self._assignments: dict[str, _Assignment] = {
+            name: _Assignment(local_port=local_port, public_port=public_port)
+            for (name, local_port), public_port in zip(ports.items(), FUNNEL_PUBLIC_PORTS)
+        }
         self._public_urls: dict[str, str] = {}
+        self._enabled_ports: list[int] = []
 
     def start(self) -> None:
-        self._config_dir = Path(tempfile.mkdtemp(prefix="posthog-eval-ngrok-"))
-        config_path = self._config_dir / "ngrok.yml"
-        self._log_path = self._config_dir / "ngrok.log"
-        config_path.write_text(yaml.safe_dump(self._build_config(), sort_keys=False), encoding="utf-8")
-
-        # ngrok's own log goes to a file, never to a pipe: nothing drains a pipe
-        # for the length of a run, and a full 64 KB buffer would block the agent
-        # and stall every tunnel mid-eval.
-        self._proc = subprocess.Popen(
-            ["ngrok", "start", "--all", "--config", str(config_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            if self._proc.poll() is not None:
-                detail = f"ngrok exited early with code {self._proc.returncode}.\n{self._read_log_tail()}"
-                self.stop()
-                raise NgrokError(self._failure_message(detail))
-
-            urls = self._read_tunnel_urls()
-            if all(name in urls for name in self._ports):
-                self._public_urls = {name: urls[name] for name in self._ports}
-                logger.info("ngrok tunnels ready: %s", self._public_urls)
-                return
-
-            time.sleep(0.5)
-
-        detail = f"Timed out waiting for all tunnels to report a public URL.\n{self._read_log_tail()}"
-        self.stop()
-        raise NgrokError(self._failure_message(detail))
+        host = self._resolve_public_host()
+        # Refuse rather than clobber: Funnel's three ports are all we have, so if the
+        # developer already serves one, overwriting it (and turning it off on teardown)
+        # would silently take down their service. Bail with a fix instead.
+        occupied = _configured_public_ports()
+        conflicts = sorted(a.public_port for a in self._assignments.values() if a.public_port in occupied)
+        if conflicts:
+            raise TailscaleFunnelError(
+                self._failure_message(
+                    f"Tailscale Serve/Funnel is already configured on port(s) {', '.join(map(str, conflicts))}. "
+                    f"Free them (e.g. `tailscale funnel --https {conflicts[0]} off`) before running Modal evals."
+                )
+            )
+        for name, assignment in self._assignments.items():
+            self._enable_funnel(assignment.public_port, assignment.local_port)
+            self._enabled_ports.append(assignment.public_port)
+            self._public_urls[name] = _public_url(host, assignment.public_port)
+        logger.info("Tailscale Funnel ready: %s", self._public_urls)
 
     def url_for(self, name: str) -> str:
         return self._public_urls[name].rstrip("/")
 
     def stop(self) -> None:
-        proc = self._proc
-        if proc is not None:
-            self._proc = None
-            self._terminate_process_group(proc)
-
-        config_dir = self._config_dir
-        if config_dir is not None:
-            self._config_dir = None
-            self._log_path = None
-            shutil.rmtree(config_dir, ignore_errors=True)
-
-    def _build_config(self) -> dict[str, Any]:
-        # Config version 3: agent-level options live under ``agent``, tunnels stay
-        # top-level. Same shape as the config in the setup guide.
-        agent: dict[str, Any] = {
-            # A dedicated web_addr so the harness never adopts, or collides with,
-            # a developer's already-running ngrok agent on the default 4040.
-            "web_addr": f"127.0.0.1:{NGROK_WEB_PORT}",
-            "log": str(self._log_path),
-            "log_level": "info",
-        }
-        authtoken = resolve_authtoken()
-        if authtoken:
-            agent["authtoken"] = authtoken
-
-        tunnels = {name: {"proto": "http", "addr": port, "schemes": ["https"]} for name, port in self._ports.items()}
-        return {"version": "3", "agent": agent, "tunnels": tunnels}
-
-    def _read_tunnel_urls(self) -> dict[str, str]:
-        try:
-            # The fixed loopback HTTP origin prevents callers from selecting another urllib scheme.
-            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-            with urlopen(f"http://127.0.0.1:{NGROK_WEB_PORT}/api/tunnels", timeout=2) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-        except (URLError, OSError, json.JSONDecodeError):
-            return {}
-
-        urls: dict[str, str] = {}
-        for tunnel in payload.get("tunnels", []):
-            # A tunnel restricted to ``schemes: [https]`` is reported under its
-            # config name; strip any ``" (https)"``-style suffix defensively.
-            name = str(tunnel.get("name", "")).split(" ", 1)[0]
-            public_url = tunnel.get("public_url")
-            if name and public_url:
-                urls[name] = public_url
-        return urls
-
-    def _terminate_process_group(self, proc: subprocess.Popen[bytes]) -> None:
-        if proc.poll() is not None:
-            return
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            return
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
+        # Turn off only the ports this run enabled — start() refused any port that was
+        # already configured, so these are ours to reclaim. A port whose `off` fails
+        # stays public, so keep it tracked and log loudly: the caller registers stop()
+        # on its cleanup stack (and atexit), so a later invocation retries it.
+        still_public: list[int] = []
+        for port in self._enabled_ports:
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+                result = _run_tailscale(["funnel", "--https", str(port), "off"], timeout=15)
+            except Exception:
+                logger.warning(
+                    "Failed to turn off Tailscale Funnel on port %s; it is still public", port, exc_info=True
+                )
+                still_public.append(port)
+                continue
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "").strip()
+                logger.error(
+                    "Tailscale Funnel port %s is still public: `tailscale funnel --https %s off` failed: %s",
+                    port,
+                    port,
+                    detail,
+                )
+                still_public.append(port)
+        self._enabled_ports = still_public
+        if not still_public:
+            self._public_urls = {}
 
-    def _read_log_tail(self, lines: int = 20) -> str:
-        if self._log_path is None or not self._log_path.is_file():
-            return ""
+    def _resolve_public_host(self) -> str:
+        status = tailscale_status()
+        if status is None:
+            raise TailscaleFunnelError(self._failure_message("could not read `tailscale status --json`."))
+        self_node = status.get("Self")
+        dns_name = self_node.get("DNSName") if isinstance(self_node, dict) else None
+        if not isinstance(dns_name, str) or not dns_name:
+            raise TailscaleFunnelError(
+                self._failure_message("`tailscale status` did not report this node's MagicDNS name.")
+            )
+        return dns_name.rstrip(".")
+
+    def _enable_funnel(self, public_port: int, local_port: int) -> None:
+        # `--bg` registers the mapping and returns; a bare local port target proxies
+        # to http://127.0.0.1:<local_port>, matching each plain-HTTP host service.
         try:
-            return "\n".join(self._log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
-        except OSError:
-            return ""
+            result = _run_tailscale(["funnel", "--bg", f"--https={public_port}", str(local_port)], timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            self.stop()
+            raise TailscaleFunnelError(self._failure_message(str(e))) from e
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            self.stop()
+            raise TailscaleFunnelError(self._failure_message(detail))
 
     def _failure_message(self, detail: str) -> str:
         return (
             f"{detail}\n"
-            "ngrok could not serve the Django, LLM gateway, and MCP tunnels simultaneously. "
-            "The free ngrok plan covers a single tunnel, so multi-tunnel eval runs need an "
-            "authtoken on a paid plan (ngrok Hobbyist or above), or Cloudflare Tunnel instead. "
-            f"See {SETUP_GUIDE}."
+            "Tailscale Funnel could not serve the Django, LLM gateway, and MCP services. "
+            "Make sure tailscaled is running and this node is logged in (`tailscale up`), that Funnel "
+            "is enabled for the tailnet and this node in the admin console's ACLs, and that HTTPS "
+            f"certificates are enabled for the tailnet. See {SETUP_GUIDE}."
         )

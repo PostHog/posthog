@@ -266,7 +266,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
 
     activity_inputs = await _setup(team, job_inputs)
 
-    def mock_get_tunnel(self_class, host, port):
+    def mock_get_tunnel(self_class, host, port, *, ssh_host):
         class MockedTunnel:
             local_bind_host: str = "other-host.com"
             local_bind_port: int = 55550

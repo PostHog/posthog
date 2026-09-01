@@ -5,6 +5,7 @@ import { IconBox, IconChevronRight } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { toDisplayOrderFrames } from '../displayOrder'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { CollapsibleExceptionHeader } from '../Exception/CollapsibleExceptionHeader'
 import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
@@ -70,13 +71,17 @@ function GroupedStackTraceRenderer({
     renderFrame: (frame: ErrorTrackingStackFrame, record?: ErrorTrackingStackFrameRecord) => React.ReactNode
     renderVendorFrameGroup: (group: Extract<StackFrameGroup, { type: 'vendor' }>) => React.ReactNode
 }): JSX.Element {
+    const { framesStoredCrashFirst } = useValues(errorPropertiesLogic)
     const frameGroups = useMemo(
-        () => groupStackFrames(frames, exceptionId, { expandSingleVendorGroupByDefault }),
-        [exceptionId, expandSingleVendorGroupByDefault, frames]
+        () =>
+            groupStackFrames(toDisplayOrderFrames(frames, framesStoredCrashFirst), exceptionId, {
+                expandSingleVendorGroupByDefault,
+            }),
+        [exceptionId, expandSingleVendorGroupByDefault, frames, framesStoredCrashFirst]
     )
 
     return (
-        <div className="border-1 rounded overflow-hidden divide-y divide-solid">
+        <div className="border-1 divide-y divide-solid divide-[color:var(--frame-border,var(--color-border-primary))] overflow-hidden rounded border-[color:var(--frame-border,var(--color-border-primary))] bg-surface-popover">
             {frameGroups.map((group) => (
                 <Fragment key={group.type === 'frame' ? group.frame.raw_id : group.key}>
                     {group.type === 'frame'
@@ -134,7 +139,7 @@ export function CollapsibleExceptionList({
             <>
                 <button
                     type="button"
-                    className="flex w-full items-center justify-center gap-2 px-3 py-2 text-xs text-muted hover:text-primary hover:bg-fill-button-tertiary-hover"
+                    className="flex w-full items-center justify-center gap-2 bg-surface-popover px-3 py-2 text-xs text-muted-foreground hover:bg-fill-hover hover:text-[var(--foreground)]"
                     onClick={() => toggleVendorFrameGroup(group)}
                 >
                     <IconBox className="size-3 shrink-0" />
@@ -154,40 +159,44 @@ export function CollapsibleExceptionList({
     }
 
     return (
-        <div className={cn('flex flex-col gap-y-2', className)}>
-            <ExceptionListRenderer
-                exceptionList={exceptionList}
-                renderException={(exception, exceptionIndex) => {
-                    const exceptionKey = `${exception.id}:${exceptionIndex}`
-                    const part = getExceptionFingerprint(exception.id)
-                    return (
-                        <ExceptionRenderer
-                            exception={exception}
-                            renderExceptionHeader={(exception) => (
-                                <CollapsibleExceptionHeader
+        <div className="contents [--frame-border:var(--color-border-primary)]">
+            <div data-quill className="contents">
+                <div className={cn('flex flex-col gap-y-2', className)}>
+                    <ExceptionListRenderer
+                        exceptionList={exceptionList}
+                        renderException={(exception, exceptionIndex) => {
+                            const exceptionKey = `${exception.id}:${exceptionIndex}`
+                            const part = getExceptionFingerprint(exception.id)
+                            return (
+                                <ExceptionRenderer
                                     exception={exception}
-                                    loading={false}
-                                    fingerprint={part}
-                                    runtime={exceptionAttributes?.runtime}
+                                    renderExceptionHeader={(exception) => (
+                                        <CollapsibleExceptionHeader
+                                            exception={exception}
+                                            loading={false}
+                                            fingerprint={part}
+                                            runtime={exceptionAttributes?.runtime}
+                                        />
+                                    )}
+                                    renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
+                                        <GroupedStackTraceRenderer
+                                            frames={frames}
+                                            exceptionId={exceptionKey}
+                                            expandSingleVendorGroupByDefault={exceptionIndex === 0}
+                                            stackFrameRecords={stackFrameRecords}
+                                            renderFrame={(frame, record) => renderFrame(exception, frame, record)}
+                                            renderVendorFrameGroup={renderVendorFrameGroup}
+                                        />
+                                    )}
+                                    renderUndefinedTrace={(exception, known) => (
+                                        <EmptyStackTrace exception={exception} knownException={known} />
+                                    )}
                                 />
-                            )}
-                            renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
-                                <GroupedStackTraceRenderer
-                                    frames={frames}
-                                    exceptionId={exceptionKey}
-                                    expandSingleVendorGroupByDefault={exceptionIndex === 0}
-                                    stackFrameRecords={stackFrameRecords}
-                                    renderFrame={(frame, record) => renderFrame(exception, frame, record)}
-                                    renderVendorFrameGroup={renderVendorFrameGroup}
-                                />
-                            )}
-                            renderUndefinedTrace={(exception, known) => (
-                                <EmptyStackTrace exception={exception} knownException={known} />
-                            )}
-                        />
-                    )
-                }}
-            />
+                            )
+                        }}
+                    />
+                </div>
+            </div>
         </div>
     )
 }

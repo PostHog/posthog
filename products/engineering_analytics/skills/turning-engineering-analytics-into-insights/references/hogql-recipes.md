@@ -104,8 +104,10 @@ SELECT
     toStartOfWeek(run_started_at) AS week,
     workflow_name,
     count() AS runs,
-    countIf(conclusion = 'success') / count() AS success_rate,
-    quantile(0.95)(duration_seconds) AS p95_seconds
+    countIf(conclusion = 'success')
+        / nullIf(countIf(conclusion IN ('success', 'failure', 'timed_out', 'startup_failure', 'stale')), 0)
+            AS success_rate,
+    quantileIf(0.95)(duration_seconds, conclusion = 'success') AS p95_seconds
 FROM runs
 WHERE status = 'completed'
   AND run_started_at >= now() - INTERVAL 60 DAY
@@ -114,7 +116,9 @@ HAVING runs >= 5
 ORDER BY week, runs DESC
 ```
 
-Completed runs only: in-flight and stale-conclusion rows would poison the rate.
+The success rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
+It excludes skipped, cancelled, neutral, and action-required runs because they did not reach a pass-or-fail verdict.
+The duration percentile uses successful runs because cancelled and failed runs end early.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
 
 ## Recipe: PR throughput per week
@@ -143,7 +147,7 @@ runs AS (<workflow-runs base>),
 ci AS (
     SELECT
         head_sha,
-        countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing
+        countIf(s = 'completed' AND c IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failing
     FROM (
         SELECT head_sha, workflow_name,
             argMax(status, run_started_at) AS s,
@@ -211,7 +215,7 @@ GROUP BY week
 ORDER BY week
 ```
 
-Name it "open to first review", not "time in review": there is no ready-for-review timestamp, so draft time is fused in, same caveat as `open_to_merge_seconds`.
+Name it "open to first review", not "time in review": this recipe reads the PR snapshot only, so draft time is fused in, same caveat as `open_to_merge_seconds` (ready-for-review timestamps live in `<prefix>github_issue_events`, when synced).
 The reviewer handle is `ifNull(JSONExtractString(user, 'login'), '')` when needed (e.g. to exclude self-reviews by comparing against `author_handle`) — but never build per-reviewer leaderboards.
 
 ## Recipe: a team's weekly merge time (team_members table)

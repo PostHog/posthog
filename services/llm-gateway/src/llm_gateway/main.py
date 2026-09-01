@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import time
+import traceback
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
@@ -31,12 +33,15 @@ from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
+    SandboxTaskCostThrottle,
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
 from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
+from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.plan_resolver import PlanResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
 
@@ -77,26 +82,52 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
+        # Stays None for a client that went away: CancelledError is a BaseException and escapes the
+        # except clauses below, and ClientDisconnect is re-raised untouched. Neither produced a
+        # status code, so logging one would invent a response the client never received.
+        status_code: int | None = None
 
-        response = await call_next(request)
-        response.headers["x-request-id"] = request_id
-
-        duration_ms = (time.monotonic() - start_time) * 1000
-
-        if request.url.path not in ("/_liveness", "/_readiness", "/metrics"):
-            logger.info(
-                "request",
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["x-request-id"] = request_id
+            if hasattr(request.app.state, "db_pool"):
+                update_db_pool_metrics(request.app.state.db_pool)
+            return response
+        except ClientDisconnect:
+            # A plain Exception, so without this it would take the clause below and report a 500 the
+            # aborting client never saw. The rest of the service treats a disconnect as ordinary
+            # traffic too (see the disconnect counters in api/handler.py and api/anthropic.py).
+            raise
+        except Exception as exc:
+            # Starlette's ServerErrorMiddleware sits above this middleware, so an exception escaping
+            # call_next is the 500 the client gets. Without logging it here the request would leave
+            # no line at all, and a status-code aggregation would read the failure as no traffic.
+            status_code = 500
+            logger.error(
+                "unhandled_exception",
                 method=request.method,
                 path=request.url.path,
-                status_code=response.status_code,
-                duration_ms=round(duration_ms, 2),
+                error_type=type(exc).__name__,
+                # The configured processor chain has no format_exc_info, so exc_info would render as
+                # a repr of the tuple instead of a traceback. Pass the formatted text explicitly,
+                # under the key structlog's own exception renderer would use.
+                exception=traceback.format_exc(),
             )
+            raise
+        finally:
+            duration_ms = (time.monotonic() - start_time) * 1000
 
-        if hasattr(request.app.state, "db_pool"):
-            update_db_pool_metrics(request.app.state.db_pool)
+            if status_code is not None and request.url.path not in ("/_liveness", "/_readiness", "/metrics"):
+                logger.info(
+                    "request",
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=status_code,
+                    duration_ms=round(duration_ms, 2),
+                )
 
-        structlog.contextvars.unbind_contextvars("request_id")
-        return response
+            structlog.contextvars.unbind_contextvars("request_id")
 
 
 async def init_redis(url: str | None) -> Redis[bytes] | None:
@@ -169,6 +200,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
+            SandboxTaskCostThrottle(redis=app.state.redis),
         ],
         denial_capturer=denial_capturer,
     )
@@ -190,11 +222,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
 
     app.state.http_client = httpx.AsyncClient()
+    app.state.desktop_access_http_client = httpx.AsyncClient(
+        limits=httpx.Limits(
+            max_connections=settings.desktop_access_max_connections,
+            max_keepalive_connections=settings.desktop_access_max_connections,
+        )
+    )
     app.state.plan_resolver = PlanResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
     )
+    app.state.desktop_access_resolver = DesktopAccessResolver(
+        redis=app.state.redis,
+        http_client=app.state.desktop_access_http_client,
+    )
     app.state.quota_resolver = QuotaResolver(
+        redis=app.state.redis,
+        http_client=app.state.http_client,
+    )
+    app.state.billing_period_resolver = BillingPeriodResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
     )
@@ -239,6 +285,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await breaker_gauge_task
         except asyncio.CancelledError:
             pass
+    if app.state.desktop_access_http_client:
+        await app.state.desktop_access_http_client.aclose()
+        logger.info("Desktop access HTTP client closed")
     if app.state.http_client:
         await app.state.http_client.aclose()
         logger.info("HTTP client closed")

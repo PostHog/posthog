@@ -144,6 +144,7 @@ MOBILE_SIDE_LIBS: Final[tuple[str, ...]] = (
     "posthog-android",
     "posthog-flutter",
     "posthog-react-native",
+    "posthog-kmp",
 )
 
 

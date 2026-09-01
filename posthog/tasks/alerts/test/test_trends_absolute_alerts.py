@@ -28,6 +28,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 # 8:55 AM
@@ -35,8 +36,14 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
 @freeze_time(FROZEN_TIME)
-@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
+@patch(
+    "posthog.tasks.alerts.utils.send_notifications_for_errors",
+    return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-02T08:55:00+00:00")],
+)
+@patch(
+    "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+    return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-02T08:55:00+00:00")],
+)
 class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { PERSON_COLUMNS } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { InternalPerson, PersonDistinctId, PersonUpdateFields, RawPerson, Team } from '~/types'
 
@@ -22,7 +23,9 @@ export async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
 
 export async function fetchPersons(postgres: PostgresRouter, teamId?: number): Promise<InternalPerson[]> {
     const query =
-        teamId !== undefined ? 'SELECT * FROM posthog_person WHERE team_id = $1' : 'SELECT * FROM posthog_person'
+        teamId !== undefined
+            ? `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = $1`
+            : `SELECT ${PERSON_COLUMNS} FROM posthog_person`
     const params = teamId !== undefined ? [teamId] : undefined
     return await postgres
         .query<RawPerson>(PostgresUse.PERSONS_WRITE, query, params, 'fetchPersons')

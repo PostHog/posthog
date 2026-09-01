@@ -36,8 +36,6 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
@@ -52,6 +50,12 @@ from posthog.session_recordings.synthetic_playlists import (
     get_synthetic_playlist,
 )
 from posthog.utils import relative_date_parse
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -548,6 +552,25 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         return recordings_counts
 
+    def validate_filters(self, value: Any) -> Any:
+        experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
+        experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
+        if isinstance(experiment_id, int):
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the API router registration.
+            from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+            try:
+                validate_experiment_exposure_access(
+                    self.context["get_team"](), self.context["request"].user, experiment_id
+                )
+            except UserAccessControlError:
+                raise ValidationError(
+                    "These filters reference an experiment you don't have access to. "
+                    "Ask for access to the experiment to save them."
+                )
+        return value
+
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
         team = self.context["get_team"]()
@@ -631,6 +654,15 @@ class SessionRecordingPlaylistViewSet(
 ):
     scope_object = "session_recording_playlist"
     scope_object_read_actions = ["list", "retrieve", "recordings"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "modify_recordings",
+        "bulk_add_recordings",
+        "bulk_delete_recordings",
+    ]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -638,6 +670,14 @@ class SessionRecordingPlaylistViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
+
+    def dangerously_get_required_scopes(self, request: request.Request, view: Any) -> list[str] | None:
+        # Scope parity with the recordings list: a filters playlist's recordings action parses
+        # the same query params into a RecordingsQuery, so the experiment_exposure filter reads
+        # experiment data here too. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "recordings" and request.query_params.get("experiment_exposure"):
+            return ["session_recording_playlist:read", "experiment:read"]
+        return None
 
     def safely_get_object(self, queryset: QuerySet) -> SessionRecordingPlaylist:
         """Override to handle synthetic playlists in retrieve actions"""

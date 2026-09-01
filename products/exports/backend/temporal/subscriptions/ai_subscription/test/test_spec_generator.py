@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
+
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.models.subscription import Subscription
@@ -31,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _pinned_event_names,
     _recent_event_names,
     _select_relevant_events,
+    _top_event_names,
     build_context_blob,
     build_frozen_prompt,
     compute_report_window,
@@ -66,6 +70,26 @@ class TestSanitizePrompt:
 
     def test_strips_html_tags_from_valid_prompt(self) -> None:
         assert sanitize_prompt("Show <script>alert(1)</script> pageviews") == "Show alert(1) pageviews"
+
+
+class TestPromptRejectionOwnerSafe:
+    """`PromptRejectedError` text is rendered verbatim in the delivery-history UI
+    (`RecipientResult.human_readable_error`), so it must stay free of planner/LLM/user detail. This
+    guard fails CI if a raise site starts interpolating into the message."""
+
+    def test_rejection_messages_are_static_and_audience_safe(self) -> None:
+        for raw, expected in [
+            (None, "Prompt is empty."),
+            ("   ", "Prompt is empty."),
+            ("x" * (PROMPT_MAX_LENGTH + 1), f"Prompt exceeds {PROMPT_MAX_LENGTH} characters."),
+            ("<system></system>", "Prompt is empty."),
+        ]:
+            with pytest.raises(PromptRejectedError) as exc_info:
+                sanitize_prompt(raw)
+            # Exact match, not a substring — an interpolated detail (event names, query text) would
+            # break the equality and trip this test.
+            assert str(exc_info.value) == expected
+            assert exc_info.value.args == (expected,)
 
     def test_returns_cleaned_prompt(self) -> None:
         assert sanitize_prompt("  Weekly pageviews summary  ") == "Weekly pageviews summary"
@@ -710,6 +734,101 @@ class TestContextBlob(APIBaseTest):
         blob = build_context_blob(self.team, _window(7))
 
         assert "Events matching your request" not in blob
+
+    @parameterized.expand(
+        [
+            ("clickhouse_timeout", ClickHouseQueryTimeOut()),
+            ("unexpected_error", Exception("boom")),
+        ]
+    )
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    def test_builds_blob_when_top_events_lookup_fails(self, _name: str, exc: Exception, _mock_groups: object) -> None:
+        # The top-events list is only a hint; on a high-volume project its 30-day scan can exceed
+        # ClickHouse's execution limit. Losing the hint must not cost the whole report, so the blob
+        # still has to carry the parts the planner cannot work without.
+        window = _window(7)
+
+        with patch(f"{_SG}._top_event_names", side_effect=exc):
+            blob = build_context_blob(self.team, window)
+
+        assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
+        assert "{{date_range}}" in blob
+        # A failed lookup must not read as an empty project: the projects whose scan times out are the
+        # ones with the most data, so "none recorded yet" here would invite a "nothing happened" report.
+        assert "none recorded yet" not in blob
+        assert "- Top events: (unavailable this run)" in blob
+        # The blob is quoted verbatim into the synthesis prompt, so this line has to stay a statement of
+        # state — an imperative aimed at the planner can reach the reader as report prose. (The blob does
+        # carry imperatives elsewhere, e.g. the date-placeholder rule, hence asserting on this line only.)
+        (top_events_line,) = [line for line in blob.splitlines() if line.startswith("- Top events:")]
+        assert "do NOT" not in top_events_line
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    def test_still_injects_relevant_event_schema_when_top_events_lookup_fails(self, _mock_groups: object) -> None:
+        # The relevant-events section cross-references the top-events list to avoid repeating names, so
+        # the failure path has to stay compatible with it rather than blowing up downstream.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventProperty.objects.create(team=self.team, event="export created", property="duration_ms")
+
+        with patch(f"{_SG}._top_event_names", side_effect=ClickHouseQueryTimeOut()):
+            blob = build_context_blob(self.team, _window(7), relevant_events=["export created"])
+
+        assert "export created" in blob
+        assert "duration_ms" in blob
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_still_reports_a_genuinely_empty_project_as_empty(self, _mock_top: object, _mock_groups: object) -> None:
+        # The counterpart to the failure case: a project that really has no events must keep saying so,
+        # or the two states become indistinguishable to the planner.
+        blob = build_context_blob(self.team, _window(7))
+
+        assert "- Top events: (none recorded yet)" in blob
+
+
+class TestTopEventNames(APIBaseTest):
+    def _run_with_results(self, results: list[TeamTaxonomyItem], limit: int) -> tuple[list[str], TeamTaxonomyQuery]:
+        response = CachedTeamTaxonomyQueryResponse(
+            cache_key="test_key",
+            is_cached=True,
+            last_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+            next_allowed_client_refresh=datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
+            timezone="UTC",
+            results=results,
+        )
+        with patch(f"{_SG}.TeamTaxonomyQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value = response
+            names = _top_event_names(self.team, limit)
+        return names, mock_runner.call_args.args[0]
+
+    def test_asks_for_no_limit_so_the_cache_key_is_shared(self) -> None:
+        # `limit` is hashed into the cache key but applied to the query's output rows, so passing one
+        # buys no ClickHouse saving and partitions us off the entry other AI callers keep warm —
+        # turning every run into a recompute of a scan that may not finish.
+        _, query = self._run_with_results([TeamTaxonomyItem(event="$pageview", count=1)], limit=20)
+
+        assert query.limit is None
+
+    def test_returns_at_most_limit_names_ranked_by_volume(self) -> None:
+        results = [TeamTaxonomyItem(event=f"event_{i}", count=100 - i) for i in range(5)]
+
+        names, _ = self._run_with_results(results, limit=3)
+
+        assert names == ["event_0", "event_1", "event_2"]
+
+    def test_excludes_zero_count_padding_events(self) -> None:
+        # The runner appends WELL_KNOWN_EVENT_NAMES at count=0 when there are no more real rows. Under a
+        # "Top events" heading those read as events that fired, so a project with fewer real events than
+        # the limit would be handed fabricated ones — the same misinformation the None/empty split avoids.
+        results = [
+            TeamTaxonomyItem(event="export created", count=42),
+            TeamTaxonomyItem(event="$pageleave", count=0),
+            TeamTaxonomyItem(event="$identify", count=0),
+        ]
+
+        names, _ = self._run_with_results(results, limit=20)
+
+        assert names == ["export created"]
 
 
 class TestGenerateQueryPlanSubstitution(APIBaseTest):

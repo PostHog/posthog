@@ -441,7 +441,7 @@ export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggest
     )
 }
 
-const WebAnalyticsDeviceToggle = (): JSX.Element => {
+export const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -526,14 +526,24 @@ const WebVitalsPercentileToggle = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
-    const { compareFilter, productTab } = useValues(webAnalyticsLogic)
+    const { compareFilter, dateFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
     if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
         return null
     }
 
-    return <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+    return (
+        <CompareFilter
+            compareFilter={compareFilter}
+            updateCompareFilter={setCompareFilter}
+            disableReason={
+                dateFilter.dateFrom === 'all'
+                    ? "All time starts at your first event, so there's no earlier period to compare to. Pick a date range to compare."
+                    : null
+            }
+        />
+    )
 }
 
 const ShareButton = (): JSX.Element => {

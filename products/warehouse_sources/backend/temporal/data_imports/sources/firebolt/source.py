@@ -25,6 +25,7 @@ class FireboltSource(SimpleSource[FireboltSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.FIREBOLT,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="Firebolt",
             iconPath="/static/services/firebolt.png",
             fields=cast(list[FieldType], []),

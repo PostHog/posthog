@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { insertRow } from '~/tests/helpers/sql'
+import { getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { LLMProviderKeyState, ProviderKey } from '../services/provider-key-manager.service'
@@ -50,6 +50,7 @@ export const insertEvaluation = async (
     team_id: Team['id'],
     evaluation: Partial<Evaluation> = {}
 ): Promise<Evaluation> => {
+    const createdById = await getTeamMemberUserId(postgres, team_id)
     const created = createEvaluation({
         ...evaluation,
         team_id: team_id,
@@ -62,7 +63,7 @@ export const insertEvaluation = async (
         ...row,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        created_by_id: 1001,
+        created_by_id: createdById,
         deleted: false,
         description: created.description || '',
     })
@@ -100,6 +101,7 @@ export const insertTagger = async (
     team_id: Team['id'],
     tagger: Partial<Tagger> = {}
 ): Promise<Tagger> => {
+    const createdById = await getTeamMemberUserId(postgres, team_id)
     const created = createTagger({
         ...tagger,
         team_id,
@@ -112,7 +114,7 @@ export const insertTagger = async (
         ...row,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        created_by_id: 1001,
+        created_by_id: createdById,
         deleted: false,
         description: created.description || '',
     })
@@ -124,6 +126,7 @@ export const insertProviderKey = async (
     team_id: Team['id'],
     providerKey: Partial<ProviderKey & { provider: string; name: string; error_message: string | null }> = {}
 ): Promise<ProviderKey> => {
+    const createdById = await getTeamMemberUserId(postgres, team_id)
     const created = {
         id: randomUUID(),
         team_id,
@@ -133,7 +136,7 @@ export const insertProviderKey = async (
         error_message: null,
         encrypted_config: { api_key: 'sk-test' },
         created_at: new Date().toISOString(),
-        created_by_id: 1001,
+        created_by_id: createdById,
         last_used_at: null,
         ...providerKey,
     }

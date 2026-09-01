@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -58,6 +58,12 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe("End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today."),
+    events: zod
+        .string()
+        .nullish()
+        .describe(
+            "JSON array of event filters (e.g. '[{\"id\": \"purchase\", \"properties\": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller."
+        ),
     filter_test_accounts: zod
         .boolean()
         .nullish()
@@ -161,6 +167,12 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe("End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today."),
+    events: zod
+        .string()
+        .nullish()
+        .describe(
+            "JSON array of event filters (e.g. '[{\"id\": \"purchase\", \"properties\": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller."
+        ),
     filter_test_accounts: zod
         .boolean()
         .nullish()
@@ -260,7 +272,9 @@ export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -276,9 +290,8 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -330,7 +343,9 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
@@ -349,9 +364,11 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
@@ -414,4 +431,29 @@ export const WebAnalyticsWeeklyDigestQueryParams = /* @__PURE__ */ zod.object({
         .number()
         .default(webAnalyticsWeeklyDigestQueryDaysDefault)
         .describe('Lookback window in days (1–90). Defaults to 7.'),
+})
+
+/**
+ * Merges the suggestion's rules into the team's path_cleaning_filters (never overwrites existing rules) and resolves the underlying health issue. Requires project admin, matching the team API's gate on path_cleaning_filters.
+ * @summary Apply a path-cleaning suggestion
+ */
+export const WebAnalyticsPathCleaningSuggestionsApplyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Samples the team's recent paths, asks the LLM for cleaning rules, validates them against the real paths, and stores the result as a `path_cleaning_suggestions` health issue (replacing any previous active one). Runs even if the team already has rules. Returns the suggestion (or a skip status when there aren't enough paths to suggest from).
+ * @summary Generate path-cleaning suggestions on demand
+ */
+export const WebAnalyticsPathCleaningSuggestionsGenerateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })

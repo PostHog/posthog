@@ -3,6 +3,8 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.schema import (
+    AccountsQuery,
+    AccountsTableQuery,
     DataWarehouseNode,
     EntityType,
     EventsNode,
@@ -64,6 +66,20 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_subquery", "select * from (select * from system.notebooks)", {"notebook"}),
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
+            (
+                "account_email_threads_lazy_join",
+                "select accounts.email_threads.count from system.accounts as accounts",
+                {"account", "ticket"},
+            ),
+            (
+                "account_support_tickets_lazy_join",
+                "select support_tickets.recent from system.accounts",
+                {"account", "ticket"},
+            ),
+            ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
+            # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
+            # rows follow the caller's canvas grants as well as their activity-log access.
+            ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
@@ -95,6 +111,25 @@ class TestQueriedAccessControlledResources(BaseTest):
                 "select reasoning from system.information_schema.relationship_proposals",
                 {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
+            # The data-quality information_schema tables partition on warehouse object access, which is
+            # what their loaders gate on, and their rows are hidden per-object via the caller's denied
+            # tables — so an allowed user's cached check configs / run counts can't leak to a user with
+            # less warehouse access on a cache hit.
+            (
+                "information_schema_data_quality_checks",
+                "select config from system.information_schema.data_quality_checks",
+                {"external_data_source", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_data_quality_check_runs",
+                "select failed_row_count from system.information_schema.data_quality_check_runs",
+                {"external_data_source", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_data_quality_health",
+                "select health from system.information_schema.data_quality_health",
+                {"external_data_source", "warehouse_table", "warehouse_view"},
+            ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
@@ -115,6 +150,20 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_structured_query_reads_no_system_table(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         assert queried_access_controlled_resources(query, self.team) == set()
+
+    def test_accounts_table_query_partitions_on_account_access(self):
+        assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == {"account"}
+
+    @parameterized.expand(
+        [
+            ("select", {"select": ["email_threads.count"]}),
+            ("metric", {"metrics": ["sum(support_tickets.count)"]}),
+            ("filter", {"filterExpression": "email_threads.count > 0"}),
+            ("order", {"orderBy": ["support_tickets.count"]}),
+        ]
+    )
+    def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
+        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])

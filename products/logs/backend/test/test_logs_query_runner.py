@@ -1122,6 +1122,17 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
 
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_relative_date_from_keeps_exact_window(self):
+        # "-1d" must mean exactly 24 hours back, not "since midnight yesterday": the count and
+        # sparkline runners resolve day-level presets exactly, so a midnight-snapped list would
+        # show logs the sparkline and header count say don't exist
+        bodies = self._boundary_bodies(self._boundary_query("-1d"))
+        self.assertIn("boundary-log-dec17-afternoon", bodies)
+        self.assertIn("boundary-log-dec18-early", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-plus1us", bodies)
+
     # ── _normalize_filter_group tests ──────────────────────────────────
 
     _FLAT_FILTERS = [
@@ -1192,8 +1203,10 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             {payload}
         """)
 
-    def _log_row(self, distinct_id_value: str, attribute_key: str = "posthogDistinctId") -> dict:
-        return {
+    def _log_row(
+        self, distinct_id_value: str, attribute_key: str = "posthogDistinctId", *, resource: bool = False
+    ) -> dict:
+        row: dict = {
             "uuid": str(uuid4()),
             "timestamp": "2026-03-01 10:00:00.000000",
             "observed_timestamp": "2026-03-01 10:00:01.000000",
@@ -1202,8 +1215,14 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             "severity_number": 9,
             "service_name": "person-id-test-svc",
             "resource_attributes": {"service.name": "person-id-test-svc"},
-            "attributes_map_str": {f"{attribute_key}__str": distinct_id_value},
+            "attributes_map_str": {},
         }
+        # Place the distinct id under a resource attribute or a log attribute.
+        if resource:
+            row["resource_attributes"][attribute_key] = distinct_id_value
+        else:
+            row["attributes_map_str"][f"{attribute_key}__str"] = distinct_id_value
+        return row
 
     def _person_query(self, person_id: str) -> LogsQuery:
         return LogsQuery(
@@ -1254,23 +1273,24 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("single_key", ["user.id"], {"user.id"}),
-            ("multiple_keys", ["user.id", "posthogDistinctId"], {"user.id", "posthogDistinctId"}),
+            ("single_key", ["team_ref"], {"team_ref"}),
+            ("multiple_keys", ["team_ref", "account_ref"], {"team_ref", "account_ref"}),
         ]
     )
     def test_person_id_respects_configured_attribute_keys(
         self, _name: str, configured_keys: list[str], matching_keys: set[str]
     ):
         # Matching only the first configured key (or the legacy singular column) would
-        # silently drop logs linked via the other keys.
+        # silently drop logs linked via the other keys. Custom keys (not built-in
+        # conventions) isolate configured-key handling from the convention fallback.
         TeamLogsConfig.objects.update_or_create(
             team=self.team, defaults={"logs_distinct_id_attribute_keys": configured_keys}
         )
         person = create_person(team=self.team, distinct_ids=["person-id-test-cfg"])
         self._insert_logs(
             [
-                self._log_row("person-id-test-cfg", attribute_key="user.id"),
-                self._log_row("person-id-test-cfg", attribute_key="posthogDistinctId"),
+                self._log_row("person-id-test-cfg", attribute_key="team_ref"),
+                self._log_row("person-id-test-cfg", attribute_key="account_ref"),
             ]
         )
 
@@ -1278,6 +1298,39 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({key for r in results for key in r["attributes"]}, matching_keys)
         self.assertEqual(len(results), len(matching_keys))
+
+    def test_person_id_matches_builtin_convention_keys(self):
+        # A log stamped under a built-in distinct-id convention key (e.g. `distinct_id`) is
+        # rendered as a clickable person link in the logs UI (isDistinctIdKey), so it must also
+        # appear on that person's Logs tab even when the team never configured that key. Here
+        # only the default `posthogDistinctId` is configured; `distinct_id` is convention-only.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-conv"])
+        self._insert_logs(
+            [
+                self._log_row("person-id-test-conv", attribute_key="distinct_id"),
+                self._log_row("person-id-test-conv", attribute_key="posthogDistinctId"),
+            ]
+        )
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(
+            {key for r in results for key in r["attributes"]},
+            {"distinct_id", "posthogDistinctId"},
+        )
+
+    def test_person_id_matches_distinct_id_in_resource_attributes(self):
+        # The logs UI renders a distinct-id convention key as a clickable person link whether the
+        # value sits in attributes or resource_attributes (LogAttributes.tsx), so a distinct id
+        # under resource_attributes must link the log to the person's tab too — not just log
+        # attributes.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-res"])
+        self._insert_logs([self._log_row("person-id-test-res", attribute_key="distinct_id", resource=True)])
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["resource_attributes"]["distinct_id"], "person-id-test-res")
 
     def test_person_id_filter_targets_string_attribute_map_for_numeric_ids(self):
         # All-numeric distinct ids must not route to the float attribute map — only the

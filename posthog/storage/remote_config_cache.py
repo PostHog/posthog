@@ -21,6 +21,7 @@ from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import (
+    CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches as get_teams_generic,
 )
@@ -83,16 +84,16 @@ REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 )
 
 
-def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> CacheRefreshCounts:
     """
-    Refresh array/config.json caches expiring within ``ttl_threshold_hours``; returns (successful, failed).
+    Refresh array/config.json caches expiring within ``ttl_threshold_hours``; returns successful and failed counts.
 
     Batch-loads every expiring team's config in one query — the config lives in a separate
     table from Team, so re-stamping per team would be an N+1.
     """
     teams = get_teams_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
     if not teams:
-        return 0, 0
+        return CacheRefreshCounts(successful=0, failed=0)
 
     team_by_id = {team.id: team for team in teams}
     configs = dict(RemoteConfig.objects.filter(team__in=teams).values_list("team_id", "config"))
@@ -119,7 +120,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
         successful=successful,
         failed=failed,
     )
-    return successful, failed
+    return CacheRefreshCounts(successful=successful, failed=failed)
 
 
 def cleanup_stale_expiry_tracking() -> int:

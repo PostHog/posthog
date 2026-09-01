@@ -35,17 +35,11 @@ class HogQLSchema:
             if existing_type is not None and existing_type != StringDatabaseField.__name__:
                 continue
 
-            if pa.types.is_binary(field.type):
-                continue
-
             self.schema[field.name] = self._map_arrow_type(field.type).__name__
 
     def add_field(self, field: pa.Field, column: pa.ChunkedArray) -> None:
         existing_type = self.schema.get(field.name)
         if existing_type is not None and existing_type != StringDatabaseField.__name__:
-            return
-
-        if pa.types.is_binary(field.type):
             return
 
         hogql_type = self._map_arrow_type(field.type)
@@ -83,6 +77,11 @@ class HogQLSchema:
         elif pa.types.is_integer(arrow_type):
             return IntegerDatabaseField
         elif pa.types.is_string(arrow_type):
+            return StringDatabaseField
+        elif pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
+            # ClickHouse's deltaLake()/Parquet readers surface binary columns as String, so
+            # db_columns always reports "String" for these — map to the same HogQL type or
+            # merge_columns can never find a match for them.
             return StringDatabaseField
         return DatabaseField
 

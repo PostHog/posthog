@@ -1,9 +1,12 @@
+from types import SimpleNamespace
+
 from django.contrib.auth.hashers import make_password
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.api.oauth.client_auth import verify_client_secret
+from posthog.api.oauth.client_assertion import ResolvedClientAssertion
+from posthog.api.oauth.client_auth import ClientCredentials, verify_client_secret
 from posthog.api.oauth.views import OAuthValidator
 
 
@@ -31,3 +34,20 @@ class TestVerifyClientSecret(SimpleTestCase):
         # a credential-less request and every confidential app that holds no secret.
         assert OAuthValidator()._check_secret("", make_password("")) is False
         assert OAuthValidator()._check_secret("s3cret", make_password("s3cret")) is True
+
+    @parameterized.expand([("missing", None), ("blank", "")])
+    def test_validator_skips_application_lookup_without_client_id(self, _name, client_id):
+        assert OAuthValidator()._load_application(client_id, SimpleNamespace(client=None)) is None
+
+
+class TestCredentialRepr(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("client_credentials", ClientCredentials(client_id="client-id", client_secret="s3cret-value")),
+            ("client_assertion", ResolvedClientAssertion(client_assertion="s3cret-value", client_id="client-id")),
+        ]
+    )
+    def test_secret_is_absent_from_repr(self, _name, credential):
+        # These objects end up in logs and tracebacks; the credential must never ride along.
+        assert "s3cret-value" not in repr(credential)
+        assert "client-id" in repr(credential)

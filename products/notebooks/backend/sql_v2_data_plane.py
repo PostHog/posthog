@@ -36,8 +36,16 @@ from posthog.models import Team, User
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.sql_v2 import verify_data_plane_token
+from products.notebooks.backend.sql_v2 import (
+    DELIVERY_INLINE,
+    DELIVERY_OBJECT_RELAY,
+    DataPlaneClaims,
+    is_frame_store_ch_writes_enabled,
+    is_frame_store_enabled,
+    verify_data_plane_token,
+)
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
+from products.notebooks.backend.sql_v2_runs import touch_run_progress
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +55,9 @@ ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 FRAME_STORE_FALLBACK_COUNTER = Counter(
     "posthog_notebooks_frame_store_fallback_inline",
     "Number of object-delivery requests that fell back to the inline (Redis) path.",
+    # `not_in_rollout` is expected while the flag ramps; `not_configured` means the
+    # deployment cannot serve objects at all and should be near zero once provisioned.
+    labelnames=["reason"],
 )
 
 
@@ -76,7 +87,7 @@ def _rows_to_arrow_bytes(
     return sink.getvalue().to_pybytes()
 
 
-def _verify_request_token(request: HttpRequest) -> tuple[str, int, int | None] | JsonResponse:
+def _verify_request_token(request: HttpRequest) -> DataPlaneClaims | JsonResponse:
     authorization = request.headers.get("Authorization", "")
     token = authorization[len("Bearer ") :].strip() if authorization.startswith("Bearer ") else ""
     if not token:
@@ -111,7 +122,6 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     claims = _verify_request_token(request)
     if isinstance(claims, JsonResponse):
         return claims
-    notebook_short_id, team_id, user_id = claims
 
     try:
         body = json.loads(request.body)
@@ -127,10 +137,17 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"error": f"Invalid request body — {detail}", "detail": serializer.errors}, status=400)
     data = serializer.validated_data
 
-    if not Notebook.objects.filter(team_id=team_id, short_id=notebook_short_id).exists():
+    if not Notebook.objects.filter(team_id=claims.team_id, short_id=claims.notebook_short_id).exists():
         return JsonResponse({"error": "Notebook not found"}, status=404)
-    team = Team.objects.get(id=team_id)
-    user = User.objects.filter(id=user_id).first() if user_id else None
+
+    # This request is the kernel's only observable sign of life during a run, so it resets the
+    # run's watchdog clock. A python cell materializes one input per upstream node, one after
+    # another, and without this the watchdog would count that whole sequence against a single
+    # budget and fail a cell that is working correctly.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.notebook_short_id, claims.run_id)
+    team = Team.objects.get(id=claims.team_id)
+    user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
 
     try:
         # Validate the user's HogQL up front so syntax errors fail here with a clear
@@ -142,7 +159,14 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     bounded = apply_page_bounds(data["query"], limit=data["limit"], offset=data["offset"])
 
     if data["delivery"] == "object":
-        if frame_store.is_enabled():
+        # The `notebooks-frame-store` flag carries the rollout on its own; the only other
+        # condition is that the deployment has object storage to write to. Failing either
+        # falls through to the inline transport below, which is correct for any user but
+        # clamped at the async row ceiling. DEBUG stands in for the flag, the way the SQLV2
+        # endpoints already treat `revamped-py-notebooks`, so local dev takes the object
+        # path without a flag on whichever project this instance sends analytics to.
+        frame_store_configured = frame_store.is_enabled()
+        if frame_store_configured and (settings.DEBUG or is_frame_store_enabled(user)):
             # Whole-frame materialization: stream the result to object storage via a
             # Temporal worker; the poll answers with a 302 to a presigned URL. The
             # frame_materialize module is imported lazily — it pulls temporalio and the
@@ -156,24 +180,33 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                     status = enqueue_frame_materialization(
                         team=team,
                         user_id=user.id if user else None,
-                        notebook_short_id=notebook_short_id,
+                        notebook_short_id=claims.notebook_short_id,
                         query=bounded,
+                        ch_writes=is_frame_store_ch_writes_enabled(user),
                         _test_only_inline=settings.TEST,
                     )
             except Exception:
-                logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
+                logger.exception(
+                    "notebook_frame_materialize_enqueue_failed", notebook_short_id=claims.notebook_short_id
+                )
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
-            return JsonResponse({"query_id": status.id}, status=202)
-        # Degraded mode: the cell still runs over the inline (Redis) transport, clamped at
-        # the async row ceiling, instead of hard-failing. Loud on purpose.
-        FRAME_STORE_FALLBACK_COUNTER.inc()
-        logger.warning(
-            "notebook_frame_store_fallback_inline",
-            notebook_short_id=notebook_short_id,
-            team_id=team_id,
-            frame_store_enabled=settings.NOTEBOOKS_FRAME_STORE_ENABLED,
-            object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
-        )
+            return JsonResponse({"query_id": status.id, "delivery": DELIVERY_OBJECT_RELAY}, status=202)
+        if frame_store_configured:
+            # The environment is provisioned but this user is outside the rollout, which is
+            # the expected state for most users while the flag ramps. Counted, not logged:
+            # at warning level this would drown the misconfiguration case below.
+            FRAME_STORE_FALLBACK_COUNTER.labels(reason="not_in_rollout").inc()
+        else:
+            # Degraded mode: the cell still runs over the inline (Redis) transport, clamped
+            # at the async row ceiling, instead of hard-failing. Loud on purpose, because a
+            # deployment with the flag on and no object storage cannot serve a frame at all.
+            FRAME_STORE_FALLBACK_COUNTER.labels(reason="not_configured").inc()
+            logger.warning(
+                "notebook_frame_store_fallback_inline",
+                notebook_short_id=claims.notebook_short_id,
+                team_id=claims.team_id,
+                object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
+            )
 
     try:
         with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
@@ -186,10 +219,12 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                 _test_only_bypass_celery=settings.TEST,
             )
     except Exception:
-        logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=notebook_short_id)
+        logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=claims.notebook_short_id)
         return JsonResponse({"error": "Query could not be scheduled."}, status=500)
 
-    return JsonResponse({"query_id": status.id}, status=202)
+    # Reached either because the caller wanted inline delivery or because an object request
+    # fell through the two gates above, so this is also the honest label for a fallback.
+    return JsonResponse({"query_id": status.id, "delivery": DELIVERY_INLINE}, status=202)
 
 
 @extend_schema(
@@ -217,10 +252,9 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
     claims = _verify_request_token(request)
     if isinstance(claims, JsonResponse):
         return claims
-    _notebook_short_id, team_id, _user_id = claims
 
     try:
-        status = get_query_status(team_id=team_id, query_id=query_id)
+        status = get_query_status(team_id=claims.team_id, query_id=query_id)
     except QueryNotFoundError:
         return JsonResponse({"error": "Query not found or expired"}, status=404)
 
@@ -237,9 +271,15 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         # above; presign_get additionally refuses keys outside this team's prefix. The
         # presigned URL is a bearer secret — it must never be logged.
         try:
-            presigned_url = frame_store.presign_get(str(object_key), team_id)
+            # Sign against the bucket the writer recorded. A status written before a bucket
+            # change still points at the old bucket, and signing it against the new one
+            # would 404 every frame materialized in the window before that deploy.
+            recorded_bucket = results.get("bucket")
+            presigned_url = frame_store.presign_get(
+                str(object_key), claims.team_id, bucket=str(recorded_bucket) if recorded_bucket else None
+            )
         except frame_store.FrameStoreError:
-            logger.exception("notebook_frame_presign_failed", team_id=team_id, query_id=query_id)
+            logger.exception("notebook_frame_presign_failed", team_id=claims.team_id, query_id=query_id)
             return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)
         return HttpResponseRedirect(presigned_url)
 

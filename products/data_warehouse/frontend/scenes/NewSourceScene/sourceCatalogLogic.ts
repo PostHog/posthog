@@ -27,6 +27,7 @@ import {
     FILE_UPLOAD_FORMATS,
     FILE_UPLOAD_SOURCE_CONFIG,
     FILE_UPLOAD_SOURCE_NAME,
+    fileUploadSourceType,
     fileUploadSourceUrl,
 } from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
@@ -104,6 +105,7 @@ export interface sourceCatalogLogicValues {
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
     filteredItems: CatalogItem[]
+    hasCrossCategoryMatches: boolean
     search: string
     selectedCategory: SourceCategoryFilter
     sourceRequestModalOpen: boolean
@@ -172,10 +174,12 @@ export interface sourceCatalogLogicMeta {
                       | 'Ahrefs'
                       | 'AikidoSecurity'
                       | 'Airbrake'
+                      | 'Airbridge'
                       | 'Airbyte'
                       | 'Aircall'
                       | 'AirOps'
                       | 'Airtable'
+                      | 'Airwallex'
                       | 'Aiven'
                       | 'AkamaiReporting'
                       | 'Akeneo'
@@ -198,6 +202,7 @@ export interface sourceCatalogLogicMeta {
                       | 'AnodotCost'
                       | 'Anomalo'
                       | 'Anthropic'
+                      | 'Anvil'
                       | 'Apaleo'
                       | 'ApifyDataset'
                       | 'Apitally'
@@ -358,6 +363,7 @@ export interface sourceCatalogLogicMeta {
                       | 'CanvasLms'
                       | 'CapsuleCRM'
                       | 'CaptainData'
+                      | 'Capterra'
                       | 'Captivate'
                       | 'CareQualityCommission'
                       | 'CartCom'
@@ -389,6 +395,7 @@ export interface sourceCatalogLogicMeta {
                       | 'CiscoMeraki'
                       | 'Clari'
                       | 'Clarifai'
+                      | 'Clarify'
                       | 'Classy'
                       | 'Clay'
                       | 'Clazar'
@@ -408,6 +415,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Cloudability'
                       | 'Cloudbeds'
                       | 'Cloudflare'
+                      | 'Cloudinary'
                       | 'Cloudsmith'
                       | 'Cloudzero'
                       | 'Clover'
@@ -426,6 +434,7 @@ export interface sourceCatalogLogicMeta {
                       | 'CoinMarketCap'
                       | 'Collibra'
                       | 'Commercetools'
+                      | 'CommissionJunction'
                       | 'Companycam'
                       | 'Concord'
                       | 'Conekta'
@@ -438,6 +447,7 @@ export interface sourceCatalogLogicMeta {
                       | 'ConvertKit'
                       | 'Convex'
                       | 'Convonite'
+                      | 'Coolify'
                       | 'Copper'
                       | 'Coralogix'
                       | 'Cortex'
@@ -467,6 +477,7 @@ export interface sourceCatalogLogicMeta {
                       | 'DataForSEO'
                       | 'Datahub'
                       | 'Datascope'
+                      | 'DatoCMS'
                       | 'Datorama'
                       | 'Dayforce'
                       | 'Db2'
@@ -474,9 +485,12 @@ export interface sourceCatalogLogicMeta {
                       | 'Debugbear'
                       | 'Decagon'
                       | 'Deel'
+                      | 'DeelFlows'
                       | 'Deepgram'
                       | 'Deepsource'
+                      | 'Demodesk'
                       | 'DenoDeploy'
+                      | 'Depot'
                       | 'Deputy'
                       | 'Descope'
                       | 'Develocity'
@@ -494,6 +508,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Docusign'
                       | 'DodoPayments'
                       | 'DoIt'
+                      | 'Dokploy'
                       | 'Dolibarr'
                       | 'Donorbox'
                       | 'Doorloop'
@@ -579,6 +594,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Formbricks'
                       | 'Fortnox'
                       | 'Fourthwall'
+                      | 'Framer'
                       | 'Fred'
                       | 'FreeAgent'
                       | 'Freightview'
@@ -658,8 +674,10 @@ export interface sourceCatalogLogicMeta {
                       | 'GoogleDirectory'
                       | 'GoogleDrive'
                       | 'GoogleForms'
+                      | 'GoogleMerchantCenter'
                       | 'GooglePageSpeedInsights'
                       | 'GooglePlayConsole'
+                      | 'GooglePostmasterTools'
                       | 'GoogleSearchConsole'
                       | 'GoogleSheets'
                       | 'GoogleTasks'
@@ -672,6 +690,7 @@ export interface sourceCatalogLogicMeta {
                       | 'GreytHr'
                       | 'Gridly'
                       | 'Groq'
+                      | 'Growi'
                       | 'GrowthBook'
                       | 'Guardian'
                       | 'Guesty'
@@ -706,6 +725,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Honeycomb'
                       | 'Hookdeck'
                       | 'HoorayHR'
+                      | 'Hootsuite'
                       | 'Hostaway'
                       | 'HousecallPro'
                       | 'Hubplanner'
@@ -715,11 +735,13 @@ export interface sourceCatalogLogicMeta {
                       | 'Humanitix'
                       | 'Huntr'
                       | 'Hyperspell'
+                      | 'Hyros'
                       | 'Ikas'
                       | 'IlluminaBasespace'
                       | 'Imagga'
                       | 'ImfData'
                       | 'Impact'
+                      | 'ImpactPartner'
                       | 'Imperva'
                       | 'IncidentIo'
                       | 'Infisical'
@@ -740,6 +762,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Invoiced'
                       | 'Invoiceninja'
                       | 'IP2Whois'
+                      | 'IronSourceAds'
                       | 'Iterable'
                       | 'Iyzico'
                       | 'JamfPro'
@@ -758,6 +781,7 @@ export interface sourceCatalogLogicMeta {
                       | 'K6Cloud'
                       | 'Kafka'
                       | 'Kajabi'
+                      | 'Kalshi'
                       | 'Kameleoon'
                       | 'Kandji'
                       | 'KapaAI'
@@ -815,6 +839,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Linkrunner'
                       | 'Linnworks'
                       | 'Linode'
+                      | 'Liveblocks'
                       | 'LlamaCloud'
                       | 'Lob'
                       | 'Lodgify'
@@ -825,6 +850,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Looker'
                       | 'LoopReturns'
                       | 'Loops'
+                      | 'Lovable'
                       | 'Luma'
                       | 'M3ter'
                       | 'Mailchimp'
@@ -869,6 +895,7 @@ export interface sourceCatalogLogicMeta {
                       | 'MicrosoftDefenderEndpoint'
                       | 'MicrosoftDefenderForCloud'
                       | 'MicrosoftEntraId'
+                      | 'MicrosoftExcel'
                       | 'MicrosoftIntune'
                       | 'MicrosoftLists'
                       | 'MicrosoftPurview'
@@ -896,7 +923,9 @@ export interface sourceCatalogLogicMeta {
                       | 'MonteCarlo'
                       | 'Moodle'
                       | 'Motherduck'
+                      | 'Motion'
                       | 'Moxie'
+                      | 'MSG91'
                       | 'MSSQL'
                       | 'Mux'
                       | 'Mycase'
@@ -905,6 +934,7 @@ export interface sourceCatalogLogicMeta {
                       | 'N8n'
                       | 'NagerDate'
                       | 'Nasa'
+                      | 'NationBuilder'
                       | 'Navan'
                       | 'NebiusAI'
                       | 'Neon'
@@ -934,6 +964,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Nylas'
                       | 'Octolens'
                       | 'OctopusDeploy'
+                      | 'Odoo'
                       | 'Oecd'
                       | 'Okendo'
                       | 'Okta'
@@ -1025,7 +1056,8 @@ export interface sourceCatalogLogicMeta {
                       | 'Piwik'
                       | 'Plaid'
                       | 'Plain'
-                      | 'PlanetScale'
+                      | 'PlanetScaleMySQL'
+                      | 'PlanetScalePostgres'
                       | 'Planhat'
                       | 'PlanningCenter'
                       | 'PlatformSh'
@@ -1038,6 +1070,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Podium'
                       | 'Polar'
                       | 'Polygon'
+                      | 'Polymarket'
                       | 'Poplar'
                       | 'Postgres'
                       | 'Postmark'
@@ -1055,6 +1088,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Productboard'
                       | 'Productiv'
                       | 'Productive'
+                      | 'Profound'
                       | 'PromptingCompany'
                       | 'PromptWatch'
                       | 'ProofpointTap'
@@ -1072,7 +1106,9 @@ export interface sourceCatalogLogicMeta {
                       | 'QuickBooks'
                       | 'Railway'
                       | 'Railz'
+                      | 'Raisely'
                       | 'Raken'
+                      | 'RakutenAdvertising'
                       | 'Ramp'
                       | 'Rapid7Insightvm'
                       | 'Raygun'
@@ -1109,6 +1145,7 @@ export interface sourceCatalogLogicMeta {
                       | 'RocketChat'
                       | 'Rocketlane'
                       | 'RocketMatter'
+                      | 'RoktAds'
                       | 'Rollbar'
                       | 'Rootly'
                       | 'Rss'
@@ -1125,6 +1162,7 @@ export interface sourceCatalogLogicMeta {
                       | 'SalesforceMarketingCloud'
                       | 'SalesLoft'
                       | 'Salestrics'
+                      | 'SamCart'
                       | 'Sanity'
                       | 'SapConcur'
                       | 'SapErp'
@@ -1135,6 +1173,7 @@ export interface sourceCatalogLogicMeta {
                       | 'ScaleAI'
                       | 'Scaleway'
                       | 'Scalr'
+                      | 'Schematic'
                       | 'SearchAds360'
                       | 'SecEdgar'
                       | 'Secoda'
@@ -1157,11 +1196,13 @@ export interface sourceCatalogLogicMeta {
                       | 'ServiceNow'
                       | 'Servicetitan'
                       | 'Servicetrade'
+                      | 'Sevalla'
                       | 'Sevdesk'
                       | 'SevenShifts'
                       | 'SFTP'
                       | 'SharePoint'
                       | 'Sharetribe'
+                      | 'Shipmail'
                       | 'Shippo'
                       | 'ShipStation'
                       | 'Shopify'
@@ -1177,6 +1218,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Sim'
                       | 'SimFin'
                       | 'Similarweb'
+                      | 'SimonData'
                       | 'SimpleCast'
                       | 'Simplesat'
                       | 'Simpro'
@@ -1198,9 +1240,11 @@ export interface sourceCatalogLogicMeta {
                       | 'Smartwaiver'
                       | 'Smokeball'
                       | 'SnapchatAds'
+                      | 'Snovio'
                       | 'Snowflake'
                       | 'Snowplow'
                       | 'Snyk'
+                      | 'SocialPilot'
                       | 'SodaCloud'
                       | 'SolarwindsServiceDesk'
                       | 'SonarCloud'
@@ -1253,6 +1297,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Talkdesk'
                       | 'Talkwalker'
                       | 'Tally'
+                      | 'Tana'
                       | 'Tavus'
                       | 'TawkTo'
                       | 'Teachable'
@@ -1266,6 +1311,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Tempo'
                       | 'TemporalIO'
                       | 'TenableVulnerabilityManagement'
+                      | 'TeraBox'
                       | 'Ternary'
                       | 'TerraApi'
                       | 'TerraformCloud'
@@ -1300,6 +1346,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Trello'
                       | 'Tremendous'
                       | 'TriggerDev'
+                      | 'Trino'
                       | 'TripleWhale'
                       | 'TrunkIo'
                       | 'TrustPilot'
@@ -1324,6 +1371,7 @@ export interface sourceCatalogLogicMeta {
                       | 'UnComtrade'
                       | 'Unleash'
                       | 'Unstructured'
+                      | 'Uploadcare'
                       | 'UpPromote'
                       | 'Upstash'
                       | 'Uptick'
@@ -1362,10 +1410,14 @@ export interface sourceCatalogLogicMeta {
                       | 'WeightsAndBiases'
                       | 'WhatsappBusinessManagement'
                       | 'WhenIWork'
+                      | 'WHMCS'
                       | 'WhoGho'
                       | 'Whop'
                       | 'WikipediaPageviews'
                       | 'Windmill'
+                      | 'WindsorAi'
+                      | 'WisprFlow'
+                      | 'Wix'
                       | 'Wiz'
                       | 'Wompi'
                       | 'WooCommerce'
@@ -1378,6 +1430,7 @@ export interface sourceCatalogLogicMeta {
                       | 'WorkOS'
                       | 'Workramp'
                       | 'WorldBank'
+                      | 'WPSOffice'
                       | 'Wrike'
                       | 'Writesonic'
                       | 'Wufoo'
@@ -1398,6 +1451,7 @@ export interface sourceCatalogLogicMeta {
                       | 'ZapierSupportedStorage'
                       | 'ZapSign'
                       | 'Zellify'
+                      | 'Zenchef'
                       | 'Zendesk'
                       | 'ZendeskSell'
                       | 'ZendeskSunshine'
@@ -1406,6 +1460,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Zenloop'
                       | 'Zep'
                       | 'Zero'
+                      | 'Zitadel'
                       | 'Zluri'
                       | 'ZohoAnalytics'
                       | 'ZohoBigin'
@@ -1433,6 +1488,7 @@ export interface sourceCatalogLogicMeta {
             search: string,
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
+        hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
     }
 }
 
@@ -1565,7 +1621,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 // three tiles, one per format, since users search for "CSV" rather than "File upload".
                 const fileUpload = FILE_UPLOAD_FORMATS.map(
                     ({ format, label, keywords }): CatalogItem => ({
-                        name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                        name: fileUploadSourceType(format),
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
@@ -1658,6 +1714,22 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     }
                     return a.label.localeCompare(b.label)
                 })
+            },
+        ],
+
+        // With a category selected, a search that only matches sources in other categories leaves
+        // filteredItems empty even though the source exists. This flags that case so the empty
+        // state can offer an all-categories search instead of dead-ending on "no sources match".
+        hasCrossCategoryMatches: [
+            (s) => [s.catalogFuse, s.search, s.selectedCategory],
+            (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter): boolean => {
+                const trimmed = search.trim()
+                if (!trimmed || selectedCategory === ALL_SOURCES_CATEGORY) {
+                    return false
+                }
+                return catalogFuse
+                    .search(trimmed)
+                    .some((r) => r.item.status !== 'coming_soon' && r.item.category !== selectedCategory)
             },
         ],
     }),

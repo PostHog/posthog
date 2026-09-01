@@ -37,11 +37,10 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
-import { downloadFile, uuid } from 'lib/utils/dom'
+import { downloadFile } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -56,6 +55,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import {
+    MAX_REPLAY_IFRAME_HTML_CHARS,
+    ReplayIframeData,
+    isUsableHeatmapUrl,
+    persistReplayIframeData,
+} from 'products/web_analytics/frontend/heatmaps/replayIframeData'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingType, UserType } from '../../../types'
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -65,6 +72,7 @@ import {
     playerCommentOverlayLogic,
     type playerCommentOverlayLogicType,
 } from './commenting/playerFrameCommentOverlayLogic'
+import { clipWindowSeconds } from './controller/clipRange'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import {
@@ -145,6 +153,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     onRecordingDeleted?: () => void
     autoPlay?: boolean
     withSidebar?: boolean
+    noMeta?: boolean
+    noDock?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
@@ -152,8 +162,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playNextRecording?: (automatic: boolean) => void
     skipToFirstMatchingEvent?: boolean
 }
-
-const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
 // Positions less than this far before the next FullSnapshot are treated as
 // renderable: recordings routinely start a few ms before their first
@@ -218,19 +226,6 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
-function removeFromLocalStorageWithPrefix(prefix: string): void {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i)
-        if (key?.startsWith(prefix)) {
-            localStorage.removeItem(key)
-        }
-    }
-}
-
-export function removeReplayIframeDataFromLocalStorage(): void {
-    removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
-}
-
 const NOSCRIPT_BLOCK_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi
 
 /**
@@ -242,6 +237,20 @@ export function stripRrwebScriptShims(html: string): string {
         return html
     }
     return html.replace(NOSCRIPT_BLOCK_RE, '')
+}
+
+const SNAPSHOT_REJECTION_PROBLEM = {
+    not_ready: 'This recording has not finished loading this frame yet.',
+    no_url: 'This moment has no page address to build a heatmap for.',
+    too_large: 'This part of the recording is too large to use as a heatmap background.',
+    storage_failed: "Couldn't save this moment as a heatmap background.",
+} as const
+
+function rejectHeatmapSnapshot(reason: keyof typeof SNAPSHOT_REJECTION_PROBLEM, htmlChars: number): void {
+    posthog.capture('in-app heatmap background snapshot rejected', { reason, html_chars: htmlChars })
+    lemonToast.error(
+        `${SNAPSHOT_REJECTION_PROBLEM[reason]} Try a different moment, or create a heatmap from the page URL instead.`
+    )
 }
 
 /**
@@ -281,6 +290,10 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     }
     return newEvents
 }
+
+// Longer than any legit in-session idle span (the default session idle timeout is 30 minutes),
+// so a gap past this exists only in recordings with corrupted timestamps.
+export const INSTANT_SKIP_INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000
 
 /** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
 export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
@@ -528,6 +541,9 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
+    playableSnapshotsByWindowId: Record<number, eventWithTime[]> // sessionRecordingDataCoordinatorLogic
+    recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
@@ -537,6 +553,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
+    isSnapshotUnauthorized: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -725,6 +742,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: string
         errorObject?: any
     } // snapshotDataLogic
+    retrySnapshotLoading: () => {
+        value: true
+    } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
     } // snapshotDataLogic
@@ -838,6 +858,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: any
     }
     restartIframePlayback: () => {
+        value: true
+    }
+    retryLoadingSnapshots: () => {
         value: true
     }
     schedulePlayerTimeTracking: () => {
@@ -1035,11 +1058,11 @@ export interface sessionRecordingPlayerLogicMeta {
         currentPlayerTime: (currentTimestamp: number | undefined, sessionPlayerData: SessionPlayerData) => number
         currentPlayerTimeSeconds: (currentPlayerTime: number) => number
         toRRWebPlayerTime: (
-            sessionPlayerData: SessionPlayerData,
+            playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => (timestamp: number) => number | undefined
         fromRRWebPlayerTime: (
-            sessionPlayerData: SessionPlayerData,
+            playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => (time?: number | undefined) => number | undefined
         jumpTimeMs: (speed: number) => number
@@ -1129,6 +1152,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotStore',
                 'allSourcesLoaded',
                 'storeVersion',
+                'isSnapshotUnauthorized',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -1140,6 +1164,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
+                'recordingTooLargeToPlay',
+                'hasOversizedMutations',
+                'playableSnapshotsByWindowId',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -1159,6 +1186,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
+                'retrySnapshotLoading',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -1189,6 +1217,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
+        retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
         syncPlayerSpeed: true,
@@ -1656,14 +1685,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
-            (s) => [s.sessionPlayerData, s.currentSegment],
-            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
+            (s) => [s.playableSnapshotsByWindowId, s.currentSegment],
+            (playableSnapshotsByWindowId: Record<number, eventWithTime[]>, currentSegment: RecordingSegment | null) => {
                 return (timestamp: number): number | undefined => {
                     if (!currentSegment || !currentSegment.windowId) {
                         return
                     }
 
-                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    // The replayer's time base is the first event it was fed, so use the filtered set
+                    const snapshots = playableSnapshotsByWindowId[currentSegment.windowId]
                     if (!snapshots?.length) {
                         return
                     }
@@ -1675,13 +1705,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         fromRRWebPlayerTime: [
-            (s) => [s.sessionPlayerData, s.currentSegment],
-            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
+            (s) => [s.playableSnapshotsByWindowId, s.currentSegment],
+            (playableSnapshotsByWindowId: Record<number, eventWithTime[]>, currentSegment: RecordingSegment | null) => {
                 return (time?: number): number | undefined => {
                     if (time === undefined || !currentSegment?.windowId) {
                         return
                     }
-                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    const snapshots = playableSnapshotsByWindowId[currentSegment.windowId]
                     if (!snapshots?.length) {
                         return
                     }
@@ -2097,8 +2127,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 !values.rootFrame ||
                 windowId === undefined ||
-                !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
-                values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
+                !values.playableSnapshotsByWindowId[windowId] ||
+                values.playableSnapshotsByWindowId[windowId].length < 2
             ) {
                 actions.setPlayer(null)
                 return
@@ -2112,7 +2142,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
+            const canvasPlugin = CanvasReplayerPlugin(values.playableSnapshotsByWindowId[windowId], (error) =>
                 posthog.captureException(error)
             )
             plugins.push(canvasPlugin)
@@ -2178,7 +2208,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // the config.onError callback only covers its async internal errors. Without this
                     // catch the throw escapes the listener and the player buffers forever.
                     try {
-                        const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                        const replayer = new Replayer(values.playableSnapshotsByWindowId[windowId], config)
                         const iframeCleanups: (() => void)[] = []
 
                         replayer.on('fullsnapshot-rebuilded', () => {
@@ -2301,6 +2331,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(segment.endTimestamp)
                     return
                 }
+                // fast-forwarding a multi-hour span saturates the main thread; only 'gap' segments
+                // are event-free, so only they are safe to jump with a seek
+                const remainingMs =
+                    segment.endTimestamp -
+                    clamp(
+                        values.currentTimestamp ?? segment.startTimestamp,
+                        segment.startTimestamp,
+                        segment.endTimestamp
+                    )
+                if (
+                    values.playingState === SessionPlayerState.PLAY &&
+                    segment.kind === 'gap' &&
+                    remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    actions.seekToTimestamp(segment.endTimestamp)
+                    return
+                }
                 actions.setSkippingInactivity(true)
             } else {
                 actions.setSkippingInactivity(false)
@@ -2310,8 +2357,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.player || values.player.windowId !== segment.windowId) {
                 // Only reinitialize if we have valid data for this segment's window
                 const canReinit =
-                    segment.windowId !== undefined &&
-                    values.sessionPlayerData.snapshotsByWindowId[segment.windowId]?.length >= 2
+                    segment.windowId !== undefined && values.playableSnapshotsByWindowId[segment.windowId]?.length >= 2
 
                 if (canReinit) {
                     values.player?.replayer?.pause()
@@ -2463,7 +2509,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             if (values.currentSegment?.windowId !== undefined) {
-                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
+                const allSnapshots = values.playableSnapshotsByWindowId[values.currentSegment?.windowId] ?? []
                 // NOTE: not `push(...array)` — spreading an unbounded snapshot array into a call
                 // blows the argument stack (RangeError) on very large recordings
                 for (const event of findNewEvents(allSnapshots, currentEvents)) {
@@ -2526,6 +2572,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
+            if (values.recordingTooLargeToPlay) {
+                actions.setPlayerError('recordingTooLarge')
+                return
+            }
+
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
 
@@ -2537,26 +2588,39 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotsForSourceFailure')
+                actions.setPlayerError(
+                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotsForSourceFailure'
+                )
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotSourcesFailure')
+                actions.setPlayerError(
+                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotSourcesFailure'
+                )
             }
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError('snapshotSourceLoadExhausted')
+            actions.setPlayerError(
+                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
+            )
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
             actions.setPlayerError('snapshotProcessingFailed')
         },
+        retryLoadingSnapshots: () => {
+            actions.clearPlayerError()
+            actions.retrySnapshotLoading()
+        },
         setPlay: () => {
+            if (values.recordingTooLargeToPlay) {
+                return
+            }
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
@@ -2577,6 +2641,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setEndReached(false)
 
             if (nextTimestamp !== undefined) {
+                // resuming inside a long gap re-enters it without a segment change, so jump here too
+                const segment = values.segmentForTimestamp(nextTimestamp)
+                if (
+                    values.skipInactivitySetting &&
+                    segment?.kind === 'gap' &&
+                    segment.endTimestamp - nextTimestamp > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    nextTimestamp = segment.endTimestamp
+                }
                 actions.seekToTimestamp(nextTimestamp, true)
             }
 
@@ -2605,6 +2678,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
+            analysisNudgeLogic.findMounted()?.actions.recordingAnalyzed(props.sessionRecordingId)
         },
         setPause: () => {
             actions.stopAnimation()
@@ -2827,7 +2901,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.currentTimestamp,
                     values.currentSegment?.kind,
                     values.roughAnimationFPS,
-                    cache._frameState ?? initialFrameState()
+                    cache._frameState ?? initialFrameState(),
+                    frameNow
                 )
                 cache._frameState = frameResult.newState
                 let newTimestamp = frameResult.resolvedTimestamp
@@ -3076,11 +3151,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
         getClip: async ({ format, duration = 5, filename }) => {
-            // Center the clip around current time, minus 1 second offset for player start
-            const timestamp = Math.max(
-                0,
-                Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
+            // The window the overlay showed, so the exported file covers the range that was on screen.
+            const window = clipWindowSeconds(
+                getCurrentPlayerTime(values.logicProps),
+                Math.floor((values.sessionPlayerData?.durationMs ?? 0) / 1000),
+                duration
             )
+            // Minus 1 second offset for player start
+            const timestamp = Math.max(0, Math.floor(window.startSeconds - 1))
             actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration, filename)
         },
         exportRecordingToVideoFile: async () => {
@@ -3096,19 +3174,35 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
             if (!rawIframeHtml || !resolution) {
+                rejectHeatmapSnapshot('not_ready', rawIframeHtml?.length ?? 0)
                 return
             }
 
-            removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
-            const key = ReplayIframeDatakeyPrefix + uuid()
+            const url = values.currentURL?.trim()
+            if (!isUsableHeatmapUrl(url)) {
+                rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
+                return
+            }
+
+            const html = stripRrwebScriptShims(rawIframeHtml)
+            const htmlChars = html.length
+            if (htmlChars > MAX_REPLAY_IFRAME_HTML_CHARS) {
+                rejectHeatmapSnapshot('too_large', htmlChars)
+                return
+            }
+
             const data: ReplayIframeData = {
-                html: stripRrwebScriptShims(rawIframeHtml),
+                html,
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
-                url: values.currentURL,
+                url,
             }
-            localStorage.setItem(key, JSON.stringify(data))
+            const key = persistReplayIframeData(data)
+            if (!key) {
+                rejectHeatmapSnapshot('storage_failed', htmlChars)
+                return
+            }
             const modalLogic = sessionPlayerModalLogic.findMounted()
             if (modalLogic?.values.modalContext?.type === 'heatmap-background-selection') {
                 modalLogic.actions.completeHeatmapBackgroundSelection(key)
@@ -3190,6 +3284,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
+        hasOversizedMutations: (detected: boolean) => {
+            if (detected) {
+                posthog.capture('recording player skipped oversized mutations', {
+                    watchedSessionId: values.sessionRecordingId,
+                })
+            }
+        },
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
@@ -3206,7 +3307,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
 
-            if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
+            // A stall during an inactivity skip leaves the player in SKIP, not PLAY, so the recovery
+            // must run in both states or a skip can never nudge past the blockage.
+            const canRecover =
+                values.currentPlayerState === SessionPlayerState.PLAY ||
+                values.currentPlayerState === SessionPlayerState.SKIP
+            if (rrwebPlayerTime !== undefined && canRecover) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },

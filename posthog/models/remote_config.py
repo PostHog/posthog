@@ -213,6 +213,7 @@ class RemoteConfig(UUIDTModel):
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.messaging.backend.remote_config import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -247,6 +248,9 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Error tracking
         config["errorTracking"] = build_error_tracking_config(team)
+
+        # MARK: Push notifications
+        config["push"] = build_push_config(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -366,33 +370,38 @@ class RemoteConfig(UUIDTModel):
                     f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback(); return {{}}  }}\n}}"
                 )
             )
-        site_functions = (
-            HogFunction.objects.select_related("team")
-            .filter(
-                team=self.team,
-                enabled=True,
-                deleted=False,
-                type__in=("site_destination", "site_app"),
-            )
-            .all()
-        )
-
         site_functions_js = []
 
-        for site_function in site_functions:
-            try:
-                source = get_transpiled_function(site_function)
-                # NOTE: It is an object as we can later add other properties such as a consent ID
-                # Indentation to make it more readable (and therefore debuggable)
-                site_functions_js.append(
-                    indent_js(
-                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
-                    )
+        try:
+            site_functions = (
+                HogFunction.objects.select_related("team")
+                .filter(
+                    team=self.team,
+                    enabled=True,
+                    deleted=False,
+                    type__in=("site_destination", "site_app"),
                 )
-            except Exception:
-                # TODO: Should we track this to somewhere?
-                logger.exception(f"Failed to build JS for site function {site_function.id}")
-                pass
+                .only("id", "team_id", "inputs", "hog", "filters", "mappings")
+            )
+
+            for site_function in site_functions:
+                try:
+                    source = get_transpiled_function(site_function)
+                    # NOTE: It is an object as we can later add other properties such as a consent ID
+                    # Indentation to make it more readable (and therefore debuggable)
+                    site_functions_js.append(
+                        indent_js(
+                            f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                        )
+                    )
+                except Exception as e:
+                    # Caught exceptions never reach error tracking on their own, and degrading
+                    # silently here hides a broken site function from everyone.
+                    logger.exception(f"Failed to build JS for site function {site_function.id}")
+                    capture_exception(e)
+        except Exception as e:
+            logger.exception(f"Failed to fetch site functions for team {self.team.id}")
+            capture_exception(e)
 
         return site_apps_js + site_functions_js
 
@@ -585,4 +594,22 @@ def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="posthog.TeamJsSnippetConfig")
 def js_snippet_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.Integration")
+@receiver(post_delete, sender="posthog.Integration")
+def push_integration_changed(sender, instance, **kwargs):
+    from products.messaging.backend.remote_config import PUSH_APP_ID_CONFIG_KEYS
+
+    # Integrations cover every kind we support, and most of them have nothing to do with the SDK
+    # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
+    # integration doesn't enqueue a rebuild for every team that has one.
+    if instance.kind not in PUSH_APP_ID_CONFIG_KEYS:
+        return
+    # The app_ids live in config, and integration code saves errors and created_by on their own —
+    # apns_integration alone does three saves per creation. Only config can change the payload.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "config" not in update_fields:
+        return
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

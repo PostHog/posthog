@@ -131,7 +131,6 @@ def pingdom_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc",
-        has_duplicate_primary_keys=config.has_duplicate_primary_keys or None,
     )
 
 
