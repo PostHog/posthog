@@ -4,6 +4,7 @@ from typing import Any
 import structlog
 from temporalio import activity
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.slack_app.helpers import safe_react
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -125,6 +126,7 @@ async def discover_posthog_code_repository_via_agent_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.signals.backend.facade import api as signals_facade
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.repo_selection import (
         RepoSelectionRejectedError,
@@ -154,6 +156,12 @@ async def discover_posthog_code_repository_via_agent_activity(
     # selector. The selector is domain-agnostic; the caller serializes.
     context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
 
+    # Inbox wrong-repo corrections describe the project's repositories, not the inbox, so a Slack ask
+    # gets the same block Self-driving selections see. None when the team has none or the build failed.
+    past_corrections = await database_sync_to_async(
+        signals_facade.wrong_repo_corrections_block, thread_sensitive=False
+    )(integration.team_id)
+
     # Captured even when select_repository later raises
     research_ids: dict[str, str] = {}
 
@@ -169,6 +177,7 @@ async def discover_posthog_code_repository_via_agent_activity(
                 context=context_block,
                 origin_product=tasks_facade.TaskOriginProduct.SLACK,
                 on_research_session=_capture_research_session,
+                past_corrections=past_corrections,
             )
     except RepoSelectionRejectedError as exc:
         logger.warning(
