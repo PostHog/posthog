@@ -832,8 +832,10 @@ export interface InboxReportActionProperties {
   list_size: number;
   dismissal_reason?: string;
   dismissal_note?: string;
-  // 'owner/repo' correction from a wrong_repo dismissal.
-  dismissal_corrected_repository?: string;
+  // True when a wrong_repo dismissal supplied a corrected repository. The
+  // 'owner/repo' slug itself stays in the team-scoped API record, since shared
+  // telemetry must not carry repository identity.
+  has_corrected_repository?: boolean;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;

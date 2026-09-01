@@ -85,10 +85,18 @@ describe("buildBulkActionEvents", () => {
       reports: [fakeReport({ id: "a" })],
       actionType: "dismiss",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissal: {
+        reason: "wrong_repo",
+        note: longNote,
+        correctedRepository: "acme/private-repo",
+      },
     });
-    expect(dismissed.dismissal_reason).toBe("not_relevant");
+    expect(dismissed.dismissal_reason).toBe("wrong_repo");
     expect(dismissed.dismissal_note).toHaveLength(500);
+    // A corrected repository is reported as a boolean; the raw 'owner/repo' slug
+    // must never reach shared telemetry.
+    expect(dismissed.has_corrected_repository).toBe(true);
+    expect(JSON.stringify(dismissed)).not.toContain("acme/private-repo");
 
     const [snoozed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],

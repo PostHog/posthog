@@ -100,7 +100,7 @@ export function buildBulkActionEvents(
       ? { dismissal_note: dismissal.note.slice(0, 500) }
       : {}),
     ...(actionType === "dismiss" && dismissal?.correctedRepository
-      ? { dismissal_corrected_repository: dismissal.correctedRepository }
+      ? { has_corrected_repository: true }
       : {}),
   }));
 }
