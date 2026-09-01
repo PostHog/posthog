@@ -70,6 +70,16 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
             "the live content to build the staged draft."
         )
     )
+    step_id = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text=(
+            "The workflow step this is about, when it is about one. The evidence and the outcome both "
+            "read metrics for this step, so a change to one email in a sequence is not measured against "
+            "every other email in it."
+        ),
+    )
     base_version = models.IntegerField(
         help_text="Live workflow version this was authored against. Drives a staleness warning, not a block."
     )
