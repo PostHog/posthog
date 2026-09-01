@@ -1,3 +1,4 @@
+import base64
 import typing
 import dataclasses
 from io import StringIO
@@ -15,6 +16,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 # Substrings that mark a private-key parse failure as a wrong/missing passphrase rather than a
 # format problem, so both the parser and the validator give the same passphrase-specific guidance.
 _PASSPHRASE_ERROR_TERMS = ("checksum", "decrypt", "password", "passphrase")
+
+# Prefixes of the SSH public-key algorithm names paramiko can build a host key from. A pasted host
+# key may be a bare `<type> <base64>` public key, a full known_hosts line (`<host> <type> <base64>`),
+# or raw `ssh-keyscan` output — so we locate the algorithm token rather than assume its position.
+_SSH_KEY_TYPE_PREFIXES = ("ssh-", "ecdsa-", "sk-ssh-", "sk-ecdsa-")
+
+
+def host_key_from_string(value: str) -> PKey:
+    """Parse a pasted SSH host public key into a paramiko `PKey`.
+
+    Accepts a bare `<type> <base64>` public key, a `known_hosts` line, or raw `ssh-keyscan`
+    output (all three carry the algorithm token followed by the base64 key). The returned key is
+    what paramiko compares the server's presented host key against, so a mismatch fails the
+    handshake instead of trusting whatever key the server offers.
+    """
+    tokens = value.split()
+    for index, token in enumerate(tokens):
+        if token.startswith(_SSH_KEY_TYPE_PREFIXES) and index + 1 < len(tokens):
+            key_type = token
+            key_bytes = base64.b64decode(tokens[index + 1], validate=True)
+            return PKey.from_type_string(key_type, key_bytes)
+    raise ValueError("No SSH host key found")
 
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
@@ -87,6 +110,10 @@ class SSHTunnelConfig(config.Config):
     auth: SSHTunnelAuthConfig = config.value(alias="auth_type", default_factory=SSHTunnelAuthConfig)
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
     require_tls: SSHTunnelRequireTlsConfig = config.value(default_factory=SSHTunnelRequireTlsConfig)
+    # Optional pinned host key for the SSH server. When set, paramiko verifies the server presents
+    # this exact key and rejects any other. Left blank keeps the prior behavior: the tunnel is
+    # encrypted but the server's identity is not checked.
+    host_key: str | None = None
 
 
 @frozen
@@ -100,6 +127,8 @@ class SSHTunnel:
     password: str | None = dataclasses.field(repr=False)
     private_key: str | None = dataclasses.field(repr=False)
     passphrase: str | None = dataclasses.field(repr=False)
+    # Public host key, so safe to keep in repr; None means the server's identity is not verified.
+    host_key: str | None = None
 
     @classmethod
     def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
@@ -122,6 +151,7 @@ class SSHTunnel:
             password=config.auth.password,
             private_key=config.auth.private_key,
             passphrase=config.auth.passphrase,
+            host_key=config.host_key or None,
         )
 
     def parse_private_key(self) -> PKey:
@@ -133,6 +163,28 @@ class SSHTunnel:
             passphrase = self.passphrase
 
         return from_private_key(StringIO(self.private_key), passphrase)
+
+    def parse_host_key(self) -> PKey | None:
+        """Return the pinned host key as a paramiko `PKey`, or None when none is configured."""
+        if self.host_key is None or len(self.host_key.strip()) == 0:
+            return None
+        return host_key_from_string(self.host_key)
+
+    def is_host_key_valid(self) -> tuple[bool, str]:
+        # The host key is optional, so a blank value is valid and just leaves the server unverified.
+        if self.host_key is None or len(self.host_key.strip()) == 0:
+            return True, ""
+
+        try:
+            self.parse_host_key()
+        except Exception:
+            return False, (
+                "SSH host key could not be parsed. Paste the server's public host key as "
+                "`<type> <base64>` (for example the output of `ssh-keyscan <host>`), or leave it "
+                "blank to skip host verification."
+            )
+
+        return True, ""
 
     def is_auth_valid(self) -> tuple[bool, str]:
         if self.auth_type != "password" and self.auth_type != "keypair":
@@ -191,9 +243,9 @@ class SSHTunnel:
 
         `ssh_host` is required rather than defaulted to `self.host` so that a caller cannot
         skip the SSRF check by omitting it: see `resolve_safe_host` for why the checked address
-        and the connected address have to be the same one. Passing an IP does not weaken the
-        SSH connection, because `ssh_host_key` is left unset and paramiko therefore verifies no
-        host key against the name either way.
+        and the connected address have to be the same one. Passing an IP does not weaken host-key
+        verification: paramiko compares the pinned `ssh_host_key` against the key the server
+        presents, not against the name we dialed.
         """
         if not self.is_auth_valid()[0]:
             raise Exception("SSHTunnel auth is not valid")
@@ -201,11 +253,18 @@ class SSHTunnel:
         if not self.has_valid_port()[0]:
             raise Exception("SSHTunnel port is not valid")
 
+        if not self.is_host_key_valid()[0]:
+            raise Exception("SSHTunnel host key is not valid")
+
+        # None leaves the handshake unverified, exactly as before this field existed.
+        ssh_host_key = self.parse_host_key()
+
         if self.auth_type == "password":
             return SSHTunnelForwarder(
                 (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_password=self.password,
+                ssh_host_key=ssh_host_key,
                 remote_bind_address=(remote_host, remote_port),
                 local_bind_address=("127.0.0.1",),
             )
@@ -215,6 +274,7 @@ class SSHTunnel:
                 ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,
+                ssh_host_key=ssh_host_key,
                 remote_bind_address=(remote_host, remote_port),
                 local_bind_address=("127.0.0.1",),
             )

@@ -2,8 +2,23 @@ import pytest
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
+from paramiko import RSAKey
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+
+
+def _password_tunnel(host_key: str | None) -> SSHTunnel:
+    return SSHTunnel(
+        enabled=True,
+        host="host.com",
+        port=5432,
+        auth_type="password",
+        username="user1",
+        password="password",
+        private_key=None,
+        passphrase=None,
+        host_key=host_key,
+    )
 
 
 def _keypair_tunnel(private_key: str | None, passphrase: str | None) -> SSHTunnel:
@@ -111,6 +126,39 @@ def test_is_auth_valid_wrong_passphrase_suggests_passphrase():
 
     assert res is False
     assert "passphrase" in error.lower()
+
+
+def test_blank_host_key_leaves_server_unverified():
+    # A blank host key is valid and parses to None, so the forwarder keeps the prior
+    # unverified behavior instead of failing setup.
+    tunnel = _password_tunnel(host_key=None)
+
+    assert tunnel.is_host_key_valid() == (True, "")
+    assert tunnel.parse_host_key() is None
+
+
+def test_unparseable_host_key_is_rejected():
+    res, error = _password_tunnel(host_key="not a host key").is_host_key_valid()
+
+    assert res is False
+    assert "host key" in error.lower()
+
+
+@pytest.mark.parametrize("with_hostname", [False, True])
+def test_get_tunnel_pins_host_key(with_hostname):
+    # A configured host key must reach the forwarder as `ssh_host_key`, or paramiko silently
+    # trusts whatever key the server presents. Accept both the bare `<type> <base64>` form and a
+    # full known_hosts line (raw `ssh-keyscan` output).
+    server_key = RSAKey.generate(2048)
+    line = f"{server_key.get_name()} {server_key.get_base64()}"
+    if with_hostname:
+        line = f"host.com {line}"
+
+    tunnel = _password_tunnel(host_key=line)
+
+    assert tunnel.parse_host_key() == server_key
+    forwarder = tunnel.get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+    assert forwarder.ssh_host_key == server_key
 
 
 def test_get_tunnel_invalid_auth():
