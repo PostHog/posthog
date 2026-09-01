@@ -76,7 +76,10 @@ export function getContextColumn(
     queryContextColumnName: string | undefined
     queryContextColumn: QueryContextColumn | undefined
 } {
-    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    // key can be a non-string if a query builds a column list with a gap (e.g. an unnamed
+    // conversion goal). Guard so one bad column cannot crash the whole table.
+    const queryContextColumnName =
+        typeof key === 'string' && key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? columns?.[queryContextColumnName] : undefined
 
     return {

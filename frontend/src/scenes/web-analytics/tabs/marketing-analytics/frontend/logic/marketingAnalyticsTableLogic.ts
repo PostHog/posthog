@@ -147,6 +147,9 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 const conversionGoalColumns = config.excludesConversionGoals
                     ? []
                     : conversionGoals
+                          // Stored goals can lack a name; without one they yield no column and
+                          // an unnamed goal would otherwise emit an undefined or "Cost per undefined" column.
+                          .filter((goal) => !!goal.conversion_goal_name)
                           .map((goal) =>
                               costAvailable
                                   ? [
