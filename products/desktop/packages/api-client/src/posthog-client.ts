@@ -94,6 +94,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -6947,6 +6948,10 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id } },
         );
         return shapeTicketPreview(ticket);
+      }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {
