@@ -325,7 +325,6 @@ describe("AgentService", () => {
         "/mock/appPath/.vite/build/claude-cli/claude",
       );
       expect(terminal.command).toContain(expected);
-      // The app override must not hide the machine's own login.
       expect(terminal.unsetEnv).toContain("CLAUDE_CONFIG_DIR");
       expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
     });

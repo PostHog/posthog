@@ -106,7 +106,6 @@ describe("hasClaudeLogin", () => {
     for (const key of STRIPPED_KEYS) {
       expect(spawnOptions.env[key]).toBeUndefined();
     }
-    // A user-provided OAuth token is itself a subscription credential — keep it.
     expect(spawnOptions.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("user-oauth-token");
   });
 

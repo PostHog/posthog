@@ -294,7 +294,6 @@ interface SessionConfig {
   sessionId?: string;
   adapter?: Adapter;
   codexModelAccess?: CodexModelAccess;
-  /** Claude adapter: run on the machine's own Claude Code login. */
   claudeModelAccess?: CodexModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
@@ -551,12 +550,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     };
   }
 
-  /**
-   * The `claude auth login` or `claude auth logout` terminal the user watches.
-   * The CLI opens the browser and reads the paste-back code itself, so the app
-   * never handles the credentials. The renderer starts the session so it is
-   * already subscribed when the first output arrives.
-   */
   getClaudeAuthTerminal(action: ClaudeAuthAction): ClaudeAuthTerminal {
     const { command, env } = claudeAuthTerminalCommand(
       action,

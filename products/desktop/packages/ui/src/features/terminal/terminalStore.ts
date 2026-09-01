@@ -63,11 +63,6 @@ export function clearPersistedSessionIds(persistedState: unknown) {
   };
 }
 
-/**
- * Terminals whose output must never reach disk. The auth terminal shows a
- * sign-in URL and can show a pasted sign-in code. The filter also drops the
- * entries that earlier builds wrote.
- */
 function isSensitiveKey(key: string): boolean {
   return key.startsWith("claude-auth-");
 }
@@ -139,7 +134,6 @@ export const useTerminalStore = create<TerminalStoreState>()(
     }),
     {
       name: "terminal-store",
-      // 2 drops the auth terminal output that version 1 wrote to disk.
       version: 2,
       migrate: (persistedState) =>
         clearPersistedSessionIds(persistedState) as PersistedTerminalStoreState,

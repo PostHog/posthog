@@ -38,10 +38,6 @@ export type AcpConnectionConfig = {
   enricherEnabled?: boolean;
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
-  /**
-   * Claude adapter: authenticate model calls with the machine's own Claude
-   * Code login instead of gateway env credentials.
-   */
   claudeUseMachineAuth?: boolean;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;

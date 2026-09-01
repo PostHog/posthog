@@ -20,11 +20,9 @@ export type ClaudeAuthAction = "login" | "logout";
 interface ClaudeAuthTerminalDialogProps {
   action: ClaudeAuthAction;
   onClose: () => void;
-  /** Called when the CLI stops, so the caller can read the login status again. */
   onFinished: () => void;
 }
 
-/** Same values as the xterm theme, so the frame and the canvas are one surface. */
 const SURFACE = {
   dark: { body: "#131316", chrome: "#1c1c21", text: "#e6e6e6" },
   light: { body: "#f2f3ee", chrome: "#e7e9e1", text: "#3a4036" },
@@ -72,17 +70,12 @@ export function ClaudeAuthTerminalDialog({
   const { data: terminal } = useQuery(
     hostTRPC.agent.claudeAuthTerminal.queryOptions({ action }),
   );
-  // A fresh id per run. A reused id attaches to the instance the previous run
-  // left behind, and then no new command starts.
   const [sessionId] = useState(
     () => `claude-auth-${action}-${secureRandomString(7)}`,
   );
-  // A sign-out goes wider than the app, so it waits for a confirmation.
   const [started, setStarted] = useState(action === "login");
   const [stopped, setStopped] = useState(false);
 
-  // `claude auth logout` reports success even when no login was there, so the
-  // outcome comes from the login check, not from the exit code.
   const statusQuery = useQuery({
     ...hostTRPC.agent.claudeSubscriptionStatus.queryOptions(),
     enabled: stopped,

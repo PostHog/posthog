@@ -497,11 +497,8 @@ describe("buildSessionOptions", () => {
       }
       expect(env?.OPENAI_BASE_URL).toBeUndefined();
       expect(env?.OPENAI_API_KEY).toBeUndefined();
-      // A user-provided OAuth token is itself a subscription credential — keep it.
       expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("user-oauth-token");
-      // No gateway telemetry without a gateway base URL.
       expect(env?.CLAUDE_CODE_ENABLE_TELEMETRY).toBeUndefined();
-      // Every remaining value must not carry a posthog header payload.
       for (const [key, value] of Object.entries(env ?? {})) {
         expect(value).not.toContain("x-posthog-");
         expect(key).not.toMatch(/X-PostHog/i);

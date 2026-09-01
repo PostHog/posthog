@@ -37,7 +37,6 @@ export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
 export const SPOKEN_NARRATION_FLAG = "posthog-code-spoken-narration";
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
   "posthog-code-codex-own-subscription";
-/** Run local/worktree Claude sessions on the machine's own Claude Code login instead of PostHog credits. */
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   "posthog-code-claude-own-subscription";
 // Gates importing and relaying local MCP servers into cloud task runs.

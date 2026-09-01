@@ -50,7 +50,6 @@ interface TerminalInstance {
   resizeObserver: ResizeObserver | null;
   saveTimeout: number | null;
   persistenceKey: string;
-  /** Content must not reach disk or session replay. */
   sensitive: boolean;
   cwd?: string;
   taskId?: string;
@@ -66,12 +65,7 @@ interface CreateOptions {
   taskId?: string;
   command?: string;
   additionalEnv?: Record<string, string>;
-  /** Variables to drop from the inherited env, ambient shell values included. */
   unsetEnv?: string[];
-  /**
-   * The output can carry account data or a sign-in code. The terminal then
-   * keeps no serialized copy, so nothing reaches the persisted store.
-   */
   sensitive?: boolean;
 }
 

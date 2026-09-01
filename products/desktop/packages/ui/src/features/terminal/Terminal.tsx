@@ -15,9 +15,7 @@ export interface TerminalProps {
   taskId?: string;
   command?: string;
   additionalEnv?: Record<string, string>;
-  /** Variables to drop from the inherited env, ambient shell values included. */
   unsetEnv?: string[];
-  /** Keep the output off disk and out of session replay. */
   sensitive?: boolean;
   onReady?: () => void;
   onExit?: (exitCode?: number) => void;
