@@ -87,15 +87,26 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_origin", "https://us.posthog.com/api/environments/1/heatmap_screenshots/2/content/", 201),
-            ("cross_origin", "https://example.com/collect", 400),
+            (
+                "us_same_origin",
+                "https://us.posthog.com",
+                "https://us.posthog.com/api/environments/1/heatmap_screenshots/2/content/",
+                201,
+            ),
+            (
+                "eu_same_origin",
+                "https://eu.posthog.com",
+                "https://eu.posthog.com/api/environments/1/heatmap_screenshots/2/content/",
+                201,
+            ),
+            ("cross_origin", "https://us.posthog.com", "https://example.com/collect", 400),
         ]
     )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_screenshot_heatmap_export_requires_same_origin_url(
-        self, _name: str, heatmap_url: str, expected_status: int, mock_exporter_task
+        self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
     ) -> None:
-        with self.settings(SITE_URL="https://us.posthog.com"):
+        with self.settings(SITE_URL=site_url):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports/",
                 {

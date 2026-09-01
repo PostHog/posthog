@@ -60,6 +60,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.exports.backend.facade.auth import export_asset_matches_renderer_token
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -740,20 +741,13 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             if url_team_id is not None and str(team_id) != url_team_id:
                 raise AuthenticationFailed(detail="Token project does not match the requested project.")
 
-            ExportedAsset = apps.get_model(app_label="exports", model_name="ExportedAsset")
-            asset = (
-                ExportedAsset.objects.only("id", "team_id", "created_by_id", "export_context")
-                .filter(id=exported_asset_id, team_id=team_id, created_by_id=user_id)
-                .first()
-            )
-            if asset is None:
+            if not export_asset_matches_renderer_token(
+                asset_id=exported_asset_id,
+                team_id=team_id,
+                created_by_id=user_id,
+                scope=scopes[0],
+            ):
                 raise AuthenticationFailed(detail="Token export asset invalid.")
-
-            export_context = asset.export_context or {}
-            if scopes[0] == "heatmap:read" and not export_context.get("heatmap_url"):
-                raise AuthenticationFailed(detail="Token scope does not match its export asset.")
-            if scopes[0] == "session_recording:read" and not export_context.get("session_recording_id"):
-                raise AuthenticationFailed(detail="Token scope does not match its export asset.")
 
             self.scopes = scopes
             self.team_id = team_id
