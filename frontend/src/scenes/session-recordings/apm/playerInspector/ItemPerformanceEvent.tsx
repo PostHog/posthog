@@ -504,6 +504,21 @@ export function HeadersDisplay({
 export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed: boolean }): JSX.Element | null {
     const { response_status: responseStatus, transfer_size: transferSize, response_body: responseBody } = item
 
+    if (isFailedNetworkRequest(item)) {
+        // A captured request that did not complete: a blocked fetch with no status, or a
+        // failed XHR that reports status 0. Render the failure here so every renderer that
+        // shares StatusTag marks it, including the network waterfall, not just the inspector list.
+        return (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                {detailed ? <div className="font-semibold">Status code</div> : null}
+                <div>
+                    <LemonTag type="danger">Failed</LemonTag>
+                    {detailed ? <span className="text-secondary"> no response received</span> : null}
+                </div>
+            </div>
+        )
+    }
+
     if (responseStatus === undefined) {
         return null
     }
@@ -549,18 +564,8 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let statusRow = null
     let methodRow = null
 
-    if (item.response_status) {
+    if (item.response_status || isFailedNetworkRequest(item)) {
         statusRow = <StatusTag item={item} detailed={true} />
-    } else if (isFailedNetworkRequest(item)) {
-        statusRow = (
-            <div className="flex gap-4 items-center justify-between overflow-hidden">
-                <div className="font-semibold">Status code</div>
-                <div>
-                    <LemonTag type="danger">Failed</LemonTag>
-                    <span className="text-secondary"> no response received</span>
-                </div>
-            </div>
-        )
     }
 
     if (item.method) {

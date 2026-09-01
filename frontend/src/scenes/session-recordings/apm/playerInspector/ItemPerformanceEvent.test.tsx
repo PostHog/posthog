@@ -1,6 +1,10 @@
 import { render } from '@testing-library/react'
 
-import { BodyDisplay, isFailedNetworkRequest } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
+import {
+    BodyDisplay,
+    isFailedNetworkRequest,
+    StatusTag,
+} from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 
 import { PerformanceEvent } from '~/types'
 
@@ -42,5 +46,23 @@ describe('ItemPerformanceEvent', () => {
     ])('isFailedNetworkRequest: %s', (_desc, overrides, expected) => {
         const item = { entry_type: 'resource', method: 'GET', ...overrides } as PerformanceEvent
         expect(isFailedNetworkRequest(item)).toBe(expected)
+    })
+
+    it.each([
+        ['a blocked fetch with no status', { initiator_type: 'fetch', response_status: undefined }],
+        ['a failed XHR with status 0', { initiator_type: 'xmlhttprequest', response_status: 0 }],
+    ])('StatusTag marks %s as failed so the waterfall shows it too', (_desc, overrides) => {
+        const item = { entry_type: 'resource', method: 'GET', ...overrides } as PerformanceEvent
+        const { container } = render(<StatusTag item={item} detailed={false} />)
+        expect(container.textContent).toContain('Failed')
+    })
+
+    it.each([
+        ['a 200 response', { initiator_type: 'fetch', response_status: 200 }],
+        ['an opaque cross-origin fetch with status 0', { initiator_type: 'fetch', response_status: 0 }],
+    ])('StatusTag does not mark %s as failed', (_desc, overrides) => {
+        const item = { entry_type: 'resource', method: 'GET', ...overrides } as PerformanceEvent
+        const { container } = render(<StatusTag item={item} detailed={false} />)
+        expect(container.textContent).not.toContain('Failed')
     })
 })
