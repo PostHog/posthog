@@ -221,6 +221,8 @@ test.describe('AI observability boolean evaluation polarity', () => {
         const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
         await playwrightSetup.login(page, workspace)
 
+        // Enabled so a reviewer glancing at the list screenshot doesn't have to wonder
+        // whether the rates are stale because the evaluations are off.
         const detector = await playwrightSetup.seedEvaluation({
             team_id: workspace.team_id,
             name: 'User struggled',
@@ -228,6 +230,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
             evaluation_config: { source: HOG_SOURCE },
             output_type: 'boolean',
             output_config: { true_is_failure: true },
+            enabled: true,
         })
         const evalAId = detector.evaluation_id
 
@@ -238,6 +241,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
             evaluation_config: { source: HOG_SOURCE },
             output_type: 'boolean',
             output_config: {},
+            enabled: true,
         })
         const evalBId = quality.evaluation_id
 
@@ -267,6 +271,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
                     { result: true },
                     { result: false },
                     { result: null },
+                    { result: false, skipped: true },
                 ],
                 now
             )
@@ -282,6 +287,15 @@ test.describe('AI observability boolean evaluation polarity', () => {
             // page load, and a clip built from boxes measured pre-scroll lands off-image.
             await detectorRow.scrollIntoViewIfNeeded()
 
+            // Byte-identical seed data on both evaluations (same 4 true / 1 false / 1 null /
+            // 1 skipped pattern) — the run count has to match too, or a reviewer glancing at the
+            // screenshot could mistake the inverted rates for a difference in the underlying data
+            // rather than in the declared polarity.
+            const detectorRuns = detectorRow.getByText('7 runs', { exact: true })
+            const qualityRuns = qualityRow.getByText('7 runs', { exact: true })
+            await expect(detectorRuns).toBeVisible()
+            await expect(qualityRuns).toBeVisible()
+
             const detectorRate = detectorRow.getByText('20%', { exact: true })
             const qualityRate = qualityRow.getByText('80%', { exact: true })
             await expect(detectorRate).toBeVisible()
@@ -291,15 +305,21 @@ test.describe('AI observability boolean evaluation polarity', () => {
 
             const detectorBox = await detectorRow.boundingBox()
             const qualityBox = await qualityRow.boundingBox()
-            if (detectorBox && qualityBox) {
+            const detectorRateBox = await detectorRate.boundingBox()
+            const qualityRateBox = await qualityRate.boundingBox()
+            if (detectorBox && qualityBox && detectorRateBox && qualityRateBox) {
                 const pad = 12
                 const top = Math.max(0, Math.min(detectorBox.y, qualityBox.y) - pad)
                 const bottom = Math.max(detectorBox.y + detectorBox.height, qualityBox.y + qualityBox.height) + pad
                 const left = Math.max(0, Math.min(detectorBox.x, qualityBox.x) - pad)
-                const width = Math.max(detectorBox.width, qualityBox.width) + pad * 2
+                // End at the Runs column's right edge, not the row's full width — the Actions
+                // column past it (folder/edit/delete buttons) adds nothing to the story and,
+                // depending on row width, could clip a button mid-icon with a white gutter after it.
+                const right =
+                    Math.max(detectorRateBox.x + detectorRateBox.width, qualityRateBox.x + qualityRateBox.width) + pad
                 await page.screenshot({
                     path: path.join(SCREENSHOT_DIR, '02-list-pass-rate.png'),
-                    clip: { x: left, y: top, width, height: bottom - top },
+                    clip: { x: left, y: top, width: right - left, height: bottom - top },
                     animations: 'disabled',
                 })
             }
@@ -355,14 +375,24 @@ test.describe('AI observability boolean evaluation polarity', () => {
             await expect(skippedTag).toHaveClass(/LemonTag--muted/)
         })
 
-        await test.step('an N/A result stays N/A regardless of the evaluation polarity', async () => {
+        await test.step('N/A and a skipped run behave the same way for the non-detector evaluation', async () => {
             await expect(page.getByText('N/A', { exact: true })).toHaveCount(1)
 
             await page.goto(`/ai-evals/evaluations/${evalBId}`)
             await expect(page.getByRole('heading', { name: 'Response is accurate' })).toBeVisible()
             const naTag = page.getByText('N/A', { exact: true })
+            const skippedTag = page.getByText('Skipped', { exact: true })
             await expect(naTag).toHaveCount(1)
             await expect(naTag).toHaveClass(/LemonTag--muted/)
+            await expect(skippedTag).toHaveCount(1)
+            await expect(skippedTag).toHaveClass(/LemonTag--muted/)
+
+            // Mirrors the detector's Passing/Failing check above — a skipped run is excluded
+            // from both buckets regardless of which polarity the evaluation declares.
+            await page.getByRole('button', { name: 'Passing', exact: true }).click()
+            await expect(skippedTag).toHaveCount(0)
+            await page.getByRole('button', { name: 'Failing', exact: true }).click()
+            await expect(skippedTag).toHaveCount(0)
         })
 
         await test.step('a sentiment evaluation is entirely unaffected by the flag', async () => {
