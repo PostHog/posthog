@@ -89,9 +89,8 @@ export interface TaskCreationInput {
   channelContextId?: string;
   /**
    * The user's saved personalization (Settings → Personalization custom
-   * instructions). Cloud-only: local tasks already receive these through the
-   * workspace-server system prompt, so the saga folds this into the cloud run's
-   * first message instead, to avoid double-injecting.
+   * instructions). Cloud tasks include these in their first message. Local Pi
+   * tasks need them here because they bypass the workspace-server prompt.
    */
   customInstructions?: string;
   /**
