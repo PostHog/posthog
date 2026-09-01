@@ -226,6 +226,11 @@ class Channel(TeamScopedRootMixin):
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
     )
+    auto_archive_after_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
+    )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -2312,6 +2317,27 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
+
+    def signal_agent_boot_milestone(
+        self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
+    ) -> bool:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(milestone))
+            return True
+        except Exception as e:
+            logger.warning(
+                "task_run.agent_boot_milestone_failed",
+                task_run_id=str(self.id),
+                milestone=milestone,
+                error=str(e),
+            )
+            return False
 
     def signal_client_activity(self) -> None:
         from products.tasks.backend.redis import get_tasks_cache

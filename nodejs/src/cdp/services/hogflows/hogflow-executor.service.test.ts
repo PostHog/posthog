@@ -111,6 +111,10 @@ describe('Hogflow Executor', () => {
                     PosthogJwtAudience.CONVERSATIONS_TICKETS,
                     hub.CONVERSATIONS_TICKETS_JWT_SECRET
                 ),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                    hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,

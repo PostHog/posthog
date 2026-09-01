@@ -158,9 +158,9 @@ def build_query(
     ``created_floor`` threads the jobs builder's raw-string scan floor (its ``{job_created_floor}``
     placeholder, which the caller must register) down to the jobs scan. Every windowed cost query
     should pass it: the window predicate reads the RUN's attributes, so it can never prune the jobs
-    side, and without a floor the ``is_rerun_copy`` window sorts the team's whole job history on every
-    call. The public saved view can't take one — it is stored SQL with no window of its own — so it is
-    built without it and its consumers filter it themselves.
+    side, and without a floor the ``is_rerun_copy`` duplicate scan aggregates the team's whole job
+    history on every call. The public saved view can't take one — it is stored SQL with no window of
+    its own — so it is built without it and its consumers filter it themselves.
     """
     jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor)
     runs = workflow_runs.build_query(runs_table)

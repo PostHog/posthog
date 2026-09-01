@@ -118,6 +118,7 @@ from products.tasks.backend.facade.tasks import (
     reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
@@ -126,6 +127,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
 
@@ -257,6 +259,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="ses tenant reputation reconciliation",
     )
 
+    # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.
+    # Promotion is intentionally slow (a team must hold a tier for days), so a daily pass is enough.
+    # Demotions do not wait for it: the staff suspension action recomputes the team directly.
+    sender.add_periodic_task(
+        crontab(hour="7", minute="15"),
+        recompute_workflows_email_sending_tiers.s(),
+        name="workflows email sending tier recomputation",
+    )
+
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
     sender.add_periodic_task(
         crontab(hour="*", minute="5"),
@@ -350,6 +361,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="30"),
         sweep_loop_task_retention_task.s(),
         name="sweep loop task retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="15"),
+        sweep_inactive_tasks_task.s(),
+        name="archive inactive tasks",
     )
 
     # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules

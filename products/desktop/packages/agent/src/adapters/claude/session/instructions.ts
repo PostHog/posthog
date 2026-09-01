@@ -1,4 +1,5 @@
 import { buildContextWikiInstructions } from "../../../context-wiki";
+import { appendBenjaminGuidance } from "../../benjamin-guidance";
 
 const BRANCH_NAMING = `
 # Branch Naming
@@ -113,5 +114,8 @@ export function buildAppendedInstructions(opts: {
   if (opts.contextWikiPath) {
     instructions += buildContextWikiInstructions(opts.contextWikiPath);
   }
-  return opts.spokenNarration ? instructions + SPOKEN_NARRATION : instructions;
+  if (opts.spokenNarration) {
+    instructions += SPOKEN_NARRATION;
+  }
+  return appendBenjaminGuidance(instructions);
 }

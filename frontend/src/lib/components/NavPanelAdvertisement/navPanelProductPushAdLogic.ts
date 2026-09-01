@@ -10,7 +10,7 @@ import { FileSystemImport, ProductIntentContext, ProductKey } from '~/queries/sc
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import type { ProductPushDisplay } from './navPanelAdShared'
+import { NAV_PANEL_CARD_TYPE, type ProductPushDisplay } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 import { getProductPushDisplay } from './navPanelProductPushDisplay'
 
@@ -71,7 +71,7 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            navPanelAdvertisementLogic({ campaign: dismissKey(props.campaign) }),
+            navPanelAdvertisementLogic({ dismissKey: dismissKey(props.campaign) }),
             ['hidden'],
         ],
     })),
@@ -104,33 +104,31 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                 !hidden && !!productInfo && !flagGated,
         ],
     }),
-    listeners(({ props }) => ({
-        reportAdShown: () => {
-            posthog.capture('nav panel product push shown', {
-                campaign_id: props.campaign.id,
-                product_key: props.campaign.product_key,
-            })
-        },
-        reportAdClicked: () => {
-            posthog.capture('nav panel product push clicked', {
-                campaign_id: props.campaign.id,
-                product_key: props.campaign.product_key,
-            })
-            if (Object.values(ProductKey).includes(props.campaign.product_key as ProductKey)) {
-                addProductIntent({
-                    product_type: props.campaign.product_key as ProductKey,
-                    intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
-                    metadata: { campaign_id: props.campaign.id },
-                })
-            }
-        },
-        reportAdDismissed: () => {
-            posthog.capture('nav panel product push dismissed', {
-                campaign_id: props.campaign.id,
-                product_key: props.campaign.product_key,
-            })
-        },
-    })),
+    listeners(({ props }) => {
+        const eventProperties = {
+            campaign_id: props.campaign.id,
+            product_key: props.campaign.product_key,
+            card_type: NAV_PANEL_CARD_TYPE.PRODUCT_PUSH,
+        }
+        return {
+            reportAdShown: () => {
+                posthog.capture('nav panel product push shown', eventProperties)
+            },
+            reportAdClicked: () => {
+                posthog.capture('nav panel product push clicked', eventProperties)
+                if (Object.values(ProductKey).includes(props.campaign.product_key as ProductKey)) {
+                    addProductIntent({
+                        product_type: props.campaign.product_key as ProductKey,
+                        intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
+                        metadata: { campaign_id: props.campaign.id },
+                    })
+                }
+            },
+            reportAdDismissed: () => {
+                posthog.capture('nav panel product push dismissed', eventProperties)
+            },
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.shouldRender) {
             actions.reportAdShown()

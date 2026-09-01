@@ -171,6 +171,7 @@ export type CdpConfig = ClickhouseConfig & {
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
     CONVERSATIONS_TICKETS_JWT_SECRET: string
+    CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET: string
     // Scoped JWT keys verifying Django's calls to the cancel routes (invocations/cancel and
     // batch_jobs/:id/cancel). A dedicated key, separate from the reschedule sweep's above: the
     // web tier mints cancels while the worker mints reschedules, so neither tier's key can forge
@@ -349,6 +350,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
         // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
         CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
+        // Dev default must equal Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS default so local
+        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-customer-analytics-accounts-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
