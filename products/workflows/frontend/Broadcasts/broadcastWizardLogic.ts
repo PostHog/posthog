@@ -283,7 +283,10 @@ export interface broadcastWizardLogicMeta {
             recurringRepeating: boolean,
             effectiveTimezone: string
         ) => string
-        rateLimitedSendDuration: (emailRateLimit: any, blastRadius: BlastRadiusApi | null) => string
+        rateLimitedSendDuration: (
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
+            blastRadius: BlastRadiusApi | null
+        ) => string
         breadcrumbs: (name: string) => Breadcrumb[]
     }
 }
