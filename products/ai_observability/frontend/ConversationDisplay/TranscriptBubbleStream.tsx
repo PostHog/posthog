@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { isObject } from 'lib/utils/guards'
+import { identifierToHuman } from 'lib/utils/strings'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+import { MessageTemplate, parseSandboxQuestions } from 'products/posthog_ai/frontend/api/primitives'
 
 import { CompatMessage } from '../types'
 import {
@@ -161,16 +161,12 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
 // argument keys. Match whole name segments so that "ask" does not match every "task" tool.
 const ASK_NAME_SEGMENTS = new Set(['ask', 'question', 'questions'])
 
-// Argument keys that carry the user-facing text, in priority order.
-const ASK_ARG_TEXT_KEYS = ['question', 'prompt', 'message', 'text']
-
 function isAskLikeToolName(name: unknown): boolean {
     return (
         typeof name === 'string' &&
-        name
-            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        identifierToHuman(name)
             .toLowerCase()
-            .split(/[^a-z0-9]+/)
+            .split(' ')
             .some((segment) => ASK_NAME_SEGMENTS.has(segment))
     )
 }
@@ -180,21 +176,13 @@ function hasAskLikeCall(message: CompatMessage): boolean {
 }
 
 function askQuestionText(message: CompatMessage): string {
-    const argObjects = (message.tool_calls ?? [])
-        .filter((call) => isAskLikeToolName(call.function?.name))
-        .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
-        .flatMap((parsed) => (parsed.kind === 'parsed' && isObject(parsed.value) ? [parsed.value] : []))
-    // Desktop's AskUserQuestion nests the text one level down: { questions: [{ question: … }] }.
-    const nested = argObjects.flatMap((args) =>
-        Object.values(args).flatMap((child) =>
-            Array.isArray(child) ? child.filter(isObject) : isObject(child) ? [child] : []
-        )
-    )
     return (
-        [argObjects, nested]
-            .flatMap((objects) => ASK_ARG_TEXT_KEYS.flatMap((key) => objects.map((args) => args[key])))
-            .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
-            ?.trim() ?? ''
+        (message.tool_calls ?? [])
+            .filter((call) => isAskLikeToolName(call.function?.name))
+            .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
+            .flatMap((parsed) => (parsed.kind === 'parsed' ? parseSandboxQuestions(parsed.value) : []))
+            .map((question) => question.question.trim())
+            .find((text) => text.length > 0) ?? ''
     )
 }
 
