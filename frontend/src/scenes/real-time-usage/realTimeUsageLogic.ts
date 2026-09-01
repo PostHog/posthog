@@ -83,7 +83,8 @@ export function filtersFromParams(searchParams: Record<string, any>): UsageFilte
         .filter(Boolean)
         .map(Number)
         .filter(Number.isInteger)
-    const breakdownByProject = searchParams.breakdown_by_project === 'true'
+    const breakdownByProject =
+        searchParams.breakdown_by_project === true || searchParams.breakdown_by_project === 'true'
     return { range, granularity, projectIds, breakdownByProject }
 }
 

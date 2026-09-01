@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AppMetricsTimeSeriesChart } from 'lib/components/AppMetrics/AppMetricsTimeSeriesChart'
 import { NotFound } from 'lib/components/NotFound'
@@ -140,17 +140,20 @@ function RealTimeUsageBody(): JSX.Element {
                     {hasMultipleProjects && (
                         <div className="flex flex-col gap-1">
                             <LemonLabel>Break down by</LemonLabel>
-                            <LemonCheckbox
-                                label="Project"
-                                checked={breakdownByProject}
-                                onChange={(checked) =>
+                            <LemonSelect
+                                value={breakdownByProject}
+                                onChange={(value) =>
                                     setUsageFilters({
                                         range: usageRange,
                                         granularity: usageGranularity,
                                         projectIds: selectedProjectIds,
-                                        breakdownByProject: checked,
+                                        breakdownByProject: value,
                                     })
                                 }
+                                options={[
+                                    { value: false, label: 'Organization-wide' },
+                                    { value: true, label: 'Project' },
+                                ]}
                                 data-attr="real-time-usage-project-breakdown"
                             />
                         </div>

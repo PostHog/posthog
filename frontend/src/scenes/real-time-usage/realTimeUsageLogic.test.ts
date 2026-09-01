@@ -6,7 +6,7 @@ const response = (results: unknown[][]): HogQLQueryResponse => ({ results }) as 
 
 describe('real-time usage logic', () => {
     it('reads project filters and breakdowns from the URL', () => {
-        expect(filtersFromParams({ project_ids: '2,4', breakdown_by_project: 'true' })).toMatchObject({
+        expect(filtersFromParams({ project_ids: '2,4', breakdown_by_project: true })).toMatchObject({
             projectIds: [2, 4],
             breakdownByProject: true,
         })
