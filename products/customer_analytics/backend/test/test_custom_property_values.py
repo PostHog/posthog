@@ -273,6 +273,20 @@ class TestSetCustomPropertyValue(BaseTest):
         with pytest.raises(IntegrityError):
             self._set(definition=definition, value="enterprise")
 
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_losing_the_active_value_clear_race_surfaces_as_a_conflict(self, mock_value_model):
+        definition = self._create_property_definition()
+        active_rows = mock_value_model.objects.for_team.return_value.filter.return_value
+        active_rows.first.return_value = MagicMock(id=uuid4())
+        active_rows.filter.return_value.update.return_value = 0
+
+        with pytest.raises(CustomPropertyValueConflict):
+            set_account_custom_properties_by_id(
+                team_id=self.team.id,
+                account_id=self.account.id,
+                properties={str(definition.id): None},
+            )
+
 
 class TestSetAccountCustomPropertiesById(BaseTest):
     def setUp(self):

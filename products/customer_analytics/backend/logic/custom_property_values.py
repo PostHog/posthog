@@ -282,7 +282,9 @@ def _clear_value(
             return
         cleared_rows = active_rows.filter(id=previous_row.id).update(is_deleted=True)
         if cleared_rows == 0:
-            return
+            raise CustomPropertyValueConflict(
+                f"An active value for custom property '{definition.name}' was changed concurrently."
+            )
         _schedule_value_changed_event(
             team_id=team_id,
             account_id=account_id,
