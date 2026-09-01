@@ -47,6 +47,11 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
+from products.signals.backend.scout_harness.tools.lighthouse import (
+    DEFAULT_FORM_FACTOR,
+    FORM_FACTORS,
+    MAX_AUDITS_PER_RUN,
+)
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import (
@@ -472,6 +477,110 @@ class RecordStructuredOutputResponseSerializer(serializers.Serializer):
             "order. Stable across a resubmission of the identical batch, which is what makes retrying "
             "a failed delivery safe."
         ),
+    )
+
+
+class LighthouseAuditRequestSerializer(serializers.Serializer):
+    """Request body for `scout-lighthouse-audit`: one page, one device profile."""
+
+    url = serializers.URLField(
+        max_length=2000,
+        help_text=(
+            "The page to audit. Must be an https url on an allowed host — public PostHog pages only. "
+            "Pages behind a login cannot be audited: the browser signs in to nothing, so it would "
+            "measure the login screen and report its numbers as the page's."
+        ),
+    )
+    form_factor = serializers.ChoiceField(
+        choices=[(value, value) for value in FORM_FACTORS],
+        default=DEFAULT_FORM_FACTOR,
+        help_text=(
+            "Which device profile to emulate. Desktop and mobile produce different numbers, so audit "
+            "the one whose field data you are explaining."
+        ),
+    )
+
+
+class LcpElementSerializer(serializers.Serializer):
+    """The element the browser chose as the Largest Contentful Paint."""
+
+    selector = serializers.CharField(allow_null=True, help_text="CSS selector for the element.")
+    snippet = serializers.CharField(allow_null=True, help_text="The element's opening tag, truncated by Lighthouse.")
+    node_label = serializers.CharField(allow_null=True, help_text="Human-readable label, usually the alt or text.")
+
+
+class LcpPhaseSerializer(serializers.Serializer):
+    """One phase of the LCP timeline, which is where the time actually went."""
+
+    phase = serializers.CharField(
+        help_text=(
+            "Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or "
+            "'Element render delay'. Passed through verbatim, so the exact wording follows the "
+            "Lighthouse version."
+        )
+    )
+    timing_ms = serializers.FloatField(allow_null=True, help_text="Milliseconds spent in this phase.")
+    percent = serializers.CharField(
+        allow_null=True,
+        help_text="This subpart's share of the total LCP, e.g. '62%'.",
+    )
+
+
+class AuditOpportunitySerializer(serializers.Serializer):
+    """A failing check or a savings estimate from the audit."""
+
+    audit_id = serializers.CharField(help_text="Lighthouse audit id, for example `prioritize-lcp-image`.")
+    title = serializers.CharField(help_text="Lighthouse's own title for the check.")
+    savings_ms = serializers.FloatField(
+        allow_null=True,
+        help_text="Estimated milliseconds this would save. Null for a pass/fail check with no estimate.",
+    )
+
+
+class LighthouseAuditResponseSerializer(serializers.Serializer):
+    """The audit, reduced to what a web vitals finding cites.
+
+    The full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the
+    response carries the metrics, the LCP element and its phase breakdown, and the ranked
+    opportunities, and drops the rest.
+    """
+
+    requested_url = serializers.CharField(help_text="The url that was audited.")
+    final_url = serializers.CharField(allow_null=True, help_text="Where the browser ended up after redirects.")
+    form_factor = serializers.CharField(help_text="The device profile the audit emulated.")
+    lighthouse_version = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The Lighthouse version that produced this report. Audit ids move between major "
+            "versions, so cite it when an expected field came back empty."
+        ),
+    )
+    performance_score = serializers.IntegerField(
+        allow_null=True, help_text="Lighthouse performance score out of 100 for this run."
+    )
+    metrics = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text=(
+            "Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. "
+            "One throttled cold load, not a p75 over real users — use it to explain a field finding, "
+            "never to replace one."
+        ),
+    )
+    lcp_element = LcpElementSerializer(
+        allow_null=True,
+        help_text="The element the browser chose as the LCP, or null when Lighthouse could not name one.",
+    )
+    lcp_phases = LcpPhaseSerializer(
+        many=True, help_text="Where the LCP time went, phase by phase. Empty when the report omits the breakdown."
+    )
+    lcp_checks_failed = AuditOpportunitySerializer(
+        many=True, help_text="LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image."
+    )
+    opportunities = AuditOpportunitySerializer(
+        many=True, help_text="Ranked savings estimates across the whole page, largest first."
+    )
+    audits_remaining = serializers.IntegerField(
+        help_text=f"How many audits this run may still spend. Each run gets {MAX_AUDITS_PER_RUN}."
     )
 
 

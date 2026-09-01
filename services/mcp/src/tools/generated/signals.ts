@@ -32,6 +32,8 @@ import {
     SignalsScoutEmitReportParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
+    SignalsScoutLighthouseAuditBody,
+    SignalsScoutLighthouseAuditParams,
     SignalsScoutMembersListQueryParams,
     SignalsScoutNotesCreateBody,
     SignalsScoutNotesDestroyParams,
@@ -883,6 +885,31 @@ const scoutEmitSignal = (): ToolBase<typeof ScoutEmitSignalSchema, Schemas.EmitF
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutLighthouseAuditSchema = SignalsScoutLighthouseAuditParams.omit({ project_id: true }).extend(
+    SignalsScoutLighthouseAuditBody.shape
+)
+
+const scoutLighthouseAudit = (): ToolBase<typeof ScoutLighthouseAuditSchema, Schemas.LighthouseAuditResponse> => ({
+    name: 'scout-lighthouse-audit',
+    schema: ScoutLighthouseAuditSchema,
+    handler: async (context: Context, params: z.infer<typeof ScoutLighthouseAuditSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.form_factor !== undefined) {
+            body['form_factor'] = params.form_factor
+        }
+        const result = await context.api.request<Schemas.LighthouseAuditResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/lighthouse-audit/`,
             body,
         })
         return result
@@ -1803,6 +1830,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-edit-report': scoutEditReport,
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,
+    'scout-lighthouse-audit': scoutLighthouseAudit,
     'scout-members-list': scoutMembersList,
     'scout-metadata-get': scoutMetadataGet,
     'scout-notes-create': scoutNotesCreate,

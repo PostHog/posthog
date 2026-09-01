@@ -9824,6 +9824,20 @@
             "readOnlyHint": false
         }
     },
+    "scout-lighthouse-audit": {
+        "description": "Load one page in a real browser and get back what makes it slow: the lab metrics (LCP, FCP, CLS, TBT), the element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the ranked savings estimates. Use it to name the cause behind a field finding — `$web_vitals` events say a route is slow and for how many people, but never which element was late or why. Pass the `run_id`, a `url`, and optionally `form_factor` (`desktop` or `mobile`, matching whichever field data you are explaining). Restricted to an allowlist of public PostHog pages: the browser signs in to nothing, so a page behind a login would measure the login screen and report its numbers as the page's, and a url that redirects off the allowlist is rejected for the same reason. One throttled cold load is not a p75 over real users — cite it as the explanation for a field finding, never as the evidence that a problem exists. Capped at 5 audits per run. A rejected call (bad host, not https, audits not enabled here) costs nothing, but once the page loads the slot is spent whatever the result — so pick the page before calling. Every error message ends with how many audits the run has left, which tells a rejection apart from an exhausted budget.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a Lighthouse audit for a run",
+        "title": "Run a Lighthouse audit for a run",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-members-list": {
         "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `scout-emit-report` / `scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
         "category": "Signals",

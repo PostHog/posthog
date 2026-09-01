@@ -49,6 +49,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -86,6 +87,8 @@ from products.signals.backend.scout_harness.serializers import (
     FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
+    LighthouseAuditRequestSerializer,
+    LighthouseAuditResponseSerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
@@ -123,6 +126,16 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.lighthouse import (
+    MAX_AUDITS_PER_RUN,
+    RUN_AUDIT_COUNT_KEY,
+    InvalidLighthouseTargetError,
+    LighthouseAuditFailedError,
+    LighthouseUnavailableError,
+    audits_remaining_for_run,
+    execute_lighthouse_audit,
+    prepare_lighthouse_audit,
+)
 from products.signals.backend.scout_harness.tools.notes import (
     DEFAULT_NOTES_LIST_LIMIT,
     InvalidNoteError,
@@ -193,6 +206,14 @@ class _StructuredOutputDeliveryFailed(exceptions.APIException):
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "structured_output_delivery_failed"
+
+
+class _LighthouseNotConfigured(exceptions.APIException):
+    """501 for a deployment with no Browserless provisioned: the capability is absent here,
+    which is a different thing from the request being wrong, and no retry will fix it."""
+
+    status_code = status.HTTP_501_NOT_IMPLEMENTED
+    default_code = "lighthouse_not_configured"
 
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
@@ -444,6 +465,13 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # otherwise, and the runtime shape diverges from the OpenAPI schema. Per-action overrides
     # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
+
+    def get_throttles(self):
+        if self.action == "lighthouse_audit":
+            # A browser load under throttling, tens of seconds of a Browserless session. The
+            # per-run cap bounds one scout; this bounds the fleet if several start auditing at once.
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     @validated_request(
         query_serializer=SearchRecentRunsQuerySerializer,
@@ -1128,6 +1156,130 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ).data,
             status=status.HTTP_200_OK,
         )
+
+    @validated_request(
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        request_serializer=LighthouseAuditRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=LighthouseAuditResponseSerializer,
+                description="The audit ran and the reduced report is attached.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "The url is not on an allowed host, is not https, redirected off the allowed hosts "
+                    "(the login-wall case), the run is not in progress, or the run has spent its audit "
+                    "budget. Also returned when the page could not be loaded at all. Every message ends "
+                    "with how many audits the run has left, so a rejection is distinguishable from an "
+                    "exhausted budget."
+                )
+            ),
+            404: OpenApiResponse(description="No such run in this project, or the run belongs to a different scout."),
+            429: OpenApiResponse(description="Audit rate limit exceeded; retry later."),
+            501: OpenApiResponse(description="Lighthouse audits are not configured on this deployment."),
+        },
+        summary="Run a Lighthouse audit for a run",
+        description=(
+            "Load one page in a real browser and return what makes it slow — most usefully the element "
+            "the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data "
+            "says a route is slow; this says which element and why, so a finding can name it instead of "
+            "guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, "
+            "so a page behind a login would report the login screen's numbers. One throttled cold load "
+            "is not a p75 over real users — corroborate a field finding with it, never replace one. "
+            f"Capped at {MAX_AUDITS_PER_RUN} audits per run."
+        ),
+        operation_id="signals_scout_lighthouse_audit",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="lighthouse-audit",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def lighthouse_audit(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        run = (
+            SignalScoutRun.objects.select_related("task_run")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        # A sandbox token is minted for one run, so it may only spend that run's budget. Team
+        # scoping alone leaves the cap per-run in name only: a scout can list its siblings, and
+        # spending each one's five slots costs five more browser sessions every time. Answered as
+        # 404 like another team's run, so a caller learns nothing about a run it may not touch.
+        # A caller with no bound task is unaffected, the internal scope being server-mint-only.
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"An audit can only run on an in-progress run (current: {run.task_run.status})."}
+            )
+
+        # Validate before reserving. A bad host, an http url, a team without the capability, or a
+        # deployment with no Browserless costs nothing to reject, so none of them should cost a
+        # slot — a scout that misread the host rule would otherwise burn its whole budget in five
+        # instant round-trips and then be told it had spent it on audits.
+        try:
+            prepared = prepare_lighthouse_audit(
+                team_id=_canonical_team_id(self),
+                url=request.validated_data["url"],
+                form_factor=request.validated_data["form_factor"],
+            )
+        except InvalidLighthouseTargetError as exc:
+            # The count rides in the message rather than a sibling field: the error body is
+            # rendered into `{type, code, detail, attr}`, so an extra key would not reach the
+            # scout — and telling a rejection apart from an exhausted budget is the whole point.
+            raise exceptions.ValidationError(
+                {"detail": f"{exc} ({self._audits_left(run)} of {MAX_AUDITS_PER_RUN} audits still available.)"}
+            )
+        except LighthouseUnavailableError as exc:
+            raise _LighthouseNotConfigured(detail=str(exc))
+
+        # Reserve under the run row's lock, so two concurrent calls can't both take the last slot.
+        # From here a browser load is about to happen, so the slot is spent whatever the outcome —
+        # a scout retrying a page that cannot be loaded is the runaway case the cap exists for.
+        with transaction.atomic():
+            # `all_teams` because the run's team was already verified above, matching how the
+            # structured-output channel reserves its own per-run cap.
+            locked = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
+            if locked is None:
+                raise exceptions.NotFound()
+            metadata = dict(locked.metadata or {})
+            remaining = audits_remaining_for_run(metadata)
+            if remaining <= 0:
+                raise exceptions.ValidationError(
+                    {
+                        "detail": (
+                            f"This run has spent its {MAX_AUDITS_PER_RUN} Lighthouse audits "
+                            "(0 still available). Work from the field data and what you already measured."
+                        ),
+                    }
+                )
+            metadata[RUN_AUDIT_COUNT_KEY] = MAX_AUDITS_PER_RUN - remaining + 1
+            locked.metadata = metadata
+            locked.save(update_fields=["metadata"])
+
+        spent_message = f"({remaining - 1} of {MAX_AUDITS_PER_RUN} audits still available.)"
+        try:
+            audit = execute_lighthouse_audit(prepared)
+        except InvalidLighthouseTargetError as exc:
+            raise exceptions.ValidationError({"detail": f"{exc} {spent_message}"})
+        except LighthouseAuditFailedError as exc:
+            raise exceptions.ValidationError({"detail": f"{exc} {spent_message}"})
+
+        payload = audit.as_dict()
+        payload["audits_remaining"] = remaining - 1
+        return Response(LighthouseAuditResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _audits_left(run: SignalScoutRun) -> int:
+        """Budget left on a run, for a rejection that spent none of it. Told the remaining count
+        on every path, a scout can tell "you asked for the wrong thing" from "you are out"."""
+        return audits_remaining_for_run(run.metadata or {})
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports
