@@ -1,6 +1,4 @@
-from django.db import migrations, models
-
-from posthog.migration_helpers import SafeAddIndexConcurrently
+from django.db import migrations
 
 BATCH_SIZE = 2000
 
@@ -31,8 +29,7 @@ def backfill_origin_product(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Non-atomic: the backfill runs in bounded batches without one long transaction, and
-    # the concurrent index build cannot run inside a transaction.
+    # Non-atomic so the backfill runs in bounded batches without one long transaction.
     atomic = False
 
     dependencies = [
@@ -41,11 +38,4 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(backfill_origin_product, migrations.RunPython.noop),
-        SafeAddIndexConcurrently(
-            model_name="taskrun",
-            index=models.Index(
-                fields=["status", "environment", "origin_product"],
-                name="task_run_status_env_origin_idx",
-            ),
-        ),
     ]
