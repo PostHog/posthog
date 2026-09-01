@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("canvas", "0001_squash_2026_08_21_initial"),
-        ("canvas", "0015_remove_canvas_discussion_task_id"),
+        ("canvas", "0016_canvas_source_policy"),
     ]
 
     operations = [
