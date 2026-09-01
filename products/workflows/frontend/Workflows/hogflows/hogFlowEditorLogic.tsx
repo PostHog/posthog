@@ -732,15 +732,11 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -901,15 +897,11 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1591,15 +1583,11 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1760,15 +1748,11 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
