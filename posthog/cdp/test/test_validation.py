@@ -1247,6 +1247,8 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
             ("installations_not_list", "task_mcp_installations", "id-1", False),
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+            ("signals_scout_string", "signals_scout", "signals-scout-error-tracking", True),
+            ("signals_scout_not_string", "signals_scout", 123, False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
