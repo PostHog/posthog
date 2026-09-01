@@ -2,7 +2,6 @@ import type {
     GoalLineConfig,
     TimeSeriesBarChartConfig,
     TimeSeriesLineChartConfig,
-    ValueDomain,
     XAxisConfig,
     YAxisConfig,
 } from '@posthog/quill-charts'
@@ -53,19 +52,6 @@ function yAxisToConfig(yAxis: MetricsYAxisSettings | undefined): YAxisConfig | u
     }
     // An all-defaults object would still override quill's own defaults, so emit nothing.
     return Object.keys(config).length > 0 ? config : undefined
-}
-
-/** Bar charts ignore `YAxisConfig.min`/`max` — a bar encodes magnitude as length from zero, so quill
- * reads bounds from `valueDomain` instead. Without this the y-axis range control silently does
- * nothing on the bar display. */
-export function metricsBarValueDomain(yAxis: MetricsYAxisSettings | undefined): ValueDomain | undefined {
-    if (yAxis?.min === undefined && yAxis?.max === undefined) {
-        return undefined
-    }
-    return {
-        ...(yAxis.min !== undefined ? { min: yAxis.min } : {}),
-        ...(yAxis.max !== undefined ? { max: yAxis.max } : {}),
-    }
 }
 
 export function buildMetricsChartConfig({

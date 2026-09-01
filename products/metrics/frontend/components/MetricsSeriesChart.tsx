@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
-import { buildMetricsChartConfig, metricsBarValueDomain } from './metricsChartConfig'
+import { buildMetricsChartConfig } from './metricsChartConfig'
 import { MetricsExemplarMarkers, type MetricsExemplar } from './MetricsExemplarMarkers'
 import { formatSeriesName, type MetricsChartSeries, seriesColor } from './metricsSeries'
 
@@ -78,11 +78,7 @@ export function MetricsSeriesChart({
                     series={chartSeries}
                     labels={labels}
                     theme={theme}
-                    config={{
-                        ...(sharedConfig as TimeSeriesBarChartConfig),
-                        // Bars read their bounds from `valueDomain`; `yAxis.min`/`max` are line-only.
-                        valueDomain: metricsBarValueDomain(display?.yAxis),
-                    }}
+                    config={sharedConfig as TimeSeriesBarChartConfig}
                 >
                     {markers}
                 </TimeSeriesBarChart>

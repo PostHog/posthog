@@ -2,7 +2,7 @@ import type { XAxisConfig } from '@posthog/quill-charts'
 
 import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
-import { buildMetricsChartConfig, metricsBarValueDomain } from './metricsChartConfig'
+import { buildMetricsChartConfig } from './metricsChartConfig'
 
 const X_AXIS: XAxisConfig = {}
 
@@ -43,16 +43,6 @@ describe('metricsChartConfig', () => {
         const config = build({ yAxis: { scale: 'log', startAtZero: false, max: 100 } })
 
         expect(config.yAxis).toEqual({ scale: 'log', startAtZero: false, max: 100 })
-    })
-
-    it.each([
-        ['both bounds', { min: 10, max: 100 }, { min: 10, max: 100 }],
-        ['max only', { max: 100 }, { max: 100 }],
-        ['scale without bounds', { scale: 'log' as const }, undefined],
-        ['no settings', undefined, undefined],
-    ])('derives the bar value domain from %s', (_name, yAxis, expected) => {
-        // Bars ignore `YAxisConfig.min`/`max`, so without this the range control no-ops on bars.
-        expect(metricsBarValueDomain(yAxis)).toEqual(expected)
     })
 
     it('only shows the legend once there is more than one series', () => {

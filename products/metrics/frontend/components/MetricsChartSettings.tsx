@@ -24,16 +24,17 @@ export function MetricsChartSettings(): JSX.Element {
     useEffect(() => setMaxDraft(yAxisSettings.max), [yAxisSettings.max])
 
     const isLog = yAxisSettings.scale === 'log'
-    // Bars encode magnitude as length from zero, so quill ignores a floated axis on them.
+    // Bars encode magnitude as length from zero, so quill ignores both a floated baseline and pinned
+    // bounds on them. The settings stay persisted and apply again on a line or area chart.
     const isBar = displayType === 'bar'
     const beginsAtZero = yAxisSettings.startAtZero !== false
-    const boundsDisabledReason = isLog
+    const rangeDisabledReason = isLog
         ? 'Not available on a logarithmic scale'
         : isBar
           ? 'Not available on a bar chart'
           : undefined
     const minDisabledReason =
-        boundsDisabledReason ?? (beginsAtZero ? 'Turn off "Begin at zero" to set a minimum' : undefined)
+        rangeDisabledReason ?? (beginsAtZero ? 'Turn off "Begin at zero" to set a minimum' : undefined)
 
     // Counts the persisted settings, not the drafts — a bound of 0 is still a bound.
     const changedCount =
@@ -84,7 +85,7 @@ export function MetricsChartSettings(): JSX.Element {
                             label="Begin at zero"
                             tooltip="When off, the axis starts just below your lowest value, so small changes are easier to see."
                             checked={beginsAtZero}
-                            disabledReason={isLog ? 'Not available on a logarithmic scale' : undefined}
+                            disabledReason={rangeDisabledReason}
                             onChange={(checked) => setYAxisSetting('startAtZero', checked ? undefined : false)}
                             data-attr="metrics-y-axis-start-at-zero"
                         />
@@ -112,7 +113,7 @@ export function MetricsChartSettings(): JSX.Element {
                                     size="small"
                                     placeholder="Auto"
                                     value={maxDraft}
-                                    disabledReason={boundsDisabledReason}
+                                    disabledReason={rangeDisabledReason}
                                     onChange={setMaxDraft}
                                     onBlur={() => setYAxisSetting('max', asBound(maxDraft))}
                                     onPressEnter={() => setYAxisSetting('max', asBound(maxDraft))}
