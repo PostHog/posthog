@@ -91,6 +91,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Billing]: { organizationBased: true },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
+    [Scene.RealTimeUsage]: { name: 'Real-time usage', organizationBased: true },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -853,6 +854,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
+    [urls.organizationBillingRealTimeUsage()]: [Scene.RealTimeUsage, 'organizationBillingRealTimeUsage'],
     [urls.organizationBillingSection(':section' as BillingSectionId)]: [
         Scene.BillingSection,
         'organizationBillingSection',
