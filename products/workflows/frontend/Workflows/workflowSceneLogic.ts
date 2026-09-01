@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
 
-export const WorkflowTabs = ['workflow', 'invocations', 'metrics', 'assets', 'history'] as const
+export const WorkflowTabs = ['workflow', 'invocations', 'metrics', 'suggestions', 'assets', 'history'] as const
 export type WorkflowTab = (typeof WorkflowTabs)[number]
 
 export interface WorkflowSceneLogicProps {
