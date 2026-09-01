@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import copy
+import time
 import pickle
 import threading
 import dataclasses
@@ -346,6 +347,34 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # the in-process blob can't go stale across deploys. Every catalog node must stay picklable.
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
 _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
+
+# Every database build evaluates the same per-team feature-flag decisions, and flag evaluation can
+# fall back to a network call. A short per-process TTL bounds that cost; a flag flip lags at most
+# the TTL. Entries are tiny, but the key space is one per (team, flag), so cap it and drop the whole
+# dict when it fills - simpler than an LRU and the next builds just re-evaluate.
+_TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
+_TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
+
+
+def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -> bool:
+    # Function-local: keeps the Django model import off the django.setup() path. The instance
+    # setting has its own short in-process cache, so this read costs no query per build.
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
+    ttl = int(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
+    if ttl <= 0:
+        return evaluate()
+    cache_key = (str(team.uuid), flag_key)
+    now = time.monotonic()
+    hit = _TEAM_FLAG_CACHE.get(cache_key)
+    if hit is not None and hit[0] > now:
+        return hit[1]
+    value = evaluate()
+    if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
+        _TEAM_FLAG_CACHE.clear()
+    _TEAM_FLAG_CACHE[cache_key] = (now + ttl, value)
+    return value
+
 
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
@@ -1451,28 +1480,34 @@ class Database(BaseModel):
         is_direct_query = connection_id is not None
 
         with timings.measure("feature_flags", emit_span=True):
-            is_managed_viewset_enabled = feature_enabled_or_false(
+            is_managed_viewset_enabled = _cached_team_flag(
                 "managed-viewsets",
-                str(team.uuid),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization_id),
+                team,
+                lambda: feature_enabled_or_false(
+                    "managed-viewsets",
+                    str(team.uuid),
+                    groups={
+                        "organization": str(team.organization_id),
+                        "project": str(team.id),
                     },
-                    "project": {
-                        "id": str(team.id),
+                    group_properties={
+                        "organization": {
+                            "id": str(team.organization_id),
+                        },
+                        "project": {
+                            "id": str(team.id),
+                        },
                     },
-                },
-                send_feature_flag_events=False,
+                    send_feature_flag_events=False,
+                ),
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
-            data_quality_enabled = is_data_quality_checks_enabled(team)
+            data_quality_enabled = _cached_team_flag(
+                "data-quality-checks", team, lambda: is_data_quality_checks_enabled(team)
+            )
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -1534,15 +1569,19 @@ class Database(BaseModel):
                 team, user, user_access_control
             )
 
-        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
+        is_hogql_warehouse_access_control_enabled = _cached_team_flag(
             "hogql-warehouse-access-control",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            send_feature_flag_events=False,
+            team,
+            lambda: feature_enabled_or_false(
+                "hogql-warehouse-access-control",
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                send_feature_flag_events=False,
+            ),
         )
 
         with timings.measure("modifiers", emit_span=True):
@@ -1696,22 +1735,17 @@ class Database(BaseModel):
             _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
-        # warehouse_tables fetch.
+        # warehouse_tables fetch. One query for all names: (team, name) is unique, so each name maps
+        # to at most one row.
         event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]] = {}
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
-                for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
-                    name = warehouse_modifier.table_name
-                    if name in event_modifier_saved_queries:
-                        continue
-                    try:
-                        event_modifier_saved_queries[name] = (
-                            DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=name)
-                            .latest("created_at")
-                        )
-                    except DataWarehouseSavedQuery.DoesNotExist:
-                        event_modifier_saved_queries[name] = None
+                names = {warehouse_modifier.table_name for warehouse_modifier in modifiers.dataWarehouseEventsModifiers}
+                event_modifier_saved_queries = dict.fromkeys(names)
+                for saved_query in DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(
+                    team_id=team.pk, name__in=names
+                ):
+                    event_modifier_saved_queries[saved_query.name] = saved_query
 
         return HogQLDatabaseSources(
             team=team,
