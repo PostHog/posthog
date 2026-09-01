@@ -700,7 +700,11 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
     Our S3 batch exports also support customising the max S3 file size, different file formats,
     compression, etc, which ClickHouse's S3 functions may not support.
     """
-    return await insert_into_s3_from_stage(inputs, await _resolve_credentials_from_integration(inputs))
+    # Resolving credentials reads the database, and assuming a role calls AWS STS. Both run
+    # under the heartbeater, so a slow one cannot exhaust the activity's heartbeat timeout.
+    async with Heartbeater():
+        resolved_credentials = await _resolve_credentials_from_integration(inputs)
+        return await insert_into_s3_from_stage(inputs, resolved_credentials)
 
 
 async def insert_into_s3_from_stage(
@@ -709,7 +713,8 @@ async def insert_into_s3_from_stage(
     """Write data staged in our internal S3 stage to a target S3 bucket.
 
     The caller resolves credentials first, because an export takes them from its Integration
-    while the file download export mints temporary ones for a PostHog-owned bucket.
+    while the file download export mints temporary ones for a PostHog-owned bucket. The caller
+    is an activity, so it owns the heartbeater this runs under.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -723,95 +728,94 @@ async def insert_into_s3_from_stage(
     if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
         raise UnsupportedCompressionError(inputs.compression)
 
-    async with Heartbeater():
-        credentials = resolved_credentials.credentials
-        endpoint_url = resolved_credentials.endpoint_url
-        refresh_credentials = resolved_credentials.refresh_using
+    credentials = resolved_credentials.credentials
+    endpoint_url = resolved_credentials.endpoint_url
+    refresh_credentials = resolved_credentials.refresh_using
 
-        external_logger = EXTERNAL_LOGGER.bind()
+    external_logger = EXTERNAL_LOGGER.bind()
+    external_logger.info(
+        "Batch exporting range %s - %s to S3: %s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
+        get_s3_key_from_inputs(inputs),
+    )
+
+    queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+    producer = ProducerFromInternalStage()
+    assert inputs.batch_export_id is not None
+    producer_task = await producer.start(
+        queue=queue,
+        batch_export_id=inputs.batch_export_id,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+        stage_folder=inputs.stage_folder,
+    )
+
+    record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+    if record_batch_schema is None:
         external_logger.info(
-            "Batch exporting range %s - %s to S3: %s",
+            "Batch export will finish early as there is no data matching specified filters in range %s - %s",
             inputs.data_interval_start or "START",
             inputs.data_interval_end or "END",
-            get_s3_key_from_inputs(inputs),
         )
 
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = ProducerFromInternalStage()
-        assert inputs.batch_export_id is not None
-        producer_task = await producer.start(
+        return S3BatchExportResult(records_completed=0, bytes_exported=0)
+
+    record_batch_schema = pa.schema(
+        # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+        # record batches have them as nullable.
+        # Until we figure it out, we set all fields to nullable. There are some fields we know
+        # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+        # between batches.
+        [field.with_nullable(True) for field in record_batch_schema]
+    )
+
+    json_columns = ("properties", "person_properties", "set", "set_once")
+    if inputs.file_format.lower() == "jsonlines":
+        transformer = get_json_stream_transformer(
+            compression=inputs.compression,
+            include_inserted_at=True,
+            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+        )
+    else:
+        transformer = ParquetStreamTransformer(
+            compression=inputs.compression,
+            include_inserted_at=True,
+            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+        )
+
+    async with s3_client(
+        credentials,
+        use_virtual_style_addressing=inputs.use_virtual_style_addressing,
+        region=inputs.region,
+        endpoint_url=endpoint_url,
+        refresh_using=refresh_credentials,
+    ) as client:
+        consumer = ConcurrentS3Consumer.from_inputs(
+            s3_client=client,
+            s3_inputs=inputs,
+            part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+            checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
+        )
+
+        result = await run_consumer_from_stage(
             queue=queue,
-            batch_export_id=inputs.batch_export_id,
-            data_interval_start=inputs.data_interval_start,
-            data_interval_end=inputs.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
-            stage_folder=inputs.stage_folder,
+            consumer=consumer,
+            producer_task=producer_task,
+            transformer=transformer,
+            json_columns=json_columns,
+            records_total=inputs.records_total,
         )
 
-        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-        if record_batch_schema is None:
-            external_logger.info(
-                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-                inputs.data_interval_start or "START",
-                inputs.data_interval_end or "END",
-            )
-
-            return S3BatchExportResult(records_completed=0, bytes_exported=0)
-
-        record_batch_schema = pa.schema(
-            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-            # record batches have them as nullable.
-            # Until we figure it out, we set all fields to nullable. There are some fields we know
-            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-            # between batches.
-            [field.with_nullable(True) for field in record_batch_schema]
-        )
-
-        json_columns = ("properties", "person_properties", "set", "set_once")
-        if inputs.file_format.lower() == "jsonlines":
-            transformer = get_json_stream_transformer(
-                compression=inputs.compression,
-                include_inserted_at=True,
-                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-            )
-        else:
-            transformer = ParquetStreamTransformer(
-                compression=inputs.compression,
-                include_inserted_at=True,
-                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-            )
-
-        async with s3_client(
-            credentials,
-            use_virtual_style_addressing=inputs.use_virtual_style_addressing,
-            region=inputs.region,
-            endpoint_url=endpoint_url,
-            refresh_using=refresh_credentials,
-        ) as client:
-            consumer = ConcurrentS3Consumer.from_inputs(
-                s3_client=client,
-                s3_inputs=inputs,
-                part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
-                checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
-            )
-
-            result = await run_consumer_from_stage(
-                queue=queue,
-                consumer=consumer,
-                producer_task=producer_task,
-                transformer=transformer,
-                json_columns=json_columns,
-                records_total=inputs.records_total,
-            )
-
-        return S3BatchExportResult(
-            bytes_exported=result.bytes_exported,
-            records_completed=result.records_completed,
-            records_failed=result.records_failed,
-            error=result.error,
-            files_uploaded=consumer.files_uploaded,
-        )
+    return S3BatchExportResult(
+        bytes_exported=result.bytes_exported,
+        records_completed=result.records_completed,
+        records_failed=result.records_failed,
+        error=result.error,
+        files_uploaded=consumer.files_uploaded,
+    )
 
 
 class ConcurrentS3Consumer(Consumer):

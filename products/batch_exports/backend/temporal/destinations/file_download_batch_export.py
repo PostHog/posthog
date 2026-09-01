@@ -274,11 +274,14 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
         batch_export_id=inputs.batch_export.batch_export_id,
         destination_default_fields=inputs.batch_export.destination_default_fields,
     )
-    resolved_credentials = ResolvedS3Credentials(
-        credentials=await refresh_credentials(),
-        refresh_using=refresh_credentials,
-    )
-    return await insert_into_s3_from_stage(s3_insert_inputs, resolved_credentials)
+    # Minting the first credentials calls AWS STS, and this activity heartbeats every 10 seconds,
+    # so the call runs under the heartbeater rather than ahead of it.
+    async with Heartbeater():
+        resolved_credentials = ResolvedS3Credentials(
+            credentials=await refresh_credentials(),
+            refresh_using=refresh_credentials,
+        )
+        return await insert_into_s3_from_stage(s3_insert_inputs, resolved_credentials)
 
 
 @dataclasses.dataclass
