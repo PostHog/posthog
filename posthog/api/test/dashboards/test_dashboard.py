@@ -2246,30 +2246,60 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.filters, {})
 
-    def test_dashboard_duplication_copies_breakdown_colors(self):
-        """Test that breakdown_colors are copied during duplication"""
-        # The shape the frontend persists: a list of BreakdownColorConfig objects
-        breakdown_colors = [
-            {"breakdownValue": "Chrome", "breakdownType": "event", "colorToken": "preset-1", "source": "manual"},
-            {"breakdownValue": "Firefox", "breakdownType": "event", "colorToken": "preset-2", "source": "manual"},
+    @parameterized.expand(
+        [
+            # The shape the frontend persists: a list of BreakdownColorConfig objects, copied verbatim.
+            (
+                "valid_list_is_copied",
+                [
+                    {
+                        "breakdownValue": "Chrome",
+                        "breakdownType": "event",
+                        "colorToken": "preset-1",
+                        "source": "manual",
+                    },
+                    {
+                        "breakdownValue": "Firefox",
+                        "breakdownType": "event",
+                        "colorToken": "preset-2",
+                        "source": "manual",
+                    },
+                ],
+                [
+                    {
+                        "breakdownValue": "Chrome",
+                        "breakdownType": "event",
+                        "colorToken": "preset-1",
+                        "source": "manual",
+                    },
+                    {
+                        "breakdownValue": "Firefox",
+                        "breakdownType": "event",
+                        "colorToken": "preset-2",
+                        "source": "manual",
+                    },
+                ],
+            ),
+            # A legacy row can store an object; duplication must drop it instead of copying it and crashing the response.
+            ("legacy_object_is_dropped", {"Chrome": "preset-1", "Firefox": "preset-2"}, []),
         ]
+    )
+    def test_dashboard_duplication_copies_breakdown_colors(self, _name, stored_value, expected_copied):
         existing_dashboard = Dashboard.objects.create(
             team=self.team,
             name="Dashboard with colors",
             created_by=self.user,
-            breakdown_colors=breakdown_colors,
+            breakdown_colors=stored_value,
         )
 
-        # Duplicate the dashboard
         _, response = self.dashboard_api.create_dashboard(
             {"name": "Duplicated dashboard", "use_dashboard": existing_dashboard.pk}
         )
 
-        # Verify breakdown_colors are copied
-        self.assertEqual(response["breakdown_colors"], breakdown_colors)
+        self.assertEqual(response["breakdown_colors"], expected_copied)
 
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
-        self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
+        self.assertEqual(duplicated_dashboard.breakdown_colors, expected_copied)
 
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""

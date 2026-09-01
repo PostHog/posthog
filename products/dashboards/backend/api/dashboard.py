@@ -1579,7 +1579,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if existing_dashboard and existing_dashboard.variables:
             validated_data["variables"] = existing_dashboard.variables
 
-        if existing_dashboard and existing_dashboard.breakdown_colors:
+        # A legacy row can hold a non-list here. Copying one skips field validation and crashes the copy's response.
+        if (
+            existing_dashboard
+            and isinstance(existing_dashboard.breakdown_colors, list)
+            and existing_dashboard.breakdown_colors
+        ):
             validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:
