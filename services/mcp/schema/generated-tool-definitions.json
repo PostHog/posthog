@@ -5227,6 +5227,20 @@
             "readOnlyHint": false
         }
     },
+    "file-download-batch-exports-count-rows-create": {
+        "description": "Count the rows a HogQL file download export would produce if started now, without starting an export. Only the hogql model is supported; it is in closed beta and enabled per team, and this returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Counting runs the full query on ClickHouse, so it can take a while and can fail with a timeout for heavy unbounded queries. If the user wishes to estimate the size of an export, use it before file-download-batch-exports-create to check a hogql_query returns the amount of data the user expects, and tighten its WHERE clause when the count is much larger than expected. Running count queries is potentially as expensive as running the actual export query, so consider whether this is worth it.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Count rows a HogQL file download export would produce",
+        "title": "Count rows a HogQL file download export would produce",
+        "required_scopes": ["batch_export:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "file-download-batch-exports-create": {
         "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
@@ -7732,6 +7746,48 @@
             "readOnlyHint": false
         },
         "feature_flag": "mcp-analytics"
+    },
+    "media-image-upload-complete": {
+        "description": "Step 2 of the presigned upload flow. Verifies the file uploaded via media-image-upload-start, sniffs its real content type, and activates it — after this it appears in media-images-list and is publicly servable. Returns the permanent url; for emails, put it in the image block's values.src.url.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Complete image upload",
+        "title": "Complete image upload",
+        "required_scopes": ["uploaded_media:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "media-image-upload-start": {
+        "description": "Step 1 of the presigned upload flow for adding a local image to the media library. Returns upload_url and form_fields; POST the local file there with a shell, e.g. `curl -X POST <upload_url> -F key=value... -F file=@/path/to/image.png` (with the form_fields from the response, file last), then call media-image-upload-complete with the returned id. Never base64-encode image bytes into a tool call. Requires shell access. Check media-images-list first to reuse an existing image instead of uploading a duplicate.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Start an image upload",
+        "title": "Start an image upload",
+        "required_scopes": ["uploaded_media:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "media-images-list": {
+        "description": "List images in a media library by purpose (e.g. \"email\"). Check this before uploading to reuse an existing image instead of uploading a duplicate.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List media library images",
+        "title": "List media library images",
+        "required_scopes": ["uploaded_media:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "metric-names-list": {
         "description": "List the distinct metric names this project has ingested, with each metric's OTel type (`gauge`, `sum`, `histogram`, `summary`, `exponential_histogram`). Names are ordered by recent activity and exact matches float to the top.\n\nALWAYS call this before `query-metrics` unless you already know the exact metric name — metric queries match names exactly, so a guessed name silently returns no data.\n\nUse `value` for a case-insensitive substring search (e.g. `value: \"lag\"` finds `metrics_rate_limiter_message_lag_seconds`). The metric's type tells you which aggregations make sense:\n\n- `sum` (counters, usually `_total`-suffixed): use `rate` or `increase`\n- `gauge`: use `avg`, `p95`, or `sum`\n- `histogram`: use `histogram_quantile` with a `quantile`",
