@@ -18,6 +18,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
@@ -542,10 +543,12 @@ async def hogql_table(
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async_pool(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.

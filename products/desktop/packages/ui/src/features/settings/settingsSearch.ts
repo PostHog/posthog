@@ -12,7 +12,7 @@ export interface SettingsSearchEntry {
 // Hand-curated index of the settings each page holds. When a page gains or
 // loses a setting, update its entries here so search keeps finding it. Page
 // display names come from SETTINGS_PAGE_LABELS, not repeated per entry.
-export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
+const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
     category: "general",
     label: "Theme",

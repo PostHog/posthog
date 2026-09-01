@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
@@ -506,6 +507,13 @@ def _team_report_charts_enabled(team_id: int) -> bool:
         return False
 
 
+# The posture the research sandbox's token is minted from. Named once because two things depend on
+# it: the token the sandbox holds, and the memory protocol rendered into the research prompt. The
+# prompt side derives its gate from this constant, so a posture that loses the scratchpad write
+# scope also loses the instructions that depend on it.
+RESEARCH_MCP_SCOPES: McpScopePreset = "signals_research"
+
+
 def _capture_research_steering_attached(*, team_id: int, report_id: str, steering: ReportSteering) -> None:
     """`signals_research_steering_attached` — fired for every research run, so the share that carried
     the team's steering is readable against the share that carried none, and against how those
@@ -531,6 +539,7 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
                 "dismissal_notes_attached": steering.dismissal_notes_attached,
                 "pipeline_notes_attached": steering.pipeline_notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
+                "memory_protocol": steering.memory_protocol,
             },
             groups=groups(team.organization, team),
         )
@@ -563,10 +572,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                # Reads only: the research agent queries data/insights and can list the report's
-                # artefacts, but never writes artefacts itself — the pipeline persists its
-                # structured outputs after the session.
-                posthog_mcp_scopes="read_only",
+                # Reads, plus the scratchpad: the research agent queries data/insights and can
+                # list the report's artefacts, but never writes artefacts itself — the pipeline
+                # persists its structured outputs after the session. What it does keep is what it
+                # judged, so the next run over the same entities starts from it.
+                posthog_mcp_scopes=RESEARCH_MCP_SCOPES,
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
@@ -584,7 +594,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             # 2c. Load what the team already told the scout fleet, so a reviewer's verdict on an
             # earlier report reaches the stage that judges this one.
             steering = await database_sync_to_async(load_research_steering, thread_sensitive=False)(
-                input.team_id, input.report_id
+                input.team_id, input.report_id, memory_writable=grants_scratchpad_write(RESEARCH_MCP_SCOPES)
             )
             await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
                 team_id=input.team_id, report_id=input.report_id, steering=steering

@@ -156,9 +156,7 @@ export function filterActivityFeedItems(
   });
 }
 
-export function getUnreadActivityItems(
-  items: TaskActivityItem[],
-): TaskActivityItem[] {
+function getUnreadActivityItems(items: TaskActivityItem[]): TaskActivityItem[] {
   return items.filter((item) => item.isUnread);
 }
 

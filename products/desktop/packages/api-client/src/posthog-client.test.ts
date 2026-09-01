@@ -1719,6 +1719,41 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getSignalReports", () => {
+    it("sends report filters to the reports endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 3, results: [] }),
+      });
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+
+      await expect(
+        client.getSignalReports({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+        }),
+      ).resolves.toEqual({ count: 3, results: [] });
+
+      const request = fetch.mock.calls[0]?.[0] as { url: URL };
+      expect(request.url.toString()).toBe(
+        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
+      );
+    });
+  });
+
   describe("getSignalReport", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(

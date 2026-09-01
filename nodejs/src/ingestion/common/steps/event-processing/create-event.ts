@@ -41,6 +41,14 @@ export function getElementsChain(properties: Properties): string {
     return elementsChain
 }
 
+/** A force upgrade only happens when the client asked for propertyless, and it overrides that ask. */
+export function resolvePersonMode(person: Person | undefined, processPerson: boolean): PersonMode {
+    if (person?.force_upgrade) {
+        return 'force_upgrade'
+    }
+    return processPerson ? 'full' : 'propertyless'
+}
+
 export function createEvent(
     preIngestionEvent: PreIngestionEvent,
     person: Person | undefined,
@@ -80,13 +88,6 @@ export function createEvent(
         }
     }
 
-    let personMode: PersonMode = 'full'
-    if (person?.force_upgrade) {
-        personMode = 'force_upgrade'
-    } else if (!processPerson) {
-        personMode = 'propertyless'
-    }
-
     // Use person UUID if available, otherwise generate deterministic UUID from distinct_id
     const personId = person?.uuid ?? uuidFromDistinctId(teamId, distinctId)
 
@@ -104,7 +105,7 @@ export function createEvent(
         person_id: personId,
         person_properties: eventPersonProperties,
         person_created_at: person?.created_at ?? null,
-        person_mode: personMode,
+        person_mode: resolvePersonMode(person, processPerson),
         // Only include historical_migration when true to avoid bloating messages
         ...(historicalMigration ? { historical_migration: true } : {}),
     }

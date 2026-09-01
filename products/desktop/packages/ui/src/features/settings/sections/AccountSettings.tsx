@@ -18,13 +18,14 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useState } from "react";
 
 const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
 const GRAVATAR_IMAGE_SIZE = 144;
 
-export type ProfilePictureStatus = "unknown" | "found" | "missing";
+type ProfilePictureStatus = "unknown" | "found" | "missing";
 
 interface ProfilePictureRowProps {
   user: AvatarPerson;
@@ -60,7 +61,7 @@ function probeStatus(result: ImageProbeResult): ProfilePictureStatus {
   }
 }
 
-export function ProfilePictureRow({
+function ProfilePictureRow({
   user,
   imageUrl,
   status,
@@ -130,10 +131,9 @@ export function ProfilePictureRow({
             disabled={checking}
             onClick={onRefresh}
           >
-            <ArrowsClockwise
-              size={12}
-              className={cn(checking && "motion-safe:animate-spin")}
-            />
+            <Spin spinning={checking} className="motion-reduce:animate-none">
+              <ArrowsClockwise size={12} />
+            </Spin>
           </Button>
         </Tooltip>
         <Button

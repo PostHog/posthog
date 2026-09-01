@@ -832,12 +832,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
@@ -2939,6 +2939,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
         },
+        "$mcp_scope_preset": {
+            "label": "MCP scope preset",
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": ["scout", "research", "implementation", "sandbox", "user"],
+        },
         "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
             "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
@@ -3410,6 +3415,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$issue_description": {
             "label": "Issue description",
             "description": "The description of the error tracking issue this exception belongs to.",
+            "type": "String",
+        },
+        "$issue_severity": {
+            "label": "Issue severity",
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": ["low", "medium", "high", "critical"],
             "type": "String",
         },
         "$exception_release": {
@@ -4010,6 +4021,11 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     }
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
+
+# Event properties that only carry person property updates for ingestion to apply. Querying them
+# is deprecated, so every place that offers properties to pick from — the taxonomic filter, the
+# property definitions API, HogQL and Hog autocomplete, the AI taxonomy — leaves them out.
+QUERY_DEPRECATED_EVENT_PROPERTIES: set[str] = {"$set", "$set_once"}
 
 IGNORED_EVENT_NAMES: list[str] = [
     name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
