@@ -3074,6 +3074,28 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
+  async updateTaskChannelAutoArchive(
+    id: string,
+    inactivityDays: 1 | 3 | 7 | 14 | 30 | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ auto_archive_after_days: inactivityDays }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update automatic archiving: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
   async deleteTaskChannel(id: string): Promise<void> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;

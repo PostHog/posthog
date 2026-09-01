@@ -19,6 +19,8 @@ export interface Channel {
   starred: boolean;
   /** The repos the space is wired to. Empty where none are. */
   repositories: string[];
+  /** Days of inactivity before tasks are archived. Null disables the rule. */
+  autoArchiveAfterDays?: 1 | 3 | 7 | 14 | 30 | null;
   /** Who made the space, where the backend knows. */
   createdBy: UserBasic | null;
 }
@@ -32,6 +34,7 @@ function toChannel(channel: TaskChannel): Channel {
     channelType: channel.channel_type,
     starred: channel.starred,
     repositories: channel.repositories ?? NO_REPOSITORIES,
+    autoArchiveAfterDays: channel.auto_archive_after_days ?? null,
     createdBy: channel.created_by ?? null,
   };
 }
@@ -128,14 +131,42 @@ export function useChannelMutations() {
     onSuccess: invalidate,
   });
 
+  const autoArchiveMutation = useMutation({
+    mutationFn: async ({
+      id,
+      inactivityDays,
+    }: {
+      id: string;
+      inactivityDays: 1 | 3 | 7 | 14 | 30 | null;
+    }) => {
+      if (!client) throw new Error("Not authenticated");
+      return client.updateTaskChannelAutoArchive(id, inactivityDays);
+    },
+    onSuccess: (updatedChannel) => {
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+        (channels) =>
+          channels?.map((channel) =>
+            channel.id === updatedChannel.id ? updatedChannel : channel,
+          ),
+      );
+    },
+  });
+
   return {
     createChannel: (name: string, options: { star: boolean }) =>
       createMutation.mutateAsync({ name, star: options.star }).then(toChannel),
     deleteChannel: (id: string) => deleteMutation.mutateAsync(id),
     renameChannel: (id: string, name: string) =>
       renameMutation.mutateAsync({ id, name }).then(toChannel),
+    updateAutoArchive: (
+      id: string,
+      inactivityDays: 1 | 3 | 7 | 14 | 30 | null,
+    ) =>
+      autoArchiveMutation.mutateAsync({ id, inactivityDays }).then(toChannel),
     isCreating: createMutation.isPending,
     isDeleting: deleteMutation.isPending,
     isRenaming: renameMutation.isPending,
+    isUpdatingAutoArchive: autoArchiveMutation.isPending,
   };
 }
