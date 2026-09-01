@@ -219,6 +219,8 @@ export interface workflowLogicValues {
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
+    emailSendingPaused: boolean
+    emailSendingPausedReason: string
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -244,6 +246,7 @@ export interface workflowLogicValues {
         | false
         | null
     publishDisabledReason: string | undefined
+    resumeEmailSendingPending: boolean
     saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
@@ -256,9 +259,6 @@ export interface workflowLogicValues {
     schedules: HogFlowSchedule[]
     showDraftActions: boolean
     showWorkflowErrors: boolean
-    emailSendingPaused: boolean
-    emailSendingPausedReason: string
-    resumeEmailSendingPending: boolean
     triggerAction: TriggerAction | null
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
@@ -295,6 +295,9 @@ export interface workflowLogicActions {
     }
     confirmPublishDraft: (confirmToken: string) => {
         confirmToken: string
+    }
+    confirmResumeEmailSending: () => {
+        value: true
     }
     discardChanges: () => {
         value: true
@@ -2371,12 +2374,6 @@ export interface workflowLogicActions {
     resumeEmailSending: () => {
         value: true
     }
-    confirmResumeEmailSending: () => {
-        value: true
-    }
-    setResumeEmailSendingPending: (pending: boolean) => {
-        pending: boolean
-    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -2406,6 +2403,9 @@ export interface workflowLogicActions {
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
+    }
+    setResumeEmailSendingPending: (pending: boolean) => {
+        pending: boolean
     }
     setSaveBaseUpdatedAt: (updatedAt: string | null) => {
         updatedAt: string | null
@@ -3002,6 +3002,8 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
