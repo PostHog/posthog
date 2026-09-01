@@ -175,12 +175,11 @@ export function ReasoningLevelSelector({
     onAdapterChange?.(harness);
   };
 
-  // With model-first wiring the grouped model list already carries the
-  // harness, so the row only remains as the path to Pi.
+  // The row stays visible even with model-first wiring: a model pick
+  // auto-selects its harness, and the row shows the result and allows a
+  // manual override (Pi can run models from both groups).
   const showHarnessSubmenu =
-    !!adapter &&
-    !!(onAdapterChange || onHarnessChange) &&
-    (!onHarnessModelChange || (includePiHarness && !!onHarnessChange));
+    !!adapter && !!(onAdapterChange || onHarnessChange);
 
   if (!hasEffort && !modelSelect) {
     if (isLoading) {

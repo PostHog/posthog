@@ -548,8 +548,10 @@ describe("ReasoningLevelSelector", () => {
       screen.getByRole("button", { name: /Model and reasoning/ }),
     );
     await user.click(await screen.findByRole("button", { name: "Advanced" }));
-    // The grouped model list replaces the Harness row.
-    expect(screen.queryByRole("menuitem", { name: /^Harness/ })).toBeNull();
+    // The Harness row stays as the visible, overridable result of the pick.
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
     await openSub(user, /^Model/);
     fireEvent.click(
       await screen.findByRole("menuitemradio", { name: "GPT-5.6 Sol" }),
