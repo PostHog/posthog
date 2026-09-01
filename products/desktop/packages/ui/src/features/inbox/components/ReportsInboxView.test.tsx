@@ -2,6 +2,7 @@ import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -122,6 +123,10 @@ vi.mock(
 
 vi.mock("@posthog/ui/features/inbox/components/ReportRestoreButton", () => ({
   ReportRestoreButton: () => null,
+}));
+
+vi.mock("@posthog/ui/features/inbox/components/InboxReportContextMenu", () => ({
+  InboxReportContextMenu: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
