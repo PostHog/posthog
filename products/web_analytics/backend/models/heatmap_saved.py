@@ -85,6 +85,3 @@ class HeatmapSnapshot(UUIDModel):
     class Meta:
         db_table = "posthog_heatmapsnapshot"
         unique_together = ("heatmap", "width")
-        indexes = [
-            models.Index(fields=["heatmap", "width"]),
-        ]
