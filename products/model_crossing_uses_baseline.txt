@@ -27,6 +27,7 @@ access_control.Role approvals.ApprovalPolicy.bypass_roles reverse-accessor(bypas
 access_control.Role posthog.Organization.default_role reverse-accessor(default_for_organizations) 1
 actions.Action cdp.PluginConfig.match_action reverse-accessor(plugin_configs) 1
 actions.Action posthog.TaggedItem.action reverse-accessor(tagged_items) 1
+actions.Action surveys.Survey.actions reverse-accessor(survey_set) 1
 approvals.ChangeRequest feature_flags.ScheduledChange.change_request reverse-accessor(scheduled_changes) 1
 canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1

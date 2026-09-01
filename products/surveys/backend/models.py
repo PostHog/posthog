@@ -299,7 +299,10 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         ),
     )
 
-    actions = models.ManyToManyField(Action, related_name="+")
+    # Not sealed: the resource transfer graph walks reverse descriptors, so hiding
+    # survey_set would silently drop the survey link from Action-rooted duplications
+    # (test_relation_fields_Action locks the field list).
+    actions = models.ManyToManyField(Action)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
