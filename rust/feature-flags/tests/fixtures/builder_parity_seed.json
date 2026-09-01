@@ -1,0 +1,413 @@
+{
+    "doc": {
+        "purpose": "One team's rows, seeded identically by the Python and Rust flags-cache builder parity tests, then built by each builder and compared against builder_parity_golden.json.",
+        "readers": [
+            "products/feature_flags/backend/test/test_flags_builder_parity.py",
+            "rust/feature-flags/tests/flags_builder_parity.rs"
+        ],
+        "reference_tokens": {
+            "@team": "integer id of the seeded team",
+            "@cohort:<ref>": "integer id of the seeded cohort with that ref",
+            "@flag:<ref>": "integer id of the seeded flag with that ref",
+            "@flag_str:<ref>": "same id as a decimal string, which is how a flag dependency stores it",
+            "object keys": "a token used as a JSON object key resolves to the decimal string form"
+        },
+        "ordering": "Both seeders insert in file order, so ids ascend in file order. The golden relies on that: it lists id-sorted arrays in file order."
+    },
+    "cohorts": [
+        {
+            "ref": "eu_visitors",
+            "covers": "The cohort a flag references directly, and the transitive target of engaged_eu_visitors.",
+            "name": "EU visitors",
+            "description": "Visitors whose person properties place them in the EU",
+            "deleted": false,
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$geoip_continent_code",
+                                    "value": "EU",
+                                    "type": "person",
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            "query": null,
+            "version": 4,
+            "pending_version": null,
+            "count": 17,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "cohort_type": null,
+            "condition_type": {
+                "person_properties": true,
+                "behavioral": false,
+                "lifecycle": false,
+                "cohorts": false
+            },
+            "last_backfill_person_properties_at": "2026-01-15T12:00:00+00:00",
+            "last_backfill_events_at": null,
+            "last_realtime_cohort_calculation_at": null
+        },
+        {
+            "ref": "engaged_eu_visitors",
+            "covers": "Cohort-on-cohort dependency: only the BFS in each builder pulls eu_visitors into the payload.",
+            "name": "Engaged EU visitors",
+            "description": "EU visitors who also opened the changelog",
+            "deleted": false,
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "id",
+                                    "value": "@cohort:eu_visitors",
+                                    "type": "cohort",
+                                    "negation": false
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            "query": null,
+            "version": null,
+            "pending_version": null,
+            "count": null,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "cohort_type": null,
+            "condition_type": {
+                "person_properties": false,
+                "behavioral": false,
+                "lifecycle": false,
+                "cohorts": true
+            },
+            "last_backfill_person_properties_at": null,
+            "last_backfill_events_at": null,
+            "last_realtime_cohort_calculation_at": null
+        }
+    ],
+    "flags": [
+        {
+            "ref": "many_contexts",
+            "covers": "Several evaluation contexts on one flag. Python aggregates them with DISTINCT, which sorts; Rust does not, so the arrays can differ, and the Rust one can differ between runs. They are seeded in reverse alphabetical order so a run that returns them unsorted is distinguishable.",
+            "key": "parity-many-contexts",
+            "name": "Flag carrying several evaluation contexts",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": true,
+            "version": 3,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": "device_id",
+            "has_experiment": false,
+            "evaluation_contexts": [
+                "web-frontend",
+                "mobile-app",
+                "api-backend"
+            ],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "person@example.com",
+                                "type": "person",
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": 40,
+                        "variant": null,
+                        "sort_key": "unknown-key-passthrough"
+                    }
+                ],
+                "payloads": {},
+                "super_groups": null
+            }
+        },
+        {
+            "ref": "absent_optionals",
+            "covers": "Optional fields that are null on one writer and absent on the other: no version, no bucketing identifier, no experience continuity, and a group with neither rollout_percentage nor variant.",
+            "key": "parity-absent-optionals",
+            "name": "",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": null,
+            "version": null,
+            "evaluation_runtime": null,
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": []
+                    }
+                ]
+            }
+        },
+        {
+            "ref": "multivariate",
+            "covers": "Multivariate options and payloads. Rust parses rollout_percentage as a float and a variant name as optional, so a value that only survives one of the two writers shows up here.",
+            "key": "parity-multivariate",
+            "name": "Multivariate flag",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 2,
+            "evaluation_runtime": "server",
+            "bucketing_identifier": "distinct_id",
+            "has_experiment": false,
+            "evaluation_contexts": [
+                "api-backend"
+            ],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 34
+                        },
+                        {
+                            "key": "compact",
+                            "name": null,
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "roomy",
+                            "name": "Roomy",
+                            "rollout_percentage": 33
+                        }
+                    ]
+                },
+                "payloads": {
+                    "control": "{\"layout\": \"control\"}"
+                },
+                "aggregation_group_type_index": null
+            }
+        },
+        {
+            "ref": "cohort_targeted",
+            "covers": "A cohort reference, which is what makes each builder load the cohorts array at all.",
+            "key": "parity-cohort-targeted",
+            "name": "Cohort targeted flag",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": "@cohort:engaged_eu_visitors",
+                                "type": "cohort",
+                                "operator": "in"
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "payloads": {}
+            }
+        },
+        {
+            "ref": "with_experiment",
+            "covers": "has_experiment. Django resolves it through live_experiment_exists(); Rust reimplements it as an EXISTS subquery.",
+            "key": "parity-with-experiment",
+            "name": "Flag behind a running experiment",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": true,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 50,
+                        "variant": null
+                    }
+                ],
+                "payloads": {}
+            }
+        },
+        {
+            "ref": "disabled_referenced",
+            "covers": "An inactive flag another flag depends on. Both writers keep the row and blank its filters, so a writer that skips either step shows up here.",
+            "key": "parity-disabled-referenced",
+            "name": "Disabled flag someone still depends on",
+            "active": false,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 5,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "person@example.com",
+                                "type": "person",
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "payloads": {
+                    "true": "still-here"
+                }
+            }
+        },
+        {
+            "ref": "disabled_unreferenced",
+            "covers": "An inactive flag nothing depends on. Both writers drop it.",
+            "key": "parity-disabled-unreferenced",
+            "name": "Disabled flag nobody depends on",
+            "active": false,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "payloads": {}
+            }
+        },
+        {
+            "ref": "deleted",
+            "covers": "A deleted flag. Rust excludes it in SQL and Python drops it afterwards, so both reach the same payload by different routes.",
+            "key": "parity-deleted",
+            "name": "Deleted flag",
+            "active": true,
+            "deleted": true,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "payloads": {}
+            }
+        },
+        {
+            "ref": "dependent",
+            "covers": "A flag dependency, which puts this flag in a later evaluation stage and gives it a transitive dependency.",
+            "key": "parity-dependent",
+            "name": "Flag depending on a disabled flag",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "@flag_str:disabled_referenced",
+                                "label": "parity-disabled-referenced",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": false
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "payloads": {}
+            }
+        },
+        {
+            "ref": "missing_dependency",
+            "covers": "A dependency on a flag that does not exist, which lands the flag in flags_with_missing_deps and out of every stage.",
+            "key": "parity-missing-dependency",
+            "name": "Flag depending on nothing that exists",
+            "active": true,
+            "deleted": false,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "has_experiment": false,
+            "evaluation_contexts": [],
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "2147483600",
+                                "label": "gone",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": true
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "payloads": {}
+            }
+        }
+    ]
+}
