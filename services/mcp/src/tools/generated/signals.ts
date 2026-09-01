@@ -219,6 +219,57 @@ const inboxReportsBulkSetState = (): ToolBase<
     },
 })
 
+const InboxReportsGetInboxSchema = ReportInboxInputSchema
+
+const inboxReportsGetInbox = (): ToolBase<typeof InboxReportsGetInboxSchema, Schemas.PaginatedSignalReportList> => ({
+    name: 'inbox-reports-get-inbox',
+    schema: InboxReportsGetInboxSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsGetInboxSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = InboxReportsGetInboxSchema.parse(params)
+        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
+            query: parsedParams,
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'title',
+                    'summary',
+                    'status',
+                    'priority',
+                    'actionability',
+                    'already_addressed',
+                    'dismissal_reason',
+                    'dismissal_note',
+                    'signal_count',
+                    'total_weight',
+                    'source_products',
+                    'scout_name',
+                    'is_suggested_reviewer',
+                    'implementation_pr_url',
+                    'implementation_pr_merged',
+                    'created_at',
+                    'updated_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
+        )
+    },
+})
+
 const InboxReportsListSchema = SignalsReportsListQueryParams
 
 const inboxReportsList = (): ToolBase<
@@ -292,57 +343,6 @@ const inboxReportsList = (): ToolBase<
                 '/inbox'
             ),
             "If you do ANY work connected to one of these reports — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only session) ignore the association step entirely — artefact persistence is handled for you. Read the report's work log via inbox-report-artefacts-list before acting."
-        )
-    },
-})
-
-const InboxReportsGetInboxSchema = ReportInboxInputSchema
-
-const inboxReportsGetInbox = (): ToolBase<typeof InboxReportsGetInboxSchema, Schemas.PaginatedSignalReportList> => ({
-    name: 'inbox-reports-get-inbox',
-    schema: InboxReportsGetInboxSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportsGetInboxSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = InboxReportsGetInboxSchema.parse(params)
-        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
-            query: parsedParams,
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'title',
-                    'summary',
-                    'status',
-                    'priority',
-                    'actionability',
-                    'already_addressed',
-                    'dismissal_reason',
-                    'dismissal_note',
-                    'signal_count',
-                    'total_weight',
-                    'source_products',
-                    'scout_name',
-                    'is_suggested_reviewer',
-                    'implementation_pr_url',
-                    'implementation_pr_merged',
-                    'created_at',
-                    'updated_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
-                ),
-            },
-            '/inbox'
         )
     },
 })
@@ -1842,8 +1842,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
-    'inbox-reports-list': inboxReportsList,
     'inbox-reports-get-inbox': inboxReportsGetInbox,
+    'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
