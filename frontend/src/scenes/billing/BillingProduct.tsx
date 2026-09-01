@@ -226,13 +226,19 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8 pb-8 sm:pb-0">
-                    {/* Reached limit notice */}
-                    {isUsageAtOrOverLimit(product.percentage_usage) && (
-                        <LemonBanner className="mt-6" type="error">
-                            You have reached the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
-                            product.
-                        </LemonBanner>
-                    )}
+                    {/* Usage notice: limit reached, or overage now billed for subscribed products */}
+                    {isUsageAtOrOverLimit(product.percentage_usage) &&
+                        (product.subscribed && !hasCustomLimitSet ? (
+                            <LemonBanner className="mt-6" type="info">
+                                You have used the included allocation for this product. We bill extra usage at your
+                                plan's rates.
+                            </LemonBanner>
+                        ) : (
+                            <LemonBanner className="mt-6" type="error">
+                                You have reached the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
+                                product.
+                            </LemonBanner>
+                        ))}
 
                     {/* Combined monetary gauge for product variants - only show for subscribed users */}
                     {isProductWithVariants && product.subscribed && (
