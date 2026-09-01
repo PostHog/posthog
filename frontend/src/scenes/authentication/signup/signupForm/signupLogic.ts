@@ -698,6 +698,11 @@ export const signupLogic = kea<signupLogicType>([
                     },
                 })
 
+                // The browser commits the passkey here, before the account exists. Capture the
+                // step so we can size how many people register a passkey but never finish signup.
+                // Fire before the complete call so an orphan passkey from a failed complete still counts.
+                posthog.capture('signup passkey registered')
+
                 // Step 3: Complete registration - send attestation to server
                 await api.create('api/webauthn/signup-register/complete/', attestation)
 
