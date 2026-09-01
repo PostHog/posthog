@@ -1409,7 +1409,9 @@ class EnterpriseExperimentsViewSet(
         if not ids:
             return Response({"results": {}})
 
-        experiments = self.get_queryset().filter(id__in=ids)
+        # detail=False actions skip the list action's object-level ACL filtering, so filter explicitly.
+        # Otherwise a project member could read running-time data for an experiment they cannot view.
+        experiments = self.user_access_control.filter_queryset_by_access_level(self.get_queryset().filter(id__in=ids))
         estimates = experiments_facade.get_running_time_estimates(experiments)
         results = {
             experiment_id: RunningTimeEstimateSerializer(estimate).data for experiment_id, estimate in estimates.items()
