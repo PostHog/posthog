@@ -208,6 +208,8 @@ describe('notebookKernelInfoLogic', () => {
     test('a shared notebook issues no team-scoped kernel requests', async () => {
         // A shared view renders from cachedNotebook so a logged-out viewer makes no team-scoped
         // call. Both kernel endpoints are team-scoped, so mounting here used to 401 twice.
+        // The panel is not the only mount: notebookLogic connects this logic for every notebook,
+        // and the exporter goes through that path, so isShared has to reach it from there.
         logic = notebookKernelInfoLogic({ shortId: 'shared-01890abc', mode: 'notebook', isShared: true })
         logic.mount()
         await jest.advanceTimersByTimeAsync(30_000)
