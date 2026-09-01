@@ -1,3 +1,4 @@
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -45,6 +46,10 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     ...overrides,
 })
 
+// Asks the router the same question it asks before it lets a navigation through.
+const warnsBeforeLeaving = (): boolean =>
+    Array.from(getRouterContext().beforeUnloadInterceptors).some((interceptor) => interceptor.enabled())
+
 describe('workflowLogic auto-save', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let updateCalls: number
@@ -62,6 +67,9 @@ describe('workflowLogic auto-save', () => {
                     updateCalls += 1
                     return [200, workflow]
                 },
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/': () => [200, makeWorkflow({ id: 'wf-created-1' })],
             },
         })
     })
@@ -795,18 +803,39 @@ describe('workflowLogic auto-save', () => {
             expect(updateCalls).toBe(0)
         })
 
-        it('does not warn on navigation for new workflows', async () => {
-            // The beforeUnload guard skips when id is 'new', even if
-            // the form has unsaved changes (e.g. freshly created draft).
+        // A workflow that was never created has no row to auto-save into, so the create scene
+        // needs the leave prompt more than a saved workflow does.
+        it.each([
+            ['does not warn when leaving an untouched new workflow', false, false],
+            ['warns when leaving a new workflow carrying unsaved changes', true, true],
+        ] as [string, boolean, boolean][])('%s', async (_name, edited, expected) => {
+            initKeaTests()
+            logic = workflowLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            if (edited) {
+                logic.actions.setWorkflowValue('name', 'My new workflow')
+            }
+            expect(logic.values.hasUnsavedChanges).toBe(edited)
+            expect(warnsBeforeLeaving()).toBe(expected)
+        })
+
+        it('does not prompt on the redirect that completes the create', async () => {
+            // The form is only rebaselined after the redirect, so it is still dirty when the
+            // navigation fires. Without the opt-out, every successful create shows a leave prompt.
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
             initKeaTests()
             logic = workflowLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
             logic.actions.setWorkflowValue('name', 'My new workflow')
-            expect(logic.values.hasUnsavedChanges).toBe(true)
-            // Guard condition: props.id === 'new' → skip
-            expect(logic.props.id).toBe('new')
+            logic.actions.submitWorkflow()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(confirmSpy).not.toHaveBeenCalled()
+            confirmSpy.mockRestore()
         })
     })
 })
