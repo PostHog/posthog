@@ -67,6 +67,22 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
             ]
         )
 
+    @staticmethod
+    def build_staging_location(team_id: int, media_id) -> str:
+        """A presigned upload POST is only ever signed for this key, never the permanent
+        one `build_media_location` returns. The signature stays valid until it expires
+        (Django can't revoke it early), so anyone still holding it could rewrite whatever
+        it points at — the permanent key has to be a key nobody outside complete_upload
+        itself ever had permission to write to."""
+        return "/".join(
+            [
+                settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
+                f"team-{team_id}",
+                "staging",
+                str(media_id),
+            ]
+        )
+
     @classmethod
     def save_content(
         cls,

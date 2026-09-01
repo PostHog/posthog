@@ -16,13 +16,15 @@ from rest_framework import status
 
 from posthog.api.uploaded_media import FOUR_MEGABYTES
 from posthog.models import Team, UploadedMedia
-from posthog.models.utils import UUIDT
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import UUIDT, generate_random_token_personal
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.storage import object_storage
 
 MEDIA_ROOT = tempfile.mkdtemp()
 
@@ -405,15 +407,15 @@ class TestMediaLibraryAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         media_id = response.json()["id"]
-        return media_id, UploadedMedia.objects.get(id=media_id).media_location
+        media_location = UploadedMedia.objects.get(id=media_id).media_location
+        assert media_location is not None
+        return media_id, media_location
 
     def test_complete_upload_verifies_and_activates_the_pending_upload(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
                 gif_bytes = image.read()
-            from posthog.storage import object_storage
-
             object_storage.write(media_location, gif_bytes)
 
             response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
@@ -434,6 +436,33 @@ class TestMediaLibraryAPI(APIBaseTest):
             assert download_response.status_code == status.HTTP_200_OK
             assert download_response.headers["Content-Type"] == "image/gif"
 
+    def test_completing_moves_the_object_off_the_presigned_key(self) -> None:
+        """The presigned POST's signature is only checked by S3 at upload time and stays
+        valid until it expires (up to 15 minutes) — Django has no way to revoke it early.
+        If a completed upload kept serving from that same key, anyone still holding the
+        form fields could silently replace a live, already-served image at any point
+        before expiry. Completing must move the bytes to a key the presigned POST was
+        never signed for, so a later write to the old key lands nowhere anyone reads."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, presigned_key = self._start_upload()
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                original_bytes = image.read()
+            object_storage.write(presigned_key, original_bytes)
+
+            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+            media = UploadedMedia.objects.get(id=media_id)
+            assert media.media_location != presigned_key
+
+            # The presigned form is still cryptographically valid; reusing it after
+            # completion must not affect what's already been verified and served.
+            object_storage.write(presigned_key, b"swapped-after-verification")
+
+            self.client.logout()
+            download_response = self.client.get(f"/uploaded_media/{media_id}")
+            assert download_response.content == original_bytes
+
     def test_complete_upload_returns_400_when_object_was_never_uploaded(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, _ = self._start_upload()
@@ -444,8 +473,6 @@ class TestMediaLibraryAPI(APIBaseTest):
     def test_complete_upload_rejects_non_image_bytes_and_cleans_up(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
-            from posthog.storage import object_storage
-
             object_storage.write(media_location, b"<html>not an image</html>")
 
             response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
@@ -455,8 +482,6 @@ class TestMediaLibraryAPI(APIBaseTest):
     def test_complete_upload_rejects_an_oversized_object(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
-            from posthog.storage import object_storage
-
             object_storage.write(media_location, b"1" * (FOUR_MEGABYTES + 1))
 
             response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
@@ -466,8 +491,6 @@ class TestMediaLibraryAPI(APIBaseTest):
         """Guards against completing (and re-validating) an already-live row twice."""
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
-            from posthog.storage import object_storage
-
             object_storage.write(media_location, b"")
         UploadedMedia.objects.filter(id=media_id).update(pending=False)
 
@@ -486,9 +509,6 @@ class TestMediaLibraryAPI(APIBaseTest):
     def test_start_upload_requires_uploaded_media_write_scope(self) -> None:
         """Guards against start_upload/complete_upload silently missing from
         scope_object_write_actions, which would let a read-only key upload images."""
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-        from posthog.models.utils import generate_random_token_personal
-
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="read-only", user=self.user, secure_value=hash_key_value(value), scopes=["uploaded_media:read"]

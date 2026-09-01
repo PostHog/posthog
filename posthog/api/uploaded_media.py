@@ -306,9 +306,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             purpose=serializer.validated_data["purpose"],
             pending=True,
         )
-        media_location = UploadedMedia.build_media_location(self.team_id, uploaded_media.pk)
+        staging_location = UploadedMedia.build_staging_location(self.team_id, uploaded_media.pk)
         presigned_post = object_storage.get_presigned_post(
-            media_location,
+            staging_location,
             conditions=[["content-length-range", 1, FOUR_MEGABYTES]],
             expiration=UPLOAD_URL_EXPIRATION_SECONDS,
         )
@@ -316,7 +316,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             uploaded_media.delete()
             raise ValidationError(code="object_storage_required", detail="Could not create an upload URL.")
 
-        uploaded_media.media_location = media_location
+        uploaded_media.media_location = staging_location
         uploaded_media.save(update_fields=["media_location"])
 
         return Response(
@@ -359,10 +359,19 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             object_storage.delete(uploaded_media.media_location)
             raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
 
+        # The presigned POST stays valid (and thus rewritable) until it expires — moving
+        # the verified bytes to a key it was never signed for is what makes a later reuse
+        # of that form harmless, rather than just re-checking on every future read.
+        staging_location = uploaded_media.media_location
+        permanent_location = UploadedMedia.build_media_location(self.team_id, uploaded_media.pk)
+        object_storage.copy(staging_location, permanent_location)
+        object_storage.delete(staging_location)
+
+        uploaded_media.media_location = permanent_location
         uploaded_media.content_type = sniffed_content_type
         uploaded_media.size_bytes = content_length
         uploaded_media.pending = False
-        uploaded_media.save(update_fields=["content_type", "size_bytes", "pending"])
+        uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
 
         statsd.incr(
             "uploaded_media.uploaded",
