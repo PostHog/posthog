@@ -14,6 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
+from posthog.clickhouse.query_tagging import Feature, tags_context
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
@@ -320,12 +321,15 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         processor = self._make_processor(precompute=True)
         # Materialize a job spanning December — a wider prior request the lazy framework reuses for the
-        # narrow one below (find_existing_jobs matches the overlapping wider job).
-        processor.generate_cte_query(
-            additional_conditions=[],
-            date_from=datetime(2024, 12, 1, tzinfo=UTC),
-            date_to=datetime(2025, 1, 31, tzinfo=UTC),
-        )
+        # narrow one below (find_existing_jobs matches the overlapping wider job). Reads are precompute-only
+        # now (they never build inline), so this must run as a producer: the CACHE_WARMUP tag routes the
+        # ensure to the build path, exactly as the warmer does.
+        with tags_context(feature=Feature.CACHE_WARMUP):
+            processor.generate_cte_query(
+                additional_conditions=[],
+                date_from=datetime(2024, 12, 1, tzinfo=UTC),
+                date_to=datetime(2025, 1, 31, tzinfo=UTC),
+            )
         narrow_rows = self._execute(
             processor.generate_cte_query(
                 additional_conditions=[],
