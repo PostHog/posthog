@@ -21,7 +21,7 @@ pub struct TakenFrontier {
 #[derive(Debug, Default)]
 pub struct OffsetLedger {
     /// The offset of `slots[0]`; `None` until the first delivery.
-    base: Option<i64>,
+    base: Option<Offset>,
     /// Number of completed slots at the front of the window, kept current on
     /// every completion so `frontier` stays O(1).
     prefix: usize,
@@ -44,13 +44,10 @@ impl OffsetLedger {
     pub fn charge(&mut self, offsets: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
         let mut total = Charge::ZERO;
         for (offset, charge) in offsets {
-            let base = *self.base.get_or_insert(offset.0);
-            let end = base + self.slots.len() as i64;
-            assert!(
-                offset.0 >= end,
-                "offset {offset} was not delivered in order"
-            );
-            for _ in end..offset.0 {
+            let base = *self.base.get_or_insert(offset);
+            let end = base + self.slots.len();
+            assert!(offset >= end, "offset {offset} was not delivered in order");
+            for _ in 0..offset - end {
                 self.slots.push_back(Slot {
                     complete: true,
                     charge: Charge::ZERO,
@@ -68,8 +65,8 @@ impl OffsetLedger {
     /// Mark delivered offsets complete in any order.
     pub fn complete(&mut self, offsets: &[Offset]) {
         let base = self.base.expect("completion before any delivery");
-        for offset in offsets {
-            let index = usize::try_from(offset.0 - base).expect("completion below the window base");
+        for &offset in offsets {
+            let index = usize::try_from(offset - base).expect("completion below the window base");
             let slot = self
                 .slots
                 .get_mut(index)
@@ -91,7 +88,7 @@ impl OffsetLedger {
     /// because a gap holds no messages.
     pub fn frontier(&self) -> Option<Offset> {
         let base = self.base?;
-        (self.prefix > 0).then(|| Offset(base + self.prefix as i64 - 1))
+        (self.prefix > 0).then(|| base + (self.prefix - 1))
     }
 
     /// Consume the contiguous completed prefix previously observable through
@@ -104,7 +101,7 @@ impl OffsetLedger {
             .drain(..self.prefix)
             .map(|slot| slot.charge)
             .sum();
-        *self.base.as_mut().expect("frontier implies a base") += self.prefix as i64;
+        self.base = Some(offset + 1);
         self.prefix = 0;
         Some(TakenFrontier { offset, charge })
     }
