@@ -168,7 +168,9 @@ class DocumentEmbeddingsTable(LazyTable):
 
         model_name = _resolve_model_name(node, context)
 
-        if model_name is None or model_name not in HOGQL_EMBEDDING_TABLES:
+        # A placeholder can bind any JSON value to `model_name`, so guard on `str` before the dict
+        # lookup: an unhashable value (list/object) would otherwise raise a TypeError and 500.
+        if not isinstance(model_name, str) or model_name not in HOGQL_EMBEDDING_TABLES:
             valid_names = ", ".join(f"'{name}'" for name in HOGQL_EMBEDDING_TABLES)
             if model_name is None:
                 raise QueryError(

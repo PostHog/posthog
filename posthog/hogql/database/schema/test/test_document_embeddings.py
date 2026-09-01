@@ -129,6 +129,18 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert "nope" in message
         assert VALID_MODEL_NAME in message
 
+    def test_non_string_model_name_placeholder_raises_query_error(self):
+        # A placeholder can bind a list to `model_name`. The unhashable value used to hit the dict
+        # lookup and raise a TypeError that 500s; it must surface as a HogQL error instead.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        query = parse_select(
+            "SELECT content FROM document_embeddings WHERE model_name = {model_name} LIMIT 1",
+            placeholders={"model_name": ast.Constant(value=["text-embedding-3-large-3072"])},
+        )
+        with self.assertRaises(QueryError) as ctx:
+            prepare_ast_for_printing(query, context, dialect="clickhouse")
+        assert VALID_MODEL_NAME in str(ctx.exception)
+
     def test_model_name_filter_on_outer_query_is_resolved(self):
         # The filter sits on the wrapping query, not on the select that holds the table. It must still route.
         inner = self._get_inner_query(
