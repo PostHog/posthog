@@ -14,7 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import {
     clearPendingVerificationEmail,
@@ -63,7 +63,7 @@ export interface PrecheckResponseType {
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
 // would stay stuck at `status: 'pending'`, which keeps the password field hidden and swallows submits.
-function precheckFallback(email: string): PrecheckResponseType {
+export function precheckFallback(email: string): PrecheckResponseType {
     return {
         status: 'completed',
         saml_available: false,
@@ -441,7 +441,9 @@ export const loginLogic = kea<loginLogicType>([
                     },
                     breakpoint
                 ) => {
-                    if (!email) {
+                    // The server rejects anything that is not a valid address with a 400, and the
+                    // email field prechecks on every blur, so a half-typed address gets here often.
+                    if (!isEmail(email, { requireTLD: true })) {
                         return { status: 'pending' }
                     }
 
