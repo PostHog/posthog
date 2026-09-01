@@ -10,21 +10,26 @@ from posthog.models import Organization, Team
 from posthog.temporal.sync_events_retention.activities import sync_events_retention
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 
-# These run against the real DB on purpose: the activity's value is in its real queryset
-# (select_related/.only), reading a real Organization.available_product_features via
-# get_available_feature, and persisting via bulk_update. Mocking Team.objects would hide
-# exactly those — which is how a select_related/.only() FieldError shipped undetected.
+# These run against the real DB on purpose: the activity's value is in its real querysets
+# (the team page and the per-organization entitlement fetch), reading a real
+# Organization.available_product_features via get_available_feature, and persisting via
+# bulk_update. Mocking Team.objects would hide exactly those — which is how a .only() FieldError
+# shipped undetected.
 
 
-async def _team_with_features(features: list[dict], *, current_months: int) -> Team:
+async def _org_with_features(features: list[dict]) -> Organization:
     org = await sync_to_async(Organization.objects.create)(name="test-org")
-    team = await sync_to_async(Team.objects.create)(
-        organization=org, name="test-team", event_retention_months=current_months
-    )
     # available_product_features is recomputed from licenses by a pre_save signal on create, so set it with a
     # direct UPDATE (which bypasses save/signals) — this mirrors how billing actually populates the field.
     await sync_to_async(Organization.objects.filter(pk=org.pk).update)(available_product_features=features)
-    return team
+    return org
+
+
+async def _team_with_features(features: list[dict], *, current_months: int) -> Team:
+    org = await _org_with_features(features)
+    return await sync_to_async(Team.objects.create)(
+        organization=org, name="test-team", event_retention_months=current_months
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -78,6 +83,24 @@ async def test_emits_change_events_and_returns_totals():
 async def test_syncs_all_teams_across_batches():
     features = [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}]
     teams = [await _team_with_features(features, current_months=999) for _ in range(3)]
+
+    await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False, batch_size=1))
+
+    for team in teams:
+        await sync_to_async(team.refresh_from_db)()
+        assert team.event_retention_months == 12
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_syncs_all_teams_sharing_one_organization_across_batches():
+    # Many teams, one org: guards the per-org entitlement cache. If the cache keyed or applied the
+    # parsed value wrong, teams after the first would keep a stale window.
+    org = await _org_with_features([{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}])
+    teams = [
+        await sync_to_async(Team.objects.create)(organization=org, name=f"team-{i}", event_retention_months=999)
+        for i in range(3)
+    ]
 
     await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False, batch_size=1))
 
