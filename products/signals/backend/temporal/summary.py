@@ -839,7 +839,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     return has_new_signals
 
 
-@dataclass
+@frozen
 class ImplementationBufferInput:
     team_id: int
 
@@ -864,7 +864,7 @@ async def implementation_buffer_seconds_activity(input: ImplementationBufferInpu
     return IMPLEMENTATION_DEBOUNCE_SECONDS
 
 
-@dataclass
+@frozen
 class ReportIsCandidateInput:
     team_id: int
     report_id: str
@@ -888,7 +888,7 @@ async def report_is_candidate_activity(input: ReportIsCandidateInput) -> bool:
     return status == SignalReport.Status.CANDIDATE
 
 
-@dataclass
+@frozen
 class MaybeAutostartImplementationInput:
     team_id: int
     report_id: str
