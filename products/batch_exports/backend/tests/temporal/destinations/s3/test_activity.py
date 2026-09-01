@@ -2,8 +2,6 @@ import uuid
 
 import pytest
 
-from django.conf import settings
-
 from temporalio.testing._activity import ActivityEnvironment
 
 from posthog.models.integration import Integration, IntegrationError
@@ -194,21 +192,11 @@ async def test_insert_into_s3_activity_resolves_credentials_from_integration(
     model: BatchExportModel,
     generate_test_data,
     ateam,
+    s3_compatible_integration,
 ):
     """An integration-backed S3-compatible export resolves credentials and endpoint_url from the
     linked Integration at run time, with none of them present on the activity inputs.
     """
-    integration = await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.S3_COMPATIBLE,
-        integration_id="object-storage-test",
-        config={"name": "object-storage-test", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
-        sensitive_config={
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-        },
-    )
-
     prefix = str(uuid.uuid4())
 
     insert_inputs = S3InsertInputs(
@@ -219,7 +207,7 @@ async def test_insert_into_s3_activity_resolves_credentials_from_integration(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         # No inline credentials or endpoint_url — both are resolved from the integration.
-        integration_id=integration.id,
+        integration_id=s3_compatible_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,

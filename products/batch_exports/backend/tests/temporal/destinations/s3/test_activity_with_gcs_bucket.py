@@ -7,7 +7,6 @@ import aioboto3
 import pytest_asyncio
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -52,21 +51,6 @@ async def gcs_client(bucket_name, s3_key_prefix):
         yield s3_client
 
         await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
-
-
-@pytest_asyncio.fixture
-async def gcs_integration(ateam):
-    """An s3-compatible Integration pointing at GCS, using the AWS credentials in the environment."""
-    return await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.S3_COMPATIBLE,
-        integration_id=f"gcs-{uuid.uuid4()}",
-        config={"name": "gcs-test", "endpoint_url": "https://storage.googleapis.com"},
-        sensitive_config={
-            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
-            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
-        },
-    )
 
 
 @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)

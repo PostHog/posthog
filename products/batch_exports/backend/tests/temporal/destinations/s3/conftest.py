@@ -125,6 +125,21 @@ async def s3_compatible_integration(ateam):
 
 
 @pytest_asyncio.fixture
+async def gcs_integration(ateam):
+    """An s3-compatible Integration pointing at GCS, using the AWS credentials in the environment."""
+    return await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id=f"gcs-{uuid.uuid4()}",
+        config={"name": "gcs-test", "endpoint_url": "https://storage.googleapis.com"},
+        sensitive_config={
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+        },
+    )
+
+
+@pytest_asyncio.fixture
 async def s3_compatible_batch_export(
     ateam,
     s3_key_prefix,
