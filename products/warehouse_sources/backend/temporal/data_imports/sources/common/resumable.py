@@ -72,7 +72,14 @@ class ResumableSourceManager(Generic[ResumableData]):
             except Exception as e:
                 raise ValueError(f"Failed to load resumable data: {data}") from e
 
-        return self._data_class(**parsed_data)
+        # Fields the running code does not know come from state a newer deploy wrote. Dropping
+        # them makes a rollback a cache miss; passing them through raises TypeError and fails
+        # every resume until the key expires.
+        known = {field.name for field in dataclasses.fields(self._data_class)}
+        unknown = sorted(set(parsed_data) - known)
+        if unknown:
+            self._logger.debug(f"Dropping unknown resumable state fields. key={self._key}, fields={unknown}")
+        return self._data_class(**{name: value for name, value in parsed_data.items() if name in known})
 
     def save_state(self, data: ResumableData) -> None:
         with self._get_redis() as redis:
