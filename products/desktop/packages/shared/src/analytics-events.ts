@@ -1,6 +1,6 @@
 // Analytics event types and properties
 
-import type { Adapter } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { EffortLevel } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
@@ -102,7 +102,8 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
-  codex_model_access?: "posthog-gateway" | "own-subscription";
+  codex_model_access?: ModelAccess;
+  claude_model_access?: ModelAccess;
 }
 
 export interface TaskViewProperties {
@@ -1538,6 +1539,8 @@ export const ANALYTICS_EVENTS = {
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
+  CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
+  CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1742,6 +1745,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
+  [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
   [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
