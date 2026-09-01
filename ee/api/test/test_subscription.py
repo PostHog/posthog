@@ -2864,7 +2864,31 @@ class TestAISubscriptionAPI(APILicensedTest):
             .values_list("team_id", flat=True)
         ) == {self.team.id}
 
-    def test_read_omits_a_malformed_cross_team_context(self, mock_is_cloud, mock_flag, mock_sync):
+    @parameterized.expand(
+        [
+            (
+                "dashboard",
+                lambda self, team: (
+                    {
+                        "dashboard_id": Dashboard.objects.create(
+                            team=team, name="Foreign dashboard", created_by=self.user
+                        ).id
+                    },
+                    "Foreign dashboard",
+                ),
+            ),
+            (
+                "insight",
+                lambda self, team: (
+                    {"insight_id": Insight.objects.create(team=team, name="Foreign insight", created_by=self.user).id},
+                    "Foreign insight",
+                ),
+            ),
+        ]
+    )
+    def test_read_omits_a_malformed_cross_team_context(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, context_factory
+    ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         created = self.client.post(
@@ -2872,13 +2896,13 @@ class TestAISubscriptionAPI(APILicensedTest):
             self._make_ai_payload(send_test_now=False),
         )
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        foreign_dashboard = Dashboard.objects.create(team=other_team, name="Foreign dashboard", created_by=self.user)
+        context_fields, foreign_name = context_factory(self, other_team)
         SubscriptionContext.objects.for_team(self.team.id).bulk_create(
             [
                 SubscriptionContext(
                     team_id=self.team.id,
                     subscription_id=created.json()["id"],
-                    dashboard_id=foreign_dashboard.id,
+                    **context_fields,
                 )
             ]
         )
@@ -2887,7 +2911,7 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["contexts"] == []
-        assert "Foreign dashboard" not in retrieved.content.decode()
+        assert foreign_name not in retrieved.content.decode()
 
     def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
@@ -3116,6 +3140,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
 
         assert [response["resource_type"] for response in responses] == ["insight", "dashboard"]
+        assert [response["contexts"] for response in responses] == [[], []]
 
     def test_context_serialization_prefetches_targets(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
@@ -3504,6 +3529,28 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         return dashboard
 
+    def test_rejects_context_dashboard_with_an_unreadable_tile(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+
+        with (
+            patch("ee.api.subscription.is_cloud", return_value=True),
+            patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions",
+                self._payload(
+                    prompt="Summarize the dashboard",
+                    contexts=[{"dashboard_id": dashboard.id}],
+                    send_test_now=False,
+                ),
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "contexts"
+        assert not Subscription.objects.filter(team_id=self.team.id, prompt="Summarize the dashboard").exists()
+
     def _sub_on_an_open_insight(self) -> Subscription:
         return self._subscription_for(insight=self.open_insight)
 
@@ -3656,9 +3703,21 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         self._assert_visibility(subscription, sees_subscription=False, sees_deliveries=False)
 
-    def test_historical_delivery_keeps_context_authorization_after_contexts_are_cleared(self):
-        subscription = self._ai_sub_with_contexts(self.restricted_insight)
-        self._delivery_for(subscription, context_insight_ids=[self.restricted_insight.id])
+    @parameterized.expand(
+        [
+            ("restricted insight", lambda self: self.restricted_insight),
+            ("restricted dashboard", lambda self: self.restricted_dashboard),
+            (
+                "dashboard with a restricted tile",
+                lambda self: self._dashboard_with_tiles(self.open_insight, self.restricted_insight),
+            ),
+        ]
+    )
+    def test_historical_delivery_keeps_context_authorization_after_contexts_are_cleared(self, _name, target_factory):
+        target = target_factory(self)
+        kind = "insight" if isinstance(target, Insight) else "dashboard"
+        subscription = self._ai_sub_with_contexts(target)
+        self._delivery_for(subscription, context_refs=[f"{kind}:{target.id}"])
         SubscriptionContext.objects.for_team(self.team.id).filter(subscription=subscription).delete()
 
         self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=False)
@@ -3669,12 +3728,18 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ("restricted dashboard", "restricted_dashboard"),
         ]
     )
-    def test_delivery_list_hides_ai_subscription_with_unreadable_context(self, _name, target_attribute):
+    def test_unsnapshotted_delivery_falls_back_to_unreadable_live_context(self, _name, target_attribute):
         target = getattr(self, target_attribute)
         secret_name = f"Private context {uuid4()}"
         self._rename_context_target(target, secret_name)
-        subscription = self._ai_sub_with_contexts(target)
+        subscription = self._sub_on_an_ai_prompt()
         delivery = self._delivery_for(subscription)
+        context_kwargs = {"insight": target} if isinstance(target, Insight) else {"dashboard": target}
+        SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            subscription=subscription,
+            **context_kwargs,
+        )
 
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
 

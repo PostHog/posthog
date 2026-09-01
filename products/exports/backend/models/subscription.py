@@ -598,8 +598,7 @@ class SubscriptionDelivery(UUIDModel):
     exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
     content_snapshot = models.JSONField(default=dict)
 
-    context_dashboard_ids = ArrayField(models.IntegerField(), default=list)
-    context_insight_ids = ArrayField(models.IntegerField(), default=list)
+    context_refs = ArrayField(models.CharField(max_length=64), default=list)
 
     # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
     # None when no summary is attached.

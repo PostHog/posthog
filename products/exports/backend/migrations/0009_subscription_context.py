@@ -9,23 +9,19 @@ from posthog.migration_helpers import AddForeignKeyNotValid, ValidateForeignKey
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
         ("exports", "0008_exportedasset_source_authentication"),
-        ("posthog", "1325_organizationmembernotificationlock"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
     ]
 
     operations = [
         migrations.AddField(
             model_name="subscriptiondelivery",
-            name="context_dashboard_ids",
-            field=django.contrib.postgres.fields.ArrayField(base_field=models.IntegerField(), default=list, size=None),
-        ),
-        migrations.AddField(
-            model_name="subscriptiondelivery",
-            name="context_insight_ids",
-            field=django.contrib.postgres.fields.ArrayField(base_field=models.IntegerField(), default=list, size=None),
+            name="context_refs",
+            field=django.contrib.postgres.fields.ArrayField(
+                base_field=models.CharField(max_length=64), default=list, size=None
+            ),
         ),
         migrations.CreateModel(
             name="SubscriptionContext",

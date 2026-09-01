@@ -7,7 +7,8 @@ from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Manager, Prefetch, Q, QuerySet
+from django.db.models import CharField, Manager, Prefetch, Q, QuerySet, Value
+from django.db.models.functions import Cast, Concat
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -111,10 +112,9 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
 class _TargetLookups:
     insight: str
     dashboard: str
-    context_insight_lookup: str
-    context_dashboard_lookup: str
-    context_insight_overlap: str | None
-    context_dashboard_overlap: str | None
+    live_context_insight_lookup: str
+    live_context_dashboard_lookup: str
+    snapshot_context_ref_overlap: str | None
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -125,10 +125,9 @@ class _TargetLookups:
 _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
     dashboard="dashboard_id__in",
-    context_insight_lookup="contexts__insight_id__in",
-    context_dashboard_lookup="contexts__dashboard_id__in",
-    context_insight_overlap=None,
-    context_dashboard_overlap=None,
+    live_context_insight_lookup="contexts__insight_id__in",
+    live_context_dashboard_lookup="contexts__dashboard_id__in",
+    snapshot_context_ref_overlap=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -140,10 +139,9 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
-    context_insight_lookup="subscription__contexts__insight_id__in",
-    context_dashboard_lookup="subscription__contexts__dashboard_id__in",
-    context_insight_overlap="context_insight_ids__overlap",
-    context_dashboard_overlap="context_dashboard_ids__overlap",
+    live_context_insight_lookup="subscription__contexts__insight_id__in",
+    live_context_dashboard_lookup="subscription__contexts__dashboard_id__in",
+    snapshot_context_ref_overlap="context_refs__overlap",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -527,8 +525,6 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
         contexts: list[dict[str, str | int]] = []
         for context in cls._context_rows(obj):
-            if context.team_id != obj.team_id:
-                continue
             if (
                 context.dashboard_id
                 and context.dashboard is not None
@@ -551,7 +547,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                     {
                         "insight_id": context.insight_id,
                         "insight_short_id": context.insight.short_id,
-                        "insight_name": context.insight.name or context.insight.derived_name or "Untitled insight",
+                        "insight_name": str(context.insight),
                     }
                 )
         return contexts
@@ -635,6 +631,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {"contexts": [f"Viewer access to this {kind} is required. Ask an admin to grant you access."]}
                 )
+            if isinstance(target, Dashboard):
+                self._require_viewer_access_to_every_live_tile(target, field="contexts")
             validated_contexts.append({kind: target})
 
         return validated_contexts
@@ -971,7 +969,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _keeps_its_own_selection(self) -> bool:
         return self.instance is not None and self.instance.dashboard_export_insights.exists()
 
-    def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard) -> None:
+    def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard, *, field: str = "dashboard") -> None:
         live_tile_insights = Insight.objects.filter(
             team_id=self.context["team_id"],
             id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
@@ -980,7 +978,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists():
             raise ValidationError(
                 {
-                    "dashboard": [
+                    field: [
                         "Viewer access to every insight on this dashboard is required. "
                         "Ask an admin for access, or select only the insights you can view."
                     ]
@@ -1008,6 +1006,25 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         for context in contexts:
             scoped_contexts.create(team_id=instance.team_id, subscription=instance, **context)
         getattr(instance, "_prefetched_objects_cache", {}).pop("contexts", None)
+
+    def _update_with_contexts(
+        self,
+        instance: Subscription,
+        validated_data: dict,
+        contexts: list[dict[str, Insight | Dashboard]],
+        contexts_in_payload: bool,
+        analytics_props: dict,
+    ) -> tuple[Subscription, bool]:
+        contexts_changed = False
+        with transaction.atomic():
+            if contexts_in_payload:
+                instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+                contexts_changed = self._stored_context_identifiers(instance) != self._context_identifiers(contexts)
+            with attribute_subscription_saves(analytics_props):
+                instance = super().update(instance, validated_data)
+            if contexts_changed:
+                self._replace_contexts(instance, contexts)
+        return instance, contexts_changed
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
@@ -1108,7 +1125,6 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts_in_payload = "contexts" in validated_data
         contexts = validated_data.pop("contexts", [])
-        new_context_identifiers = self._context_identifiers(contexts) if contexts_in_payload else None
         contexts_changed = False
         analytics_props = get_request_analytics_properties(request)
 
@@ -1137,25 +1153,15 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                     "resource_type": instance.resource_type,
                 },
             ):
-                with transaction.atomic():
-                    if contexts_in_payload:
-                        instance = Subscription.objects.select_for_update().get(pk=instance.pk)
-                        contexts_changed = self._stored_context_identifiers(instance) != new_context_identifiers
-                    with attribute_subscription_saves(analytics_props):
-                        instance = super().update(instance, validated_data)
-                    if contexts_changed:
-                        self._replace_contexts(instance, contexts)
+                instance, contexts_changed = self._update_with_contexts(
+                    instance, validated_data, contexts, contexts_in_payload, analytics_props
+                )
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
-        with transaction.atomic():
-            if contexts_in_payload:
-                instance = Subscription.objects.select_for_update().get(pk=instance.pk)
-                contexts_changed = self._stored_context_identifiers(instance) != new_context_identifiers
-            with attribute_subscription_saves(analytics_props):
-                instance = super().update(instance, validated_data)
-            if contexts_changed:
-                self._replace_contexts(instance, contexts)
+        instance, contexts_changed = self._update_with_contexts(
+            instance, validated_data, contexts, contexts_in_payload, analytics_props
+        )
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
@@ -1264,6 +1270,13 @@ def _blocked_target_ids(
     )
 
 
+def _context_ref_subquery(kind: str, blocked_ids: QuerySet, *, id_field: str = "id") -> ArraySubquery:
+    references = blocked_ids.annotate(
+        context_ref=Concat(Value(f"{kind}:"), Cast(id_field, output_field=CharField()))
+    ).values("context_ref")
+    return ArraySubquery(references)
+
+
 def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
     return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS)
 
@@ -1295,15 +1308,23 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
     references_a_blocked_context = (
-        Q(**{targets.context_insight_lookup: blocked_insights})
-        | Q(**{targets.context_dashboard_lookup: blocked_dashboards})
-        | Q(**{targets.context_dashboard_lookup: dashboards_with_blocked_tiles})
+        Q(**{targets.live_context_insight_lookup: blocked_insights})
+        | Q(**{targets.live_context_dashboard_lookup: blocked_dashboards})
+        | Q(**{targets.live_context_dashboard_lookup: dashboards_with_blocked_tiles})
     )
-    if targets.context_insight_overlap is not None and targets.context_dashboard_overlap is not None:
-        references_a_blocked_context |= Q(**{targets.context_insight_overlap: ArraySubquery(blocked_insights)})
-        references_a_blocked_context |= Q(**{targets.context_dashboard_overlap: ArraySubquery(blocked_dashboards)})
+    if targets.snapshot_context_ref_overlap is not None:
         references_a_blocked_context |= Q(
-            **{targets.context_dashboard_overlap: ArraySubquery(dashboards_with_blocked_tiles)}
+            **{targets.snapshot_context_ref_overlap: _context_ref_subquery("insight", blocked_insights)}
+        )
+        references_a_blocked_context |= Q(
+            **{targets.snapshot_context_ref_overlap: _context_ref_subquery("dashboard", blocked_dashboards)}
+        )
+        references_a_blocked_context |= Q(
+            **{
+                targets.snapshot_context_ref_overlap: _context_ref_subquery(
+                    "dashboard", dashboards_with_blocked_tiles, id_field="dashboard_id"
+                )
+            }
         )
 
     return ~(
