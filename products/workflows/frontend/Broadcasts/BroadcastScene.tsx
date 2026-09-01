@@ -16,6 +16,7 @@ import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
 
 import { BROADCAST_AGENT_HEADLINES, buildBroadcastAgentContext } from './broadcastAgentContext'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
+import { BroadcastStartStep } from './BroadcastStartStep'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
@@ -43,7 +44,8 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
 }
 
 function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
-    const { broadcast, broadcastLoading, broadcastId, name, email, isReadOnly } = useValues(broadcastWizardLogic)
+    const { broadcast, broadcastLoading, broadcastId, name, email, isReadOnly, hasOpenedFullEditor } =
+        useValues(broadcastWizardLogic)
     const { refreshFromAgentEdit } = useActions(broadcastWizardLogic)
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
 
@@ -105,6 +107,12 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (broadcast.status !== 'draft') {
             return <BroadcastSummary />
         }
+    }
+
+    // A new broadcast opens on the AI screen, so the fastest path is describing the send rather than
+    // walking five steps. The wizard stays one click away and is the only path for an existing draft.
+    if (id === 'new' && !hasOpenedFullEditor) {
+        return <BroadcastStartStep />
     }
 
     return <BroadcastWizard />
