@@ -163,10 +163,10 @@ def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
     newly added (the caller should proceed), False when it already existed. A redis failure
     degrades to a per-process guard with the same key and timeout, so an outage throttles per
     process instead of not at all."""
-    # The guard is read before the redis write. Writing first and vetoing after would leave a
-    # redis key that outlives the guard entry, so a recovery mid-window would suppress for up to
-    # twice the timeout — long enough for the 60s heartbeat guard to starve a 120s inactivity
-    # timer and end a live run.
+    # The guard is read before the redis write. A redis write that the guard then vetoes leaves a
+    # key that outlives the guard entry, so a recovery inside a window suppresses for up to twice
+    # the timeout. The 60 second heartbeat guard cannot afford that against the 120 second
+    # inactivity timer that terminalizes an unattended run.
     if _local_guard_holds(key):
         return False
     try:
