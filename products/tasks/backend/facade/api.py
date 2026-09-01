@@ -5546,27 +5546,21 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def _capture_no_repo_selection_override(
-    *,
-    team: Team,
-    report_id: str,
-    user_id: int | None,
-    resolved_repository: str | None,
-) -> None:
+def _capture_no_repo_selection_override(*, team: Team, report_id: str, resolved_repository: str | None) -> None:
     """Record a person starting work on a report whose scout chose no repository.
 
-    The count per report tells the signals team how often the scouts' `NO_REPO` default disagrees
-    with what a person wanted, and `resolved_repository` separates a recovery from a cascade that
-    also found nothing. Best-effort: a capture failure must never fail the task creation."""
+    The count tells the signals team how often the scouts' `NO_REPO` default disagrees with what a
+    person wanted, and `resolved_repository` separates a recovery from a cascade that also found
+    nothing. Keyed on the team, like the other scout events. Best-effort: a capture failure must
+    never fail the task creation."""
     try:
         posthoganalytics.capture(
-            distinct_id=str(user_id) if user_id else str(team.uuid),
+            distinct_id=str(team.uuid),
             event="signal_report_no_repo_selection_overridden",
             properties={
                 "report_id": report_id,
                 "team_id": team.id,
                 "resolved_repository": resolved_repository,
-                "recovered": bool(resolved_repository),
             },
             groups=groups(team=team),
         )
@@ -5774,10 +5768,7 @@ def create_task(
             )
             if selection is not None:
                 _capture_no_repo_selection_override(
-                    team=team,
-                    report_id=str(signal_report.id),
-                    user_id=user_id,
-                    resolved_repository=resolved_repository,
+                    team=team, report_id=str(signal_report.id), resolved_repository=resolved_repository
                 )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
