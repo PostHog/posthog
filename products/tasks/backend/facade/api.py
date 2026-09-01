@@ -407,6 +407,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
         "ai_stage",
         "auto_publish",
+        "benjamin_enabled",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -2235,6 +2236,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        "rtk_effective",
+        "benjamin_effective",
+        "usage_metrics_recorded",
     }
 )
 
@@ -4607,6 +4611,7 @@ def bootstrap_task_run(
         "context_window": context_window,
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
+        "benjamin_enabled": validated_data.get("benjamin_enabled"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -6913,13 +6918,14 @@ def run_task(
     if pending_user_artifact_ids and not is_pi_task:
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
-    if initial_permission_mode is not None:
-        extra_state = extra_state or {}
-        extra_state["initial_permission_mode"] = initial_permission_mode
-    rtk_enabled = validated_data.get("rtk_enabled")
-    if rtk_enabled is not None:
-        extra_state = extra_state or {}
-        extra_state["rtk_enabled"] = rtk_enabled
+    for key, value in (
+        ("initial_permission_mode", initial_permission_mode),
+        ("rtk_enabled", validated_data.get("rtk_enabled")),
+        ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+    ):
+        if value is not None:
+            extra_state = extra_state or {}
+            extra_state[key] = value
 
     if resume_from_run_id:
         assert previous_run is not None and previous_state is not None
