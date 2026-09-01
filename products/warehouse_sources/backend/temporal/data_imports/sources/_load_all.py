@@ -343,6 +343,7 @@ from .deel.source import DeelSource
 from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
+from .demodesk.source import DemodeskSource
 from .deno_deploy.source import DenoDeploySource
 from .depot.source import DepotSource
 from .deputy.source import DeputySource

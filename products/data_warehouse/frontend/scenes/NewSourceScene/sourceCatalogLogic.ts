@@ -488,6 +488,7 @@ export interface sourceCatalogLogicMeta {
                       | 'DeelFlows'
                       | 'Deepgram'
                       | 'Deepsource'
+                      | 'Demodesk'
                       | 'DenoDeploy'
                       | 'Depot'
                       | 'Deputy'

@@ -8430,6 +8430,7 @@ export const externalDataSources = [
     'Customerly',
     'Datascope',
     'Dbt',
+    'Demodesk',
     'Deputy',
     'DevinAI',
     'Docuseal',

@@ -978,6 +978,7 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
+- demodesk
 - deno_deploy
 - depot
 - deputy
