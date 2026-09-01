@@ -432,7 +432,7 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         .max(conversationsTicketsComposeCreateBodyInternalContextMax)
         .optional()
         .describe(
-            'Optional context about why the ticket is being opened. Becomes the private note that starts the thread, so it is visible to the team and never sent to the recipient.'
+            'Optional context about why the ticket is being opened. Saved as a private note on the ticket, so the team can read it and the recipient never receives it.'
         ),
 })
 

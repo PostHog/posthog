@@ -229,8 +229,8 @@ class ComposeTicketSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=5000,
         help_text=(
-            "Optional context about why the ticket is being opened. Becomes the private note that "
-            "starts the thread, so it is visible to the team and never sent to the recipient."
+            "Optional context about why the ticket is being opened. Saved as a private note on the "
+            "ticket, so the team can read it and the recipient never receives it."
         ),
     )
 
@@ -1716,18 +1716,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     identity_verified=None,
                 )
 
-                # Created before the outbound message so the thread opens on it. Private, so it
-                # never reaches the recipient.
-                if internal_context:
-                    Comment.objects.create(
-                        team=team,
-                        created_by=request.user,
-                        scope="conversations_ticket",
-                        item_id=str(ticket.id),
-                        content=internal_context,
-                        item_context={"author_type": "support", "is_private": True},
-                    )
-
                 Comment.objects.create(
                     team=team,
                     created_by=request.user,
@@ -1737,6 +1725,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     rich_content=data.get("rich_content"),
                     item_context={"author_type": "human", "is_private": False},
                 )
+
+                # Written after the outbound message, so the message stays the ticket's first
+                # comment and the dedupe guard keeps identifying the ticket by it. Private, so the
+                # note never reaches the recipient.
+                if internal_context:
+                    Comment.objects.create(
+                        team=team,
+                        created_by=request.user,
+                        scope="conversations_ticket",
+                        item_id=str(ticket.id),
+                        content=internal_context,
+                        item_context={"author_type": "support", "is_private": True},
+                    )
             return ticket
 
         # message, recipient_email, and email_config are all validated above, so build never

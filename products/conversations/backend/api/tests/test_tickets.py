@@ -2046,6 +2046,49 @@ class TestComposeTicketAPI(APIBaseTest):
         assert second.json() == first.json()
         assert Ticket.objects.filter(team=self.team).count() == 1
 
+    @parameterized.expand(
+        [
+            ("replay_without_context", False, None),
+            ("replay_with_context", False, "Asked for in the weekly sync"),
+            ("persisted_match_without_context", True, None),
+            ("persisted_match_with_context", True, "Asked for in the weekly sync"),
+        ]
+    )
+    def test_compose_stays_idempotent_when_a_private_note_lands_before_the_retry(
+        self, mock_on_commit, _name, lose_reservation, internal_context
+    ):
+        # Anyone can add a private note to a ticket, and AI triage does it unprompted. If the dedupe
+        # guard mistook that note for the compose's own, the retry would open a second ticket and
+        # email the recipient the same message twice.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Great idea, we logged it.",
+        }
+        if internal_context:
+            payload["internal_context"] = internal_context
+
+        first = self._compose(payload)
+        assert first.status_code == status.HTTP_201_CREATED
+
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=first.json()["id"],
+            content="Looping in billing on this one.",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        if lose_reservation:
+            get_client().flushall()
+
+        second = self._compose(payload)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Ticket.objects.filter(team=self.team).count() == 1
+        assert EmailOutboxMessage.objects.filter(team=self.team).count() == 1
+
     def test_compose_distinct_messages_are_not_deduplicated(self, mock_on_commit):
         base = {
             "recipient_email": "pitch@test.com",
@@ -2153,7 +2196,7 @@ class TestComposeTicketAPI(APIBaseTest):
         assert comments.count() == 1
         assert comments.get().item_context["is_private"] is False
 
-    def test_compose_with_context_opens_the_ticket_on_a_private_note(self, mock_on_commit):
+    def test_compose_with_context_records_it_as_a_private_note(self, mock_on_commit):
         context = "Raised at the user meetup, not through support."
         assert (
             self._compose(
@@ -2174,7 +2217,9 @@ class TestComposeTicketAPI(APIBaseTest):
 
         assert note.item_context == {"author_type": "support", "is_private": True}
         assert note.content == context
-        assert note.created_at < outbound.created_at
+        # The outbound message stays the first comment, which is how the dedupe guard identifies
+        # the ticket. A note ahead of it would make a retry re-send the email.
+        assert outbound.created_at < note.created_at
 
         # Only the outbound message may be sent. If the note ever reaches the outbox, the
         # composer's internal context is delivered to the recipient.
