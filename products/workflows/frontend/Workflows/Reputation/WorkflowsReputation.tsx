@@ -306,11 +306,13 @@ function TeamRatesCard({
     aws,
     isps,
     sharedDomains,
+    withheldDomains,
 }: {
     reputation: EmailSendingRatesApi | null
     aws: AwsTenantReputationApi | null
     isps: readonly IspSendingHealthApi[]
     sharedDomains: readonly string[]
+    withheldDomains: readonly string[]
 }): JSX.Element {
     return (
         <div className="border rounded p-4 bg-surface-primary">
@@ -357,6 +359,13 @@ function TeamRatesCard({
             )}
             {aws && <AwsFindings aws={aws} />}
             <IspBreakdown isps={isps} sharedDomains={sharedDomains} />
+            {withheldDomains.length > 0 && (
+                <div className="text-secondary text-xs mt-3" data-attr="workflows-reputation-isp-withheld">
+                    {withheldDomains.join(', ')} {withheldDomains.length > 1 ? 'are' : 'is'} left out of the provider
+                    breakdown. Another project sends from {withheldDomains.length > 1 ? 'them' : 'it'}, and you do not
+                    have access to that project.
+                </div>
+            )}
         </div>
     )
 }
@@ -420,6 +429,7 @@ export function WorkflowsReputation(): JSX.Element {
         teamReputation,
         ispSendingHealth,
         ispSharedDomains,
+        ispWithheldDomains,
         workflowSnapshots,
         reputationResponseLoading,
         search,
@@ -440,12 +450,13 @@ export function WorkflowsReputation(): JSX.Element {
                 We judge and enforce reputation per project.
             </LemonBanner>
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
-            {teamReputation || awsReputation || ispSendingHealth.length > 0 ? (
+            {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
                     aws={awsReputation}
                     isps={ispSendingHealth}
                     sharedDomains={ispSharedDomains}
+                    withheldDomains={ispWithheldDomains}
                 />
             ) : (
                 !reputationResponseLoading && (

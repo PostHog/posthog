@@ -85,6 +85,7 @@ class TestEmailReputationAPI(APIBaseTest):
             "workflows": [],
             "isps": [],
             "isp_shared_domains": [],
+            "isp_withheld_domains": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
@@ -367,6 +368,52 @@ class TestEmailReputationAPI(APIBaseTest):
         body = self._get_reputation({}, isp_metrics=[])
 
         assert body["isp_shared_domains"] == ["mail.example.com"]
+
+    @parameterized.expand(
+        [
+            ("sibling project hidden from the caller", "none", [], ["mail.example.com"]),
+            ("sibling project the caller can open", "member", ["mail.example.com"], []),
+        ]
+    )
+    def test_reputation_endpoint_withholds_a_domain_a_hidden_project_also_sends_from(
+        self, _name: str, sibling_access: str, expected_shared: list[str], expected_withheld: list[str]
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self._verify_sending_domain()
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        Integration.objects.create(
+            team=sibling,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+        AccessControl.objects.create(
+            team=sibling, resource="project", resource_id=str(sibling.id), access_level=sibling_access
+        )
+        member = User.objects.create_and_join(self.organization, f"sibling-{sibling_access}@posthog.com", "testtest")
+        self.client.force_login(member)
+
+        body = self._get_reputation(
+            {},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=900,
+                    delivery_rate=0.97,
+                    bounce_rate=0.01,
+                    complaint_rate=None,
+                    daily=(),
+                )
+            ],
+        )
+
+        assert body["isp_shared_domains"] == expected_shared
+        assert body["isp_withheld_domains"] == expected_withheld
+        # A withheld domain is never queried, so the provider rows go with it.
+        assert [row["isp"] for row in body["isps"]] == ([] if expected_withheld else ["Gmail"])
 
     def test_reputation_endpoint_still_loads_when_the_provider_breakdown_fails(self):
         # The breakdown is an addition to the rates display; SES being unreachable must not take

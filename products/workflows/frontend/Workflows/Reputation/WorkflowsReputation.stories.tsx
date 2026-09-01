@@ -79,6 +79,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
         },
     ],
     isp_shared_domains: [],
+    isp_withheld_domains: [],
     sending_allowance: {
         tier: 2,
         max_tier: 4,
@@ -129,5 +130,11 @@ export const ProviderDataWithoutWorkflowRates: StoryFn = () => {
 
 export const SharedSendingDomain: StoryFn = () => {
     useStorybookMocks(mockReputation({ ...baseResponse, isp_shared_domains: ['mail.example.com'] }))
+    return <WorkflowsReputation />
+}
+
+export const DomainWithheldFromCaller: StoryFn = () => {
+    // A domain a project the viewer cannot open also sends from: excluded rather than blended in.
+    useStorybookMocks(mockReputation({ ...baseResponse, isps: [], isp_withheld_domains: ['mail.example.com'] }))
     return <WorkflowsReputation />
 }

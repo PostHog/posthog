@@ -1493,6 +1493,8 @@ export interface TeamEmailReputationResponseApi {
     readonly isps: readonly IspSendingHealthApi[]
     /** Sending domains behind the breakdown that another project also sends from, so its counts include that project's email. Empty when every domain is this project's alone. */
     readonly isp_shared_domains: readonly string[]
+    /** Sending domains left out of the breakdown because another project sends from them and the caller cannot access that project. Empty when nothing is withheld. */
+    readonly isp_withheld_domains: readonly string[]
     /** True while workflow email sending is suspended for this project to protect deliverability. */
     readonly email_sending_suspended: boolean
     /**

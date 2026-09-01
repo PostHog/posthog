@@ -96,9 +96,10 @@ from posthog.plugins.plugin_server_api import (
     rerun_hog_invocations,
 )
 from posthog.synthetic_user import SyntheticUser
+from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -2185,13 +2186,51 @@ def _isp_breakdown_enabled(team: Team) -> bool:
         return False
 
 
+def _isp_domain_visibility(
+    team: Team, user_access_control: UserAccessControl, user_permissions: UserPermissions
+) -> dict[str, bool]:
+    """This project's verified sending domains, and whether the caller may read each one's metrics.
+
+    VDM keys its metrics on the domain, so a domain a second project also sends from returns both
+    projects' email. Reading that needs access to every project behind the domain: without it the
+    breakdown would hand a member the daily volume of a project they cannot open.
+    """
+    domains = list(
+        dict.fromkeys(
+            domain
+            for domain in Integration.objects.filter(team_id=team.id, kind="email", config__verified=True)
+            .order_by("id")
+            .values_list("config__domain", flat=True)
+            if domain
+        )
+    )
+    if not domains:
+        return {}
+
+    sharers: dict[str, set[int]] = {domain: set() for domain in domains}
+    for domain, sharer_id in (
+        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=domains)
+        .exclude(team_id=team.id)
+        .values_list("config__domain", "team_id")
+    ):
+        sharers[domain].add(sharer_id)
+
+    if not any(sharers.values()):
+        return dict.fromkeys(domains, True)
+
+    # A sharer outside this organization cannot be visible, so it fails closed here rather than
+    # needing a separate branch. Adding such a domain is blocked today; rows predating that are not.
+    visible = set(
+        visible_teams_for_user(team.organization, user_access_control, user_permissions).values_list("id", flat=True)
+    )
+    return {domain: sharers[domain] <= visible for domain in domains}
+
+
 def _domains_shared_with_other_projects(team_id: int) -> list[str]:
     """This project's verified sending domains that another project also sends from.
 
-    VDM keys its metrics on the domain, so the breakdown counts every send from that identity, not
-    only this project's. Cross-organization reuse is blocked when the domain is added, so a sharer
-    is always a sibling project — but the numbers still describe more email than this project sent,
-    and the reader deserves to be told exactly when that is true rather than on every project.
+    The counts under a shared domain describe more email than this project sent, and the reader
+    deserves to be told exactly when that is true rather than on every project.
     """
     domains = [
         domain
@@ -2210,15 +2249,20 @@ def _domains_shared_with_other_projects(team_id: int) -> list[str]:
     return sorted(set(shared))
 
 
-def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
+def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> list[dict[str, Any]]:
     """
-    Per-mailbox-provider sending health for the project's verified domains, cached like the tenant
+    Per-mailbox-provider sending health for the given sending domains, cached like the tenant
     reputation above and for the same reason: the endpoint reloads on every search keystroke.
 
     Returns an empty list rather than raising when SES is unreachable or VDM is not collecting yet,
     because the breakdown adds to the rates display and must not stop it loading.
     """
-    cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}"
+    if not domains:
+        return []
+    # The domain set depends on what the caller may see, so it belongs in the key: two members of
+    # one project can be entitled to different domains, and one must not be served the other's.
+    domain_key = hashlib.sha256("|".join(domains).encode()).hexdigest()[:12]
+    cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}_{domain_key}"
     stale_key = f"{cache_key}_stale"
     lock_key = f"{cache_key}_refreshing"
     cached = cache.get(cache_key)
@@ -2231,21 +2275,6 @@ def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
     if not cache.add(lock_key, True, ISP_METRICS_REFRESH_LOCK_SECONDS):
         stale = cache.get(stale_key)
         return stale["value"] if stale is not None else []
-
-    # Dedupe before the cap, so duplicates do not consume the budget and drop real domains.
-    domains = list(
-        dict.fromkeys(
-            domain
-            for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
-            .order_by("id")
-            .values_list("config__domain", flat=True)
-            if domain
-        )
-    )
-    if not domains:
-        cache.set(cache_key, {"value": []}, ISP_METRICS_CACHE_SECONDS)
-        cache.delete(lock_key)
-        return []
 
     try:
         rows = SESProvider().get_identity_isp_metrics(
@@ -2497,6 +2526,14 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         help_text=(
             "Sending domains behind the breakdown that another project also sends from, so its "
             "counts include that project's email. Empty when every domain is this project's alone."
+        ),
+    )
+    isp_withheld_domains = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Sending domains left out of the breakdown because another project sends from them and "
+            "the caller cannot access that project. Empty when nothing is withheld."
         ),
     )
     email_sending_suspended = serializers.BooleanField(
@@ -5074,6 +5111,17 @@ class HogFlowViewSet(
         suspended_at = suspension["email_sending_suspended_at"] if suspension else None
         suspension_reason = suspension["email_sending_suspension_reason"] if suspension else ""
 
+        # Same project-wide gate as `reputation`: the breakdown pools every workflow's email for a
+        # sending domain, so object-level grants alone don't earn it.
+        domain_visibility = (
+            _isp_domain_visibility(self.team, self.user_access_control, self.user_permissions)
+            if can_read_all_workflows and _isp_breakdown_enabled(self.team)
+            else {}
+        )
+        readable = {domain for domain, allowed in domain_visibility.items() if allowed}
+        readable_domains = [domain for domain in domain_visibility if domain in readable]
+        withheld_domains = [domain for domain in domain_visibility if domain not in readable]
+
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
@@ -5084,16 +5132,11 @@ class HogFlowViewSet(
                     "workflows": workflow_rows,
                     # Same project-wide gate as `reputation`: the breakdown pools every workflow's
                     # email for a sending domain, so object-level grants alone don't earn it.
-                    "isps": (
-                        _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS)
-                        if can_read_all_workflows and _isp_breakdown_enabled(self.team)
-                        else []
-                    ),
-                    "isp_shared_domains": (
-                        _domains_shared_with_other_projects(self.team_id)
-                        if can_read_all_workflows and _isp_breakdown_enabled(self.team)
-                        else []
-                    ),
+                    "isps": _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, readable_domains),
+                    "isp_shared_domains": [
+                        domain for domain in _domains_shared_with_other_projects(self.team_id) if domain in readable
+                    ],
+                    "isp_withheld_domains": withheld_domains,
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
