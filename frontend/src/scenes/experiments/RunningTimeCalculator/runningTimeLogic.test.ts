@@ -185,24 +185,29 @@ describe('runningTimeLogic', () => {
     })
 
     describe('remainingDays', () => {
-        // A draft has no metric results, so automatic mode can never produce a live value for it.
-        // Drafts saved without the manual marker used to render "Not calculated" while the
-        // experiments list showed the saved estimate for the same experiment.
+        // A manual draft holds an estimate the user calculated before launch, so the header reads it
+        // instead of "Not calculated". An automatic draft never produces its own estimate: any value it
+        // holds was copied from a source run by duplicate or reset, so it must stay hidden rather than
+        // read as this draft's duration.
         it.each([
             [
-                'an automatic exposure estimate config',
+                'ignores a source estimate copied onto an automatic draft',
                 { exposure_estimate_config: { conversionRateInputType: ConversionRateInputType.AUTOMATIC } },
+                null,
+                null,
             ],
             [
-                'a manual exposure estimate config',
+                'reads the estimate a user calculated on a manual draft',
                 {
                     exposure_estimate_config: {
                         conversionRateInputType: ConversionRateInputType.MANUAL,
                         manualExposureRate: 0,
                     },
                 },
+                14,
+                3000,
             ],
-        ])('reads the saved estimate for a draft with %s', async (_name, extraCalculation) => {
+        ])('%s', async (_name, extraCalculation, expectedRemainingDays, expectedSampleSize) => {
             const draft = {
                 ...experiment,
                 start_date: null,
@@ -218,8 +223,8 @@ describe('runningTimeLogic', () => {
             logic = runningTimeLogic({ experiment: draft })
             logic.mount()
 
-            expect(logic.values.remainingDays).toEqual(14)
-            expect(logic.values.targetSampleSize).toEqual(3000)
+            expect(logic.values.remainingDays).toEqual(expectedRemainingDays)
+            expect(logic.values.targetSampleSize).toEqual(expectedSampleSize)
         })
     })
 })

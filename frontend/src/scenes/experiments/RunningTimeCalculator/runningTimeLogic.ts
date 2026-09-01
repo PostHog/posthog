@@ -249,7 +249,8 @@ export interface runningTimeLogicMeta {
             targetSampleSize: number | null,
             currentExposures: number | null,
             dailyExposureRate: number | null,
-            experiment: Experiment
+            experiment: Experiment,
+            isManualMode: boolean
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
         manualFormPreview: (
@@ -520,9 +521,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 automaticInput: RunningTimeCalculationInputApi | null,
                 automaticCalculation: RunningTimeCalculationResultApi | null
             ): number | null => {
-                // A draft has no metric results, so automatic mode can never produce a live value for it.
-                // Read the estimate the calculator saved instead of showing nothing.
-                if (isManualMode || !isLaunched(experiment)) {
+                // Manual mode persists a sample size the user sets before launch, so read it.
+                // A draft in automatic mode has no results to compute one, and any saved sample size
+                // it holds was copied from a source run by duplicate or reset, so do not read it.
+                if (isManualMode) {
                     // Persisted by the save listener from the same backend calculation.
                     return experiment?.running_time_calculation?.recommended_sample_size ?? null
                 }
@@ -548,18 +550,21 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         // Days until we reach target sample size
         remainingDays: [
-            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment],
+            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment, s.isManualMode],
             (
                 target: number | null,
                 current: number | null,
                 rate: number | null,
-                experiment: Experiment
+                experiment: Experiment,
+                isManualMode: boolean
             ): number | null => {
-                // A draft has no exposures to measure against, so the saved estimate is the only real
-                // number. Read it rather than recomputing, so the header, the calculator modal and the
-                // experiments list all show the same duration. A negative value is not a duration.
+                // A manual draft holds an estimate the user calculated before launch, so read it rather
+                // than recomputing, which keeps the header, the calculator modal and the experiments list
+                // in agreement. A negative value is not a duration. An automatic draft never produces its
+                // own estimate, so any value it holds was copied from a source run by duplicate or reset
+                // and must not be shown as this draft's duration.
                 const savedRunningTime = experiment?.running_time_calculation?.recommended_running_time
-                if (!isLaunched(experiment) && savedRunningTime != null && savedRunningTime >= 0) {
+                if (!isLaunched(experiment) && isManualMode && savedRunningTime != null && savedRunningTime >= 0) {
                     return savedRunningTime
                 }
 
