@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
+import { IconSend } from '@posthog/icons'
+import { LemonButton, LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
 
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
+import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
+import { SendTestBroadcastModal } from './SendTestBroadcastModal'
 
 function PreviewRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
@@ -24,11 +27,26 @@ export function BroadcastEmailPreview(): JSX.Element {
     const { persons, personsLoading, previewPerson, previewSubject, previewHtml, previewTo } =
         useValues(broadcastPreviewLogic)
     const { selectPerson } = useActions(broadcastPreviewLogic)
+    const { setModalOpen } = useActions(broadcastTestSendLogic)
 
     const hasContent = !!(email.html || email.text)
 
     return (
         <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-muted text-xs">Preview and test before this reaches the audience.</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconSend />}
+                    onClick={() => setModalOpen(true)}
+                    data-attr="broadcast-open-test-email"
+                >
+                    Send test email
+                </LemonButton>
+            </div>
+            <SendTestBroadcastModal />
+
             <div className="flex flex-col gap-2 rounded border border-border bg-surface-secondary p-3">
                 <PreviewRow label="To">
                     {personsLoading ? (
