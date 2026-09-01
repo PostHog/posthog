@@ -363,8 +363,13 @@ export interface accountsColumnConfigLogicValues {
     pickerSearchPlaceholder: string
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
+    relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>
     relationshipDefinitionsLoaded: boolean
     relationshipDefinitionsLoading: boolean
+    relationshipTaxonomicOptions: (SimpleOption & {
+        id: string
+        property_type: PropertyType
+    })[]
     roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
     selectColumns: string[]
     visibleColumnNames: string[]
@@ -501,6 +506,13 @@ export interface accountsColumnConfigLogicMeta {
         aliasToDefinition: (
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
         ) => Record<string, CustomPropertyDefinitionApi>
+        relationshipDefinitionsById: (
+            relationshipDefinitions: AccountRelationshipDefinitionApi[]
+        ) => Record<string, AccountRelationshipDefinitionApi>
+        relationshipTaxonomicOptions: (relationshipDefinitions: AccountRelationshipDefinitionApi[]) => (SimpleOption & {
+            id: string
+            property_type: PropertyType
+        })[]
         customPropertyTaxonomicOptions: (customPropertyDefinitions: CustomPropertyDefinitionApi[]) => (SimpleOption & {
             description?: string
             id: string
@@ -758,6 +770,27 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     ])
                 ),
         ],
+        relationshipDefinitionsById: [
+            (s) => [s.relationshipDefinitions],
+            (
+                relationshipDefinitions: AccountRelationshipDefinitionApi[]
+            ): Record<string, AccountRelationshipDefinitionApi> =>
+                Object.fromEntries(relationshipDefinitions.map((definition) => [definition.id, definition])),
+        ],
+        relationshipTaxonomicOptions: [
+            (s) => [s.relationshipDefinitions],
+            (
+                relationshipDefinitions: AccountRelationshipDefinitionApi[]
+            ): (SimpleOption & {
+                id: string
+                property_type: PropertyType
+            })[] =>
+                relationshipDefinitions.map((definition) => ({
+                    id: definition.id,
+                    name: definition.name,
+                    property_type: PropertyType.Assignee,
+                })),
+        ],
         // Items for the custom-properties taxonomic group (fed via `optionsFromProp`): the
         // definition id is the stable filter key, the name is what's displayed and searched.
         customPropertyTaxonomicOptions: [
@@ -811,6 +844,14 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         // Customized columns (user edits, saved view, shared URL) no longer equal the
         // default they diverged from, so only still-default columns get upgraded.
         loadRelationshipDefinitionsSuccess: (_, __, ___, previousState) => {
+            updatePropertyDefinitions(
+                Object.fromEntries(
+                    values.relationshipTaxonomicOptions.map((option) => [
+                        `${PropertyDefinitionType.AccountRelationship}/${option.id}`,
+                        { id: option.id, name: option.id, property_type: option.property_type },
+                    ])
+                )
+            )
             const previousDefault = selectors.defaultSelectColumns(previousState)
             if (
                 objectsEqual(values.selectColumns, previousDefault) &&

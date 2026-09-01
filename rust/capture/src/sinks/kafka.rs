@@ -20,10 +20,11 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::OrderingGuarantee;
+use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
-use crate::sinks::registry::{Output, OutputRegistry};
+use crate::sinks::registry::{Destination, TopicTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
@@ -184,7 +185,7 @@ impl rdkafka::ClientContext for KafkaContext {
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<OutputRegistry>,
+    topics: Arc<TopicTable>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
@@ -198,7 +199,7 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// Map a lane address to the sink's configured [`Output`]. The sink owns
+/// Map a lane address to the sink's configured [`Destination`]. The sink owns
 /// this mapping only until the outputs layer exists to own the address →
 /// output table. Every `(pipeline, lane)` pair is spelled out so that a new
 /// lane, or a change making an unbacked pair reachable, has to visit this
@@ -206,22 +207,22 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
 /// [`pipeline::resolve`] never produces — no output backs it, and the caller
 /// dlqs the event (the typed-per-pipeline-lanes step makes these pairs
 /// unrepresentable).
-fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Output> {
+fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
     match (pipeline, lane) {
-        (Pipeline::Analytics, Lane::Main) => Some(Output::AnalyticsMain),
-        (Pipeline::Analytics, Lane::Overflow) => Some(Output::AnalyticsOverflow),
-        (Pipeline::Analytics, Lane::Historical) => Some(Output::AnalyticsHistorical),
-        (Pipeline::Ai, Lane::Main) => Some(Output::AiMain),
-        (Pipeline::Ai, Lane::Overflow) => Some(Output::AiOverflow),
+        (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
+        (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
+        (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
+        (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
+        (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
         (Pipeline::Ai, Lane::Historical) => None,
-        (Pipeline::Warnings, Lane::Main) => Some(Output::ClientWarningsMain),
+        (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
         (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::Heatmaps, Lane::Main) => Some(Output::HeatmapsMain),
+        (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
         (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::ErrorTracking, Lane::Main) => Some(Output::ErrorTrackingMain),
+        (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
         (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::Replay, Lane::Main) => Some(Output::SessionReplayMain),
-        (Pipeline::Replay, Lane::Overflow) => Some(Output::SessionReplayOverflow),
+        (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
+        (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
         (Pipeline::Replay, Lane::Historical) => None,
     }
 }
@@ -249,7 +250,7 @@ impl KafkaSink {
         // here, at startup, instead of at first produce. Config-only, so it
         // runs before the producer is built and the broker is pinged — the
         // refusal is instant, not one connect attempt later.
-        let registry = OutputRegistry::from(&config);
+        let registry = TopicTable::from(&config);
         if config.outputs_completeness_check_enabled {
             registry.check_complete()?;
         } else {
@@ -388,7 +389,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
+    pub fn with_producer(producer: P, topics: TopicTable) -> Self {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
@@ -399,7 +400,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
     pub fn with_producer_and_compression(
         producer: P,
-        topics: OutputRegistry,
+        topics: TopicTable,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
         Self {
@@ -419,14 +420,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// by the pipeline). This function does not consult any limiter — it is
     /// pure mechanism. DLQ and custom-topic redirects take priority over
     /// overflow routing.
-    ///
-    /// Prep lives in this file rather than the outputs layer because it
-    /// reads state the sink still owns (the topic registry, the replay
-    /// envelope setting). Keeping it off the `Sink` trait is what matters
-    /// for the layering: callers above can prep and publish as separate
-    /// phases. The prep hoist (step 12 of
-    /// `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) moves the assembly and that
-    /// state up; drop this note when it lands.
     ///
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline
@@ -480,7 +473,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
-                Output::Dlq
+                Destination::Dlq
             }
             Address::Custom(topic) => {
                 counter!(
@@ -488,7 +481,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     &[("reason", "event_restriction")]
                 )
                 .increment(1);
-                Output::Custom(topic)
+                Destination::Custom(topic)
             }
             Address::Lane { pipeline, lane } => match lane_output(pipeline, lane) {
                 Some(output) => output,
@@ -501,7 +494,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     debug_assert!(false, "no output backs ({pipeline:?}, {lane:?})");
                     error!("no output backs ({pipeline:?}, {lane:?}), publishing to the dlq");
                     dlq_reroute_effects(&mut headers, "unbacked_lane");
-                    Output::Dlq
+                    Destination::Dlq
                 }
             },
         };
@@ -733,8 +726,27 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 }
 
 #[async_trait]
-impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
+impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     #[instrument(skip_all)]
+    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.kafka_send(event)?
+            .instrument(info_span!("ack_wait_one"))
+            .await
+    }
+
+    #[instrument(skip_all)]
+    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        let payloads = self.prepare_batch(events).await?;
+        fold_results(self.publish(payloads).await)
+    }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        Sink::flush(self)
+    }
+}
+
+#[async_trait]
+impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let ack_future = self.kafka_send(event)?;
         histogram!("capture_event_batch_size").record(1.0);
@@ -744,15 +756,13 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     /// The v0 bridge onto the mechanism seam: prep, publish, fold. The
     /// per-event results collapse to the whole-request `CaptureError` the
     /// `Event` callers expect.
-    #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         // Record the batch-size histogram up front so the distribution is a
         // faithful view of batches submitted, not only those that succeeded.
         // Matches the single-event `send` path which records before any await.
         histogram!("capture_event_batch_size").record(events.len() as f64);
 
-        let payloads = self.prepare_batch(events).await?;
-        fold_results(self.publish(payloads).await)
+        PublishEvents::publish_batch(self, events).await
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {

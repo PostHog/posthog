@@ -1031,7 +1031,6 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
         include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
-
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaEndpointTable,
@@ -2402,7 +2401,6 @@ class Database(BaseModel):
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-
     if source is None:
         return table_name
 
@@ -2767,7 +2765,6 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
-
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
@@ -2780,7 +2777,6 @@ def _should_include_connection_table(
     *,
     connection_id: str,
 ) -> bool:
-
     source = warehouse_table.external_data_source
     if source is None or source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return False

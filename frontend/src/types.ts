@@ -1180,6 +1180,8 @@ export enum PropertyFilterType {
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    /** Customer analytics account relationship — the key is the relationship definition id */
+    AccountRelationship = 'account_relationship',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1217,6 +1219,11 @@ export interface EventMetadataPropertyFilter extends BasePropertyFilter {
 
 export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.RevenueAnalytics
+    operator: PropertyOperator
+}
+
+export interface AccountRelationshipPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.AccountRelationship
     operator: PropertyOperator
 }
 
@@ -4792,6 +4799,15 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '1'
+    | '2'
+    | '3'
+    | '4'
+    | '5'
+    | '6'
+    | '7'
+    | '8'
+    | '9'
     | 'escape'
     | 'enter'
     | 'space'
@@ -4866,6 +4882,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    AccountRelationship = 'account_relationship',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
