@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.facade.hooks import (
 
 
 def person_properties_flag_enabled(team_id: int) -> bool:
-    """Whether the warehouse -> person properties rollout flag is on for the team's organization.
+    """Whether the warehouse -> profile properties rollout flag is on for the team's organization.
+
+    The same flag gates both person and group targets.
 
     Fails closed: an unknown team or a flag-service error disables the feature for that call
     rather than letting an unvetted rollout through.
