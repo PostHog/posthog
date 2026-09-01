@@ -231,21 +231,24 @@ def _resolve_friendly_error(source: SupabaseSource, raw_error: str) -> str | Non
 
 
 @pytest.mark.parametrize(
-    "raw_error,expect_message",
+    "raw_error,expect_realtime_message",
     [
-        # Retention dropped the dated realtime.messages partition — actionable message, not the
-        # inherited generic "does not exist" (which resolves to None / the raw driver string).
+        # Retention dropped the dated realtime.messages partition, so its specific realtime message
+        # must win over the inherited generic "does not exist" bucket (first matching key wins).
         ('relation "realtime.messages_2020_01_01" does not exist', True),
-        # A regular missing table must still fall through to the generic (None) mapping, so the
+        # A regular missing table must fall through to the generic missing-relation message, so the
         # realtime key stays specific and doesn't swallow every "does not exist".
         ('relation "public.orders" does not exist', False),
     ],
 )
-def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_message):
+def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_realtime_message):
     friendly = _resolve_friendly_error(SupabaseSource(), raw_error)
 
-    if expect_message:
-        assert friendly is not None
+    # Both cases are non-retryable with an actionable message now; only the realtime partition gets
+    # the realtime-specific copy.
+    assert friendly is not None
+    if expect_realtime_message:
         assert "realtime.messages" in friendly
     else:
-        assert friendly is None
+        assert "realtime.messages" not in friendly
+        assert "no longer exists" in friendly.lower()
