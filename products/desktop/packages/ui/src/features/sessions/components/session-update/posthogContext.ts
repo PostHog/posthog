@@ -19,10 +19,12 @@ export function extractPosthogContext(content: string): {
   );
   if (blocks.length === 0) return null;
 
-  const stripped = content
-    .replace(POSTHOG_CONTEXT_REGEX, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  // Trim only, like the sibling extractors. Every producer puts its blocks at
+  // one end of the prompt, so the removal leaves nothing but a leading or
+  // trailing newline run. Collapsing the rest would edit the user's own text —
+  // blank lines inside a fenced code block — and `stripped` is what the bubble
+  // renders, the copy button copies, and prompt recall replays.
+  const stripped = content.replace(POSTHOG_CONTEXT_REGEX, "").trim();
 
   return { body: blocks.join("\n"), stripped };
 }

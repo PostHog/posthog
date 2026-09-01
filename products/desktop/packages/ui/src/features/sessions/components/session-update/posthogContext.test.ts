@@ -51,4 +51,14 @@ describe("extractPosthogContext", () => {
     expect(result?.body).toBe(TRUSTED);
     expect(result?.stripped).toBe("");
   });
+
+  it("keeps blank lines the user wrote", () => {
+    // `stripped` is rendered, copied and replayed into the composer, so removing
+    // the block must not rewrite the rest of the prompt.
+    const question =
+      "fix this:\n\n```sql\nSELECT 1\n\n\n-- next stmt\nSELECT 2\n```";
+    expect(extractPosthogContext(`${UNTRUSTED}\n\n${question}`)?.stripped).toBe(
+      question,
+    );
+  });
 });

@@ -19,21 +19,13 @@ import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
 import type { UserMessageAttachment } from "../../userMessageTypes";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
-import { extractCanvasInstructions } from "./canvasInstructions";
-import { extractChannelContext } from "./channelContext";
-import { extractCustomInstructions } from "./customInstructions";
-import {
-  extractOnboardingBrief,
-  ONBOARDING_BRIEF_LABEL,
-} from "./onboardingBrief";
+import { ONBOARDING_BRIEF_LABEL } from "./onboardingBrief";
 import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
 } from "./parseFileMentions";
-import { extractPeerAgentMessage } from "./peerAgentMessage";
-import { collapsePiSkillInvocation } from "./piSkillInvocation";
-import { extractPosthogContext } from "./posthogContext";
+import { splitUserMessage } from "./userMessageDisplay";
 
 interface UserMessageProps {
   content: string;
@@ -86,46 +78,14 @@ export const UserMessage = memo(function UserMessage({
   // A message relayed from another agent run renders with a provenance chip and
   // neutral accent instead of masquerading as this run's user. The envelope
   // boilerplate never renders; only the sender-authored body flows on.
-  const peerAgentMessage = useMemo(
-    () => extractPeerAgentMessage(content),
-    [content],
-  );
-  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const posthogContext = useMemo(
-    () => extractPosthogContext(baseContent),
-    [baseContent],
-  );
-  const afterPosthogContext = posthogContext
-    ? posthogContext.stripped
-    : baseContent;
-  const channelContext = useMemo(
-    () => extractChannelContext(afterPosthogContext),
-    [afterPosthogContext],
-  );
-  const afterChannelContext = channelContext
-    ? channelContext.stripped
-    : afterPosthogContext;
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
-  );
-  const afterCanvasInstructions = canvasInstructions
-    ? canvasInstructions.stripped
-    : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const afterCustomInstructions = customInstructions
-    ? customInstructions.stripped
-    : afterCanvasInstructions;
-  const onboardingBrief = useMemo(
-    () => extractOnboardingBrief(afterCustomInstructions),
-    [afterCustomInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
-  );
+  const {
+    peerAgentMessage,
+    posthogContext,
+    channelContext,
+    canvasInstructions,
+    onboardingBrief,
+    displayContent,
+  } = useMemo(() => splitUserMessage(content), [content]);
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
   const showPosthogContextTag = !!posthogContext && bluebirdEnabled;

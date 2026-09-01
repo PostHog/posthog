@@ -14,6 +14,7 @@ import {
 } from "@posthog/quill";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { userMessageDisplayText } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import { Flex } from "@radix-ui/themes";
 import { useCallback, useMemo, useState } from "react";
 
@@ -271,10 +272,14 @@ function JumpPickerBody({
     const result: JumpEntry[] = [];
     for (const item of items) {
       if (item.type === "user_message") {
+        // Label and search the question, not the context blocks folded in at
+        // send time — those repeat across messages and are long enough to fill
+        // the label on their own, leaving every row reading the same.
+        const text = userMessageDisplayText(item.content);
         result.push({
           id: item.id,
-          label: truncate(item.content, MAX_LABEL_LENGTH),
-          fullText: item.content,
+          label: truncate(text, MAX_LABEL_LENGTH),
+          fullText: text,
           timestamp: item.timestamp,
         });
       }
