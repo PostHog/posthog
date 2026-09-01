@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "Exact metric name to retrieve instead of performing a text search.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+        },
+        "query": {
+            "description": "Text to match against a metric's name, display name, or description.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

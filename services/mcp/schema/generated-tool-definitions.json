@@ -7865,6 +7865,20 @@
         "feature_flag": "metrics",
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
+    "metric-search": {
+        "description": "Search the data catalog for governed business and telemetry measures — semantic-layer definitions, canonical KPIs, and approved metrics, not infrastructure or OTel metrics (use query-metrics for those). Call this before any typed domain tool or raw SQL for a named measure, including revenue, usage, active organizations, web sessions, failure rates, support tickets, surveys, or SLOs. Run an approved, non-drifted match with data-catalog-metric-run instead of re-deriving its value.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Search governed metrics",
+        "title": "Search governed metrics",
+        "required_scopes": ["data_catalog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "notebooks-configure-compute": {
         "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is true when a kernel is already active, meaning it keeps its current resources until restarted (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs).",
         "category": "Notebooks",

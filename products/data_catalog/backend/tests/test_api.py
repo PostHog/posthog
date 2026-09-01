@@ -53,6 +53,54 @@ class TestMetricAPI(APIBaseTest):
         assert body["name"] == "mrr"
         assert body["status"] == MetricStatus.PROPOSED
 
+    def test_search_matches_metric_name_display_name_and_description(self) -> None:
+        self.client.post(
+            self.url,
+            {
+                "name": "daily_active_orgs",
+                "display_name": "Daily active organizations",
+                "description": "Engaged organizations each day",
+            },
+            format="json",
+        )
+        self.client.post(
+            self.url,
+            {"name": "support_tickets", "display_name": "Support tickets", "description": "New tickets each day"},
+            format="json",
+        )
+
+        by_name = self.client.get(f"{self.url}search/?query=active")
+        by_description = self.client.get(f"{self.url}search/?query=engaged")
+        by_display_name = self.client.get(f"{self.url}search/?query=tickets")
+
+        assert by_name.status_code == status.HTTP_200_OK, by_name.json()
+        assert [metric["name"] for metric in by_name.json()] == ["daily_active_orgs"]
+        assert [metric["name"] for metric in by_description.json()] == ["daily_active_orgs"]
+        assert [metric["name"] for metric in by_display_name.json()] == ["support_tickets"]
+
+    def test_search_exact_name_returns_only_the_requested_metric(self) -> None:
+        self.client.post(self.url, {"name": "mrr", "description": "Monthly recurring revenue"}, format="json")
+        self.client.post(self.url, {"name": "arr", "description": "Annual recurring revenue"}, format="json")
+
+        response = self.client.get(f"{self.url}search/?name=mrr")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [metric["name"] for metric in response.json()] == ["mrr"]
+
+    def test_search_is_team_scoped_and_requires_a_search_term(self) -> None:
+        self.client.post(self.url, {"name": "mrr", "description": "Monthly recurring revenue"}, format="json")
+        other_team = Team.objects.create(organization=self.organization)
+        Metric.objects.for_team(other_team.id).create(
+            name="customer_count", description="Customer count", team=other_team
+        )
+
+        response = self.client.get(f"{self.url}search/?query=customer")
+        invalid = self.client.get(f"{self.url}search/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == []
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_status_and_approval_are_not_writable(self) -> None:
         response = self.client.post(
             self.url,

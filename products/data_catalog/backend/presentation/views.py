@@ -36,6 +36,8 @@ from .serializers import (
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
+    MetricSearchQuerySerializer,
+    MetricSearchResultSerializer,
     MetricSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
@@ -105,6 +107,30 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(metrics, many=True, context=context)
         if page is not None:
             return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[MetricSearchQuerySerializer],
+        responses={200: MetricSearchResultSerializer(many=True)},
+    )
+    @drf_action(
+        detail=False,
+        methods=["GET"],
+        url_path="search",
+        pagination_class=None,
+        required_scopes=["data_catalog:read"],
+    )
+    @validated_request(query_serializer=MetricSearchQuerySerializer)
+    def search(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Search governed business and telemetry metrics before querying data."""
+        query = request.validated_query_data.get("query")
+        name = request.validated_query_data.get("name")
+        metrics = list(api.search_metrics_for_team(self.team, query=query, name=name))
+        serializer = MetricSearchResultSerializer(
+            metrics,
+            many=True,
+            context={"drift_map": api.compute_drift(metrics)},
+        )
         return Response(serializer.data)
 
     @extend_schema(description="Create a metric, or refine the one already holding this name for the team.")

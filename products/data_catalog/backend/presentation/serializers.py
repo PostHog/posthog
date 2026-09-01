@@ -82,6 +82,51 @@ class MetricRunQuerySerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricSearchQuery")
+class MetricSearchQuerySerializer(serializers.Serializer):
+    """Input for searching the team's governed metric catalog."""
+
+    query = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        max_length=255,
+        help_text="Text to match against a metric's name, display name, or description.",
+    )
+    name = serializers.CharField(
+        required=False,
+        max_length=METRIC_NAME_MAX_LENGTH,
+        help_text="Exact metric name to retrieve instead of performing a text search.",
+    )
+
+    def validate(self, attrs: dict[str, str]) -> dict[str, str]:
+        if attrs.get("query") or attrs.get("name"):
+            return attrs
+        raise serializers.ValidationError("Provide query or name.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricSearchResult")
+class MetricSearchResultSerializer(serializers.ModelSerializer):
+    """The discovery fields an agent needs before running a catalog metric."""
+
+    is_drifted = serializers.SerializerMethodField(
+        help_text="True when the definition has drifted from its linked source insight.",
+    )
+    definition_kind = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Query kind of the definition, or null for a description-only metric.",
+    )
+
+    class Meta:
+        model = Metric
+        fields = ["name", "display_name", "description", "status", "is_drifted", "unit", "definition_kind"]
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_drifted(self, obj: Metric) -> bool:
+        drift_map = self.context["drift_map"]
+        return drift_map[obj.id]
+
+
 @extend_schema_serializer(component_name="DataCatalogMetric")
 class MetricSerializer(serializers.ModelSerializer):
     definition = MetricDefinitionField(
