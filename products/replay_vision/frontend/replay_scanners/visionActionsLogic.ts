@@ -15,7 +15,7 @@ import {
     DeliveryTargetTypeEnumApi,
     ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
-    VisionAlertMetricEnumApi,
+    VisionActionAlertMetricEnumApi,
     WindowDaysEnumApi,
 } from '../generated/api.schemas'
 import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
@@ -44,7 +44,7 @@ export interface VisionActionForm {
     // What the action produces; alerts carry a condition instead of synthesizing a summary.
     mode: ActionModeEnumApi
     alert_frequency: AlertFrequencyEnumApi
-    alert_metric: VisionAlertMetricEnumApi
+    alert_metric: VisionActionAlertMetricEnumApi
     alert_threshold: number | null
     alert_direction: VisionAlertDirectionEnumApi
     alert_window_days: WindowDaysEnumApi
@@ -68,7 +68,7 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     mode: ActionModeEnumApi.GroupSummary,
     // Default alert flavor: notify about every new match ("every time the result is X, tell me").
     alert_frequency: AlertFrequencyEnumApi.EveryMatch,
-    alert_metric: VisionAlertMetricEnumApi.Count,
+    alert_metric: VisionActionAlertMetricEnumApi.Count,
     alert_threshold: 1,
     alert_direction: VisionAlertDirectionEnumApi.Above,
     alert_window_days: 1,
@@ -112,7 +112,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                       form.alert_frequency === AlertFrequencyEnumApi.EveryMatch
                           ? {
                                 frequency: form.alert_frequency,
-                                metric: VisionAlertMetricEnumApi.Count,
+                                metric: VisionActionAlertMetricEnumApi.Count,
                                 include_reasoning: form.alert_include_reasoning,
                             }
                           : {
@@ -124,7 +124,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                                 // "at most N matches" is a confusing quiet-window alarm — so pin it,
                                 // ignoring any stale below a loaded config might carry.
                                 direction:
-                                    form.alert_metric === VisionAlertMetricEnumApi.AvgScore
+                                    form.alert_metric === VisionActionAlertMetricEnumApi.AvgScore
                                         ? form.alert_direction
                                         : VisionAlertDirectionEnumApi.Above,
                                 window_days: form.alert_window_days,

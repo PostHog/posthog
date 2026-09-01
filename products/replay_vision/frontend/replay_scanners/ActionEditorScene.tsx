@@ -34,7 +34,7 @@ import {
     DeliveryTargetTypeEnumApi,
     ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
-    VisionAlertMetricEnumApi,
+    VisionActionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
@@ -365,7 +365,7 @@ function AlertMatchLine({ scannerId }: { scannerId: string }): JSX.Element | nul
             break
         }
         case 'scorer': {
-            if (actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore) {
+            if (actionForm.alert_metric === VisionActionAlertMetricEnumApi.AvgScore) {
                 return null
             }
             const scale = scanner.scanner_config?.scale
@@ -419,7 +419,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     // Direction is only offered for the average score ("below a floor" is the natural quality alarm).
     // A count threshold is always "at least" — "at most N matches" reads backwards from intent and is
     // really a went-quiet alarm, so we don't expose it for counts (buildActionBody pins it to above).
-    const isAvg = actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore
+    const isAvg = actionForm.alert_metric === VisionActionAlertMetricEnumApi.AvgScore
 
     // Summarizer observations have no verdict/tags/score to threshold on, so the only sensible
     // alert is "every new summary" — no controls to show. The logic normalizes the form to
@@ -447,7 +447,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                     setActionFormValue('alert_frequency', value)
                     if (value === AlertFrequencyEnumApi.EveryMatch) {
                         // every_match counts new matches; an average makes no sense there.
-                        setActionFormValue('alert_metric', VisionAlertMetricEnumApi.Count)
+                        setActionFormValue('alert_metric', VisionActionAlertMetricEnumApi.Count)
                     }
                 }}
                 options={[
@@ -472,13 +472,13 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                                     setActionFormValue('alert_metric', value)
                                     // Count thresholds are always "at least" (the direction control is
                                     // hidden for them), so switching back to count clears any "at most".
-                                    if (value === VisionAlertMetricEnumApi.Count) {
+                                    if (value === VisionActionAlertMetricEnumApi.Count) {
                                         setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
                                     }
                                 }}
                                 options={[
-                                    { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
-                                    { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
+                                    { value: VisionActionAlertMetricEnumApi.Count, label: 'number of matches' },
+                                    { value: VisionActionAlertMetricEnumApi.AvgScore, label: 'average score' },
                                 ]}
                                 data-attr="vision-action-alert-metric"
                             />

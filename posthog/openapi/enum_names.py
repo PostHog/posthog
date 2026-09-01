@@ -20,7 +20,7 @@ at schema-generation time.
 
 import inspect
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import ItemsView, Iterable, Iterator, KeysView, Mapping, ValuesView
 from enum import Enum
 from typing import Any
 
@@ -145,6 +145,17 @@ class ChoicesEnumNameOverrides(Mapping[str, Any]):
 
     def __len__(self) -> int:
         return len(self._load())
+
+    # The Mapping default views call __getitem__ once per key, which would
+    # rebuild the derived mapping for every entry. One build serves the view.
+    def keys(self) -> KeysView[str]:
+        return self._load().keys()
+
+    def values(self) -> ValuesView[Any]:
+        return self._load().values()
+
+    def items(self) -> ItemsView[str, Any]:
+        return self._load().items()
 
     def _load(self) -> dict[str, Any]:
         from django.db.models import Choices  # noqa: PLC0415 because settings import this module before Django is ready

@@ -21,7 +21,7 @@ import {
     DeliveryTargetTypeEnumApi,
     ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
-    VisionAlertMetricEnumApi,
+    VisionActionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
 import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
@@ -347,7 +347,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             if (scannerType === 'summarizer' && values.actionForm.mode === ActionModeEnumApi.Alert) {
                 actions.setActionFormValues({
                     alert_frequency: AlertFrequencyEnumApi.EveryMatch,
-                    alert_metric: VisionAlertMetricEnumApi.Count,
+                    alert_metric: VisionActionAlertMetricEnumApi.Count,
                 })
             }
         },
@@ -388,7 +388,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 (action.mode === ActionModeEnumApi.Alert
                     ? AlertFrequencyEnumApi.OnBreach
                     : AlertFrequencyEnumApi.EveryMatch)
-            const alertMetric = action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count
+            const alertMetric = action.alert_config?.metric ?? VisionActionAlertMetricEnumApi.Count
             const alertDirection = action.alert_config?.direction ?? VisionAlertDirectionEnumApi.Above
             actions.setActionFormValues({
                 name: action.name,
