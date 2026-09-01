@@ -200,7 +200,7 @@ describe('ProactiveSubscriptionFields', () => {
 
         expect(screen.getByText('Automatically open one draft pull request')).toBeInTheDocument()
         expect(screen.getByText('Draft pull request automation is not available for this project.')).toBeInTheDocument()
-        expect(screen.getByText('Public web research is not available for this project.')).toBeInTheDocument()
+        expect(screen.getByText('Public web research isn’t configured for this PostHog instance.')).toBeInTheDocument()
         expect(screen.queryByPlaceholderText('Select a repository')).not.toBeInTheDocument()
     })
 
@@ -340,7 +340,9 @@ describe('ProactiveSubscriptionFields', () => {
         expect(retry).toBeDisabled()
         fireEvent.click(retry!)
         expect(loadProactiveConfigurationOptions).not.toHaveBeenCalled()
-        expect(screen.queryByText('Public web research is not available for this project.')).not.toBeInTheDocument()
+        expect(
+            screen.queryByText('Public web research isn’t configured for this PostHog instance.')
+        ).not.toBeInTheDocument()
         expect(screen.queryByText(/Proactive follow-up is currently unavailable/)).not.toBeInTheDocument()
     })
 })

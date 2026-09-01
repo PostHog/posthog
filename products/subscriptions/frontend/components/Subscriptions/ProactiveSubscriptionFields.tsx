@@ -210,7 +210,9 @@ export function ProactiveSubscriptionFields({
                     ) : null}
 
                     {configurationOptionsResolved && !publicResearchAvailable && publicResearchEnabled ? (
-                        <LemonBanner type="warning">Public web research is not available for this project.</LemonBanner>
+                        <LemonBanner type="warning">
+                            Public web research isn’t configured for this PostHog instance.
+                        </LemonBanner>
                     ) : null}
                     <LemonField name="proactive_config.public_research_enabled">
                         <LemonSwitch
@@ -222,7 +224,7 @@ export function ProactiveSubscriptionFields({
                                 !configurationOptionsResolved && !publicResearchEnabled
                                     ? 'Check availability before turning on public web research.'
                                     : !publicResearchAvailable && !publicResearchEnabled
-                                      ? 'Public web research is not available for this project.'
+                                      ? 'Public web research isn’t configured for this PostHog instance.'
                                       : undefined
                             }
                             label={
