@@ -189,6 +189,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["sampling_rate"], value)
 
+    def test_create_without_ai_consent_returns_tagged_400(self) -> None:
+        # The code is a contract the experiment wizard reads to keep this expected 400 out of error
+        # tracking, so it must stay stable, not just the status.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "needs-consent",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_7_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
+
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
         resp = self.client.post(
