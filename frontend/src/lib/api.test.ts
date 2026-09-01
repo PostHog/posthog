@@ -372,6 +372,9 @@ describe('API helper', () => {
             // The message is the only channel the reason has: the automatic unhandled-rejection
             // capture carries no custom properties, so `before_send` and grouping rules match on it
             expect(error.message).toBe(message)
+            // No `cause`: posthog-js appends it to `$exception_list` and error tracking titles the
+            // issue from the deepest entry, so a raw `TypeError: Failed to fetch` would hide the reason
+            expect(error.cause).toBeUndefined()
             // Recovery paths across the app read `status === undefined` as "transient, may be retried"
             expect(error.status).toBeUndefined()
         })
