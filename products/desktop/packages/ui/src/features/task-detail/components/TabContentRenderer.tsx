@@ -15,6 +15,7 @@ import { CanvasInstructionsTab } from "./CanvasInstructionsTab";
 import { ChangesPanel } from "./ChangesPanel";
 import { ChannelContextTab } from "./ChannelContextTab";
 import { FileTreePanel } from "./FileTreePanel";
+import { PostHogContextTab } from "./PostHogContextTab";
 import { TaskLogsPanel } from "./TaskLogsPanel";
 import { TaskShellPanel } from "./TaskShellPanel";
 
@@ -79,6 +80,9 @@ export function TabContentRenderer({
 
     case "canvas-instructions":
       return <CanvasInstructionsTab body={data.body} />;
+
+    case "posthog-context":
+      return <PostHogContextTab body={data.body} />;
 
     case "autoresearch":
       return <AutoresearchPanel taskId={taskId} />;

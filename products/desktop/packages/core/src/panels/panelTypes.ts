@@ -42,6 +42,13 @@ export type TabData =
       body: string;
     }
   | {
+      // A read-only snapshot of the PostHog app context blocks sent with a
+      // message from the web app's AI chat, shown exactly as the agent received
+      // them.
+      type: "posthog-context";
+      body: string;
+    }
+  | {
       type: "autoresearch";
     }
   | {

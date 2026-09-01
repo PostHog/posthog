@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   CaretDown,
   Check,
   Copy,
@@ -111,6 +112,7 @@ import {
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
+import { extractPosthogContext } from "@posthog/ui/features/sessions/components/session-update/posthogContext";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
@@ -545,13 +547,20 @@ function UserBubble({
     [content],
   );
   const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const channelContext = useMemo(
-    () => extractChannelContext(baseContent),
+  const posthogContext = useMemo(
+    () => extractPosthogContext(baseContent),
     [baseContent],
+  );
+  const afterPosthogContext = posthogContext
+    ? posthogContext.stripped
+    : baseContent;
+  const channelContext = useMemo(
+    () => extractChannelContext(afterPosthogContext),
+    [afterPosthogContext],
   );
   const afterChannelContext = channelContext
     ? channelContext.stripped
-    : baseContent;
+    : afterPosthogContext;
   const canvasInstructions = useMemo(
     () => extractCanvasInstructions(afterChannelContext),
     [afterChannelContext],
@@ -575,11 +584,13 @@ function UserBubble({
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
+  const showPosthogContextTag = !!posthogContext && bluebirdEnabled;
   // Provenance is never flag-gated: a peer message must not read as the user's.
   const showHeaderChips =
     !!peerAgentMessage ||
     showChannelContextTag ||
     showCanvasInstructionsTag ||
+    showPosthogContextTag ||
     !!onboardingBrief;
   const taskId = useSessionTaskId();
   const openChannelContextInSplit = usePanelLayoutStore(
@@ -587,6 +598,9 @@ function UserBubble({
   );
   const openCanvasInstructionsInSplit = usePanelLayoutStore(
     (s) => s.openCanvasInstructionsInSplit,
+  );
+  const openPosthogContextInSplit = usePanelLayoutStore(
+    (s) => s.openPosthogContextInSplit,
   );
 
   const containsFileMentions = hasFileMentions(displayContent);
@@ -658,6 +672,20 @@ function UserBubble({
                       ? () =>
                           openCanvasInstructionsInSplit(taskId, {
                             body: canvasInstructions.body,
+                          })
+                      : undefined
+                  }
+                />
+              )}
+              {showPosthogContextTag && posthogContext && (
+                <MentionChip
+                  icon={<AppWindow size={12} />}
+                  label="PostHog context"
+                  onClick={
+                    taskId
+                      ? () =>
+                          openPosthogContextInSplit(taskId, {
+                            body: posthogContext.body,
                           })
                       : undefined
                   }

@@ -1,4 +1,4 @@
-import { FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
+import { AppWindowIcon, FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
 import type {
   ArtifactPayload,
   CommentEventPayload,
@@ -52,6 +52,7 @@ import { extractCanvasInstructions } from "@posthog/ui/features/sessions/compone
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
+import { extractPosthogContext } from "@posthog/ui/features/sessions/components/session-update/posthogContext";
 import {
   useHasTranscriptListener,
   useThreadNavigationStore,
@@ -78,11 +79,16 @@ function UserMessageRow({
   onShowInChat?: () => void;
 }) {
   const name = author ? userDisplayName(author) : "You";
-  const channelContext = useMemo(
-    () => extractChannelContext(content),
+  const posthogContext = useMemo(
+    () => extractPosthogContext(content),
     [content],
   );
-  const afterChannelContext = channelContext?.stripped ?? content;
+  const afterPosthogContext = posthogContext?.stripped ?? content;
+  const channelContext = useMemo(
+    () => extractChannelContext(afterPosthogContext),
+    [afterPosthogContext],
+  );
+  const afterChannelContext = channelContext?.stripped ?? afterPosthogContext;
   // Every block the chat strips has to be stripped here too, or the raw XML shows up on
   // the timeline for a viewer whose chat hid it.
   const canvasInstructions = useMemo(
@@ -110,6 +116,17 @@ function UserMessageRow({
       detail={
         <div className="space-y-1.5">
           <MessageBubble content={displayContent} />
+          {posthogContext && (
+            <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
+              <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
+                <AppWindowIcon size={12} />
+                <span className="truncate text-xs">PostHog context</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-2 text-muted-foreground text-xs">
+                {posthogContext.body}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
           {canvasInstructions && (
             <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
               <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
