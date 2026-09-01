@@ -81,7 +81,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
             alert_id=str(delivery.alert.id),
             destination_id=str(delivery.destination.id),
             issue_id=inputs.issue_id,
-            event=inputs.event,
+            lifecycle_event=inputs.event,
             notification_id=inputs.notification_id,
             is_opener=delivery.is_opener,
             has_thread=delivery.thread is not None,
