@@ -3,7 +3,6 @@ import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import type {
     PgAnalyzeIssueReferenceApi,
@@ -21,29 +20,6 @@ export function isPgAnalyzeExtra(value: unknown): value is Record<string, unknow
     }
     const extra = value as Record<string, unknown>
     return 'references' in extra && Array.isArray(extra.references) && 'synced_at' in extra
-}
-
-/** Maps a pganalyze severity to a LemonTag tone. Case-insensitive; unknown values fall back to `default`. */
-function severityTone(severity: string): LemonTagType {
-    switch (severity.toLowerCase()) {
-        case 'critical':
-            return 'danger'
-        case 'high':
-            return 'caution'
-        case 'medium':
-            return 'warning'
-        case 'low':
-            return 'muted'
-        case 'info':
-            return 'completion'
-        default:
-            return 'default'
-    }
-}
-
-/** Sentence-cases a label (first letter upper, rest lower). */
-function sentenceCase(value: string): string {
-    return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()
 }
 
 function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReferenceApi }): JSX.Element | null {
@@ -81,16 +57,6 @@ function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReferenceApi }):
 export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra as Record<string, unknown> & PgAnalyzeIssueSignalExtraApi
 
-    const serverLabel = extra.server_name ?? extra.server_human_id
-    const metaChips = (
-        <>
-            {extra.severity !== null && (
-                <LemonTag type={severityTone(extra.severity)}>{sentenceCase(extra.severity)}</LemonTag>
-            )}
-            {serverLabel && <LemonTag type="muted">{serverLabel}</LemonTag>}
-        </>
-    )
-
     const visibleReferences = extra.references.filter(
         (reference) => reference.name !== null || reference.url !== null || reference.queryText !== null
     )
@@ -102,7 +68,6 @@ export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
     return (
         <ExternalSignalCard
             signal={signal}
-            metaChips={metaChips}
             link={externalUrl ? { to: externalUrl, label: 'View in pganalyze' } : undefined}
         >
             <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>

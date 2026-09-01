@@ -35,6 +35,7 @@
     "format": "biome format --write",
     "clean": "pnpm -r clean",
     "knip": "knip",
+    "benjamin:sync": "node scripts/sync-benjamin.mts",
     "skills:local": "node scripts/sync-local-skills.mjs",
     "skills:pull": "node scripts/pull-skills.mjs",
     "hosthog:build": "pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/web... && SKIP_PRODUCT_ENGINEER_SKILLS_DOWNLOAD=1 pnpm exec turbo build --filter=@posthog/web && ln -sfn apps/web/dist dist"

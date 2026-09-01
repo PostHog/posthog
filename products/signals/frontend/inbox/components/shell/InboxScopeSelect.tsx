@@ -1,24 +1,21 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconAsterisk, IconCheck, IconChevronDown } from '@posthog/icons'
-import { LemonInput, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
-
-import { Popover } from 'lib/lemon-ui/Popover'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { isTeammateInboxScope, parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
+import { InboxPeoplePicker } from './InboxPeoplePicker'
 
 /**
  * Two-segment scope toggle built on `LemonSegmentedButton`. Left segment is
  * "For you"; the right segment shows "Entire project" or the selected teammate's
- * name and opens a searchable people picker ("Entire project" + each teammate,
- * with avatars). One-to-one port of desktop `InboxScopeSelect` (segmented control
- * + combobox), in LemonUI. Scope is persisted via `inboxFiltersLogic`; teammates
- * come from its shared `availableReviewers` loader.
+ * name and opens the shared people picker ("Entire project" + each teammate).
+ * One-to-one port of desktop `InboxScopeSelect` (segmented control + combobox),
+ * in LemonUI. Scope is persisted via `inboxFiltersLogic`; teammates come from
+ * its shared `availableReviewers` loader.
  */
 export function InboxScopeSelect(): JSX.Element {
     const { scope, availableReviewers: reviewers, availableReviewersLoading } = useValues(inboxFiltersLogic)
@@ -94,94 +91,29 @@ export function InboxScopeSelect(): JSX.Element {
                     ]}
                 />
             </div>
-            <Popover
+            <InboxPeoplePicker
                 visible={open}
-                onClickOutside={() => setOpen(false)}
                 referenceElement={referenceEl}
-                placement="bottom-end"
-                overlay={
-                    <div className="w-[240px] p-1">
-                        <LemonInput
-                            type="search"
-                            size="small"
-                            placeholder="Search people…"
-                            value={search}
-                            onChange={(value) => {
-                                setSearch(value)
-                                searchAvailableReviewers(value)
-                            }}
-                            autoFocus
-                            className="mb-1"
-                        />
-                        <div className="max-h-[16rem] overflow-y-auto space-y-px">
-                            <ScopeRow
-                                active={scope === INBOX_SCOPE_ENTIRE_PROJECT}
-                                onClick={() => pick(INBOX_SCOPE_ENTIRE_PROJECT)}
-                                avatar={
-                                    <span
-                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-secondary text-tertiary"
-                                        aria-hidden
-                                    >
-                                        <IconAsterisk className="text-xs" />
-                                    </span>
-                                }
-                                label="Entire project"
-                            />
-                            {reviewers.map((reviewer) => (
-                                <ScopeRow
-                                    key={reviewer.user_uuid}
-                                    active={selectedTeammateUuid === reviewer.user_uuid}
-                                    onClick={() =>
-                                        pick(teammateInboxScope(reviewer.user_uuid), reviewer.name || reviewer.email)
-                                    }
-                                    avatar={
-                                        <ProfilePicture
-                                            user={{ first_name: reviewer.name, email: reviewer.email }}
-                                            size="sm"
-                                        />
-                                    }
-                                    label={reviewer.name || reviewer.email}
-                                />
-                            ))}
-                            {availableReviewersLoading ? (
-                                <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-tertiary">
-                                    <Spinner className="size-3" />
-                                    Searching…
-                                </div>
-                            ) : reviewers.length === 0 ? (
-                                <div className="px-2 py-1.5 text-xs text-tertiary">No matching people.</div>
-                            ) : null}
-                        </div>
-                    </div>
+                onClose={() => setOpen(false)}
+                search={search}
+                onSearch={(value) => {
+                    setSearch(value)
+                    searchAvailableReviewers(value)
+                }}
+                people={reviewers.map((reviewer) => ({
+                    uuid: reviewer.user_uuid,
+                    name: reviewer.name,
+                    email: reviewer.email,
+                }))}
+                loading={availableReviewersLoading}
+                selectedUuid={scope === INBOX_SCOPE_ENTIRE_PROJECT ? null : (selectedTeammateUuid ?? undefined)}
+                everyoneLabel="Entire project"
+                onPick={(person) =>
+                    person
+                        ? pick(teammateInboxScope(person.uuid), person.name || person.email)
+                        : pick(INBOX_SCOPE_ENTIRE_PROJECT)
                 }
             />
         </>
-    )
-}
-
-function ScopeRow({
-    active,
-    onClick,
-    avatar,
-    label,
-}: {
-    active: boolean
-    onClick: () => void
-    avatar: JSX.Element
-    label: string
-}): JSX.Element {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={clsx(
-                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
-                active ? 'bg-surface-secondary font-medium' : 'hover:bg-surface-secondary'
-            )}
-        >
-            {avatar}
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-            {active && <IconCheck className="shrink-0 text-sm text-default" />}
-        </button>
     )
 }

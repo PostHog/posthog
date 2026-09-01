@@ -148,12 +148,16 @@ impl SourcePair {
     /// only the content hash depends on the mode.
     ///
     /// In event mode the hash is computed over the pair with the injection undone (snippet and
-    /// chunk-id comment removed, sourcemap adjustment reversed), because the injected bytes vary
-    /// while the chunk id does not: the embedded release id changes every release, and a chunk
-    /// injected before a release could be resolved carries a shorter snippet (and a differently
-    /// adjusted sourcemap) than the same chunk after a later run adds the release. The server
-    /// keys its skip-or-conflict decision on this hash per chunk id, so any injection-state
-    /// dependence turns an unchanged chunk into a `content_hash_mismatch` rejection.
+    /// chunk-id comment removed, sourcemap adjustment reversed), because the embedded release id
+    /// changes every release while the chunk id does not. The server keys its skip-or-conflict
+    /// decision on this hash per chunk id, so hashing the embedded id would re-upload every chunk
+    /// on every release.
+    ///
+    /// The hash does cover which snippet variant is embedded. The release variant is longer, so it
+    /// shifts every generated column in the uploaded sourcemap. Two builds of one unchanged chunk,
+    /// one before a release could be resolved and one after, therefore ship different maps. Equal
+    /// hashes would make the server keep the first map and resolve later frames to the wrong
+    /// source positions.
     ///
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
@@ -167,6 +171,12 @@ impl SourcePair {
 
         let content_hash = match release_mode {
             ReleaseMode::Event => {
+                // Read the variant before the removal, which erases the evidence.
+                let snippet_variant: &[u8] = if self.source.has_release_snippet(&chunk_id) {
+                    b"with-release"
+                } else {
+                    b"chunk-id-only"
+                };
                 self.remove_chunk_id(chunk_id.clone())?;
                 let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
                 // JSON serialization never contains a raw NUL, so it unambiguously separates
@@ -175,6 +185,8 @@ impl SourcePair {
                     self.source.inner.content.as_bytes(),
                     b"\0".as_slice(),
                     pristine_map.as_bytes(),
+                    b"\0".as_slice(),
+                    snippet_variant,
                 ]))
             }
             ReleaseMode::SymbolSet => None,

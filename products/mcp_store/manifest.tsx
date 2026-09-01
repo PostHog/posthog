@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
                 'Route every MCP server your team uses through one gateway: shared credentials, per-tool policies, agent identities, and an audit log.',
             layout: 'app-container',
             iconType: 'tools',
+            docsHref: 'https://posthog.com/docs/model-context-protocol',
         },
         McpGatewayServer: {
             import: () => import('./frontend/gateway/GatewayServerScene'),
