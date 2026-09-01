@@ -111,6 +111,23 @@ def measure_flag_evaluations_parity(
             + (f", skipped {skipped_activation} activated that day" if skipped_activation else "")
         )
 
+        # The shared cluster resource disables both ceilings (max_execution_time and
+        # max_memory_usage are "0"), so this comparison must cap itself: it runs on the
+        # cluster that serves customer queries and its group-by state grows with the
+        # $feature_flag_called uuids of the largest teams for a whole day. A per-query memory
+        # breach reports "for query", which the retry policy leaves alone -- unlike a total
+        # server breach or a socket timeout, which it retries up to 8 times -- so a heavy
+        # batch fails once instead of repeating at full cost. distributed_aggregation_memory_efficient
+        # streams each shard's (team_id, uuid) states rather than merging them all in the
+        # initiator. The ceilings are generous guardrails for a batch of teams_per_query
+        # teams; lower teams_per_query if a batch reaches them.
+        comparison_settings = {
+            **query_settings,
+            "max_execution_time": "600",
+            "max_memory_usage": str(100 * 1024**3),
+            "distributed_aggregation_memory_efficient": "1",
+        }
+
         checked: list[TeamParity] = []
         for start in range(0, len(teams), config.teams_per_query):
             batch = teams[start : start + config.teams_per_query]
@@ -144,7 +161,7 @@ def measure_flag_evaluations_parity(
                 GROUP BY team_id
                 """,
                 {"teams": batch, "day": day, "event": FLAG_EVALUATIONS_SOURCE_EVENT},
-                settings=query_settings,
+                settings=comparison_settings,
             )
             checked.extend(
                 TeamParity(
