@@ -90,6 +90,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-5.6-luna", "GPT-5.6 Luna"],
     ["@cf/zai-org/glm-5.2", "GLM-5.2"],
     ["moonshotai/kimi-k3", "Kimi K3"],
+    ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],
   ])("formats %s for Pi", (id, name) => {
     const models = resolvePosthogPiModelCatalog(
       [
@@ -120,7 +121,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     );
 
     expect(models).toEqual([
-      expect.objectContaining({ id: "new-model", name: "new-model" }),
+      expect.objectContaining({ id: "new-model", name: "New Model" }),
     ]);
   });
 
