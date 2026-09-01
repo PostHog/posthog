@@ -345,6 +345,10 @@ def _raise_on_failed_retry(state: RetryCallState) -> Response:
         # source treats as retryable instead of returning the 429 to the caller, whose
         # `raise_for_status()` would surface an HTTPError with the org slug in its URL.
         raise SentryRateLimitedError(SENTRY_RATE_LIMITED_MESSAGE)
+    # A persistent 5xx is returned unchanged, not raised here: several callers read the status to
+    # skip a single (issue, tag) or endpoint slice and keep the sync going (see
+    # `_skip_issue_on_tags_server_error` and the issue_tag_values values loop), which needs the
+    # response in hand.
     return response
 
 
