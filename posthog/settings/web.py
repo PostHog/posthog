@@ -586,7 +586,6 @@ SPECTACULAR_SETTINGS = {
             "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
             # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
             "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
-            "MCPInstallationScopeEnum": ["personal", "shared"],
             # Same field name as the installation scope above, different values.
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
             "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.SERVICE_ACCOUNT_STATUS_CHOICES",
@@ -594,9 +593,6 @@ SPECTACULAR_SETTINGS = {
             "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
             "MCPPolicyPresetEnum": "products.mcp_store.backend.models.POLICY_PRESET_CHOICES",
             "MCPAuditDecisionEnum": "products.mcp_store.backend.models.AUDIT_DECISION_CHOICES",
-            # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
-            "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
-            "NotebookSQLV2RefKindEnum": ["hogql", "local"],
             # Inline-choices variant of TaskRun.Status (labels == values), shared by
             # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
             "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
@@ -628,9 +624,6 @@ SPECTACULAR_SETTINGS = {
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
-            "PropertyGroupOperator": ["AND", "OR"],
-            # `mode` is a generic field name; name the Redshift batch-export mode set explicitly.
-            "RedshiftExportModeEnum": ["INSERT", "COPY"],
             # `severity` is shared by a data quality check, its overview projection, and the severity a
             # past run was judged at.
             "DataQualityCheckSeverityEnum": ["error", "warn"],
@@ -640,7 +633,6 @@ SPECTACULAR_SETTINGS = {
             "CanvasKindEnum": ["freeform", "grid", "component"],
             # `status`/`op`/`columns`/`schemaVersion` are generic field names; pin the grid layout sets.
             "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
-            "CanvasLayoutOpEnum": ["set_grid", "add_placement", "update_placement", "remove_placement"],
             # Integer choice sets need explicit (value, label) pairs; a bare list is
             # only matched for string choices.
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
@@ -664,10 +656,6 @@ SPECTACULAR_SETTINGS = {
             # Staff flags-cache warm-run status; 'state'/'scope' are collision-prone field names.
             "FlagsWarmRunStateEnum": ["running", "completed", "cancelled"],
             "FlagsWarmRunScopeEnum": ["all_teams", "teams_with_flags"],
-            # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
-            # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
-            # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
-            "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
             "ManagedWarehouseReadinessStateEnum": [
                 "not_configured",
                 "waiting",
@@ -682,10 +670,6 @@ SPECTACULAR_SETTINGS = {
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
             # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
             "VerdictEnum": ["yes", "no", "inconclusive"],
-            # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
-            # choice set (top-level column vs span attribute vs resource attribute).
-            "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
-            "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
             # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
             # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
             # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
@@ -732,20 +716,7 @@ SPECTACULAR_SETTINGS = {
                 "7day",
                 "30day",
             ],
-            # Two unrelated products now expose a `blocked_by` ChoiceField. Collision resolution keys off
-            # how many choice sets share the field name and ignores overrides, so pinning only one still
-            # component-prefixes the other. Both are pinned to keep either name stable as more appear.
-            "SyncFrequencyBlockedByEnum": ["source", "consumer"],
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
-            # Signals now has two serializers (single SignalReportStateRequest + bulk
-            # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
-            # shared enum to a stable name so it doesn't collide with the other `state` enums
-            # (tasks, cdp) into a component-prefixed auto-name.
-            "SignalReportStateEnum": ["suppressed", "potential", "resolved"],
-            # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
-            # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
-            # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
-            "OpEnum": ["eq", "neq", "regex", "not_regex"],
             "EmailTemplateDesignOperationEnum": [
                 "update_content",
                 "update_column",
@@ -790,14 +761,7 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "AssigneeTypeEnum": ["user", "role"],
-            "ScoutOriginEnum": ["canonical", "custom"],
-            "FileFormatEnum": ["Parquet", "JSONLines"],
-            "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
-            "MetricQueryIntervalEnum": ["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
-            "MetricAnomalyDirectionEnum": ["up", "down", "flat"],
-            "WoWChangeDirectionEnum": ["Up", "Down"],
             "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
-            "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
@@ -812,10 +776,7 @@ SPECTACULAR_SETTINGS = {
             "SurveyResultsWidgetTypeEnum": ["survey_results"],
             "LogsListWidgetTypeEnum": ["logs_list"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
-            "OrderByEnum": ["latest", "earliest"],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
-            "ExistenceOperatorEnum": ["is_set", "is_not_set"],
-            "TaskExecutionModeEnum": ["interactive", "background"],
             # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
@@ -828,9 +789,6 @@ SPECTACULAR_SETTINGS = {
                 "full-access",
                 None,
             ],
-            "HogFunctionTemplatingEnum": ["hog", "liquid"],
-            "HogFlowEdgeTypeEnum": ["continue", "branch"],
-            "SourceMatchEnum": ["none", "auto", "mapped"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
             "TaskRunArtifactTypeEnum": [
                 "plan",
@@ -847,25 +805,8 @@ SPECTACULAR_SETTINGS = {
             # Same-value collisions: identical choice sets appear on fields with different names.
             # href_matching, text_matching, url_matching on ActionStep all share the same choices.
             "ActionStepMatchingEnum": ["contains", "regex", "exact"],
-            # descriptionContentType and thankYouMessageDescriptionContentType share values.
-            "DescriptionContentTypeEnum": ["text", "html"],
-            # Field-name collisions: multiple different choice sets use the same field name
-            # across different serializer components.
-            "StringMatchOperatorEnum": [
-                "exact",
-                "is_not",
-                "icontains",
-                "not_icontains",
-                "starts_with",
-                "not_starts_with",
-                "ends_with",
-                "not_ends_with",
-                "regex",
-                "not_regex",
-            ],
             # Survey url/device match types keep the operator subset without starts_with/ends_with.
             "SurveyMatchTypeEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
-            "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
             "DetailModeValueEnum": ["minimal", "detailed"],
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             # runtime_adapter on TaskRunCreateRequestSerializer (full set) vs
@@ -873,10 +814,6 @@ SPECTACULAR_SETTINGS = {
             "RuntimeAdapterEnum": ["claude", "codex"],
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
-            # StaffCacheEntryResponse.source and StaffCacheEntryStatus.source share the same
-            # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
-            # to a hash name.
-            "StaffCacheSourceEnum": ["redis", "miss"],
             # StaffCacheEntryQuery/Response's singular `cache` field and StaffCacheMutation's
             # `caches` list item share the same evaluation/definitions choice set. Pin to a
             # stable name so "cache" and "caches" don't collide into a hash name.

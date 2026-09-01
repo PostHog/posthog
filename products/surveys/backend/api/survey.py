@@ -8,7 +8,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Min, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
@@ -407,6 +407,11 @@ class SurveyQuestionValidationRuleSerializer(serializers.Serializer):
     )
 
 
+class DescriptionContentType(models.TextChoices):
+    TEXT = "text", "text"
+    HTML = "html", "html"
+
+
 class SurveyBaseQuestionSchemaSerializer(serializers.Serializer):
     id = serializers.CharField(
         required=False,
@@ -424,7 +429,7 @@ class SurveyBaseQuestionSchemaSerializer(serializers.Serializer):
     question = serializers.CharField(required=True, help_text="Question text shown to respondents.")
     description = serializers.CharField(required=False, allow_blank=True, help_text="Optional helper text.")
     descriptionContentType = serializers.ChoiceField(
-        choices=["text", "html"],
+        choices=DescriptionContentType.choices,
         required=False,
         help_text="Format for the description field.",
     )

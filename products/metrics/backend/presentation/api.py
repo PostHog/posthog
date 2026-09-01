@@ -8,6 +8,7 @@ import datetime as dt
 from dataclasses import asdict
 from typing import cast
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -51,13 +52,26 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp, Metr
 __all__ = ["MetricsViewSet"]
 
 
+class MetricAttributeScope(models.TextChoices):
+    RESOURCE = "resource", "resource"
+    ATTRIBUTE = "attribute", "attribute"
+    AUTO = "auto", "auto"
+
+
+class Op(models.TextChoices):
+    EQ = "eq", "eq"
+    NEQ = "neq", "neq"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class _MetricFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
     )
     op = serializers.ChoiceField(
-        choices=["eq", "neq", "regex", "not_regex"],
+        choices=Op.choices,
         default="eq",
         help_text="Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.",
     )
@@ -67,7 +81,7 @@ class _MetricFilterSerializer(serializers.Serializer):
         help_text="Value to compare against. For regex operators this is the pattern.",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.",
     )
@@ -79,7 +93,7 @@ class _MetricGroupBySerializer(serializers.Serializer):
         help_text="Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.",
     )
@@ -126,6 +140,17 @@ class _MetricClauseSerializer(serializers.Serializer):
     )
 
 
+class MetricQueryInterval(models.TextChoices):
+    SECOND = "second", "second"
+    MINUTE = "minute", "minute"
+    MINUTE_5 = "minute_5", "minute_5"
+    MINUTE_15 = "minute_15", "minute_15"
+    HOUR = "hour", "hour"
+    HOUR_6 = "hour_6", "hour_6"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -163,7 +188,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         required=False,
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
@@ -332,6 +357,12 @@ class _MetricAnomalyDimensionSerializer(serializers.Serializer):
     )
 
 
+class MetricAnomalyDirection(models.TextChoices):
+    UP = "up", "up"
+    DOWN = "down", "down"
+    FLAT = "flat", "flat"
+
+
 class _MetricAnomalyReportSerializer(serializers.Serializer):
     metric_name = serializers.CharField(help_text="Metric that was characterized.")
     aggregation = serializers.CharField(help_text="Aggregation used (auto-picked when not specified).")
@@ -348,7 +379,7 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
         help_text="anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself."
     )
     direction = serializers.ChoiceField(
-        choices=["up", "down", "flat"], help_text="Which way the metric moved versus the baseline."
+        choices=MetricAnomalyDirection.choices, help_text="Which way the metric moved versus the baseline."
     )
     onset_time = serializers.CharField(
         allow_null=True,
@@ -674,7 +705,7 @@ class _MetricExplainBodySerializer(serializers.Serializer):
         help_text="Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         help_text="Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.",
     )
 

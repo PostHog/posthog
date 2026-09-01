@@ -5,7 +5,7 @@ import datetime as dt
 import posixpath
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import connection, models, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 
@@ -51,10 +51,15 @@ _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
 )
 
 
+class FileFormat(models.TextChoices):
+    PARQUET = "Parquet", "Parquet"
+    JSONLINES = "JSONLines", "JSONLines"
+
+
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     """Typed configuration for a FileDownload batch-export destination."""
 
-    format = serializers.ChoiceField(choices=["Parquet", "JSONLines"], default="Parquet", help_text="File format")
+    format = serializers.ChoiceField(choices=FileFormat.choices, default="Parquet", help_text="File format")
     compression = serializers.ChoiceField(
         choices=["zstd", "gzip", "brotli", "lz4", "snappy"],
         required=False,

@@ -7,6 +7,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.core.cache import caches
 from django.core.cache.backends.base import BaseCache
+from django.db import models
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -76,9 +77,14 @@ class StaffCacheStatusQuerySerializer(serializers.Serializer):
     )
 
 
+class StaffCacheSource(models.TextChoices):
+    REDIS = "redis", "redis"
+    MISS = "miss", "miss"
+
+
 def _cache_source_field() -> serializers.ChoiceField:
     return serializers.ChoiceField(
-        choices=["redis", "miss"],
+        choices=StaffCacheSource.choices,
         help_text="'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.",
     )
 

@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -975,10 +975,15 @@ class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
+class HogFlowEdgeType(models.TextChoices):
+    CONTINUE = "continue", "continue"
+    BRANCH = "branch", "branch"
+
+
 class HogFlowEdgeSerializer(serializers.Serializer):
     to = serializers.CharField(help_text="Target action id.")
     type = serializers.ChoiceField(
-        choices=["continue", "branch"],
+        choices=HogFlowEdgeType.choices,
         help_text=(
             "continue: fall-through (sequential or the no-match path of conditional_branch). "
             "branch: requires 'index' matching config.conditions[index]."

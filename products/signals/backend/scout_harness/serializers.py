@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from django.db import models
 from django.utils import timezone
 
 import structlog
@@ -2370,6 +2371,11 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+class ScoutOrigin(models.TextChoices):
+    CANONICAL = "canonical", "canonical"
+    CUSTOM = "custom", "custom"
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2543,7 +2549,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.description if info else ""
 
-    @extend_schema_field(serializers.ChoiceField(choices=["canonical", "custom"]))
+    @extend_schema_field(serializers.ChoiceField(choices=ScoutOrigin.choices))
     def get_scout_origin(self, obj: SignalScoutConfig) -> str:
         # Same single-query `skill_info` map as `get_description`. Falls back to `custom` when
         # the skill row is absent — a config with no skill row isn't a canonical scout.
