@@ -853,6 +853,11 @@ class ErrorTrackingQueryBuilder:
             or_exprs: list[ast.Expr] = []
             props_to_search = {
                 ("e", "properties"): [
+                    # `$exception_list` is the raw exception chain, so a substring
+                    # match over it reaches every stack frame field (filename,
+                    # module, function, context line) that the flattened arrays
+                    # below leave out.
+                    "$exception_list",
                     "$exception_types",
                     "$exception_values",
                     "$exception_sources",

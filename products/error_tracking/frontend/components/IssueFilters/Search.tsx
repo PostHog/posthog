@@ -10,7 +10,7 @@ import { issueFiltersLogic } from './issueFiltersLogic'
 
 export function IssueSearchInput({
     className,
-    placeholder = 'Search issues',
+    placeholder = 'Search error type, message, or stack trace',
     endAddon,
 }: {
     className?: string
