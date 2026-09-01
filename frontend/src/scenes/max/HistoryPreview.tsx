@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { ConversationStatus, ConversationType } from '~/types'
 
+import { ConversationHistoryProjectScope } from './ConversationHistoryProjectScope'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getSlackThreadUrl } from './utils'
 
@@ -26,7 +27,10 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     return (
         <div className={cn('max-w-120 w-full self-center flex flex-col gap-2', sidePanel && 'px-3')}>
             <div className={cn('flex items-center justify-between gap-2', !sidePanel && '-mr-2')}>
-                <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                    <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
+                    <ConversationHistoryProjectScope className="text-xs" />
+                </div>
                 <LemonButton
                     size="small"
                     onClick={() => toggleConversationHistory()}

@@ -12,6 +12,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { openDeleteConversationDialog } from './conversationDialogs'
+import { ConversationHistoryProjectScope } from './ConversationHistoryProjectScope'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getSlackThreadUrl } from './utils'
 
@@ -28,6 +29,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
     if (compact) {
         return (
             <div className="flex flex-col gap-1 w-full pb-10">
+                <ConversationHistoryProjectScope className="text-xs px-1 pb-1" />
                 {conversationHistory.length > 0 ? (
                     conversationHistory.map((conversation) => (
                         <CompactConversationCard
@@ -45,7 +47,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
                     </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
-                        <p className="text-sm mb-0">No chats yet</p>
+                        <p className="text-sm mb-0">No chats in this project yet</p>
                     </div>
                 )}
             </div>
@@ -57,6 +59,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
             className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg"
             data-attr="max-conversation-history"
         >
+            <ConversationHistoryProjectScope />
             {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (
                     <ConversationCard
