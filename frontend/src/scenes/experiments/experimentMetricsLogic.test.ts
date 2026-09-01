@@ -902,6 +902,62 @@ describe('experimentMetricsLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(createMock).toHaveBeenCalledTimes(2)
         })
+
+        it('coalesces multiple queued config changes into a single rerun at the stronger scope', async () => {
+            const createMock = jest.fn(() => [201, pendingRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        inProgressRecalculation,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            // Flush the afterMount → 404 → cold-run trigger → poll(create) chain before queuing.
+            await jest.advanceTimersByTimeAsync(0)
+
+            // Two config changes arrive while the cold run is still active: they coalesce to the
+            // stronger scope instead of posting twice, so exactly one rerun fires later.
+            logic.actions.triggerRecalculation('metric_config_change')
+            expect(logic.values.queuedRerun).toBe('metric_config_change')
+            logic.actions.triggerRecalculation('experiment_config_change')
+            expect(logic.values.queuedRerun).toBe('experiment_config_change')
+
+            // Still one active run: neither queued change posted a create.
+            expect(createMock).toHaveBeenCalledTimes(1)
+
+            // Now let the active run reach terminal; the retrieve mock always answers 'in_progress', so
+            // repoint it to 'completed' for the tick that follows.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+
+            await expectLogic(logic, async () => {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }).toDispatchActions([
+                (a) => a.type === logic.actionTypes.setQueuedRerun && a.payload.trigger === null,
+                (a) =>
+                    a.type === logic.actionTypes.triggerRecalculation &&
+                    a.payload.trigger === 'experiment_config_change',
+            ])
+
+            expect(logic.values.queuedRerun).toBeNull()
+            // Exactly one fresh rerun fired, coalesced to the stronger scope.
+            await jest.advanceTimersByTimeAsync(0)
+            expect(createMock).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('liveRowsProgress', () => {
