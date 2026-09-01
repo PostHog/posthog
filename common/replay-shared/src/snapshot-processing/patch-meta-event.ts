@@ -3,10 +3,15 @@ import { EventType } from 'posthog-js/rrweb-types'
 import { RecordingSnapshot } from '../types'
 import { isObject } from '../utils'
 
+// How a fabricated viewport was resolved. Used only for telemetry on the meta-patching path,
+// so we can tell whether an invented viewport came from a same-window event or a weaker fallback.
+export type ViewportSource = 'mobile-snapshot' | 'event-window' | 'event-fallback'
+
 export interface ViewportResolution {
     width: string
     height: string
     href: string
+    source?: ViewportSource
 }
 
 export const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
