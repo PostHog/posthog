@@ -195,6 +195,9 @@ rules:
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
+                              |GeneratedWidget
+                              |GeneratedWidgetGenerationJob
+                              |GeneratedWidgetVersion
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -235,6 +238,7 @@ rules:
                               |LogsView
                               |Loop
                               |LoopFire
+                              |NotebookWidgetInstance
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -573,6 +577,9 @@ rules:
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
+                        |GeneratedWidget
+                        |GeneratedWidgetGenerationJob
+                        |GeneratedWidgetVersion
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig
@@ -609,6 +616,7 @@ rules:
                         |Loop
                         |LoopFire
                         |LoopTrigger
+                        |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptLabel

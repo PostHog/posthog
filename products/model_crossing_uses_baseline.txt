@@ -115,6 +115,7 @@ posthog.Integration slack_app.SlackThreadTaskMapping.integration reverse-accesso
 posthog.Integration slack_app.SlackUserProfileCache.integration reverse-accessor(slack_user_profile_cache) 1
 posthog.Integration tasks.SandboxSnapshot.integration reverse-accessor(snapshots) 1
 posthog.Integration tasks.Task.github_integration reverse-accessor(task_set) 1
+posthog.Integration warehouse_sources.ExternalDataDestination.integration reverse-accessor(externaldatadestination_set) 1
 posthog.Organization access_control.OrganizationResourceAccess.organization reverse-accessor(resource_access) 1
 posthog.Organization access_control.Role.organization reverse-accessor(roles) 1
 posthog.Organization access_control.RoleExternalReference.organization reverse-accessor(role_external_references) 1
@@ -390,10 +391,13 @@ posthog.Team user_interviews.UserInterviewTopic.team reverse-accessor(userinterv
 posthog.Team warehouse_sources.CustomOAuth2Integration.team reverse-accessor(customoauth2integration_set) 1
 posthog.Team warehouse_sources.DataWarehouseCredential.team reverse-accessor(datawarehousecredential_set) 1
 posthog.Team warehouse_sources.DataWarehouseTable.team reverse-accessor(datawarehousetable_set) 1
+posthog.Team warehouse_sources.ExternalDataDestination.team reverse-accessor(externaldatadestination_set) 1
 posthog.Team warehouse_sources.ExternalDataJob.team reverse-accessor(externaldatajob_set) 1
 posthog.Team warehouse_sources.ExternalDataSchema.team reverse-accessor(externaldataschema_set) 1
+posthog.Team warehouse_sources.ExternalDataSchemaDestination.team reverse-accessor(externaldataschemadestination_set) 1
 posthog.Team warehouse_sources.ExternalDataSchemaOOMEvent.team reverse-accessor(externaldataschemaoomevent_set) 1
 posthog.Team warehouse_sources.ExternalDataSource.team reverse-accessor(externaldatasource_set) 1
+posthog.Team warehouse_sources.ExternalDataSourceDestination.team reverse-accessor(externaldatasourcedestination_set) 1
 posthog.Team warehouse_sources.PendingSourceCredential.team reverse-accessor(pendingsourcecredential_set) 1
 posthog.Team warehouse_sources.WarehouseColumnAnnotation.team reverse-accessor(warehousecolumnannotation_set) 1
 posthog.Team warehouse_sources.WarehouseColumnStatistics.team reverse-accessor(warehousecolumnstatistics_set) 1
@@ -574,6 +578,7 @@ posthog.User user_interviews.UserInterviewTopic.created_by reverse-accessor(user
 posthog.User warehouse_sources.CustomOAuth2Integration.created_by reverse-accessor(customoauth2integration_set) 1
 posthog.User warehouse_sources.DataWarehouseCredential.created_by reverse-accessor(datawarehousecredential_set) 1
 posthog.User warehouse_sources.DataWarehouseTable.created_by reverse-accessor(datawarehousetable_set) 1
+posthog.User warehouse_sources.ExternalDataDestination.created_by reverse-accessor(externaldatadestination_set) 1
 posthog.User warehouse_sources.ExternalDataJob.created_by reverse-accessor(externaldatajob_set) 1
 posthog.User warehouse_sources.ExternalDataSchema.created_by reverse-accessor(externaldataschema_set) 1
 posthog.User warehouse_sources.ExternalDataSource.created_by reverse-accessor(externaldatasource_set) 1

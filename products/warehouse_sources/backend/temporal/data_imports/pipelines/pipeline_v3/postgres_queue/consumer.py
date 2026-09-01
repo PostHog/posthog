@@ -245,26 +245,6 @@ class DeltaBatchConsumerAdapter:
             logger.exception("fail_run_queue_update_failed", batch_id=batch.id, run_uuid=batch.run_uuid)
             capture_exception(e)
 
-        try:
-            await sync_to_async(_update_job_status_to_failed)(
-                job_id=batch.job_id,
-                team_id=batch.team_id,
-                error=reason,
-                run_uuid=batch.run_uuid,
-            )
-        except Exception as e:
-            # Leave the job for the reconcile sweep rather than crashing the consumer.
-            if is_transient_db_error(e):
-                logger.warning(
-                    "fail_run_job_status_update_app_db_not_ready",
-                    job_id=batch.job_id,
-                    run_uuid=batch.run_uuid,
-                    error=str(e),
-                )
-            else:
-                logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
-                capture_exception(e)
-
         # A run that will not finish leaves scratch tables behind in someone else's database:
         # a full refresh's staging table, and the run's merge stage. Nothing else drops them,
         # because the next run stages under its own id.
@@ -286,6 +266,26 @@ class DeltaBatchConsumerAdapter:
                     run_uuid=batch.run_uuid,
                     error=str(e),
                 )
+
+        try:
+            await sync_to_async(_update_job_status_to_failed)(
+                job_id=batch.job_id,
+                team_id=batch.team_id,
+                error=reason,
+                run_uuid=batch.run_uuid,
+            )
+        except Exception as e:
+            # Leave the job for the reconcile sweep rather than crashing the consumer.
+            if is_transient_db_error(e):
+                logger.warning(
+                    "fail_run_job_status_update_app_db_not_ready",
+                    job_id=batch.job_id,
+                    run_uuid=batch.run_uuid,
+                    error=str(e),
+                )
+            else:
+                logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
+                capture_exception(e)
 
         if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
             try:
