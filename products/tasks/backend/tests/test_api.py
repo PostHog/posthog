@@ -221,7 +221,7 @@ class BaseTaskAPITest(TestCase):
         if hasattr(self, "feature_flag_patcher"):
             self.feature_flag_patcher.stop()
 
-        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
         def check_flag(flag_name, *_args, **_kwargs):
@@ -1353,6 +1353,24 @@ class TestTaskAPI(BaseTaskAPITest):
         ).upper()
         self.assertIn("EXISTS", query_sql)
         self.assertNotIn("SELECT DISTINCT", query_sql)
+
+    def test_list_tasks_hog_flow_id_filter(self):
+        hog_flow_id = uuid.uuid4()
+        workflow_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Workflow task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.WORKFLOW,
+            hog_flow_id=hog_flow_id,
+        )
+        self.create_task("Unrelated task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/?hog_flow_id={hog_flow_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(workflow_task.id))
 
     def test_list_tasks_count_matches_queryset(self):
         for i in range(4):
@@ -6643,12 +6661,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_open_and_edit(
-        self, mock_integration_for_mapping, _mock_canvas_file_flag, _mock_living_artifacts_flag
-    ):
+    def test_living_artifact_create_open_and_edit(self, mock_integration_for_mapping):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -6731,19 +6745,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("s3", json.dumps(response.json()))
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_slack_file_from_base64(
-        self,
-        mock_integration_for_mapping,
-        mock_write,
-        _mock_tag,
-        _mock_canvas_file_flag,
-        _mock_living_artifacts_flag,
-    ):
+    def test_living_artifact_create_slack_file_from_base64(self, mock_integration_for_mapping, mock_write, _mock_tag):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(

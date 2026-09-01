@@ -1970,6 +1970,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    hog_flow_id = serializers.UUIDField(
+        required=False, help_text="Filter tasks to the runs spawned by this workflow's 'Create AI task' action."
+    )
     ordering = serializers.ChoiceField(
         required=False,
         choices=sorted(tasks_facade.TASK_LIST_ORDERINGS),
@@ -2031,6 +2034,7 @@ class ChannelSerializer(DataclassSerializer):
             "channel_type",
             "github_integration",
             "repositories",
+            "auto_archive_after_days",
             "created_at",
             "created_by",
             "starred",
@@ -2154,6 +2158,13 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
+    )
+    auto_archive_after_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
     )
 
     def validate_name(self, value: str) -> str:
@@ -3290,7 +3301,11 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_null=True,
-        help_text="Primary key of the team's GitHub integration to clone with when a repository is selected.",
+        help_text=(
+            "Primary key of the team's GitHub integration. Required when a repository is selected (it is "
+            "what the sandbox clones with). Accepted without a repository too: the warm Run then boots "
+            "with that integration's GitHub credentials, matching a repo-less create that carries it."
+        ),
     )
     branch = serializers.CharField(
         required=False,
@@ -3369,10 +3384,12 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs):
-        if bool(attrs.get("repository")) != bool(attrs.get("github_integration")):
-            raise serializers.ValidationError(
-                "Repository and GitHub integration must either both be provided or both be omitted."
-            )
+        # A repository needs an integration to clone with. The reverse is allowed: the create path
+        # accepts and stores an integration on a repo-less task, and the sandbox uses it to mint a
+        # GitHub token, so a repo-less warm must carry the same integration to boot with the same
+        # credentials and to match that create on reuse.
+        if attrs.get("repository") and not attrs.get("github_integration"):
+            raise serializers.ValidationError("GitHub integration is required when a repository is provided.")
 
         # Warming starts the agent on this model, so it bills like a run and gates like one.
         model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
@@ -4199,18 +4216,18 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=["heartbeat", "awaiting_input"],
+        choices=["heartbeat", "awaiting_input", "command_dispatched", "agent_activity"],
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input."
+            "interactive run finishes a turn and is waiting for user input. 'command_dispatched' "
+            "and 'agent_activity' record boot milestones."
         ),
     )
     agent_active = serializers.BooleanField(
         help_text=(
             "Whether the agent is currently active (true) or idle (false). "
-            "For 'heartbeat' callbacks this is always true. "
-            "For 'awaiting_input' callbacks this is always false."
+            "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
     task_id = serializers.CharField(

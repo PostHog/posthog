@@ -2014,6 +2014,17 @@
             "label": "Issue name",
             "type": "String"
         },
+        "$issue_severity": {
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "label": "Issue severity",
+            "type": "String"
+        },
         "$last_posthog_reset": {
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
@@ -7004,6 +7015,17 @@
         "$issue_name": {
             "description": "The name of the error tracking issue this exception belongs to.",
             "label": "Issue name",
+            "type": "String"
+        },
+        "$issue_severity": {
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "label": "Issue severity",
             "type": "String"
         },
         "$last_posthog_reset": {

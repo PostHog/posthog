@@ -1074,6 +1074,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsNotifications": {
         "template": "/mcp-analytics/notifications",
         "params": [],

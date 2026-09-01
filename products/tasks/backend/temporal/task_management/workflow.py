@@ -605,9 +605,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         for task in done:
             if task.exception():
                 workflow.logger.warning(
-                    "task_management_event_wait_failed",
-                    run_id=self._run_id,
-                    error=str(task.exception()),
+                    "task_management_event_wait_failed", extra={"run_id": self._run_id, "error": str(task.exception())}
                 )
                 continue
             return task.result()
@@ -634,15 +632,11 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 await self._wait_before_replacement_sandbox()
                 workflow.logger.info(
                     "task_management_rebootstrapping_for_followup",
-                    run_id=self._run_id,
-                    pending=len(self._pending_external_followups),
+                    extra={"run_id": self._run_id, "pending": len(self._pending_external_followups)},
                 )
                 await self._ensure_sandbox_workflow_started()
             elif self._pending_external_complete is not None:
-                workflow.logger.info(
-                    "task_management_complete_dropped_no_sandbox",
-                    run_id=self._run_id,
-                )
+                workflow.logger.info("task_management_complete_dropped_no_sandbox", extra={"run_id": self._run_id})
                 self._pending_external_complete = None
                 return
 
@@ -683,9 +677,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             if slot is None:
                 workflow.logger.debug(
                     "task_management_ack_unmatched",
-                    run_id=self._run_id,
-                    signal_name=ack.signal_name,
-                    ack_id=ack.ack_id,
+                    extra={"run_id": self._run_id, "signal_name": ack.signal_name, "ack_id": ack.ack_id},
                 )
                 continue
             if not ack.accepted and ack.detail == SHUTDOWN_REJECTION_DETAIL:
@@ -701,12 +693,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 self._consecutive_sandbox_replacement_failures = 0
             workflow.logger.info(
                 "task_management_ack_received",
-                run_id=self._run_id,
-                signal_name=ack.signal_name,
-                ack_id=ack.ack_id,
-                accepted=ack.accepted,
-                latency_ms=int((ack.received_at - slot.sent_at).total_seconds() * 1000),
-                detail=ack.detail,
+                extra={
+                    "run_id": self._run_id,
+                    "signal_name": ack.signal_name,
+                    "ack_id": ack.ack_id,
+                    "accepted": ack.accepted,
+                    "latency_ms": int((ack.received_at - slot.sent_at).total_seconds() * 1000),
+                    "detail": ack.detail,
+                },
             )
         self._heartbeat_received = False
         for followup in requeued_followups:
@@ -723,14 +717,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
         if slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL} and slot.signal_args is not None:
             workflow.logger.warning(
                 "task_management_followup_requeued_after_shutdown",
-                run_id=self._run_id,
-                source=slot.signal_args[3],
+                extra={"run_id": self._run_id, "source": slot.signal_args[3]},
             )
             return self._external_followup_from_slot(slot)
         workflow.logger.info(
             "task_management_shutdown_rejection_ignored",
-            run_id=self._run_id,
-            signal_name=slot.signal_name,
+            extra={"run_id": self._run_id, "signal_name": slot.signal_name},
         )
         return None
 
@@ -793,17 +785,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 )
             workflow.logger.warning(
                 "task_management_sandbox_replacement_budget_persist_failed",
-                run_id=self._run_id,
-                consecutive_failures=failures,
+                extra={"run_id": self._run_id, "consecutive_failures": failures},
             )
         if failures == 0:
             return
         delay_seconds = min(2 ** (failures - 1), MAX_SANDBOX_REPLACEMENT_BACKOFF_SECONDS)
         workflow.logger.warning(
             "task_management_sandbox_replacement_backoff",
-            run_id=self._run_id,
-            consecutive_failures=failures,
-            delay_seconds=delay_seconds,
+            extra={"run_id": self._run_id, "consecutive_failures": failures, "delay_seconds": delay_seconds},
         )
         await workflow.sleep(delay_seconds)
 
@@ -832,9 +821,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             self._record_sandbox_replacement_failure()
         workflow.logger.warning(
             "task_management_closed_sandbox_recovered",
-            run_id=self._run_id,
-            requeued=requeued,
-            error=str(error),
+            extra={"run_id": self._run_id, "requeued": requeued, "error": str(error)},
         )
         self._pending_ack_slots.clear()
         self._child_acks.clear()
@@ -864,11 +851,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
         assert completion is not None
         workflow.logger.info(
             "task_management_sandbox_session_ended",
-            run_id=self._run_id,
-            success=completion.success,
-            sandbox_id=completion.sandbox_id,
-            timed_out=completion.timed_out,
-            error=completion.error,
+            extra={
+                "run_id": self._run_id,
+                "success": completion.success,
+                "sandbox_id": completion.sandbox_id,
+                "timed_out": completion.timed_out,
+                "error": completion.error,
+            },
         )
 
         # Best-effort re-queue: any followup slot still awaiting an ACK at
@@ -882,9 +871,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 requeued += 1
         if requeued:
             workflow.logger.warning(
-                "task_management_unacked_followups_requeued",
-                run_id=self._run_id,
-                count=requeued,
+                "task_management_unacked_followups_requeued", extra={"run_id": self._run_id, "count": requeued}
             )
             self._record_sandbox_replacement_failure()
 
@@ -919,9 +906,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             )
         except Exception as e:
             workflow.logger.warning(
-                "task_management_restore_pending_failed",
-                run_id=self._run_id,
-                error=str(e),
+                "task_management_restore_pending_failed", extra={"run_id": self._run_id, "error": str(e)}
             )
             return
         if not result.followups:
@@ -952,9 +937,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # call detects state-vs-DB equality and skips a redundant write.
         self._last_persisted_followups = [asdict(f) for f in self._pending_external_followups]
         workflow.logger.info(
-            "task_management_restored_pending_followups",
-            run_id=self._run_id,
-            count=len(result.followups),
+            "task_management_restored_pending_followups", extra={"run_id": self._run_id, "count": len(result.followups)}
         )
 
     async def _persist_pending_followups(self) -> bool:
@@ -994,9 +977,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return True
         except Exception as e:
             workflow.logger.warning(
-                "task_management_persist_pending_failed",
-                run_id=self._run_id,
-                error=str(e),
+                "task_management_persist_pending_failed", extra={"run_id": self._run_id, "error": str(e)}
             )
             return False
 
@@ -1113,9 +1094,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
     ) -> bool | None:
         if self._sandbox_workflow_id is None:
             workflow.logger.warning(
-                "task_management_followup_dropped_no_sandbox",
-                run_id=self._run_id,
-                source=source,
+                "task_management_followup_dropped_no_sandbox", extra={"run_id": self._run_id, "source": source}
             )
             return None
         ack_id = self._new_ack_id()
@@ -1157,9 +1136,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             # branch the design relies on.
             workflow.logger.warning(
                 "task_management_signal_followup_failed",
-                run_id=self._run_id,
-                source=source,
-                error=str(e),
+                extra={"run_id": self._run_id, "source": source, "error": str(e)},
             )
         return True
 
@@ -1183,9 +1160,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 await self._recover_closed_sandbox(e)
                 return
             workflow.logger.warning(
-                "task_management_signal_complete_failed",
-                run_id=self._run_id,
-                error=str(e),
+                "task_management_signal_complete_failed", extra={"run_id": self._run_id, "error": str(e)}
             )
 
     async def _retry_stale_acks(self) -> None:
@@ -1205,18 +1180,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
             if slot.retry_count >= MAX_ACK_RETRIES:
                 workflow.logger.warning(
                     "task_management_ack_retry_exhausted",
-                    run_id=self._run_id,
-                    ack_id=ack_id,
-                    signal_name=slot.signal_name,
+                    extra={"run_id": self._run_id, "ack_id": ack_id, "signal_name": slot.signal_name},
                 )
                 self._pending_ack_slots.pop(ack_id, None)
                 continue
             if slot.signal_args is None:
                 workflow.logger.warning(
                     "task_management_ack_retry_skipped_no_args",
-                    run_id=self._run_id,
-                    ack_id=ack_id,
-                    signal_name=slot.signal_name,
+                    extra={"run_id": self._run_id, "ack_id": ack_id, "signal_name": slot.signal_name},
                 )
                 self._pending_ack_slots.pop(ack_id, None)
                 continue
@@ -1226,10 +1197,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 slot.retry_count += 1
                 workflow.logger.info(
                     "task_management_ack_retry",
-                    run_id=self._run_id,
-                    ack_id=ack_id,
-                    signal_name=slot.signal_name,
-                    retry_count=slot.retry_count,
+                    extra={
+                        "run_id": self._run_id,
+                        "ack_id": ack_id,
+                        "signal_name": slot.signal_name,
+                        "retry_count": slot.retry_count,
+                    },
                 )
             except Exception as e:
                 if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY):
@@ -1239,10 +1212,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 # at the next deadline rather than push it out by ACK_TIMEOUT.
                 workflow.logger.warning(
                     "task_management_ack_retry_failed",
-                    run_id=self._run_id,
-                    ack_id=ack_id,
-                    signal_name=slot.signal_name,
-                    error=str(e),
+                    extra={"run_id": self._run_id, "ack_id": ack_id, "signal_name": slot.signal_name, "error": str(e)},
                 )
 
     def _new_ack_id(self) -> str:
@@ -1262,10 +1232,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 # No PR will ever appear — stop the CI loop entirely so the
                 # CI timer branch drops out of the wait set.
                 self._ci_repetitions = MAX_CI_REPETITIONS
-                workflow.logger.info(
-                    "task_management_ci_loop_stopped_no_pr",
-                    run_id=self._run_id,
-                )
+                workflow.logger.info("task_management_ci_loop_stopped_no_pr", extra={"run_id": self._run_id})
             case CIFollowUpDecision.SKIP:
                 # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
                 # Mirrors process_task: without this, the next iteration
@@ -1286,9 +1253,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return CIFollowUpDecision.NO_PR
         if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
-                "task_management_ci_skipped_pr_closed",
-                run_id=self._run_id,
-                pr_url=pr_context.pr_url,
+                "task_management_ci_skipped_pr_closed", extra={"run_id": self._run_id, "pr_url": pr_context.pr_url}
             )
             return CIFollowUpDecision.SKIP
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
@@ -1305,23 +1270,23 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._pr_unresolved_threads = pr_context.unresolved_threads
         if not fingerprint_changed and not new_feedback:
             workflow.logger.info(
-                "task_management_ci_skipped_pr_unchanged",
-                run_id=self._run_id,
-                pr_url=pr_context.pr_url,
+                "task_management_ci_skipped_pr_unchanged", extra={"run_id": self._run_id, "pr_url": pr_context.pr_url}
             )
             return CIFollowUpDecision.SKIP
         self._pr_fingerprint = pr_context.fingerprint
         fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
         workflow.logger.info(
             "task_management_ci_decision",
-            run_id=self._run_id,
-            pr_url=pr_context.pr_url,
-            ci_status=pr_context.ci_status,
-            changes_requested=pr_context.changes_requested,
-            unresolved_threads=pr_context.unresolved_threads,
-            new_feedback=new_feedback,
-            fire=fire,
-            repetitions=self._ci_repetitions,
+            extra={
+                "run_id": self._run_id,
+                "pr_url": pr_context.pr_url,
+                "ci_status": pr_context.ci_status,
+                "changes_requested": pr_context.changes_requested,
+                "unresolved_threads": pr_context.unresolved_threads,
+                "new_feedback": new_feedback,
+                "fire": fire,
+                "repetitions": self._ci_repetitions,
+            },
         )
         return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
 

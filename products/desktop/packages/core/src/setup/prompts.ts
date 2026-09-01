@@ -1,11 +1,5 @@
 import { BASE_CATEGORY_ENUM } from "@posthog/core/setup/types";
 
-export const WIZARD_PROMPT = `/instrument-integration
-
-After the integration is wired up, also instrument error tracking and session replay (run \`/instrument-error-tracking\`, then add session replay if the framework's posthog-js config supports it).
-
-Run autonomously with sensible defaults — do not ask the user questions. If the PostHog API key isn't already in the project's env files and you can't read it from the PostHog MCP server, leave a placeholder env var and note it in the PR body rather than blocking.`;
-
 const DISCOVERY_PROMPT_BASE = `You are analyzing this codebase to find the highest-value first tasks for the developer.
 
 Scan the codebase for issues in two tiers. Tier 1 applies to every repo. Tier 2 only applies when PostHog is already installed (look for posthog-js, posthog-node, posthog-react-native or similar PostHog SDK imports).

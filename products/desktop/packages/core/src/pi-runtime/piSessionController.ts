@@ -153,6 +153,14 @@ function normalizeSessionError(error: unknown): {
   };
 }
 
+function isResumableCloudSendError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("No active sandbox") ||
+    message.includes("Task run workflow has ended")
+  );
+}
+
 @injectable()
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
@@ -516,7 +524,13 @@ export class PiSessionController {
         }
         this.setTurnStreaming(taskId, wasStreaming);
         const operation = queuesMessage ? "queue" : "prompt";
-        throw this.recordOperationFailure(taskId, operation, error);
+        throw this.recordOperationFailure(
+          taskId,
+          operation,
+          error,
+          undefined,
+          message,
+        );
       }
     }
 
@@ -1372,9 +1386,8 @@ export class PiSessionController {
       await session.sendUserMessage(type, content, artifactIds, messageId);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const taskRunId = this.taskRunIds.get(taskId) ?? session.taskRunId;
-      if (!taskRunId || !message.includes("No active sandbox")) {
+      if (!taskRunId || !isResumableCloudSendError(error)) {
         throw error;
       }
 

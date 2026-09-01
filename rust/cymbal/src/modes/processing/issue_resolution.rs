@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
@@ -96,6 +96,24 @@ pub enum IssueSeverity {
     Medium,
     High,
     Critical,
+}
+
+impl FromStr for IssueSeverity {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.eq_ignore_ascii_case("low") {
+            Ok(Self::Low)
+        } else if value.eq_ignore_ascii_case("medium") {
+            Ok(Self::Medium)
+        } else if value.eq_ignore_ascii_case("high") {
+            Ok(Self::High)
+        } else if value.eq_ignore_ascii_case("critical") {
+            Ok(Self::Critical)
+        } else {
+            Err(())
+        }
+    }
 }
 
 pub(crate) fn infer_issue_severity(
