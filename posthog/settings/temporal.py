@@ -245,6 +245,11 @@ EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-rec
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker. Routing Wizard runs
+# to a dedicated, separately-scalable worker takes two steps in order: deploy a worker fleet
+# polling "wizard-task-queue", then set this env on the dispatching services. Setting it first
+# strands runs on a pollerless queue until the workflow execution timeout closes them.
+WIZARD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("WIZARD_TASK_QUEUE", "general-purpose-task-queue"))
 WIZARD_RUN_ARTIFACTS_S3_BUCKET = os.getenv("WIZARD_RUN_ARTIFACTS_S3_BUCKET", "")
 TASKS_DISPATCHER_BATCH_SIZE = get_from_env("TASKS_DISPATCHER_BATCH_SIZE", 50, type_cast=int)
 TASKS_DISPATCHER_CONCURRENCY = get_from_env("TASKS_DISPATCHER_CONCURRENCY", 20, type_cast=int)
