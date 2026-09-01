@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
@@ -18,7 +19,10 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
+    CONTEXT_EVENT_SELECTION_PROMPT,
+    CONTEXT_EVENT_SELECTION_PROMPT_NAME,
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
     PLAN_GENERATION_PROMPT,
@@ -63,6 +67,7 @@ CANDIDATE_EVENTS_LIMIT = 500
 # event the prompt names forces it to guess. Bounded by EVENT_PROPERTIES_PER_EVENT_LIMIT so the injected
 # schema stays a few thousand property names at most.
 RELEVANT_EVENTS_LIMIT = 100
+SUPPORTING_EVENTS_LIMIT = 10
 EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 # A user-named event is pinned even when it falls outside the LLM candidate cap, but both ends are
 # bounded so neither a large taxonomy nor a degenerate prompt can blow up generation. The pin scan
@@ -89,7 +94,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 5
+AI_QUERY_PLAN_VERSION = 8
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -108,6 +113,34 @@ class StoredPlanInvalidError(Exception):
     `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
 
     pass
+
+
+class AnchorContentChangedError(StoredPlanInvalidError):
+    """The frozen plan's anchor hash no longer matches the anchor's content. Same self-heal as any
+    invalid stored plan, but expected in normal use (users edit dashboards), so the caller logs it
+    without reporting an exception."""
+
+    pass
+
+
+class StoredPlanVersionChangedError(StoredPlanInvalidError):
+    """The frozen plan predates the current `AI_QUERY_PLAN_VERSION`. Same self-heal as any invalid
+    stored plan, but this is the deliberate invalidation a version bump performs, so it fires once per
+    stale subscription on the next delivery. The caller logs it without reporting an exception, so a
+    routine bump does not flood error tracking (and does not bury genuine malformed-plan defects)."""
+
+    pass
+
+
+@frozen
+class _RelevantEventSelection:
+    context_events: tuple[str, ...] = ()
+    supporting_events: tuple[str, ...] = ()
+    project_events: tuple[str, ...] = ()
+
+    @property
+    def events(self) -> tuple[str, ...]:
+        return self.context_events + self.supporting_events + self.project_events
 
 
 @dataclass(frozen=True)
@@ -357,12 +390,26 @@ def _recent_event_names(team: Team, limit: int) -> list[str]:
     )
 
 
+def _validated_context_event_names(team: Team, context_event_names: Sequence[str]) -> list[str]:
+    candidates = list(dict.fromkeys(context_event_names))[:MAX_PINNED_EVENTS]
+    if not candidates:
+        return []
+    known = set(EventDefinition.objects.filter(team_id=team.pk, name__in=candidates).values_list("name", flat=True))
+    return [name for name in candidates if name in known]
+
+
 def _llm_selected_events(
-    team: Team, user: User, prompt: str, candidates: dict[str, str], trace_correlation_id: Optional[Union[int, str]]
+    team: Team,
+    user: User,
+    prompt: str,
+    candidates: dict[str, str],
+    trace_correlation_id: Optional[Union[int, str]],
+    context_blob: str = "",
 ) -> list[str]:
     # The model picks relevant events from the project's vocabulary (vs lexical matching). Any failure
     # degrades to no picks rather than breaking generation — deterministic pins still survive.
     posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
+    posthog_properties["selection_mode"] = "supporting" if context_blob else "project"
     if trace_correlation_id is not None:
         posthog_properties["subscription_id"] = trace_correlation_id
     llm = MaxChatOpenAI(
@@ -374,9 +421,16 @@ def _llm_selected_events(
         posthog_properties=posthog_properties,
     ).with_structured_output(RelevantEvents, method="json_schema", include_raw=False)
 
+    prompt_name = CONTEXT_EVENT_SELECTION_PROMPT_NAME if context_blob else EVENT_SELECTION_PROMPT_NAME
+    prompt_default = CONTEXT_EVENT_SELECTION_PROMPT if context_blob else EVENT_SELECTION_PROMPT
     rendered_prompt = render_prompt(
-        resolve_prompt(team, EVENT_SELECTION_PROMPT_NAME, EVENT_SELECTION_PROMPT),
-        {"event_names": "\n".join(candidates), "cleaned_prompt": prompt},
+        resolve_prompt(team, prompt_name, prompt_default),
+        {
+            "event_names": "\n".join(candidates),
+            "cleaned_prompt": prompt,
+            "context_blob": context_blob,
+            "max_supporting_events": str(SUPPORTING_EVENTS_LIMIT),
+        },
     )
 
     try:
@@ -399,23 +453,66 @@ def _llm_selected_events(
     return selected
 
 
-def _select_relevant_events(
-    team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
-) -> list[str]:
+def _select_relevant_event_scope(
+    team: Team,
+    user: User,
+    prompt: str,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+    context_event_names: Sequence[str] = (),
+    context_blob: str = "",
+) -> _RelevantEventSelection:
     # Returns RAW event names (the EventProperty lookup is keyed on them).
+    context_events = _validated_context_event_names(team, context_event_names)
     recent_names = _recent_event_names(team, PINNED_EVENT_SCAN_LIMIT)
     candidates = _candidate_event_names(recent_names[:CANDIDATE_EVENTS_LIMIT])
+    if context_events:
+        context_set = set(context_events)
+        supporting_candidates = {clean: raw for clean, raw in candidates.items() if raw not in context_set}
+        if not supporting_candidates:
+            return _RelevantEventSelection(context_events=tuple(context_events))
+        supporting_events = _llm_selected_events(
+            team,
+            user,
+            prompt,
+            supporting_candidates,
+            trace_correlation_id,
+            context_blob=context_blob or "\n".join(context_events),
+        )[:SUPPORTING_EVENTS_LIMIT]
+        return _RelevantEventSelection(
+            context_events=tuple(context_events),
+            supporting_events=tuple(supporting_events),
+        )
+
     pinned = _pinned_event_names(prompt, recent_names)
     if not candidates:
         # No candidate vocabulary for the LLM pass, but explicit pins still count — the pin scan
         # covers the full recent-names window, not just the candidate slice.
-        return pinned
+        return _RelevantEventSelection(project_events=tuple(pinned))
 
     llm_selected = _llm_selected_events(team, user, prompt, candidates, trace_correlation_id)
 
     # Pins lead so the cap can only ever drop LLM picks — an explicitly named event is never truncated.
     union_pinned_first = list(dict.fromkeys((*pinned, *llm_selected)))
-    return union_pinned_first[: max(RELEVANT_EVENTS_LIMIT, len(pinned))]
+    return _RelevantEventSelection(
+        project_events=tuple(union_pinned_first[: max(RELEVANT_EVENTS_LIMIT, len(pinned))]),
+    )
+
+
+def _select_relevant_events(
+    team: Team,
+    user: User,
+    prompt: str,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+    extra_pinned: Sequence[str] = (),
+) -> list[str]:
+    selection = _select_relevant_event_scope(
+        team,
+        user,
+        prompt,
+        trace_correlation_id,
+        context_event_names=extra_pinned,
+    )
+    return list(selection.events)
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
@@ -439,16 +536,25 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
     return by_event
 
 
-def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
+def build_context_blob(
+    team: Team,
+    window: ReportWindow,
+    relevant_events: Sequence[str] = (),
+    anchor_blob: str = "",
+    context_event_names: Sequence[str] = (),
+) -> str:
     # Only a hint — the planner's actual event names arrive via `relevant_events` from the Postgres
     # taxonomy — so a ClickHouse timeout on the 30-day scan behind it degrades rather than costing the
     # whole report, as `_llm_selected_events` already does. None means "unknown", never "none".
     event_names: list[str] | None
-    try:
-        event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
-    except Exception:
-        logger.warning("ai_subscription.top_event_names_failed", team_id=team.pk, exc_info=True)
-        event_names = None
+    if context_event_names:
+        event_names = []
+    else:
+        try:
+            event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
+        except Exception:
+            logger.warning("ai_subscription.top_event_names_failed", team_id=team.pk, exc_info=True)
+            event_names = None
 
     # Team / org names are also user-controlled and end up in the LLM context, so
     # apply the same sanitization as event names.
@@ -471,7 +577,11 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
         f"- Previous-period start (for period-over-period comparisons only, project timezone): "
         f"{window.compare_start_literal}",
     ]
-    if event_names is None:
+    if context_event_names:
+        lines.append(
+            "- Primary event scope: selected context query definitions; supporting project events may explain but not replace it"
+        )
+    elif event_names is None:
         # State, not an instruction to the model: this blob is also quoted verbatim into the synthesis
         # prompt, so an imperative here can end up paraphrased at the reader. Distinct from the empty
         # case because the projects whose scan times out are the ones with the most data.
@@ -484,6 +594,7 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
     if relevant_events:
         props_by_event = _event_property_names(team, list(relevant_events), EVENT_PROPERTIES_PER_EVENT_LIMIT)
         top_set = set(event_names or ())
+        context_set = set(context_event_names)
         seen: set[str] = set()
         matched: list[tuple[str, str]] = []  # (raw, clean), deduped on the sanitized name
         for raw in relevant_events:
@@ -491,10 +602,18 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             if clean and clean not in seen:
                 seen.add(clean)
                 matched.append((raw, clean))
-        # Name only the matches not already shown under "Top events" (avoid repeating them)...
-        new_names = [clean for _, clean in matched if clean not in top_set]
-        if new_names:
-            lines.append("- Events matching your request: " + ", ".join(new_names))
+        if context_event_names:
+            context_names = [clean for raw, clean in matched if raw in context_set]
+            supporting_names = [clean for raw, clean in matched if raw not in context_set]
+            if context_names:
+                lines.append("- Events from selected context: " + ", ".join(context_names))
+            if supporting_names:
+                lines.append("- Supporting project events (explanatory evidence only): " + ", ".join(supporting_names))
+        else:
+            # Name only the matches not already shown under "Top events" (avoid repeating them).
+            new_names = [clean for _, clean in matched if clean not in top_set]
+            if new_names:
+                lines.append("- Events matching your request: " + ", ".join(new_names))
         # ...but inject the property schema for EVERY match, including high-volume events already in
         # "Top events" — that line lists names only, so without this the planner still can't see their
         # properties (e.g. $browser on a matched $pageview).
@@ -505,7 +624,7 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             if clean_props:
                 lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
-    no_data_events = _no_data_event_names(team, NO_DATA_EVENT_NAMES_LIMIT)
+    no_data_events = [] if context_event_names else _no_data_event_names(team, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
         lines.append(
             f"- Events defined but with no data in the last {NO_DATA_LOOKBACK_DAYS} day(s): "
@@ -526,6 +645,10 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             "the account itself via the raw key $group_<index>, e.g. uniq($group_2), never bare "
             "group_<index>; no JOIN needed): " + ", ".join(group_labels)
         )
+    if anchor_blob:
+        # Prebuilt and sanitized by anchor_context.build_anchor_context. Kept descriptive for the
+        # same reason as the lines above: this blob is also quoted into the synthesis prompt.
+        lines.append(anchor_blob)
     return "\n".join(lines)
 
 
@@ -574,10 +697,26 @@ def build_enriched_prompt(
     prompt: Optional[str],
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
+    anchor_blob: str = "",
+    anchor_event_names: Sequence[str] = (),
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
-    relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
-    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    selection = _select_relevant_event_scope(
+        team,
+        user,
+        cleaned,
+        trace_correlation_id,
+        context_event_names=anchor_event_names,
+        context_blob=anchor_blob,
+    )
+    relevant_events = list(selection.events)
+    context_blob = build_context_blob(
+        team,
+        window,
+        relevant_events=relevant_events,
+        anchor_blob=anchor_blob,
+        context_event_names=selection.context_events,
+    )
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,
@@ -586,7 +725,11 @@ def build_enriched_prompt(
         trace_correlation_id=trace_correlation_id,
     )
     return EnrichedPromptSpec(
-        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        plan=plan,
+        relevant_events=relevant_events,
+        context_event_names=list(selection.context_events),
     )
 
 
@@ -596,6 +739,8 @@ def build_frozen_prompt(
     prompt: Optional[str],
     window: ReportWindow,
     ai_query_plan: dict,
+    anchor_blob: str = "",
+    anchor_hash: str = EMPTY_ANCHOR_HASH,
 ) -> EnrichedPromptSpec:
     """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
@@ -605,7 +750,13 @@ def build_frozen_prompt(
     """
     cleaned = sanitize_prompt(prompt)
     if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
-        raise StoredPlanInvalidError("Stored query plan version is stale.")
+        raise StoredPlanVersionChangedError("Stored query plan version is stale.")
+    # A plan answers the anchor content it was built against. Anchor changed (tiles added, anchor
+    # deleted, queries edited) means the plan is stale the same way a stale version is. Envelopes
+    # written before anchors existed carry no key and read as EMPTY_ANCHOR_HASH, so unanchored
+    # subscriptions are unaffected.
+    if ai_query_plan.get("anchor_hash", EMPTY_ANCHOR_HASH) != anchor_hash:
+        raise AnchorContentChangedError("Anchor content changed since the plan was frozen.")
     try:
         plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:
@@ -615,7 +766,17 @@ def build_frozen_prompt(
     # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
     # silently running with an empty list.
     relevant_events = ai_query_plan.get("relevant_events") or []
-    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    context_blob = build_context_blob(
+        team,
+        window,
+        relevant_events=relevant_events,
+        anchor_blob=anchor_blob,
+        context_event_names=ai_query_plan.get("context_event_names") or (),
+    )
     return EnrichedPromptSpec(
-        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        plan=plan,
+        relevant_events=relevant_events,
+        context_event_names=ai_query_plan.get("context_event_names") or [],
     )

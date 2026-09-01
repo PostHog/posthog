@@ -745,6 +745,225 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.insight).toBeUndefined()
     })
 
+    it('adds the originating page and user selections as AI report context', async () => {
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const dashboardAiLogic = subscriptionLogic({ dashboardId: 9, dashboardName: 'Growth', id: 'new' })
+        dashboardAiLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(dashboardAiLogic).toFinishListeners()
+        dashboardAiLogic.actions.addContext({
+            kind: 'insight',
+            id: 12,
+            name: 'Signups',
+            url: '/insights/signups',
+        })
+        dashboardAiLogic.actions.addContextEvent('signed up')
+        dashboardAiLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        dashboardAiLogic.actions.submitSubscription()
+        await expectLogic(dashboardAiLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.context_dashboards).toEqual([9])
+        expect(capturedBody?.context_insights).toEqual([12])
+        expect(capturedBody?.context_items).toEqual([{ kind: 'event', event_name: 'signed up' }])
+        expect(capturedBody?.contexts).toBeUndefined()
+        expect(capturedBody?.dashboard).toBeUndefined()
+        dashboardAiLogic.unmount()
+    })
+
+    it('does not preselect page context when the context rollout is disabled', async () => {
+        const dashboardAiLogic = subscriptionLogic({
+            dashboardId: 9,
+            dashboardName: 'Growth',
+            id: 'new',
+            contextEnabled: false,
+        })
+        dashboardAiLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(dashboardAiLogic).toFinishListeners()
+
+        expect(dashboardAiLogic.values.subscription.context_dashboards).toEqual([])
+        expect(dashboardAiLogic.values.subscription.contexts).toEqual([])
+        dashboardAiLogic.unmount()
+    })
+
+    it('adds page context after flag hydration without remounting or discarding a draft', async () => {
+        const props = { dashboardId: 9, dashboardName: 'Growth', id: 'new' as const, contextEnabled: false }
+        const dashboardAiLogic = subscriptionLogic(props)
+        dashboardAiLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(dashboardAiLogic).toFinishListeners()
+
+        subscriptionLogic({ ...props, contextEnabled: true })
+        expect(dashboardAiLogic.values.subscription).toMatchObject({ context_dashboards: [9] })
+
+        dashboardAiLogic.actions.setSubscriptionValue('title', 'Draft report')
+        subscriptionLogic({ ...props, contextEnabled: false })
+        subscriptionLogic({ ...props, contextEnabled: true })
+
+        expect(dashboardAiLogic.values.subscription.title).toEqual('Draft report')
+        dashboardAiLogic.unmount()
+    })
+
+    it('caps combined context at 25 when the picker stays open', async () => {
+        const capLogic = subscriptionLogic({ id: 'new' })
+        capLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(capLogic).toFinishListeners()
+        const seededContexts = Array.from({ length: 24 }, (_, index) => ({
+            kind: 'insight' as const,
+            id: index + 1,
+            name: `Insight ${index + 1}`,
+            url: `/insights/${index + 1}`,
+        }))
+        capLogic.actions.setSubscriptionValues({
+            contexts: seededContexts,
+            context_insights: seededContexts.map(({ id }) => id),
+        })
+        // 24 contexts + this event reaches the cap, so the following add must be dropped.
+        capLogic.actions.addContextEvent('signed up')
+        capLogic.actions.addContext({ kind: 'insight', id: 999, name: 'Overflow', url: '/insights/999' })
+        await expectLogic(capLogic).toFinishListeners()
+        expect(capLogic.values.subscription.contexts).toHaveLength(24)
+        expect(capLogic.values.subscription.context_items).toEqual([{ kind: 'event', event_name: 'signed up' }])
+        capLogic.unmount()
+    })
+
+    it('counts inaccessible persisted context when adding an event', async () => {
+        const capLogic = subscriptionLogic({ id: 'new' })
+        capLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(capLogic).toFinishListeners()
+        const contextIds = Array.from({ length: 25 }, (_, index) => index + 1)
+        capLogic.actions.setSubscriptionValues({
+            context_insights: contextIds,
+            contexts: contextIds.slice(0, 24).map((id) => ({
+                kind: 'insight' as const,
+                id,
+                name: `Insight ${id}`,
+                url: `/insights/${id}`,
+            })),
+        })
+        capLogic.actions.addContextEvent('signed up')
+        await expectLogic(capLogic).toFinishListeners()
+        expect(capLogic.values.subscription.context_items).toEqual([])
+        capLogic.unmount()
+    })
+
+    it('removes one context while preserving the others on edit', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        const dashboardContext = { kind: 'dashboard' as const, id: 9, name: 'Growth', url: '/dashboard/9' }
+        const insightContext = { kind: 'insight' as const, id: 12, name: 'Signups', url: '/insights/signups' }
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    context_dashboards: [9, 99],
+                    context_insights: [12],
+                    context_items: [{ kind: 'event', event_name: 'signed up' }],
+                    contexts: [dashboardContext, insightContext],
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const editLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        editLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        editLogic.actions.removeContext(dashboardContext)
+        editLogic.actions.removeContextEvent('signed up')
+        editLogic.actions.submitSubscription()
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.context_dashboards).toEqual([99])
+        expect(capturedBody?.context_insights).toEqual([12])
+        expect(capturedBody?.context_items).toEqual([])
+        editLogic.unmount()
+    })
+
+    it('removes only inaccessible context during recovery', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        const visibleDashboard = { kind: 'dashboard' as const, id: 9, name: 'Growth', url: '/dashboard/9' }
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    context_recovery: true,
+                    context_dashboards: [],
+                    context_insights: [],
+                    context_items: [{ kind: 'event', event_name: 'signed up' }],
+                    contexts: [visibleDashboard],
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const recoveryLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        recoveryLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        recoveryLogic.actions.recoverContextAccess('clear')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['recoverContextAccessSuccess'])
+        expect(capturedBody).toEqual({
+            context_dashboards: [9],
+            context_insights: [],
+            context_items: [{ kind: 'event', event_name: 'signed up' }],
+        })
+        recoveryLogic.unmount()
+    })
+
+    it('sends only the deleted flag when deleting during recovery', async () => {
+        // The recovery allowlist rejects any extra key, so a delete must carry {deleted} alone.
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    resource_type: 'ai_prompt',
+                    prompt: 'Weekly gains',
+                    context_recovery: true,
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 1, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const recoveryLogic = subscriptionLogic({ dashboardId: 9, id: 1 })
+        recoveryLogic.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        const onDelete = jest.fn()
+        recoveryLogic.actions.recoverContextAccess('delete', onDelete)
+        await expectLogic(recoveryLogic).toFinishListeners().toDispatchActions(['recoverContextAccessSuccess'])
+        expect(capturedBody).toEqual({ deleted: true })
+        expect(onDelete).toHaveBeenCalledTimes(1)
+        recoveryLogic.unmount()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.

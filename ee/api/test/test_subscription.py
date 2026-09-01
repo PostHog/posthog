@@ -8,13 +8,19 @@ from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.http import QueryDict
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import (
+    SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY,
+    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+    AvailableFeature,
+)
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
@@ -26,13 +32,17 @@ from posthog.slo.context import slo_operation
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     Subscription,
     SubscriptionDelivery,
+    SubscriptionDeliveryContext,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -41,10 +51,18 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription import _validate_html_list_indices
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+
+def test_html_context_list_rejects_out_of_range_indices() -> None:
+    data = QueryDict("context_dashboards[25]=1")
+
+    with pytest.raises(ValidationError):
+        _validate_html_list_indices(data, "context_dashboards")
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -126,6 +144,9 @@ class TestSubscriptionTemporal(APILicensedTest):
             "dashboard_export_insights": [],
             "prompt": None,
             "ai_prompt_config": {},
+            "context_dashboards": [],
+            "context_insights": [],
+            "contexts": [],
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -2603,6 +2624,153 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         return created.json()["id"]
 
+    def test_ai_subscription_accepts_multiple_contexts_and_lists_under_each_resource(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+        growth = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        product = Dashboard.objects.create(team=self.team, name="Product", created_by=self.user)
+        insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        event = EventDefinition.objects.create(team=self.team, name="signed up")
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                context_dashboards=[growth.id, product.id],
+                context_insights=[insight.id],
+                context_items=[{"kind": "event", "event_name": event.name}],
+            ),
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert set(created.json()["context_dashboards"]) == {growth.id, product.id}
+        assert created.json()["context_insights"] == [insight.id]
+        assert created.json()["context_items"] == [{"kind": "event", "event_name": event.name}]
+        assert {context["name"] for context in created.json()["contexts"]} == {"Growth", "Product", "Signups"}
+        for query in (f"dashboard={growth.id}", f"dashboard={product.id}", f"insight={insight.id}"):
+            listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions?{query}")
+            assert [sub["id"] for sub in listed.json()["results"]] == [created.json()["id"]]
+
+    def test_cannot_add_unknown_event_as_context(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_items=[{"kind": "event", "event_name": "does not exist"}]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["context_items"] == ["Each event must belong to your project."]
+
+    @parameterized.expand(
+        [
+            ("insight_sub_cannot_use_context", "insight", "context_dashboards", status.HTTP_400_BAD_REQUEST),
+            ("ai_sub_can_use_insight_context", "ai_prompt", "context_insights", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_context_only_applies_to_ai_subscriptions(
+        self,
+        _mock_is_cloud: MagicMock,
+        _mock_flag: MagicMock,
+        mock_sync: MagicMock,
+        _name: str,
+        resource_kind: str,
+        context_field: str,
+        expected_status: int,
+    ):
+        self._mock_temporal(mock_sync)
+        self._enable_ai()
+        context_insight = Insight.objects.create(team=self.team, created_by=self.user)
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        payload = self._make_ai_payload() if resource_kind == "ai_prompt" else self._insight_payload()
+        payload[context_field] = [dashboard.id] if context_field == "context_dashboards" else [context_insight.id]
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_patch_empty_list_clears_context(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=[dashboard.id]),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"context_dashboards": []},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["context_dashboards"] == []
+        assert response.json()["contexts"] == []
+
+    def test_rejects_oversized_form_context_before_relation_resolution(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=["999999"] * 26),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["context_dashboards"] == ["Select no more than 25 items."]
+
+    def test_contexts_carry_names_for_display_and_omit_deleted_resources(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=[dashboard.id]),
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["contexts"] == [
+            {"kind": "dashboard", "id": dashboard.id, "name": "Growth", "url": dashboard.url}
+        ]
+
+        dashboard.deleted = True
+        dashboard.save(update_fields=["deleted"])
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == []
+        assert retrieved.json()["context_recovery"] is True
+
+        cleared = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}", {"context_dashboards": []}
+        )
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert cleared.json()["context_recovery"] is False
+
+    def test_cannot_add_a_deleted_dashboard_as_context(self, *mocks: MagicMock):
+        self._enable_ai()
+        deleted_dashboard = Dashboard.objects.create(team=self.team, name="Gone", created_by=self.user, deleted=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=[deleted_dashboard.id]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cannot_add_another_teams_dashboard_as_context(self, *mocks: MagicMock):
+        self._enable_ai()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=[other_dashboard.id]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             # AI prompt subscriptions run HogQL, so a scoped key needs query:read on top of
@@ -2935,6 +3103,20 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not enabled for your account" in str(response.json())
 
+    def test_rejects_context_when_context_flag_off(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Context")
+        mock_flag.side_effect = lambda flag_key, *_args, **_kwargs: flag_key != SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_dashboards=[dashboard.id]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Report context is not enabled" in str(response.json())
+
     @parameterized.expand(
         [
             # blank prompt → no derivable target → non-field "must target" error
@@ -3153,7 +3335,12 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return payload
 
     def _subscription_for(self, **kwargs) -> Subscription:
-        return create_subscription(team=self.team, created_by=self.user, **kwargs)
+        context_dashboards = kwargs.pop("context_dashboards", [])
+        context_insights = kwargs.pop("context_insights", [])
+        subscription = create_subscription(team=self.team, created_by=self.user, **kwargs)
+        subscription.context_dashboards.set(context_dashboards)
+        subscription.context_insights.set(context_insights)
+        return subscription
 
     def _delivery_for(self, subscription: Subscription, **overrides) -> SubscriptionDelivery:
         return SubscriptionDelivery.objects.create(
@@ -3206,6 +3393,12 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     def _sub_rendering_every_tile(self) -> Subscription:
         return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight))
+
+    def _sub_anchored_to_a_dashboard_with_a_restricted_tile(self) -> Subscription:
+        return self._subscription_for(
+            prompt="How did signups do last week?",
+            context_dashboards=[self._dashboard_with_tiles(self.open_insight, self.restricted_insight)],
+        )
 
     def _sub_selecting_only_the_open_tile(self) -> Subscription:
         subscription = self._subscription_for(
@@ -3294,6 +3487,156 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self._delivery_for(subscription)
 
         self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    def test_context_access_loss_hides_from_lists_but_keeps_the_owner_in_control(self):
+        subscription = self._subscription_for(
+            prompt="How did signups do last week?", context_dashboards=[self.restricted_dashboard]
+        )
+        delivery = self._delivery_for(subscription)
+        SubscriptionDeliveryContext.objects.for_team(self.team.id).bulk_create(
+            [
+                SubscriptionDeliveryContext(
+                    delivery=delivery,
+                    team=self.team,
+                    kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
+                    identifier=AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+                ),
+                SubscriptionDeliveryContext(
+                    delivery=delivery,
+                    team=self.team,
+                    kind="dashboard",
+                    identifier=str(self.restricted_dashboard.id),
+                ),
+            ]
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == []
+        assert retrieved.json()["context_dashboards"] == []
+        assert retrieved.json()["context_recovery"] is True
+
+        for forbidden_update in (
+            {"prompt": "Send this report elsewhere"},
+            {"target_value": "attacker@example.com"},
+            {"send_test_now": True},
+            {"context_items": 1},
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", forbidden_update
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+        test_delivery = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/test-delivery")
+        assert test_delivery.status_code == status.HTTP_403_FORBIDDEN, test_delivery.json()
+
+        paused = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": False})
+        assert paused.status_code == status.HTTP_200_OK, paused.json()
+
+        reenabled = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": True}
+        )
+        assert reenabled.status_code == status.HTTP_403_FORBIDDEN, reenabled.json()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        cleared = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"context_dashboards": []}
+        )
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert cleared.json()["context_dashboards"] == []
+        assert cleared.json()["context_recovery"] is False
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert deliveries.json()["results"] == []
+
+    def test_creator_with_context_access_can_edit_and_test_deliver(self):
+        subscription = self._subscription_for(
+            prompt="How did signups do last week?", context_dashboards=[self._dashboard_with_tiles(self.open_insight)]
+        )
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"title": "Updated report"}
+        )
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+
+        delivered = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/test-delivery")
+        assert delivered.status_code == status.HTTP_202_ACCEPTED, delivered.json()
+
+    def test_non_creator_cannot_recover_a_context_blocked_subscription(self):
+        subscription = self._subscription_for(
+            prompt="How did signups do last week?", context_dashboards=[self.restricted_dashboard]
+        )
+        other_user = self._create_user("other@posthog.com")
+        other_membership = OrganizationMembership.objects.get(organization=self.organization, user=other_user)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(self.restricted_dashboard.id),
+            organization_member=other_membership,
+            access_level="none",
+        )
+        cache.clear()
+        self.client.force_login(other_user)
+
+        for method, suffix, body in (
+            ("get", "", None),
+            ("patch", "", {"context_dashboards": []}),
+            ("post", "/test-delivery", None),
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{suffix}", body
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_dashboard_context_with_a_restricted_tile_is_hidden_from_lists_and_deliveries(self):
+        subscription = self._sub_anchored_to_a_dashboard_with_a_restricted_tile()
+        self._delivery_for(subscription)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert deliveries.json()["results"] == []
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["context_recovery"] is True
+        assert retrieved.json()["contexts"] == []
+
+    def test_cannot_add_a_dashboard_the_caller_cannot_view_as_context(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(prompt="How did signups do?", context_dashboards=[self.restricted_dashboard.id]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_cannot_add_a_dashboard_context_with_a_restricted_tile(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(prompt="How did signups do?", context_dashboards=[dashboard.id]),
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard", body
+        assert "Viewer access to every insight" in body["detail"], body
 
     def _create_on_a_restricted_insight(self):
         return self.client.post(

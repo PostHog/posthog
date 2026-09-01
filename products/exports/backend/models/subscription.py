@@ -19,6 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
@@ -159,6 +160,22 @@ class Subscription(ModelActivityMixin, models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
+    # AI-prompt subs only: dashboards, insights, and typed context items injected into the planner as grounding.
+    # They are not exported resources, so resource_type stays derived from the relations above.
+    # Removing a resource deletes only the through-table row and degrades the report gracefully.
+    context_dashboards = models.ManyToManyField(
+        "dashboards.Dashboard",
+        blank=True,
+        related_name="contextual_ai_subscriptions",
+    )
+    context_insights = models.ManyToManyField(
+        "product_analytics.Insight",
+        blank=True,
+        related_name="contextual_ai_subscriptions",
+    )
+    # Context items are a versionable extensibility boundary. Resource-backed contexts stay relational above
+    # for permissions and deletion semantics; event and future runtime context types live here.
+    context_items = models.JSONField(default=list, blank=True)
     integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.SET_NULL,
@@ -624,6 +641,31 @@ class SubscriptionDelivery(UUIDModel):
             models.Index(fields=["subscription", "status", "-finished_at"], name="posthog_subdel_sub_fin"),
         ]
         ordering = ["-created_at"]
+
+
+class SubscriptionDeliveryContext(TeamScopedRootMixin, models.Model):
+    """A delivery-time reference to resource context supplied to an AI report.
+
+    `kind` is deliberately a string rather than a closed enum: report grounding can grow to
+    include runtime signals without a schema migration. The compound index keeps historical
+    access checks proportional to the delivery's context rather than the team's resource count.
+    """
+
+    delivery = models.ForeignKey("SubscriptionDelivery", on_delete=models.CASCADE, related_name="context_references")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    kind = models.CharField(max_length=64)
+    identifier = models.CharField(max_length=400)
+
+    class Meta:
+        db_table = "posthog_subscription_delivery_context"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["delivery", "kind", "identifier"], name="posthog_subdelctx_unique_reference"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "kind", "identifier"], name="posthog_subdelctx_resource"),
+        ]
 
 
 def unsubscribe_using_token(token: str) -> Subscription:

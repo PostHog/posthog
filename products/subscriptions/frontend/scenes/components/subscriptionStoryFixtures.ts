@@ -23,6 +23,8 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     dashboard: null,
     insight_short_id: 'abc123',
     resource_name: 'North star metric',
+    contexts: [],
+    context_recovery: false,
     title: 'Weekly rollup',
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
@@ -44,6 +46,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT_MANY_DESTINATIONS: SubscriptionApi = {
     id: 3,
     target_value: 'rollups@posthog.com, exec@posthog.com, analytics@posthog.com, oncall@posthog.com',
     resource_name: 'North star metric — executive weekly rollup with a very long resource title',
+    contexts: [],
     title: 'Multi-recipient insight digest',
 }
 
@@ -54,6 +57,8 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     dashboard: 501,
     insight_short_id: null,
     resource_name: 'Company overview',
+    contexts: [],
+    context_recovery: false,
     title: 'Dashboard digest',
     dashboard_export_insights: [101],
     target_type: TargetTypeEnumApi.Slack,
@@ -76,6 +81,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD_MANY_DESTINATIONS: SubscriptionApi = {
     id: 4,
     target_value: 'C111|#team-a, C222|#team-b, C333|#team-c',
     resource_name: 'Company overview — all-hands dashboard export',
+    contexts: [],
     title: 'Multi-channel dashboard digest',
 }
 

@@ -333,6 +333,7 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
+SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY = "ai-subscription-context"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
     "experiments-retention-metric-events-preaggregation"

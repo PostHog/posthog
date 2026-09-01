@@ -56841,6 +56841,55 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `event` - event
+     */
+    export type SubscriptionContextItemKindEnum = typeof SubscriptionContextItemKindEnum[keyof typeof SubscriptionContextItemKindEnum];
+
+
+    export const SubscriptionContextItemKindEnum = {
+      Event: 'event',
+    } as const;
+
+    export interface SubscriptionContextItem {
+      /** The context item type.
+       *
+       * * `event` - event */
+      kind: SubscriptionContextItemKindEnum;
+      /**
+         * Event name, when kind is 'event'.
+         * @minLength 1
+         * @maxLength 400
+         */
+      event_name: string;
+    }
+
+    /**
+     * * `dashboard` - dashboard
+     * * `insight` - insight
+     */
+    export type SubscriptionContextKindEnum = typeof SubscriptionContextKindEnum[keyof typeof SubscriptionContextKindEnum];
+
+
+    export const SubscriptionContextKindEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+    } as const;
+
+    export interface SubscriptionContext {
+      /** The context resource type.
+       *
+       * * `dashboard` - dashboard
+       * * `insight` - insight */
+      kind: SubscriptionContextKindEnum;
+      /** The context resource ID. */
+      id: number;
+      /** The context resource's display name. */
+      name: string;
+      /** Link to the context resource. */
+      url: string;
+    }
+
+    /**
      * * `email` - Email
      * * `slack` - Slack
      */
@@ -56908,6 +56957,14 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      context_dashboards?: number[];
+      context_insights?: number[];
+      /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
+      context_items?: SubscriptionContextItem[];
+      /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
+      readonly contexts: readonly SubscriptionContext[];
+      /** Whether this subscription can only be paused or cleared because its creator lost context access. */
+      readonly context_recovery: boolean;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -65867,6 +65924,14 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      context_dashboards?: number[];
+      context_insights?: number[];
+      /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
+      context_items?: SubscriptionContextItem[];
+      /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
+      readonly contexts?: readonly SubscriptionContext[];
+      /** Whether this subscription can only be paused or cleared because its creator lost context access. */
+      readonly context_recovery?: boolean;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -97857,19 +97922,19 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Filter by dashboard ID.
+     * Filter by dashboard ID. Includes AI reports using the dashboard as context.
      */
     dashboard?: number;
     /**
-     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions using one of those insights as context.
      */
     dashboard_tiles?: number;
     /**
-     * Filter by insight ID.
+     * Filter by insight ID. Includes AI report subscriptions using the insight as context.
      */
     insight?: number;
     /**
-     * Filter by a comma-separated list of insight IDs.
+     * Filter by a comma-separated list of insight IDs. Includes AI reports using one as context.
      */
     insights?: string;
     /**

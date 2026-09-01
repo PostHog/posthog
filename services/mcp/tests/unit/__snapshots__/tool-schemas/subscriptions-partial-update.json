@@ -74,6 +74,39 @@
             ],
             "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
         },
+        "context_dashboards": {
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "context_insights": {
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "context_items": {
+            "description": "AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed.",
+            "items": {
+                "properties": {
+                    "event_name": {
+                        "description": "Event name, when kind is 'event'.",
+                        "maxLength": 400,
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "The context item type.\n\n* `event` - event",
+                        "enum": ["event"],
+                        "type": "string"
+                    }
+                },
+                "required": ["kind", "event_name"],
+                "type": "object"
+            },
+            "type": "array"
+        },
         "count": {
             "anyOf": [
                 {

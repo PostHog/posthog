@@ -106,6 +106,16 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+# A short-lived ownership lease prevents overlapping Temporal attempts from both paying to
+# generate the same report when an earlier worker outlives its activity timeout.
+AI_REPORT_GENERATION_CLAIM_KEY = "ai_report_generation_claim"
+# Slack is delivered through a workspace-specific integration. Preserve that identity alongside the
+# delivery's existing target type and value so a later subscription edit cannot redirect a report.
+SUBSCRIPTION_DELIVERY_TARGET_INTEGRATION_ID_KEY = "target_integration_id"
+# Every AI delivery writes this marker to SubscriptionDeliveryContext. Its presence distinguishes
+# relational provenance rows from historical deliveries recorded before that table existed.
+AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND = "ai_report"
+AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER = "v1"
 
 
 class SubscriptionTriggerType:
@@ -262,9 +272,9 @@ class GenerateAIReportResult:
     """Outcome of the generation phase. `aborted` signals a terminal pre-delivery
     failure (consent revoked, prompt invalid) that already auto-disabled the
     subscription; the workflow records `recipient_results` as FAILED and skips delivery.
-    `skipped` signals an over-AI-credit-budget skip: generation rescheduled the sub past
-    the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
-    the sub isn't broken) and skips delivery.
+    `skipped` signals that no report should be sent this run (for example, the team is over its
+    AI-credit budget or a selected context could not be resolved). The workflow records SKIPPED
+    rather than FAILED and skips delivery; the subscription remains enabled.
 
     The query-failure counts let the workflow flag a fully-degraded report (every query failed →
     FAILED, not COMPLETED) without re-reading the per-query detail from content_snapshot."""

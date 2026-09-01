@@ -36,6 +36,7 @@
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Dashboard
   list([
     'analytics_dashboards',
+    'contextual_ai_subscriptions',
     'data_color_theme',
     'data_color_theme_id',
     'is_shared',
@@ -106,6 +107,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Insight
   list([
+    'contextual_ai_subscriptions',
     'dashboard',
     'dashboards',
     'dive_dashboard',
@@ -574,6 +576,7 @@
     '_meta',
     'analytics_dashboards',
     'annotation_set',
+    'contextual_ai_subscriptions',
     'created_by_id',
     'data_color_theme',
     'data_color_theme_id',
@@ -897,6 +900,7 @@
     'alertable_query_kind',
     'alertconfiguration_set',
     'annotation_set',
+    'contextual_ai_subscriptions',
     'created_by_id',
     'customerjourney_set',
     'dashboard',

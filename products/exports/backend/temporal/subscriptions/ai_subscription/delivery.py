@@ -9,6 +9,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
@@ -20,6 +21,11 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
+    AnchorContext,
+    AnchorContextUnavailable,
+    build_anchor_context,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -144,12 +150,25 @@ def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None
         return None
 
 
-def _resolve_subscription_context(
-    subscription: Subscription,
-) -> tuple[Team, User | None, ReportWindow, dict | None]:
+@frozen
+class SubscriptionReportContext:
+    """Everything the generation path needs from the ORM, resolved in one sync hop."""
+
+    team: Team
+    user: User | None
+    window: ReportWindow
+    ai_query_plan: dict | None
+    anchor: AnchorContext | None
+    # True when the subscription has an anchor that failed to resolve this run, as opposed to
+    # having no anchor at all. Keeps a frozen plan from being invalidated by a transient failure.
+    anchor_unavailable: bool
+
+
+def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
-    # plan (if any) is read here too so the generation path stays free of ORM access.
+    # plan (if any) and the anchor context are read here too so the generation path stays free of
+    # ORM access.
     team = subscription.team
     # Day-based window modes don't anchor to delivery history — skip the lookup for them.
     last_scheduled_cutoff = (
@@ -166,7 +185,21 @@ def _resolve_subscription_context(
         start_days_ago=subscription.ai_window_start_days_ago,
         end_days_ago=subscription.ai_window_end_days_ago,
     )
-    return team, subscription.created_by, window, subscription.ai_query_plan
+    try:
+        anchor = build_anchor_context(subscription)
+        anchor_unavailable = False
+    except AnchorContextUnavailable:
+        # Already logged at the raise site. This run proceeds ungrounded; the frozen plan is kept.
+        anchor = None
+        anchor_unavailable = True
+    return SubscriptionReportContext(
+        team=team,
+        user=subscription.created_by,
+        window=window,
+        ai_query_plan=subscription.ai_query_plan,
+        anchor=anchor,
+        anchor_unavailable=anchor_unavailable,
+    )
 
 
 def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
@@ -176,20 +209,26 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
     Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
-async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window, ai_query_plan = await database_sync_to_async(
-        _resolve_subscription_context, thread_sensitive=False
-    )(subscription)
+async def resolve_ai_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
+    return await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(subscription)
+
+
+async def build_ai_subscription_report(
+    subscription: Subscription, *, context: SubscriptionReportContext | None = None
+) -> AiReportResult:
+    context = context or await resolve_ai_subscription_context(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
-    if user is None:
+    if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
     result = await generate_ai_report(
-        team=team,
-        user=user,
+        team=context.team,
+        user=context.user,
         prompt=subscription.prompt,
-        window=window,
-        ai_query_plan=ai_query_plan,
+        window=context.window,
+        ai_query_plan=context.ai_query_plan,
+        anchor=context.anchor,
+        anchor_unavailable=context.anchor_unavailable,
         trace_correlation_id=subscription.id,
     )
 
@@ -323,9 +362,10 @@ def _build_ai_slack_message(
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
     charts: list[dict] | None = None,
+    target_value: str | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
-    channel = subscription.target_value.split("|")[0]
+    channel = (target_value if target_value is not None else subscription.target_value).split("|")[0]
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
@@ -398,10 +438,16 @@ async def send_slack_ai_subscription_report(
     integration: Integration,
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
+    target_value: str | None = None,
 ) -> SlackDeliveryResult:
     def build(with_charts: list[dict] | None) -> SlackMessage:
         return _build_ai_slack_message(
-            subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
+            subscription,
+            markdown,
+            delivery_id=delivery_id,
+            integration=integration,
+            charts=with_charts,
+            target_value=target_value,
         )
 
     try:
@@ -419,6 +465,7 @@ async def send_slack_ai_subscription_report(
 
 __all__ = [
     "build_ai_subscription_report",
+    "resolve_ai_subscription_context",
     "build_chart_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",

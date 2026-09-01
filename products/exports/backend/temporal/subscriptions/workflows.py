@@ -715,9 +715,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 return
 
             if generate_result.skipped:
-                # Over AI-credit budget — generation rescheduled the sub past the credit reset and
-                # notified the owner. SKIPPED (not FAILED): the sub isn't broken, it resumes when
-                # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
+                # No report was safely generated (such as when the team is over its AI-credit
+                # budget or selected context is temporarily unavailable). SKIPPED (not FAILED):
+                # the sub stays enabled and advance_next_delivery_date recomputes in finally.
                 final_status = DeliveryStatus.SKIPPED
                 return
 

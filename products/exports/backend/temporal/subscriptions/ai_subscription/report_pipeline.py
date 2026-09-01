@@ -22,6 +22,10 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
+    EMPTY_ANCHOR_HASH,
+    AnchorContext,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -54,9 +58,11 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
     WINDOW_PLACEHOLDERS,
+    AnchorContentChangedError,
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanVersionChangedError,
     build_enriched_prompt,
     build_frozen_prompt,
 )
@@ -201,6 +207,8 @@ async def generate_ai_report(
     prompt: Optional[str],
     window: ReportWindow,
     ai_query_plan: Optional[dict] = None,
+    anchor: Optional[AnchorContext] = None,
+    anchor_unavailable: bool = False,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -221,20 +229,32 @@ async def generate_ai_report(
             if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
+                        team=team,
+                        prompt=prompt,
+                        window=window,
+                        ai_query_plan=ai_query_plan,
+                        anchor=anchor,
+                        anchor_unavailable=anchor_unavailable,
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
                     logger.warning(
                         "ai_report.frozen_plan_invalid_replanning", trace_correlation_id=trace_correlation_id
                     )
-                    capture_exception(exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"})
+                    # An anchor edit and a version bump are both expected, self-healing
+                    # invalidations, not defects; only genuinely invalid plans reach error tracking.
+                    if not isinstance(exc, (AnchorContentChangedError, StoredPlanVersionChangedError)):
+                        capture_exception(
+                            exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"}
+                        )
                     spec = await _plan(
-                        team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id
+                        team=team, user=user, prompt=prompt, window=window, anchor=anchor, trace_id=trace_correlation_id
                     )
                     freshly_planned = True
             else:
-                spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
+                spec = await _plan(
+                    team=team, user=user, prompt=prompt, window=window, anchor=anchor, trace_id=trace_correlation_id
+                )
                 freshly_planned = True
             charts_enabled_for_team = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
             execution = await _execute_plan(
@@ -310,6 +330,9 @@ async def generate_ai_report(
             failed_count=failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
+            context_event_names=spec.context_event_names,
+            anchor_hash=anchor.content_hash if anchor else EMPTY_ANCHOR_HASH,
+            anchor_unavailable=anchor_unavailable,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
@@ -346,6 +369,9 @@ def _plan_to_freeze(
     failed_count: int,
     total_steps: int,
     relevant_events: Sequence[str],
+    context_event_names: Sequence[str],
+    anchor_hash: str,
+    anchor_unavailable: bool,
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
 ) -> Optional[dict]:
@@ -354,6 +380,13 @@ def _plan_to_freeze(
     # replay that broken HogQL every run, and a step without any window placeholder would scan unbounded
     # every run.
     if not freshly_planned:
+        return None
+    # A plan generated while the anchor failed to resolve has no grounding; freezing it would
+    # replace a grounded plan with an ungrounded one until the next content change. Re-plan next
+    # run instead, when the anchor is hopefully back. Checked after the reuse path so a degraded
+    # run that was never going to freeze does not log a second time.
+    if anchor_unavailable:
+        logger.warning("ai_report.anchor_unavailable_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     # Freeze only when every step succeeded. If any step failed, re-plan next run instead — a frozen plan
     # replays verbatim until the plan version bumps, so even a single broken step would re-send broken
@@ -381,13 +414,27 @@ def _plan_to_freeze(
         )
         return None
     # Versioned envelope: bumping AI_QUERY_PLAN_VERSION lazily re-plans every frozen subscription.
-    # relevant_events travels with the plan so the reuse path rebuilds the same property-aware
-    # context_blob the fixer relies on (an events-only blob makes the fixer schema-blind).
-    return {"version": AI_QUERY_PLAN_VERSION, "plan": plan.model_dump(), "relevant_events": list(relevant_events)}
+    # relevant_events and context_event_names travel with the plan so the reuse path rebuilds the
+    # same primary-versus-supporting event scope the planner and fixer rely on.
+    # anchor_hash is stored even for unanchored plans (as the empty hash) so an anchor added
+    # later invalidates the plan on its first anchored delivery.
+    return {
+        "version": AI_QUERY_PLAN_VERSION,
+        "plan": plan.model_dump(),
+        "relevant_events": list(relevant_events),
+        "context_event_names": list(context_event_names),
+        "anchor_hash": anchor_hash,
+    }
 
 
 async def _plan(
-    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, trace_id: Optional[Union[int, str]]
+    *,
+    team: Team,
+    user: User,
+    prompt: Optional[str],
+    window: ReportWindow,
+    anchor: Optional[AnchorContext],
+    trace_id: Optional[Union[int, str]],
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
@@ -396,6 +443,8 @@ async def _plan(
             prompt=prompt,
             window=window,
             trace_correlation_id=trace_id,
+            anchor_blob=anchor.blob if anchor else "",
+            anchor_event_names=anchor.event_names if anchor else (),
         )
     except PromptRejectedError:
         raise
@@ -404,14 +453,29 @@ async def _plan(
 
 
 async def _spec_from_frozen_plan(
-    *, team: Team, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
+    *,
+    team: Team,
+    prompt: Optional[str],
+    window: ReportWindow,
+    ai_query_plan: dict,
+    anchor: Optional[AnchorContext],
+    anchor_unavailable: bool = False,
 ) -> EnrichedPromptSpec:
+    # When the anchor failed to resolve this run, echo the stored hash so the comparison passes:
+    # a transient resolution failure must reuse the frozen plan (one ungrounded run) instead of
+    # invalidating it and paying an ungrounded re-plan.
+    if anchor_unavailable:
+        anchor_hash = ai_query_plan.get("anchor_hash", EMPTY_ANCHOR_HASH)
+    else:
+        anchor_hash = anchor.content_hash if anchor else EMPTY_ANCHOR_HASH
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
             team=team,
             prompt=prompt,
             window=window,
             ai_query_plan=ai_query_plan,
+            anchor_blob=anchor.blob if anchor else "",
+            anchor_hash=anchor_hash,
         )
     except (PromptRejectedError, StoredPlanInvalidError):
         raise

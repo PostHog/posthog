@@ -81,17 +81,23 @@ async def deliver_email(
     inputs: DeliverSubscriptionInputs,
     recipient_results: list[RecipientResult],
     send_one: Callable[[str], Awaitable[None]],
+    *,
+    target_value: str | None = None,
+    eligible_emails: set[str] | None = None,
 ) -> DeliverSubscriptionResult:
     """Send to each recipient via `send_one`. Partial success is kept; only an all-failed run
     raises, so a Temporal retry won't re-send to recipients who already succeeded."""
-    emails = list(dict.fromkeys(e.strip() for e in subscription.target_value.split(",") if e.strip()))
+    target_value = target_value if target_value is not None else subscription.target_value
+    emails = list(dict.fromkeys(e.strip() for e in target_value.split(",") if e.strip()))
+    if eligible_emails is not None:
+        emails = [email for email in emails if email in eligible_emails]
     previous_target_value = inputs.previous_target_value
     if previous_target_value is None:
         previous_target_value = inputs.previous_value
     send_only_to_new_recipients = (
         inputs.is_new_subscription_target
         if inputs.is_new_subscription_target is not None
-        else previous_target_value is not None and previous_target_value != subscription.target_value
+        else previous_target_value is not None and previous_target_value != target_value
     )
     if send_only_to_new_recipients:
         previous = {e.strip() for e in (previous_target_value or "").split(",") if e.strip()}
@@ -166,7 +172,9 @@ async def deliver_email(
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
-def _resolve_slack_integration(subscription: Subscription) -> Integration | None:
+def _resolve_slack_integration(subscription: Subscription, integration_id: int | None = None) -> Integration | None:
+    if integration_id is not None:
+        return Integration.objects.filter(id=integration_id, team_id=subscription.team_id, kind="slack").first()
     integration = subscription.integration
     if integration is not None and integration.kind != "slack":
         LOGGER.warning(
@@ -185,10 +193,15 @@ async def deliver_slack(
     subscription: Subscription,
     recipient_results: list[RecipientResult],
     send: Callable[[Integration], Awaitable[SlackDeliveryResult]],
+    *,
+    target_value: str | None = None,
+    integration_id: int | None = None,
 ) -> DeliverSubscriptionResult:
     """A missing integration or a permanent Slack config error auto-disables the subscription;
     transient Slack errors raise so Temporal retries."""
-    integration = await database_sync_to_async(_resolve_slack_integration, thread_sensitive=False)(subscription)
+    integration = await database_sync_to_async(_resolve_slack_integration, thread_sensitive=False)(
+        subscription, integration_id
+    )
     if integration is None:
         LOGGER.warning("deliver_subscription.no_slack_integration", subscription_id=subscription.id)
         return await auto_disable_and_return(subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results)
@@ -217,9 +230,10 @@ async def deliver_slack(
             )
         raise  # Transient Slack errors — let Temporal retry
 
+    target_value = target_value if target_value is not None else subscription.target_value
     if result.is_complete_success:
         await LOGGER.ainfo("deliver_subscription.slack_sent", subscription_id=subscription.id)
-        recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success", error=None))
+        recipient_results.append(RecipientResult(recipient=target_value, status="success", error=None))
     elif result.is_partial_failure:
         await LOGGER.awarning(
             "deliver_subscription.slack_partial_failure",
@@ -231,7 +245,7 @@ async def deliver_slack(
         partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
         recipient_results.append(
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=target_value,
                 status="partial",
                 error={"message": partial_message, "type": "partial_thread_failure"},
                 human_readable_error=partial_message,

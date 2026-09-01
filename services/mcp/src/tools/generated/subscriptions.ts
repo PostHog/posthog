@@ -41,6 +41,15 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
         }
+        if (params.context_dashboards !== undefined) {
+            body['context_dashboards'] = params.context_dashboards
+        }
+        if (params.context_insights !== undefined) {
+            body['context_insights'] = params.context_insights
+        }
+        if (params.context_items !== undefined) {
+            body['context_items'] = params.context_items
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -243,6 +252,15 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
+        }
+        if (params.context_dashboards !== undefined) {
+            body['context_dashboards'] = params.context_dashboards
+        }
+        if (params.context_insights !== undefined) {
+            body['context_insights'] = params.context_insights
+        }
+        if (params.context_items !== undefined) {
+            body['context_items'] = params.context_items
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type

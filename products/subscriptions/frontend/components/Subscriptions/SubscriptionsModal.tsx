@@ -28,6 +28,7 @@ export interface SubscriptionsModalProps {
     isCreating?: boolean
     inline?: boolean
     insightShortId?: InsightShortId
+    insightId?: number
     insightName?: string
     dashboard?: DashboardType<any> | null
     'data-attr'?: string
@@ -38,6 +39,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         closeModal,
         dashboard,
         insightShortId,
+        insightId,
         insightName,
         isCreating = false,
         subscriptionId,
@@ -120,6 +122,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
             ) : isWizard ? (
                 <SubscriptionWizard
                     insightShortId={insightShortId}
+                    insightId={insightId}
                     insightName={insightName}
                     dashboard={dashboard}
                     onCancel={cancelWizard}
@@ -128,6 +131,8 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                 <EditSubscription
                     id={subscriptionId ?? 'new'}
                     insightShortId={insightShortId}
+                    insightId={insightId}
+                    insightName={insightName}
                     dashboard={dashboard}
                     onCancel={() => push(urlForSubscriptions(baseProps))}
                     onDelete={() => push(urlForSubscriptions(baseProps))}

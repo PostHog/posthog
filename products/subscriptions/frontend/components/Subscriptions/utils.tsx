@@ -14,6 +14,10 @@ import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
+// Mirrors the server cap MAX_AI_REPORT_CONTEXTS in ee/api/subscription.py. Both the picker and the
+// add-context listeners enforce it so the form cannot reach a state the server rejects.
+export const MAX_CONTEXTS = 25
+
 export function requestSubscriptionWizardCancellation({
     onCancel,
     resetSubscription,

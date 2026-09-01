@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -13,6 +14,7 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -165,6 +167,48 @@ class TestSelectRelevantEvents(APIBaseTest):
         )
 
         assert _select_relevant_events(self.team, self.user, "how are exports doing?") == expected
+
+    @patch(f"{_SG}.PINNED_EVENT_SCAN_LIMIT", 1)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_valid_context_events_lead_supporting_selection_even_outside_recent_scan(
+        self, mock_chat: MagicMock
+    ) -> None:
+        # Context remains primary even when its valid event is older than the recent-event scan. The
+        # selector may add verified project evidence, while an invalid context name is still rejected.
+        EventDefinition.objects.create(team=self.team, name="project activity", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="context conversion", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=["project activity"]
+        )
+
+        selected = _select_relevant_events(
+            self.team,
+            self.user,
+            "how are things?",
+            extra_pinned=["context conversion", "fabricated event"],
+        )
+
+        assert selected == ["context conversion", "project activity"]
+        (messages,) = mock_chat.return_value.with_structured_output.return_value.invoke.call_args.args
+        assert "<selected_context>" in messages[0][1]
+        assert "context conversion" in messages[0][1]
+        assert "{{{" not in messages[0][1]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_falls_back_to_project_selection_when_context_has_no_valid_events(self, mock_chat: MagicMock) -> None:
+        EventDefinition.objects.create(team=self.team, name="project activity")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=["project activity"]
+        )
+
+        selected = _select_relevant_events(
+            self.team,
+            self.user,
+            "how are things?",
+            extra_pinned=["missing context event"],
+        )
+
+        assert selected == ["project activity"]
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_substitutes_prompt_and_event_names_into_system_message(self, mock_chat: MagicMock) -> None:
@@ -696,6 +740,38 @@ class TestContextBlob(APIBaseTest):
         assert "$group_<index>" in blob
         assert "group_0 = organization" in blob
 
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[{"group_type": "workspace", "group_type_index": 0}])
+    @patch(f"{_SG}._top_event_names", return_value=["unrelated project event"])
+    def test_context_scope_omits_project_event_lists_but_keeps_supporting_metadata(
+        self, mock_top: MagicMock, _mock_groups: object
+    ) -> None:
+        now = datetime.now(tz=UTC)
+        EventDefinition.objects.create(
+            team=self.team, name="dormant project event", last_seen_at=now - timedelta(days=45)
+        )
+        EventProperty.objects.create(team=self.team, event="context conversion", property="channel")
+        EventProperty.objects.create(team=self.team, event="release completed", property="version")
+        PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.PERSON)
+
+        blob = build_context_blob(
+            self.team,
+            _window(7),
+            relevant_events=["context conversion", "release completed"],
+            anchor_blob="- Context insight:\n  - Insight: Conversion by channel",
+            context_event_names=["context conversion"],
+        )
+
+        mock_top.assert_not_called()
+        assert "Events from selected context: context conversion" in blob
+        assert "Supporting project events (explanatory evidence only): release completed" in blob
+        assert "`context conversion` properties (use properties.<name>): channel" in blob
+        assert "`release completed` properties (use properties.<name>): version" in blob
+        assert "Person properties" in blob
+        assert "group_0 = workspace" in blob
+        assert "Insight: Conversion by channel" in blob
+        assert "unrelated project event" not in blob
+        assert "dormant project event" not in blob
+
     @parameterized.expand(
         [
             ("single_property", ["format"], "format"),
@@ -898,6 +974,65 @@ class TestBuildFrozenPrompt(APIBaseTest):
         # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
         assert spec.plan.model_dump() == stored["plan"]
         assert "{{date_range}}" in spec.plan.steps[0].hogql
+
+    @parameterized.expand(
+        [
+            # A frozen plan answers the anchor content it was built against. Anchor content changed
+            # (tile added, query edited, anchor removed): the plan must re-plan, not replay.
+            ("anchor_added_since_freeze", None, "abc123", "Anchor"),
+            ("anchor_changed_since_freeze", "abc123", "def456", "Anchor"),
+            ("anchor_removed_since_freeze", "abc123", None, "Anchor"),
+        ]
+    )
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_anchor_content_change_invalidates_frozen_plan(
+        self,
+        _name: str,
+        stored_hash: str | None,
+        current_hash: str | None,
+        match: str,
+        _mock_top: object,
+        _mock_groups: object,
+    ) -> None:
+        stored = self._stored_plan()
+        if stored_hash is not None:
+            stored["anchor_hash"] = stored_hash
+        kwargs = {} if current_hash is None else {"anchor_hash": current_hash}
+
+        with pytest.raises(StoredPlanInvalidError, match=match):
+            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored, **kwargs)
+
+        # A pre-anchor envelope (no key) with no current anchor stays valid — see EMPTY_ANCHOR_HASH.
+        spec = build_frozen_prompt(
+            team=self.team,
+            prompt="p",
+            window=_window(7),
+            ai_query_plan=self._stored_plan(),
+            anchor_hash=EMPTY_ANCHOR_HASH,
+        )
+        assert spec.plan.model_dump() == self._stored_plan()["plan"]
+
+    @patch(f"{_SG}.build_context_blob", return_value="blob")
+    def test_frozen_path_passes_anchor_blob_to_context(self, mock_blob: MagicMock) -> None:
+        blob = "- Context dashboard: Growth"
+        stored = {
+            **self._stored_plan(),
+            "anchor_hash": hashlib.sha256(blob.encode()).hexdigest(),
+            "context_event_names": ["context conversion"],
+        }
+
+        build_frozen_prompt(
+            team=self.team,
+            prompt="p",
+            window=_window(7),
+            ai_query_plan=stored,
+            anchor_blob=blob,
+            anchor_hash=stored["anchor_hash"],
+        )
+
+        assert mock_blob.call_args.kwargs["anchor_blob"] == blob
+        assert mock_blob.call_args.kwargs["context_event_names"] == ["context conversion"]
 
     @patch(f"{_SG}.build_context_blob", return_value="blob")
     def test_rebuilds_property_aware_blob_from_stored_relevant_events(self, mock_blob: MagicMock) -> None:

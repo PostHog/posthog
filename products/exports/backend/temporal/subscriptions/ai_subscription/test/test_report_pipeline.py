@@ -11,6 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, Resoluti
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
     ChartRenderFailure,
@@ -27,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _arequest_hogql_fix,
     _plan_to_freeze,
     _run_steps,
+    _spec_from_frozen_plan,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -42,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanVersionChangedError,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_error_message
 
@@ -574,7 +577,43 @@ async def test_unfrozen_run_returns_plan_to_persist(
         "version": AI_QUERY_PLAN_VERSION,
         "plan": spec.plan.model_dump(),
         "relevant_events": ["export created"],
+        "context_event_names": [],
+        "anchor_hash": EMPTY_ANCHOR_HASH,
     }
+
+
+@patch(f"{_RP}.build_frozen_prompt")
+async def test_anchor_unavailable_echoes_stored_hash_to_keep_frozen_plan(mock_bfp: MagicMock) -> None:
+    # A transient anchor-resolution failure must not read as "anchor removed": the stored hash is
+    # echoed back so the comparison passes and the frozen plan is reused (ungrounded for one run)
+    # instead of being invalidated and replaced by an ungrounded re-plan.
+    stored = {"version": AI_QUERY_PLAN_VERSION, "plan": {}, "anchor_hash": "abc123"}
+    await _spec_from_frozen_plan(
+        team=MagicMock(), prompt="p", window=_test_window(), ai_query_plan=stored, anchor=None, anchor_unavailable=True
+    )
+
+    assert mock_bfp.call_args.kwargs["anchor_hash"] == "abc123"
+
+
+def test_plan_to_freeze_skips_when_anchor_unavailable() -> None:
+    # A plan generated while the anchor failed to resolve is ungrounded; freezing it would replace
+    # a grounded plan until the next content change instead of re-planning when the anchor is back.
+    plan = QueryPlan(
+        overall_intent="i",
+        steps=[QueryPlanStep(description="s", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+    )
+    result = _plan_to_freeze(
+        plan,
+        freshly_planned=True,
+        failed_count=0,
+        total_steps=1,
+        relevant_events=[],
+        context_event_names=[],
+        anchor_hash=EMPTY_ANCHOR_HASH,
+        anchor_unavailable=True,
+        trace_correlation_id=None,
+    )
+    assert result is None
 
 
 @pytest.mark.parametrize(
@@ -605,6 +644,9 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         failed_count=failed_count,
         total_steps=total_steps,
         relevant_events=["export created"],
+        context_event_names=[],
+        anchor_hash=EMPTY_ANCHOR_HASH,
+        anchor_unavailable=False,
         trace_correlation_id=None,
     )
     if should_freeze:
@@ -612,6 +654,8 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
             "version": AI_QUERY_PLAN_VERSION,
             "plan": plan.model_dump(),
             "relevant_events": ["export created"],
+            "context_event_names": [],
+            "anchor_hash": EMPTY_ANCHOR_HASH,
         }
     else:
         assert result is None
@@ -781,6 +825,50 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+
+
+@parameterized.expand(
+    [
+        # A version bump is a deliberate, self-healing invalidation, so it must not report an
+        # exception — otherwise every stale subscription floods error tracking on its next delivery.
+        # A malformed plan is a genuine defect and must still reach error tracking.
+        ("version_changed", StoredPlanVersionChangedError("stale"), False),
+        ("malformed_plan", StoredPlanInvalidError("malformed"), True),
+    ]
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.capture_exception")
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_frozen_prompt")
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_frozen_plan_invalidation_reports_only_genuine_defects(
+    _name: str,
+    exc: StoredPlanInvalidError,
+    should_capture: bool,
+    mock_bep: MagicMock,
+    mock_frozen: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    mock_capture: MagicMock,
+    _mock_slo: MagicMock,
+) -> None:
+    mock_frozen.side_effect = exc
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=[],
+    )
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan={"any": "plan"}
+    )
+
+    assert result.markdown == "# Report"  # self-heals either way
+    assert mock_capture.called is should_capture
 
 
 def _charted_spec(

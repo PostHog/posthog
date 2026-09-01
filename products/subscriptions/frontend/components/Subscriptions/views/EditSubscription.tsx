@@ -18,6 +18,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -113,6 +114,8 @@ function LastDeliveryStatus({
 interface EditSubscriptionProps {
     id: number | 'new'
     insightShortId?: InsightShortId
+    insightId?: number
+    insightName?: string
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
@@ -241,16 +244,23 @@ function DashboardInsightsField({
 function EditSubscriptionForm({
     id,
     insightShortId,
+    insightId,
+    insightName,
     dashboard,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
     const dashboardId = dashboard?.id
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiSubscriptionContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXT')
     const logicProps = {
         id,
         insightShortId,
+        insightId,
+        insightName,
         dashboardId,
         dashboardName: dashboard?.name,
+        contextEnabled: Boolean(aiSubscriptionContextsEnabled),
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -269,15 +279,24 @@ function EditSubscriptionForm({
         lastDeliveryLoading,
         summaryQuota,
         testDeliveryLoading,
+        recoveryActionLoading,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
+    const {
+        addContext,
+        addContextEvent,
+        applyDefaultSelectedInsights,
+        generatePreview,
+        removeContext,
+        removeContextEvent,
+        sendTestDelivery,
+        recoverContextAccess,
+    } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -310,8 +329,14 @@ function EditSubscriptionForm({
 
     const _onDelete = (): void => {
         if (isEditing) {
-            deleteSubscription(id)
-            onDelete()
+            // In recovery mode the server only accepts the restricted allowlist, so the normal
+            // delete payload would 403; route through the recovery action that sends just {deleted}.
+            if (subscription?.context_recovery) {
+                recoverContextAccess('delete', onDelete)
+            } else {
+                deleteSubscription(id)
+                onDelete()
+            }
         }
     }
 
@@ -390,447 +415,508 @@ function EditSubscriptionForm({
                             </LemonBanner>
                         )}
 
-                        <div className="flex gap-4 items-end">
-                            <LemonField className="flex-auto" name="title" label="Name">
-                                <LemonInput placeholder="e.g. Weekly team report" />
-                            </LemonField>
-                            <LemonField name="enabled" className="pb-2">
-                                {({ value, onChange }) => (
-                                    <LemonSwitch
-                                        checked={value !== false}
-                                        onChange={onChange}
-                                        data-attr="subscription-enabled"
-                                        label="Enabled"
-                                    />
-                                )}
-                            </LemonField>
-                        </div>
-
-                        {aiGate.showResourceTypeToggle && (
-                            <LemonField name="resource_type" label="What to send">
-                                {({ value, onChange }) => (
-                                    <LemonSegmentedButton
-                                        value={value}
-                                        onChange={onChange}
-                                        fullWidth
-                                        options={[
-                                            {
-                                                value: SubscriptionResourceTypes.Insight,
-                                                label: 'Insight or dashboard snapshot',
-                                            },
-                                            {
-                                                value: SubscriptionResourceTypes.AiPrompt,
-                                                label: 'Report from a prompt (beta)',
-                                                disabledReason: !aiGate.aiOptionEnabled
-                                                    ? AI_NOT_ALLOWED_REASON
-                                                    : undefined,
-                                            },
-                                        ]}
-                                    />
-                                )}
-                            </LemonField>
-                        )}
-
-                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
-                            <DashboardInsightsField
-                                dashboard={dashboard}
-                                onDefaultsApplied={applyDefaultSelectedInsights}
-                            />
-                        )}
-
-                        {aiGate.showConsentHint && (
-                            <LemonBanner type="info" className="text-sm">
-                                <AiConsentGateMessage />
+                        {subscription.context_recovery && (
+                            <LemonBanner type="warning">
+                                <p>
+                                    Editing is disabled because you no longer have access to one or more report
+                                    contexts. Pause deliveries or remove the inaccessible context to continue.
+                                </p>
+                                <div className="flex gap-2 mt-2">
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => recoverContextAccess('pause')}
+                                        loading={recoveryActionLoading}
+                                        disabled={recoveryActionLoading || subscription.enabled === false}
+                                    >
+                                        Pause subscription
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: 'Remove inaccessible context?',
+                                                description:
+                                                    'This permanently removes every report context you no longer have access to. Reports will continue without those contexts.',
+                                                primaryButton: {
+                                                    children: 'Remove context',
+                                                    status: 'danger',
+                                                    onClick: () => recoverContextAccess('clear'),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
+                                        loading={recoveryActionLoading}
+                                        disabled={recoveryActionLoading}
+                                    >
+                                        Remove inaccessible context
+                                    </LemonButton>
+                                </div>
                             </LemonBanner>
                         )}
 
-                        {isAiPrompt ? (
-                            <>
-                                <AiPromptSubscriptionIntroduction />
-                                <AiPromptFields
-                                    prompt={subscription.prompt}
-                                    windowMode={subscription.ai_prompt_config?.window?.mode}
-                                    consentBanner={
-                                        aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined
-                                    }
-                                    onSelectAnalysisWindow={logic.actions.selectAiAnalysisWindow}
-                                    onSelectExample={logic.actions.selectAiExamplePrompt}
-                                />
-                            </>
-                        ) : null}
-
-                        <LemonField name="target_type" label="Destination">
-                            <LemonSelect options={targetTypeOptions} />
-                        </LemonField>
-
-                        {subscription.target_type === 'email' ? (
-                            <>
-                                {emailDisabled && (
-                                    <LemonBanner type="error">
-                                        <>
-                                            Email subscriptions are not currently possible as this PostHog instance
-                                            isn't{' '}
-                                            <Link
-                                                to="https://posthog.com/docs/self-host/configure/email"
-                                                target="_blank"
-                                                targetBlankIcon
-                                            >
-                                                configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
-                                            </Link>
-                                            .
-                                        </>
-                                    </LemonBanner>
-                                )}
-
-                                <LemonField
-                                    name="target_value"
-                                    label="Who do you want to subscribe"
-                                    help="Enter the email addresses of the users you want to share with"
-                                >
+                        <fieldset disabled={subscription.context_recovery} className="contents">
+                            <div className="flex gap-4 items-end">
+                                <LemonField className="flex-auto" name="title" label="Name">
+                                    <LemonInput placeholder="e.g. Weekly team report" />
+                                </LemonField>
+                                <LemonField name="enabled" className="pb-2">
                                     {({ value, onChange }) => (
-                                        <LemonInputSelect
-                                            onChange={(val) => onChange(val.join(','))}
-                                            value={value?.split(',').filter(Boolean)}
-                                            disabled={emailDisabled}
-                                            mode="multiple"
-                                            allowCustomValues
-                                            data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
-                                            loading={membersLoading}
-                                            placeholder="Enter an email address"
+                                        <LemonSwitch
+                                            checked={value !== false}
+                                            onChange={onChange}
+                                            data-attr="subscription-enabled"
+                                            label="Enabled"
                                         />
                                     )}
                                 </LemonField>
+                            </div>
 
-                                <LemonField name="invite_message" label="Message" showOptional>
-                                    <LemonTextArea placeholder="Your message to new subscribers (optional)" />
-                                </LemonField>
-                            </>
-                        ) : null}
-
-                        {subscription.target_type === 'slack' ? (
-                            <>
-                                {!slackIntegrations?.length ? (
-                                    <SlackNotConfiguredBanner />
-                                ) : (
-                                    <>
-                                        <LemonField name="integration_id" label="Slack connection">
-                                            {({ value, onChange }) => (
-                                                <IntegrationChoice
-                                                    integration="slack"
-                                                    value={value}
-                                                    onChange={(newValue) => {
-                                                        onChange(newValue)
-                                                        // Only clear channel when user actively switches,
-                                                        // not on initial auto-select (value is null)
-                                                        if (value !== null && newValue !== value) {
-                                                            logic.actions.setSubscriptionValue('target_value', '')
-                                                        }
-                                                    }}
-                                                />
-                                            )}
-                                        </LemonField>
-
-                                        {subscription.integration_id && (
-                                            <LemonField
-                                                name="target_value"
-                                                label="Which Slack channel to send reports to"
-                                                help={
-                                                    <>
-                                                        Private channels are only shown if you have{' '}
-                                                        <Link
-                                                            to="https://posthog.com/docs/webhooks/slack"
-                                                            target="_blank"
-                                                        >
-                                                            added the PostHog Slack App
-                                                        </Link>{' '}
-                                                        to them. You can also paste the channel ID (e.g.{' '}
-                                                        <code>C1234567890</code>) to search for channels.
-                                                    </>
-                                                }
-                                            >
-                                                {({ value, onChange }) => {
-                                                    const selectedIntegration = integrations?.find(
-                                                        (i) => i.id === subscription.integration_id
-                                                    )
-                                                    return selectedIntegration ? (
-                                                        <SlackChannelPicker
-                                                            value={value}
-                                                            onChange={onChange}
-                                                            integration={selectedIntegration}
-                                                        />
-                                                    ) : (
-                                                        <></>
-                                                    )
-                                                }}
-                                            </LemonField>
-                                        )}
-                                    </>
-                                )}
-                            </>
-                        ) : null}
-
-                        <div>
-                            <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                            <div className="rounded border p-2">
-                                <div className="flex gap-2 items-center flex-wrap">
-                                    <span>Send every</span>
-                                    <LemonField name="interval">
-                                        <LemonSelect options={intervalOptions} />
-                                    </LemonField>
-                                    <LemonField name="frequency" renderError={() => null}>
-                                        <LemonSelect options={availableFrequencyOptions} />
-                                    </LemonField>
-
-                                    {shouldShowDayPicker(subscription.frequency, subscription.interval) && (
-                                        <>
-                                            <LemonField name="byweekday">
-                                                {({ value, onChange }) => (
-                                                    <SubscriptionDayPicker value={value ?? []} onChange={onChange} />
-                                                )}
-                                            </LemonField>
-                                        </>
+                            {aiGate.showResourceTypeToggle && (
+                                <LemonField name="resource_type" label="What to send">
+                                    {({ value, onChange }) => (
+                                        <LemonSegmentedButton
+                                            value={value}
+                                            onChange={onChange}
+                                            fullWidth
+                                            options={[
+                                                {
+                                                    value: SubscriptionResourceTypes.Insight,
+                                                    label: 'Insight or dashboard snapshot',
+                                                },
+                                                {
+                                                    value: SubscriptionResourceTypes.AiPrompt,
+                                                    label: 'Report from a prompt (beta)',
+                                                    disabledReason: !aiGate.aiOptionEnabled
+                                                        ? AI_NOT_ALLOWED_REASON
+                                                        : undefined,
+                                                },
+                                            ]}
+                                        />
                                     )}
-                                    {subscription.frequency === 'monthly' && (
+                                </LemonField>
+                            )}
+
+                            {dashboard?.tiles && selectionReady && !isAiPrompt && (
+                                <DashboardInsightsField
+                                    dashboard={dashboard}
+                                    onDefaultsApplied={applyDefaultSelectedInsights}
+                                />
+                            )}
+
+                            {aiGate.showConsentHint && (
+                                <LemonBanner type="info" className="text-sm">
+                                    <AiConsentGateMessage />
+                                </LemonBanner>
+                            )}
+
+                            {isAiPrompt ? (
+                                <>
+                                    <AiPromptSubscriptionIntroduction />
+                                    <AiPromptFields
+                                        contextCount={
+                                            (subscription.context_dashboards?.length ?? 0) +
+                                            (subscription.context_insights?.length ?? 0) +
+                                            (subscription.context_items?.length ?? 0)
+                                        }
+                                        contextEnabled={Boolean(aiSubscriptionContextsEnabled)}
+                                        contexts={subscription.contexts ?? []}
+                                        contextItems={subscription.context_items ?? []}
+                                        prompt={subscription.prompt}
+                                        windowMode={subscription.ai_prompt_config?.window?.mode}
+                                        consentBanner={
+                                            aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined
+                                        }
+                                        onAddContext={addContext}
+                                        onAddEvent={addContextEvent}
+                                        onRemoveContext={removeContext}
+                                        onRemoveEvent={removeContextEvent}
+                                        onSelectAnalysisWindow={logic.actions.selectAiAnalysisWindow}
+                                        onSelectExample={logic.actions.selectAiExamplePrompt}
+                                    />
+                                </>
+                            ) : null}
+
+                            <LemonField name="target_type" label="Destination">
+                                <LemonSelect options={targetTypeOptions} />
+                            </LemonField>
+
+                            {subscription.target_type === 'email' ? (
+                                <>
+                                    {emailDisabled && (
+                                        <LemonBanner type="error">
+                                            <>
+                                                Email subscriptions are not currently possible as this PostHog instance
+                                                isn't{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/self-host/configure/email"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                >
+                                                    configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
+                                                </Link>
+                                                .
+                                            </>
+                                        </LemonBanner>
+                                    )}
+
+                                    <LemonField
+                                        name="target_value"
+                                        label="Who do you want to subscribe"
+                                        help="Enter the email addresses of the users you want to share with"
+                                    >
+                                        {({ value, onChange }) => (
+                                            <LemonInputSelect
+                                                onChange={(val) => onChange(val.join(','))}
+                                                value={value?.split(',').filter(Boolean)}
+                                                disabled={emailDisabled}
+                                                mode="multiple"
+                                                allowCustomValues
+                                                data-attr="subscribed-emails"
+                                                options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
+                                                loading={membersLoading}
+                                                placeholder="Enter an email address"
+                                            />
+                                        )}
+                                    </LemonField>
+
+                                    <LemonField name="invite_message" label="Message" showOptional>
+                                        <LemonTextArea placeholder="Your message to new subscribers (optional)" />
+                                    </LemonField>
+                                </>
+                            ) : null}
+
+                            {subscription.target_type === 'slack' ? (
+                                <>
+                                    {!slackIntegrations?.length ? (
+                                        <SlackNotConfiguredBanner />
+                                    ) : (
                                         <>
-                                            <span>on the</span>
-                                            <LemonField name="bysetpos">
+                                            <LemonField name="integration_id" label="Slack connection">
                                                 {({ value, onChange }) => (
-                                                    <LemonSelect
-                                                        options={bysetposOptions}
-                                                        value={value ? String(value) : null}
-                                                        onChange={(val) => {
-                                                            onChange(val === null ? null : Number(val))
+                                                    <IntegrationChoice
+                                                        integration="slack"
+                                                        value={value}
+                                                        onChange={(newValue) => {
+                                                            onChange(newValue)
+                                                            // Only clear channel when user actively switches,
+                                                            // not on initial auto-select (value is null)
+                                                            if (value !== null && newValue !== value) {
+                                                                logic.actions.setSubscriptionValue('target_value', '')
+                                                            }
                                                         }}
                                                     />
                                                 )}
                                             </LemonField>
-                                            <LemonField name="byweekday">
-                                                {({ value, onChange }) => {
-                                                    const isWeekday =
-                                                        value?.length === 5 &&
-                                                        value.every((d: string) => WEEKDAYS.has(d))
-                                                    let displayValue = null
-                                                    if (isWeekday) {
-                                                        displayValue = 'weekday'
-                                                    } else if (value?.length === 1) {
-                                                        displayValue = value[0]
-                                                    } else if (value) {
-                                                        displayValue = 'day'
-                                                    }
 
-                                                    return (
-                                                        <LemonSelect
-                                                            dropdownMatchSelectWidth={false}
-                                                            options={monthlyWeekdayOptions}
-                                                            value={displayValue}
-                                                            onChange={(val) => {
-                                                                if (val === 'day') {
-                                                                    onChange(weekdayOptions.map(({ value }) => value))
-                                                                    return
-                                                                }
-                                                                if (val === 'weekday') {
-                                                                    onChange([...WEEKDAYS])
-                                                                    return
-                                                                }
-                                                                onChange([val])
-                                                            }}
-                                                        />
-                                                    )
-                                                }}
-                                            </LemonField>
+                                            {subscription.integration_id && (
+                                                <LemonField
+                                                    name="target_value"
+                                                    label="Which Slack channel to send reports to"
+                                                    help={
+                                                        <>
+                                                            Private channels are only shown if you have{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/webhooks/slack"
+                                                                target="_blank"
+                                                            >
+                                                                added the PostHog Slack App
+                                                            </Link>{' '}
+                                                            to them. You can also paste the channel ID (e.g.{' '}
+                                                            <code>C1234567890</code>) to search for channels.
+                                                        </>
+                                                    }
+                                                >
+                                                    {({ value, onChange }) => {
+                                                        const selectedIntegration = integrations?.find(
+                                                            (i) => i.id === subscription.integration_id
+                                                        )
+                                                        return selectedIntegration ? (
+                                                            <SlackChannelPicker
+                                                                value={value}
+                                                                onChange={onChange}
+                                                                integration={selectedIntegration}
+                                                            />
+                                                        ) : (
+                                                            <></>
+                                                        )
+                                                    }}
+                                                </LemonField>
+                                            )}
                                         </>
-                                    )}
-                                    <span>at</span>
-                                    <LemonField name="start_date">
-                                        {({ value, onChange }) => (
-                                            <LemonSelect
-                                                options={timeOptions}
-                                                value={dayjs(value).hour().toString()}
-                                                onChange={(val) => {
-                                                    onChange(
-                                                        dayjs()
-                                                            .hour(Number(val ?? 0))
-                                                            .minute(0)
-                                                            .second(0)
-                                                            .toISOString()
-                                                    )
-                                                }}
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
-                            </div>
-                            {nextDeliveryDate && (
-                                <div className="text-sm text-secondary mt-1">
-                                    Next delivery:{' '}
-                                    <TZLabel
-                                        time={dayjs(nextDeliveryDate)}
-                                        formatDate="ddd, MMM D"
-                                        formatTime="h:mm A"
-                                        timestampStyle="absolute"
-                                    />{' '}
-                                    {currentTimezone}
-                                </div>
-                            )}
-                            {id !== 'new' && (
-                                <div className="flex items-center justify-between gap-2 mt-1">
-                                    <div className="text-sm text-secondary">
-                                        <LastDeliveryStatus
-                                            lastDelivery={lastDelivery}
-                                            loading={lastDeliveryLoading}
-                                            failed={lastDeliveryLoadFailed}
-                                            currentTimezone={currentTimezone}
-                                        />
-                                        {' · '}
-                                        <Link to={urls.subscription(id)}>View history</Link>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSend />}
-                                        onClick={sendTestDelivery}
-                                        loading={testDeliveryLoading}
-                                        disabledReason={
-                                            subscription.enabled === false
-                                                ? 'Re-enable this subscription before sending a test delivery'
-                                                : undefined
-                                        }
-                                    >
-                                        Send test delivery
-                                    </LemonButton>
-                                </div>
-                            )}
-                        </div>
-
-                        {/*
-                         * Delivery options: the AI-summary toggle is hidden for AI-prompt subs, which are
-                         * themselves an LLM report — a summary of a summary. The test-run toggle always
-                         * renders; it is disabled (with a reason) while the subscription is disabled.
-                         */}
-                        <div className="flex flex-col gap-2">
-                            <LemonLabel className="mb-2">Settings</LemonLabel>
-                            {!isAiPrompt && (
-                                <>
-                                    <LemonField name="summary_enabled">
-                                        {({ value, onChange }) => (
-                                            <AIConsentPopoverWrapper>
-                                                <LemonSwitch
-                                                    checked={value}
-                                                    onChange={onChange}
-                                                    bordered
-                                                    label="Include an automatic AI summary"
-                                                    fullWidth
-                                                    disabledReason={
-                                                        !dataProcessingAccepted && !value
-                                                            ? 'Your organization needs to approve AI data processing before enabling AI summaries'
-                                                            : summaryQuota?.at_limit && !value
-                                                              ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
-                                                              : undefined
-                                                    }
-                                                />
-                                            </AIConsentPopoverWrapper>
-                                        )}
-                                    </LemonField>
-
-                                    {summaryQuota?.at_limit &&
-                                        !subscription.summary_enabled &&
-                                        summaryQuota.limit !== null && (
-                                            <UsageLimitPaywall
-                                                title="AI summary limit reached"
-                                                description="Disable an existing AI summary or upgrade your plan to add more."
-                                                limit={summaryQuota.limit}
-                                                currentUsage={summaryQuota.active_count}
-                                                unit="active AI summaries on your plan"
-                                            />
-                                        )}
-
-                                    {subscription.summary_enabled && (
-                                        <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
-                                            <LemonField
-                                                name="summary_prompt_guide"
-                                                label="Context for the AI summary"
-                                                showOptional
-                                            >
-                                                <LemonTextArea
-                                                    placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                                    maxLength={500}
-                                                />
-                                            </LemonField>
-                                        </FlaggedFeature>
                                     )}
                                 </>
-                            )}
+                            ) : null}
 
                             <div>
-                                <LemonField name="send_test_now">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            checked={subscription?.enabled === false ? false : value}
-                                            onChange={onChange}
-                                            bordered
-                                            fullWidth
-                                            label="Send a test run now"
+                                <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                                <div className="rounded border p-2">
+                                    <div className="flex gap-2 items-center flex-wrap">
+                                        <span>Send every</span>
+                                        <LemonField name="interval">
+                                            <LemonSelect options={intervalOptions} />
+                                        </LemonField>
+                                        <LemonField name="frequency" renderError={() => null}>
+                                            <LemonSelect options={availableFrequencyOptions} />
+                                        </LemonField>
+
+                                        {shouldShowDayPicker(subscription.frequency, subscription.interval) && (
+                                            <>
+                                                <LemonField name="byweekday">
+                                                    {({ value, onChange }) => (
+                                                        <SubscriptionDayPicker
+                                                            value={value ?? []}
+                                                            onChange={onChange}
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            </>
+                                        )}
+                                        {subscription.frequency === 'monthly' && (
+                                            <>
+                                                <span>on the</span>
+                                                <LemonField name="bysetpos">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSelect
+                                                            options={bysetposOptions}
+                                                            value={value ? String(value) : null}
+                                                            onChange={(val) => {
+                                                                onChange(val === null ? null : Number(val))
+                                                            }}
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                                <LemonField name="byweekday">
+                                                    {({ value, onChange }) => {
+                                                        const isWeekday =
+                                                            value?.length === 5 &&
+                                                            value.every((d: string) => WEEKDAYS.has(d))
+                                                        let displayValue = null
+                                                        if (isWeekday) {
+                                                            displayValue = 'weekday'
+                                                        } else if (value?.length === 1) {
+                                                            displayValue = value[0]
+                                                        } else if (value) {
+                                                            displayValue = 'day'
+                                                        }
+
+                                                        return (
+                                                            <LemonSelect
+                                                                dropdownMatchSelectWidth={false}
+                                                                options={monthlyWeekdayOptions}
+                                                                value={displayValue}
+                                                                onChange={(val) => {
+                                                                    if (val === 'day') {
+                                                                        onChange(
+                                                                            weekdayOptions.map(({ value }) => value)
+                                                                        )
+                                                                        return
+                                                                    }
+                                                                    if (val === 'weekday') {
+                                                                        onChange([...WEEKDAYS])
+                                                                        return
+                                                                    }
+                                                                    onChange([val])
+                                                                }}
+                                                            />
+                                                        )
+                                                    }}
+                                                </LemonField>
+                                            </>
+                                        )}
+                                        <span>at</span>
+                                        <LemonField name="start_date">
+                                            {({ value, onChange }) => (
+                                                <LemonSelect
+                                                    options={timeOptions}
+                                                    value={dayjs(value).hour().toString()}
+                                                    onChange={(val) => {
+                                                        onChange(
+                                                            dayjs()
+                                                                .hour(Number(val ?? 0))
+                                                                .minute(0)
+                                                                .second(0)
+                                                                .toISOString()
+                                                        )
+                                                    }}
+                                                />
+                                            )}
+                                        </LemonField>
+                                    </div>
+                                </div>
+                                {nextDeliveryDate && (
+                                    <div className="text-sm text-secondary mt-1">
+                                        Next delivery:{' '}
+                                        <TZLabel
+                                            time={dayjs(nextDeliveryDate)}
+                                            formatDate="ddd, MMM D"
+                                            formatTime="h:mm A"
+                                            timestampStyle="absolute"
+                                        />{' '}
+                                        {currentTimezone}
+                                    </div>
+                                )}
+                                {id !== 'new' && (
+                                    <div className="flex items-center justify-between gap-2 mt-1">
+                                        <div className="text-sm text-secondary">
+                                            <LastDeliveryStatus
+                                                lastDelivery={lastDelivery}
+                                                loading={lastDeliveryLoading}
+                                                failed={lastDeliveryLoadFailed}
+                                                currentTimezone={currentTimezone}
+                                            />
+                                            {' · '}
+                                            <Link to={urls.subscription(id)}>View history</Link>
+                                        </div>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconSend />}
+                                            onClick={sendTestDelivery}
+                                            loading={testDeliveryLoading}
                                             disabledReason={
-                                                subscription?.enabled === false
-                                                    ? 'This subscription is disabled — re-enable it to send a test run'
+                                                subscription.enabled === false
+                                                    ? 'Re-enable this subscription before sending a test delivery'
                                                     : undefined
                                             }
-                                        />
-                                    )}
-                                </LemonField>
-                                <p className="text-xs text-secondary mt-1 mb-0">
-                                    On save we send this report once to the destination above, so you can confirm it
-                                    looks right. Turn this off to wait for the next scheduled delivery
-                                    {nextDeliveryDate && (
-                                        <>
-                                            {' ('}
-                                            <TZLabel
-                                                time={dayjs(nextDeliveryDate)}
-                                                formatDate="ddd, MMM D"
-                                                formatTime="h:mm A"
-                                                timestampStyle="absolute"
-                                            />
-                                            )
-                                        </>
-                                    )}
-                                    .
-                                </p>
+                                        >
+                                            Send test delivery
+                                        </LemonButton>
+                                    </div>
+                                )}
                             </div>
-                        </div>
 
-                        {insightShortId && !isAiPrompt && (
-                            <div>
-                                <LemonLabel className="mb-2">Preview</LemonLabel>
-                                <div className="border rounded p-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={generatePreview}
-                                        loading={previewLoading}
-                                        disabled={previewLoading}
-                                        size="small"
-                                    >
-                                        Generate preview
-                                    </LemonButton>
+                            {/*
+                             * Delivery options: the AI-summary toggle is hidden for AI-prompt subs, which are
+                             * themselves an LLM report — a summary of a summary. The test-run toggle always
+                             * renders; it is disabled (with a reason) while the subscription is disabled.
+                             */}
+                            <div className="flex flex-col gap-2">
+                                <LemonLabel className="mb-2">Settings</LemonLabel>
+                                {!isAiPrompt && (
+                                    <>
+                                        <LemonField name="summary_enabled">
+                                            {({ value, onChange }) => (
+                                                <AIConsentPopoverWrapper>
+                                                    <LemonSwitch
+                                                        checked={value}
+                                                        onChange={onChange}
+                                                        bordered
+                                                        label="Include an automatic AI summary"
+                                                        fullWidth
+                                                        disabledReason={
+                                                            !dataProcessingAccepted && !value
+                                                                ? 'Your organization needs to approve AI data processing before enabling AI summaries'
+                                                                : summaryQuota?.at_limit && !value
+                                                                  ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
+                                                                  : undefined
+                                                        }
+                                                    />
+                                                </AIConsentPopoverWrapper>
+                                            )}
+                                        </LemonField>
 
-                                    {previewError && (
-                                        <LemonBanner type="error" className="mt-2">
-                                            {previewError}
-                                        </LemonBanner>
-                                    )}
+                                        {summaryQuota?.at_limit &&
+                                            !subscription.summary_enabled &&
+                                            summaryQuota.limit !== null && (
+                                                <UsageLimitPaywall
+                                                    title="AI summary limit reached"
+                                                    description="Disable an existing AI summary or upgrade your plan to add more."
+                                                    limit={summaryQuota.limit}
+                                                    currentUsage={summaryQuota.active_count}
+                                                    unit="active AI summaries on your plan"
+                                                />
+                                            )}
 
-                                    {previewImageUrl && (
-                                        <div className="mt-2 border rounded">
-                                            <img
-                                                src={previewImageUrl}
-                                                alt="Subscription export preview"
-                                                className="w-full"
+                                        {subscription.summary_enabled && (
+                                            <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
+                                                <LemonField
+                                                    name="summary_prompt_guide"
+                                                    label="Context for the AI summary"
+                                                    showOptional
+                                                >
+                                                    <LemonTextArea
+                                                        placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                                        maxLength={500}
+                                                    />
+                                                </LemonField>
+                                            </FlaggedFeature>
+                                        )}
+                                    </>
+                                )}
+
+                                <div>
+                                    <LemonField name="send_test_now">
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                checked={subscription?.enabled === false ? false : value}
+                                                onChange={onChange}
+                                                bordered
+                                                fullWidth
+                                                label="Send a test run now"
+                                                disabledReason={
+                                                    subscription?.enabled === false
+                                                        ? 'This subscription is disabled — re-enable it to send a test run'
+                                                        : undefined
+                                                }
                                             />
-                                        </div>
-                                    )}
+                                        )}
+                                    </LemonField>
+                                    <p className="text-xs text-secondary mt-1 mb-0">
+                                        On save we send this report once to the destination above, so you can confirm it
+                                        looks right. Turn this off to wait for the next scheduled delivery
+                                        {nextDeliveryDate && (
+                                            <>
+                                                {' ('}
+                                                <TZLabel
+                                                    time={dayjs(nextDeliveryDate)}
+                                                    formatDate="ddd, MMM D"
+                                                    formatTime="h:mm A"
+                                                    timestampStyle="absolute"
+                                                />
+                                                )
+                                            </>
+                                        )}
+                                        .
+                                    </p>
                                 </div>
                             </div>
-                        )}
+
+                            {insightShortId && !isAiPrompt && (
+                                <div>
+                                    <LemonLabel className="mb-2">Preview</LemonLabel>
+                                    <div className="border rounded p-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={generatePreview}
+                                            loading={previewLoading}
+                                            disabled={previewLoading}
+                                            size="small"
+                                        >
+                                            Generate preview
+                                        </LemonButton>
+
+                                        {previewError && (
+                                            <LemonBanner type="error" className="mt-2">
+                                                {previewError}
+                                            </LemonBanner>
+                                        )}
+
+                                        {previewImageUrl && (
+                                            <div className="mt-2 border rounded">
+                                                <img
+                                                    src={previewImageUrl}
+                                                    alt="Subscription export preview"
+                                                    className="w-full"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </fieldset>
                     </>
                 )}
             </LemonModal.Content>
@@ -842,7 +928,8 @@ function EditSubscriptionForm({
                             type="secondary"
                             status="danger"
                             onClick={_onDelete}
-                            disabled={subscriptionLoading}
+                            loading={subscription.context_recovery && recoveryActionLoading}
+                            disabled={subscriptionLoading || recoveryActionLoading}
                         >
                             Delete subscription
                         </LemonButton>
@@ -855,7 +942,13 @@ function EditSubscriptionForm({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
+                    disabled={
+                        !subscriptionChanged ||
+                        subscriptionLoading ||
+                        aiGate.submitBlocked ||
+                        subscription?.context_recovery
+                    }
+                    disabledReason={subscription?.context_recovery ? 'Use the recovery actions above.' : undefined}
                 >
                     {id === 'new' ? 'Create subscription' : 'Save'}
                 </LemonButton>

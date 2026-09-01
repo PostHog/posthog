@@ -1,11 +1,14 @@
+import json
 import uuid
 import asyncio
+from collections import Counter
 from collections.abc import Callable
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Manager, Q, QuerySet
+from django.db.models import CharField, Exists, Manager, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Cast
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -23,6 +26,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
+from rest_framework.utils import html
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -30,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import (
+    SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
 )
@@ -37,6 +42,8 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
@@ -49,9 +56,11 @@ from posthog.utils import str_to_bool
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
+    SubscriptionDeliveryContext,
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
@@ -62,6 +71,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+    AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -76,10 +87,75 @@ from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+MAX_AI_REPORT_CONTEXTS = 25
+
+
+def _validate_html_list_indices(data: Any, field: str) -> None:
+    """Reject oversized HTML-form list indices before DRF materializes their values."""
+    indices: set[str] = set()
+    prefix = f"{field}["
+    max_index = str(MAX_AI_REPORT_CONTEXTS - 1)
+    for raw_key in data.keys():
+        key = str(raw_key)
+        if not key.startswith(prefix):
+            continue
+        index, delimiter, _ = key[len(prefix) :].partition("]")
+        if not delimiter or not index.isascii() or not index.isdecimal():
+            continue
+        normalized_index = index.lstrip("0") or "0"
+        if len(normalized_index) > len(max_index) or (
+            len(normalized_index) == len(max_index) and normalized_index > max_index
+        ):
+            raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
+        indices.add(normalized_index)
+        if len(indices) > MAX_AI_REPORT_CONTEXTS:
+            raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
 
 
 def _summary_quota_cache_key(organization_id) -> str:
     return f"subscription:summary_quota:org:{organization_id}"
+
+
+def _log_subscription_context_changes(
+    subscription: Subscription,
+    user,
+    old_context_ids: dict[str, set[int]],
+    new_context_ids: dict[str, set[int]],
+    was_impersonated: bool,
+) -> None:
+    """Record M2M report-grounding changes with the request actor.
+
+    Model activity signals fire before DRF applies many-to-many fields, so the generic model
+    diff cannot observe these scope-affecting changes.
+    """
+    changes = [
+        Change(
+            type="Subscription",
+            field=field,
+            action="changed",
+            # Context IDs may no longer be visible to the actor. The field name is enough to
+            # preserve an audit trail without turning this log into an identifier disclosure path.
+            before=None,
+            after=None,
+        )
+        for field, old_ids in old_context_ids.items()
+        if old_ids != new_context_ids[field]
+    ]
+    if not changes:
+        return
+    try:
+        log_activity(
+            organization_id=subscription.team.organization_id,
+            team_id=subscription.team_id,
+            user=user,
+            item_id=subscription.id,
+            scope="Subscription",
+            activity="updated",
+            detail=Detail(name=subscription.display_name, changes=changes),
+            was_impersonated=was_impersonated,
+        )
+    except Exception as exc:
+        capture_exception(exc)
 
 
 def _summary_cap_hit_dedupe_key(organization_id) -> str:
@@ -105,6 +181,8 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
 class _TargetLookups:
     insight: str
     dashboard: str
+    context_insights: str
+    context_dashboards: str
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -115,6 +193,8 @@ class _TargetLookups:
 _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
     dashboard="dashboard_id__in",
+    context_insights="context_insights__id__in",
+    context_dashboards="context_dashboards__id__in",
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -126,6 +206,8 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
+    context_insights="subscription__context_insights__id__in",
+    context_dashboards="subscription__context_dashboards__id__in",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -136,8 +218,9 @@ _DELIVERY_TARGETS = _TargetLookups(
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
     if not user_access_control.check_access_level_for_object(obj, "viewer"):
+        label = field.removeprefix("context_").removesuffix("s")
         raise ValidationError(
-            {field: [f"Viewer access to this {field} is required. Ask an admin to grant you access."]}
+            {field: [f"Viewer access to this {label} is required. Ask an admin to grant you access."]}
         )
 
 
@@ -254,6 +337,23 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
+class SubscriptionContextSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["dashboard", "insight"], help_text="The context resource type.")
+    id = serializers.IntegerField(help_text="The context resource ID.")
+    name = serializers.CharField(help_text="The context resource's display name.")
+    url = serializers.CharField(help_text="Link to the context resource.")
+
+
+class SubscriptionContextItemSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["event"], help_text="The context item type.")
+    event_name = serializers.CharField(
+        max_length=400,
+        min_length=1,
+        trim_whitespace=False,
+        help_text="Event name, when kind is 'event'.",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -264,6 +364,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         "prompt",
         "insight_id",
         "dashboard_id",
+        "context_items",
     )
 
     created_by = UserBasicSerializer(read_only=True)
@@ -300,8 +401,24 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    context_dashboards = serializers.PrimaryKeyRelatedField(many=True, queryset=Dashboard.objects.all(), required=False)
+    context_insights = serializers.PrimaryKeyRelatedField(many=True, queryset=Insight.objects.all(), required=False)
+    context_items = serializers.ListField(
+        child=SubscriptionContextItemSerializer(),
+        required=False,
+        help_text=(
+            "AI report subscriptions only: typed context items that ground the generated report. "
+            "Combined with dashboards and insights, at most 25 context items are allowed."
+        ),
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
+    contexts = serializers.SerializerMethodField(
+        help_text=("The dashboards and insights grounding an AI report, for display. Deleted context is omitted.")
+    )
+    context_recovery = serializers.SerializerMethodField(
+        help_text="Whether this subscription can only be paused or cleared because its creator lost context access."
+    )
     resource_type = serializers.ChoiceField(
         choices=Subscription.ResourceType.choices,
         read_only=True,
@@ -325,6 +442,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
+            "context_dashboards",
+            "context_insights",
+            "context_items",
+            "contexts",
+            "context_recovery",
             "target_type",
             "target_value",
             "frequency",
@@ -355,6 +477,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "summary",
             "insight_short_id",
             "resource_name",
+            "contexts",
+            "context_recovery",
         ]
         extra_kwargs = {
             "prompt": {
@@ -364,6 +488,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
+            "context_dashboards": {
+                "help_text": (
+                    f"AI report subscriptions only: dashboard IDs whose insights ground the generated report. "
+                    f"Combined with context_insights and event context items, at most {MAX_AI_REPORT_CONTEXTS} items are allowed."
+                ),
+            },
+            "context_insights": {
+                "help_text": (
+                    f"AI report subscriptions only: insight IDs that ground the generated report. "
+                    f"Combined with context_dashboards and event context items, at most {MAX_AI_REPORT_CONTEXTS} items are allowed."
+                ),
+            },
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
             "target_type": {"help_text": "Delivery channel: email or slack."},
             "target_value": {
@@ -414,6 +550,65 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return obj.insight.short_id
         return None
 
+    def to_internal_value(self, data: Any) -> dict:
+        # Bound raw arrays before DRF resolves each relation, so an oversized request cannot
+        # turn one validation error into thousands of database lookups.
+        for field in ("context_dashboards", "context_insights", "context_items"):
+            if hasattr(data, "getlist"):
+                _validate_html_list_indices(data, field)
+                value = data.getlist(field) or html.parse_html_list(data, prefix=field, default=[])
+            else:
+                value = data.get(field) if hasattr(data, "get") else None
+            if isinstance(value, (list, tuple)) and len(value) > MAX_AI_REPORT_CONTEXTS:
+                raise ValidationError({field: [f"Select no more than {MAX_AI_REPORT_CONTEXTS} items."]})
+        return super().to_internal_value(data)
+
+    @extend_schema_field(SubscriptionContextSerializer(many=True))
+    def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
+        user_access_control = getattr(self.context.get("view"), "user_access_control", None)
+        is_context_recovery = bool(getattr(obj, "_is_context_recovery", False))
+        dashboards = [
+            {
+                "kind": "dashboard",
+                "id": dashboard.id,
+                "name": dashboard.name or "Dashboard",
+                "url": dashboard.url,
+            }
+            for dashboard in obj.context_dashboards.all()
+            if not dashboard.deleted
+            and (user_access_control is None or user_access_control.check_access_level_for_object(dashboard, "viewer"))
+            and (
+                not is_context_recovery
+                or user_access_control is None
+                or _dashboard_has_only_viewable_live_tiles(user_access_control, dashboard, self.context["team_id"])
+            )
+        ]
+        insights = [
+            {
+                "kind": "insight",
+                "id": insight.id,
+                "name": insight.name or insight.derived_name or "Insight",
+                "url": insight.url,
+            }
+            for insight in obj.context_insights.all()
+            if not insight.deleted
+            and (user_access_control is None or user_access_control.check_access_level_for_object(insight, "viewer"))
+        ]
+        return dashboards + insights
+
+    def to_representation(self, instance: Subscription) -> dict:
+        data = super().to_representation(instance)
+        # A creator may retrieve an otherwise inaccessible subscription solely to recover from
+        # losing access. Do not turn that recovery route into an identifier-disclosure endpoint.
+        if getattr(instance, "_is_context_recovery", False):
+            data["context_dashboards"] = []
+            data["context_insights"] = []
+        return data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_context_recovery(self, obj: Subscription) -> bool:
+        return bool(getattr(obj, "_is_context_recovery", False))
+
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
         return info.name if info else None
@@ -453,6 +648,33 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
+        if self._adds_context(attrs, existing) and not posthoganalytics.feature_enabled(
+            SUBSCRIPTION_AI_CONTEXT_FEATURE_FLAG_KEY,
+            self._caller_distinct_id(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            raise ValidationError("Report context is not enabled for your account.")
+
+    @staticmethod
+    def _adds_context(attrs: dict, existing: Optional[Subscription]) -> bool:
+        for field in ("context_dashboards", "context_insights"):
+            if field not in attrs:
+                continue
+            existing_ids = set(getattr(existing, field).values_list("id", flat=True)) if existing else set()
+            if any(context.id not in existing_ids for context in attrs[field]):
+                return True
+
+        if "context_items" not in attrs:
+            return False
+        existing_item_counts = Counter(
+            json.dumps(item, separators=(",", ":"), sort_keys=True)
+            for item in (existing.context_items if existing else [])
+        )
+        requested_item_counts = Counter(
+            json.dumps(item, separators=(",", ":"), sort_keys=True) for item in attrs["context_items"]
+        )
+        return requested_item_counts > existing_item_counts
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -481,6 +703,54 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             target = attrs.get(field) or getattr(existing, field, None)
             if target is not None and not (target.deleted and turning_off):
                 _require_viewer_access(user_access_control, target, field)
+        context_fields = (("context_dashboards", "dashboard"), ("context_insights", "insight"))
+        if any(field in attrs for field, _ in context_fields) or "context_items" in attrs:
+            context_count = 0
+            for field, label in context_fields:
+                targets = attrs.get(field)
+                if targets is None:
+                    context_count += getattr(existing, field).count() if existing else 0
+                    continue
+
+                context_count += len(targets)
+                existing_ids = set(getattr(existing, field).values_list("id", flat=True)) if existing else set()
+                for target in targets:
+                    if target.team_id != self.context["team_id"]:
+                        raise ValidationError({field: [f"This {label} does not belong to your team."]})
+                    if target.id in existing_ids:
+                        continue
+                    _require_viewer_access(user_access_control, target, field)
+                    if target.deleted:
+                        raise ValidationError({field: [f"This {label} has been deleted."]})
+                    if field == "context_dashboards":
+                        self._require_viewer_access_to_every_live_tile(target)
+
+            context_items = attrs.get("context_items")
+            if context_items is None:
+                context_count += len(existing.context_items) if existing else 0
+            else:
+                context_count += len(context_items)
+                event_names = [item["event_name"] for item in context_items if item["kind"] == "event"]
+                if len(set(event_names)) != len(event_names):
+                    raise ValidationError({"context_items": ["Select each event only once."]})
+                existing_events = (
+                    {item["event_name"] for item in existing.context_items if item.get("kind") == "event"}
+                    if existing
+                    else set()
+                )
+                new_events = set(event_names) - existing_events
+                known_events = set(
+                    EventDefinition.objects.filter(team_id=self.context["team_id"], name__in=new_events).values_list(
+                        "name", flat=True
+                    )
+                )
+                if new_events - known_events:
+                    raise ValidationError({"context_items": ["Each event must belong to your project."]})
+
+            if context_count > MAX_AI_REPORT_CONTEXTS:
+                raise ValidationError(
+                    {"contexts": [f"Select no more than {MAX_AI_REPORT_CONTEXTS} events, dashboards, and insights."]}
+                )
 
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
@@ -511,6 +781,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT:
+            # Keyed on the field the request actually sent, so the error lands on the right input.
+            for context_field in ("context_dashboards", "context_insights", "context_items"):
+                if attrs.get(context_field):
+                    raise ValidationError({context_field: ["Context only applies to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -783,12 +1058,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return self.instance is not None and self.instance.dashboard_export_insights.exists()
 
     def _require_viewer_access_to_every_live_tile(self, dashboard: Dashboard) -> None:
-        live_tile_insights = Insight.objects.filter(
-            team_id=self.context["team_id"],
-            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
-        )
         user_access_control = self.context["view"].user_access_control
-        if _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists():
+        if not _dashboard_has_only_viewable_live_tiles(user_access_control, dashboard, self.context["team_id"]):
             raise ValidationError(
                 {
                     "dashboard": [
@@ -819,6 +1090,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         with attribute_subscription_saves(get_request_analytics_properties(request)):
             instance: Subscription = super().create(validated_data)
+
+        _log_subscription_context_changes(
+            instance,
+            request.user,
+            {"context_dashboards": set(), "context_insights": set()},
+            {
+                "context_dashboards": set(instance.context_dashboards.values_list("id", flat=True)),
+                "context_insights": set(instance.context_insights.values_list("id", flat=True)),
+            },
+            get_was_impersonated(),
+        )
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -892,6 +1174,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        context_fields = ("context_dashboards", "context_insights")
+        new_context_ids = {
+            field: {target.id for target in validated_data[field]}
+            for field in context_fields
+            if field in validated_data
+        }
         analytics_props = get_request_analytics_properties(request)
 
         # Snapshot delivery-relevant values before the write so the inferred path can tell,
@@ -902,6 +1190,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         old_export_insight_ids = (
             set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
         )
+        old_context_ids = {
+            field: set(getattr(instance, field).values_list("id", flat=True)) for field in new_context_ids
+        }
+        old_context_items = instance.context_items if "context_items" in validated_data else None
 
         if is_delete:
             with slo_operation(
@@ -926,6 +1218,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         with attribute_subscription_saves(analytics_props):
             instance = super().update(instance, validated_data)
+        _log_subscription_context_changes(
+            instance, request.user, old_context_ids, new_context_ids, get_was_impersonated()
+        )
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
@@ -945,11 +1240,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         delivery_content_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
         ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
+        delivery_content_changed = delivery_content_changed or any(
+            new_context_ids[field] != old_ids for field, old_ids in old_context_ids.items()
+        )
+        delivery_content_changed = delivery_content_changed or (
+            old_context_items is not None and instance.context_items != old_context_items
+        )
 
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
         # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
         # delivery. Disabled subscriptions never fire regardless.
-        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_content_changed)
+        wants_delivery = (
+            False
+            if self.context.get("is_context_recovery")
+            else send_test_now
+            if send_test_now is not None
+            else (is_re_enabling or delivery_content_changed)
+        )
         delivery_triggered = wants_delivery and instance.enabled
 
         # Explicit observability for the delivery decision on edits — the canonical
@@ -1023,15 +1330,70 @@ def _blocked_target_ids(
     )
 
 
-def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
-    return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS)
+def _dashboard_has_only_viewable_live_tiles(
+    user_access_control: UserAccessControl, dashboard: Dashboard, team_id: int
+) -> bool:
+    live_tile_insights = Insight.objects.filter(
+        team_id=team_id,
+        id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
+    )
+    return not _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists()
+
+
+def _viewable_subscription_filter(
+    user_access_control: UserAccessControl, team_id: int, *, include_anchors: bool = True
+) -> Q:
+    return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS, include_anchors=include_anchors)
 
 
 def _viewable_delivery_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
-    return _target_filter(user_access_control, team_id, _DELIVERY_TARGETS)
+    target_filter = _target_filter(user_access_control, team_id, _DELIVERY_TARGETS)
+    if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
+        return target_filter
+
+    rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
+    has_object_rules = any(scope.get("insight") or scope.get("dashboard") for scope in rules)
+    denies_a_target_resource = not user_access_control.has_resource_access(
+        "insight"
+    ) or not user_access_control.has_resource_access("dashboard")
+    if not has_object_rules and not denies_a_target_resource:
+        return target_filter
+
+    blocked_insight_identifiers = (
+        _blocked_target_ids(user_access_control, _DELIVERY_TARGETS.insights.filter(team_id=team_id), "insight")
+        .annotate(identifier=Cast("id", output_field=CharField()))
+        .values("identifier")
+    )
+    blocked_dashboard_identifiers = (
+        _blocked_target_ids(user_access_control, _DELIVERY_TARGETS.dashboards.filter(team_id=team_id), "dashboard")
+        .annotate(identifier=Cast("id", output_field=CharField()))
+        .values("identifier")
+    )
+    delivery_contexts = SubscriptionDeliveryContext.objects.for_team(team_id).filter(delivery_id=OuterRef("pk"))
+    has_provenance = Exists(
+        delivery_contexts.filter(
+            kind=AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
+            identifier=AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
+        )
+    )
+    has_blocked_context = Exists(
+        delivery_contexts.filter(
+            Q(kind="dashboard", identifier__in=Subquery(blocked_dashboard_identifiers))
+            | Q(kind__in=["insight", "dashboard_tile_insight"], identifier__in=Subquery(blocked_insight_identifiers))
+        )
+    )
+    # A mixed rolling deploy can write an AI delivery before the worker writing context rows is
+    # live. Hide such legacy rows whenever object-level access rules apply; an omitted provenance
+    # record must never read as proof that a report used no restricted grounding.
+    hidden_ai_delivery = Q(subscription__resource_type=Subscription.ResourceType.AI_PROMPT) & (
+        Q(~has_provenance) | Q(has_blocked_context)
+    )
+    return target_filter & ~hidden_ai_delivery
 
 
-def _target_filter(user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups) -> Q:
+def _target_filter(
+    user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups, *, include_anchors: bool = True
+) -> Q:
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
@@ -1054,9 +1416,20 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
 
-    return ~(
+    hidden = (
         targets_a_blocked_insight | targets_a_blocked_dashboard | exports_a_blocked_insight | renders_a_blocked_tile
     )
+    if include_anchors:
+        # Contextual AI reports drop out of listings when any selected resource is blocked. Detail
+        # callers skip this check so the owner can remove context, disable, or delete the subscription.
+        hidden = (
+            hidden
+            | Q(**{targets.context_insights: blocked_insights})
+            | Q(**{targets.context_dashboards: blocked_dashboards})
+            | Q(**{targets.context_dashboards: dashboards_with_blocked_tiles})
+        )
+
+    return ~hidden
 
 
 def _parse_int_param(value: str, param: str) -> int:
@@ -1121,28 +1494,31 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by insight ID.",
+                description="Filter by insight ID. Includes AI report subscriptions using the insight as context.",
             ),
             OpenApiParameter(
                 name="insights",
                 type=str,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by a comma-separated list of insight IDs.",
+                description="Filter by a comma-separated list of insight IDs. Includes AI reports using one as context.",
             ),
             OpenApiParameter(
                 name="dashboard",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by dashboard ID.",
+                description="Filter by dashboard ID. Includes AI reports using the dashboard as context.",
             ),
             OpenApiParameter(
                 name="dashboard_tiles",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter to subscriptions on insights that are tiles of the given dashboard ID.",
+                description=(
+                    "Filter to subscriptions on insights that are tiles of the given dashboard ID. "
+                    "Includes AI report subscriptions using one of those insights as context."
+                ),
             ),
         ],
     ),
@@ -1175,6 +1551,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     ]
     ordering = ["-created_at"]
 
+    _RECOVERY_UPDATE_FIELDS = frozenset(
+        {"context_dashboards", "context_insights", "context_items", "enabled", "deleted"}
+    )
+
     # Writing an AI prompt subscription also requires query-read access: it runs LLM-generated
     # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics.
     # Two layers gate this off _write_touches_ai_subscription: a required query:read scope keeps a
@@ -1204,9 +1584,22 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def _write_touches_ai_subscription(self, request, view) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
+        if self._is_context_recovery_write(request):
+            return False
         # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
+
+    def _is_context_recovery_write(self, request) -> bool:
+        if self.action not in ("update", "partial_update") or not isinstance(request.data, dict):
+            return False
+        if not set(request.data).issubset(self._RECOVERY_UPDATE_FIELDS):
+            return False
+        pk = self.kwargs.get(self.lookup_field)
+        if not pk:
+            return False
+        subscription = Subscription.objects.filter(pk=pk, team_id=self.team_id).first()
+        return subscription is not None and self._can_recover_context_access(subscription)
 
     def get_throttles(self):
         throttles = super().get_throttles()
@@ -1220,8 +1613,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 
-        # Prefetch dashboard_export_insights to avoid N+1 queries in list/detail views
-        queryset = queryset.prefetch_related("dashboard_export_insights")
+        queryset = queryset.prefetch_related("dashboard_export_insights", "context_dashboards", "context_insights")
 
         if self.action == "list":
             queryset = queryset.select_related("insight", "dashboard", "created_by")
@@ -1261,7 +1653,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             if key in ("insight", "insights"):
                 # `insight` (single ID) and `insights` (comma-separated IDs) share one filter:
                 # both are parsed as an ID list so behavior and validation stay identical.
-                queryset = queryset.filter(insight_id__in=_parse_int_list_param(request_params[key], key))
+                # Contextual AI subs belong to every selected insight's page too.
+                insight_ids = _parse_int_list_param(request_params[key], key)
+                queryset = queryset.filter(Q(insight_id__in=insight_ids) | Q(context_insights__id__in=insight_ids))
             elif key == "dashboard_tiles":
                 # Subscriptions on insights that are live tiles of the given dashboard, resolved server-side
                 # so the overview's "Insights" tab never depends on which tiles the client happens to have
@@ -1281,28 +1675,123 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                     insight_id__isnull=False,
                     insight__deleted=False,
                 ).values_list("insight_id", flat=True)
-                queryset = queryset.filter(insight_id__in=tile_insight_ids)
+                # AI subs using a tile insight as context consume its definition, so they belong on
+                # this surface the same way subs that export it do.
+                queryset = queryset.filter(
+                    Q(insight_id__in=tile_insight_ids) | Q(context_insights__id__in=tile_insight_ids)
+                )
             elif key == "dashboard":
-                queryset = queryset.filter(dashboard_id=_parse_int_param(request_params["dashboard"], "dashboard"))
+                # Contextual AI subs belong to every selected dashboard's page too.
+                dashboard_id = _parse_int_param(request_params["dashboard"], "dashboard")
+                queryset = queryset.filter(Q(dashboard_id=dashboard_id) | Q(context_dashboards__id=dashboard_id))
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
         if self.action == "list":
-            return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+            return queryset.filter(_viewable_subscription_filter(self.user_access_control, self.team_id)).distinct()
         return queryset
 
     def safely_get_object(self, queryset: QuerySet) -> Subscription:
         subscription = get_object_or_404(queryset, pk=self.kwargs[self.lookup_field])
-        can_view_subscription = (
+        if self._can_view_subscription(subscription, include_anchors=True):
+            return subscription
+        if self._can_recover_context_access(subscription):
+            subscription._is_context_recovery = True
+            return subscription
+        raise exceptions.PermissionDenied(
+            "You do not have viewer access to this subscription. Ask an organization admin to update your access."
+        )
+
+    def _can_view_subscription(self, subscription: Subscription, *, include_anchors: bool) -> bool:
+        return (
             Subscription.objects.filter(pk=subscription.pk, team_id=self.team_id)
-            .filter(_viewable_subscription_filter(self.user_access_control, self.team_id))
+            .filter(
+                _viewable_subscription_filter(self.user_access_control, self.team_id, include_anchors=include_anchors)
+            )
             .exists()
         )
-        if not can_view_subscription:
-            raise exceptions.PermissionDenied(
-                "You do not have viewer access to this subscription. Ask an organization admin to update your access."
+
+    def _can_recover_context_access(self, subscription: Subscription) -> bool:
+        return subscription.created_by_id == self.request.user.id and (
+            subscription.context_dashboards.filter(deleted=True).exists()
+            or subscription.context_insights.filter(deleted=True).exists()
+            or (
+                not self._can_view_subscription(subscription, include_anchors=True)
+                and self._can_view_subscription(subscription, include_anchors=False)
             )
-        return subscription
+        )
+
+    def _validate_context_recovery_update(self, subscription: Subscription, data) -> None:
+        if not isinstance(data, dict) or not set(data).issubset(self._RECOVERY_UPDATE_FIELDS):
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
+
+        for field in ("context_dashboards", "context_insights"):
+            if field not in data:
+                continue
+            requested_ids = data[field]
+            if not isinstance(requested_ids, list) or not all(
+                type(resource_id) is int for resource_id in requested_ids
+            ):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+            existing_ids = set(getattr(subscription, field).values_list("id", flat=True))
+            if len(requested_ids) != len(set(requested_ids)) or not set(requested_ids).issubset(existing_ids):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+
+        if "context_items" in data:
+            requested_items = data["context_items"]
+            if not isinstance(requested_items, list):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+            try:
+                requested_item_counts = Counter(json.dumps(item, sort_keys=True) for item in requested_items)
+                existing_item_counts = Counter(json.dumps(item, sort_keys=True) for item in subscription.context_items)
+            except (TypeError, ValueError):
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                ) from None
+            if requested_item_counts > existing_item_counts:
+                raise exceptions.PermissionDenied(
+                    "You can only remove inaccessible context, pause, or delete this subscription."
+                )
+
+        if "enabled" in data and data["enabled"] is not False:
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
+        if "deleted" in data and data["deleted"] is not True:
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        is_context_recovery = self._can_recover_context_access(instance)
+        if is_context_recovery:
+            self._validate_context_recovery_update(instance, request.data)
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.context["is_context_recovery"] = is_context_recovery
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, "_prefetched_objects_cache", None):
+            instance._prefetched_objects_cache = {}
+
+        # `safely_get_object` marks this in-memory row so the recovery response can redact it.
+        # Once the update removes every inaccessible anchor, serialize the now-normal resource
+        # normally, otherwise the editor remains limited to recovery actions until a reload.
+        if is_context_recovery and not self._can_recover_context_access(instance):
+            delattr(instance, "_is_context_recovery")
+
+        return Response(serializer.data)
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1367,6 +1856,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
+        if self._can_recover_context_access(subscription):
+            raise exceptions.PermissionDenied(
+                "You can only remove inaccessible context, pause, or delete this subscription."
+            )
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
         if not subscription.enabled:
@@ -1665,7 +2158,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                         {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
                     )
                 queryset = queryset.filter(status=status_param)
-        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
+        return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id)).distinct()
 
 
 def unsubscribe(request: HttpRequest):

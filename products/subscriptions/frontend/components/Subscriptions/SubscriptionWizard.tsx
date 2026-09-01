@@ -59,6 +59,7 @@ import { SubscriptionCreationGate, SubscriptionFormSkeleton } from './views/Edit
 
 interface SubscriptionWizardProps {
     insightShortId?: InsightShortId
+    insightId?: number
     insightName?: string
     dashboard?: DashboardType<any> | null
     onCancel: () => void
@@ -93,17 +94,21 @@ function wizardStepDescription(step: SubscriptionWizardStep): string {
 
 export function SubscriptionWizard({
     insightShortId,
+    insightId,
     insightName,
     dashboard,
     onCancel,
 }: SubscriptionWizardProps): JSX.Element {
+    const aiSubscriptionContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXT')
     const logicProps = {
         id: 'new' as const,
         insightShortId,
+        insightId,
         dashboardId: dashboard?.id,
         dashboardName: dashboard?.name,
         insightName,
         creationSource: 'wizard' as const,
+        contextEnabled: Boolean(aiSubscriptionContextsEnabled),
     }
     const subscriptionFormLogic = subscriptionLogic(logicProps)
     const [currentStep, setStep] = useState<SubscriptionWizardStep>(SubscriptionWizardStep.Content)
@@ -113,6 +118,7 @@ export function SubscriptionWizard({
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        subscriptionHasErrors,
     } = useValues(subscriptionFormLogic)
     const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
@@ -188,6 +194,7 @@ export function SubscriptionWizard({
                     insightName={insightName}
                     subscription={subscription}
                     aiSubscriptionBlocked={aiGate.submitBlocked}
+                    aiSubscriptionContextsEnabled={Boolean(aiSubscriptionContextsEnabled)}
                 />
             )
             break
@@ -222,7 +229,14 @@ export function SubscriptionWizard({
     let primaryAction: JSX.Element | null = null
     if (currentStep === SubscriptionWizardStep.Review) {
         primaryAction = (
-            <LemonButton type="primary" htmlType="submit" loading={isSubscriptionSubmitting}>
+            <LemonButton
+                type="primary"
+                htmlType="submit"
+                loading={isSubscriptionSubmitting}
+                disabledReason={
+                    subscriptionHasErrors ? 'Complete the required fields before creating this subscription' : undefined
+                }
+            >
                 Create subscription
             </LemonButton>
         )
@@ -436,16 +450,24 @@ function SubscriptionContentStep({
     insightName,
     subscription,
     aiSubscriptionBlocked,
+    aiSubscriptionContextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
     dashboard?: DashboardType<any> | null
     insightName?: string
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
+    aiSubscriptionContextsEnabled: boolean
 }): JSX.Element {
-    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
-        subscriptionLogic(logicProps)
-    )
+    const {
+        addContext,
+        addContextEvent,
+        applyDefaultSelectedInsights,
+        removeContext,
+        removeContextEvent,
+        selectAiAnalysisWindow,
+        selectAiExamplePrompt,
+    } = useActions(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -471,8 +493,20 @@ function SubscriptionContentStep({
             {isAiPrompt ? (
                 <AiPromptFields
                     compactAnalysisWindow
+                    contextCount={
+                        (subscription.context_dashboards?.length ?? 0) +
+                        (subscription.context_insights?.length ?? 0) +
+                        (subscription.context_items?.length ?? 0)
+                    }
+                    contextEnabled={aiSubscriptionContextsEnabled}
+                    contexts={subscription.contexts ?? []}
+                    contextItems={subscription.context_items ?? []}
                     prompt={subscription.prompt}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
+                    onAddContext={addContext}
+                    onAddEvent={addContextEvent}
+                    onRemoveContext={removeContext}
+                    onRemoveEvent={removeContextEvent}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
                 />

@@ -16,6 +16,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
+    SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
@@ -240,6 +241,13 @@ class TestBuildChartImageUrls:
 
 
 class TestChartsOnSlackMessages:
+    def test_delivery_target_overrides_the_current_subscription_target(self) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, target_value="C456|#reports"
+        )
+
+        assert message.channel == "C456"
+
     def test_charts_follow_the_report_text(self) -> None:
         message = _build_ai_slack_message(
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
@@ -546,10 +554,17 @@ class TestFreezePlanPersistence:
         sub.ai_query_plan = ai_query_plan
         return sub
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: MagicMock) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
-        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+        return SubscriptionReportContext(
+            team=MagicMock(),
+            user=MagicMock(),
+            window=window,
+            ai_query_plan=sub.ai_query_plan,
+            anchor=None,
+            anchor_unavailable=False,
+        )
 
     async def test_first_run_persists_freshly_generated_plan(self) -> None:
         sub = self._subscription(ai_query_plan=None)
