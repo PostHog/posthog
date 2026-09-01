@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
             "ai_observability",
             "0043_alter_aiobservabilitychecklistitemstate_team_and_more",
         ),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
     ]
 
     operations = [

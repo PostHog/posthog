@@ -155,7 +155,6 @@ class Plugin(models.Model):
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="+",
-        related_query_name="plugin",
         null=True,
     )
     plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType, default=None)

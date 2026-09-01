@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("cdp", "0004_alter_hogfunction_batch_export_and_more"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
     ]
 
     operations = [
@@ -18,7 +18,6 @@ class Migration(migrations.Migration):
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="+",
-                related_query_name="plugin",
                 to="posthog.organization",
             ),
         ),

@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("canvas", "0016_alter_canvas_created_by_alter_canvas_team_and_more"),
-        ("tasks", "0108_alter_desktopbetatermsacceptance_organization_and_more"),
+        ("tasks", "0109_alter_desktopbetatermsacceptance_organization_and_more"),
     ]
 
     operations = [

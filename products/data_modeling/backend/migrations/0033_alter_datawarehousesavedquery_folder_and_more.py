@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0032_alter_dag_team_and_more"),
         ("data_tools", "0004_alter_datawarehouseexpression_created_by_and_more"),
-        ("posthog", "1326_alter_userscenepersonalisation_dashboard"),
+        ("posthog", "1332_alter_userscenepersonalisation_dashboard"),
     ]
 
     operations = [
