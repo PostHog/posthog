@@ -1,4 +1,3 @@
-import type { SignalReport } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
   cohortCriteriaSection,
@@ -807,7 +806,7 @@ describe("evidence preview shaping", () => {
       source_products: ["error_tracking"],
       created_at: "2026-01-02T10:00:00Z",
       updated_at: "2026-01-03T10:00:00Z",
-    } as SignalReport);
+    });
 
     expect(preview).toMatchObject({
       title: "Checkout latency increased",

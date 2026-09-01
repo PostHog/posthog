@@ -199,6 +199,22 @@ describe("xmlToContent", () => {
     ]);
   });
 
+  it("parses a paired report tag using its body as the label", () => {
+    expect(
+      xmlToContent('<report id="rep-1">Latency regression</report>').segments,
+    ).toEqual([
+      {
+        type: "chip",
+        chip: {
+          type: "posthog_object",
+          objectKind: "report",
+          id: "rep-1",
+          label: "Latency regression",
+        },
+      },
+    ]);
+  });
+
   it("preserves surrounding text around chips", () => {
     const result = xmlToContent(
       'please review <file path="src/a.ts" /> and <file path="src/b.ts" />',
