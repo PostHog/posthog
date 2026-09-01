@@ -89,7 +89,9 @@ class CleanupConfig(dagster.Config):
     )
     cleanup: bool = pydantic.Field(
         default=True,
-        description="Drop the dictionaries and clear this run's snapshot rows when the run finishes.",
+        description="Drop the dictionaries and clear this run's snapshot rows when the run finishes. "
+        "False keeps them for inspection only until the next run starts, whose janitor reaps any "
+        "finished run's dictionaries regardless of this flag.",
     )
     team_batches: int = pydantic.Field(
         default=DEFAULT_TEAM_BATCHES,
