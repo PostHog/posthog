@@ -5512,6 +5512,10 @@ snapshots:
         hash: v1.k794b7964.d553cecf3e544087316e1687404c8e2b3a6c19f618a05e09880e60e656054f23.hNkLLb04XLyd-PQJa59WwPhgRAxMbW5fSDzCnowJKBs
     products-workflows-customerioimportmodal--step-4-track-not-configured--light:
         hash: v1.k794b7964.0954891b73cdc0b1bce1275fa11a5fa4af2055b83b518bce82f3fde886097659.mgEq2W8sZg7x-vt8z2EpwEHPBGRzPI1GWtn-9tu-46o
+    products-workflows-reputation--domain-withheld-from-caller--dark:
+        hash: v1.k794b7964.b37b29c7894aedb7ca34c4976577e3aaed60f5e81a99d29c427ad4d5eeaf16ce.p2UYtjwRYsZEy_dF6JZTqzYZC8PD-WIUSALXCQGdpjM
+    products-workflows-reputation--domain-withheld-from-caller--light:
+        hash: v1.k794b7964.091ed3d12a75d2aff814c3ecc26ad7d35dc873a63c251610da3169c7e3c6b680.cFmrImD6HC6l6l-qkl5o_W89NUSW2NeK0PN6orswmZI
     products-workflows-reputation--no-provider-data--dark:
         hash: v1.k794b7964.fb4106e727cdaf881bb150dc59925f5259d21e78cb9efa7e452e3440c143c93b.JPlPndGIFWdaK3sS9Gh0YICf3ncO7E_jOxe5SII9hHM
     products-workflows-reputation--no-provider-data--light:
