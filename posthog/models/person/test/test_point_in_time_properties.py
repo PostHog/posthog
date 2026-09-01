@@ -36,7 +36,7 @@ def _prop_row(
 
 
 class TestPointInTimeProperties(SimpleTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.team = Team(id=1)
 
     def test_build_person_properties_at_time_validation(self):
@@ -123,7 +123,7 @@ class TestPointInTimeProperties(SimpleTestCase):
 
 
 class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.team = Team(id=1)
 
     @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")

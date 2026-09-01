@@ -1,8 +1,9 @@
-from dataclasses import dataclass
 from typing import Optional
 
+from posthog.dataclasses import frozen
 
-@dataclass(frozen=True)
+
+@frozen
 class ExponentialBackoff:
     delay: float
     max_delay: Optional[float] = None

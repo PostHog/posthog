@@ -156,7 +156,7 @@ class RateLimit:
                 max_concurrency = max(1, max_concurrency // 4)
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
-        backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
+        backoff = ExponentialBackoff(delay=self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
         wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
