@@ -749,6 +749,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 width: 536,
                 zIndex: '1168',
                 primaryButton: null,
+                // Treat the shown-once secret as unsaved input, so a stray overlay click can't
+                // silently discard it. The X stays as the deliberate way out.
+                hasUnsavedInput: true,
                 content: (onClose) => <PersonalAPIKeyReveal label={key.label} value={value} onDone={onClose} />,
             })
         },
@@ -766,6 +769,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 title: 'Personal API key rolled',
                 width: 536,
                 primaryButton: null,
+                // Treat the shown-once secret as unsaved input, so a stray overlay click can't
+                // silently discard it. The X stays as the deliberate way out.
+                hasUnsavedInput: true,
                 content: (onClose) => (
                     <PersonalAPIKeyReveal
                         label={key.label}

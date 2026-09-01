@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -60,6 +61,10 @@ describe('personalAPIKeysLogic', () => {
 
         logic = personalAPIKeysLogic()
         logic.mount()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('strips llm_gateway scopes from create payload when GATEWAY_PERSONAL_API_KEY flag is disabled', async () => {
@@ -150,6 +155,34 @@ describe('personalAPIKeysLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(errorSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        [
+            'a created key',
+            (): void =>
+                logic.actions.createKeySuccess({
+                    id: 'x',
+                    label: 'X',
+                    scopes: ['*'],
+                    value: 'phx_secret',
+                } as PersonalAPIKeyType),
+        ],
+        [
+            'a rolled key',
+            (): void =>
+                logic.actions.showRollKeySuccessDialog(
+                    { id: 'x', label: 'X', scopes: ['*'], value: 'phx_secret' } as PersonalAPIKeyType,
+                    'phx_...abcd'
+                ),
+        ],
+    ])('reveals %s in a dialog that blocks overlay dismissal of the secret', async (_name, reveal) => {
+        const openSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+
+        reveal()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({ hasUnsavedInput: true }))
     })
 
     it('checks for re-authentication before rolling a key', async () => {
