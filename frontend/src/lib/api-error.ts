@@ -59,6 +59,16 @@ const UNREPORTED_STATUSES: ReadonlySet<number> = new Set<number>([
 ])
 
 /**
+ * The stable machine code the backend attaches to an out-of-memory query failure
+ * (`ClickHouseQueryMemoryLimitExceeded`). A polled async query loses its 513 status, because the
+ * query-status endpoint returns 400 once an `error_message` is present, so status alone cannot catch
+ * it. The code survives the async hop, so `shouldReportApiFailure` matches it to suppress the handled
+ * failure on both the synchronous (513) and the polled (400) path. Kept in sync with the backend
+ * `default_code` and the `EmptyStates` panel that renders the same error.
+ */
+const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -73,7 +83,9 @@ const UNREPORTED_STATUSES: ReadonlySet<number> = new Set<number>([
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  * - 512/513 — the query-failure family the insight error state already renders with retry, also
- *   recorded by the `insight error message shown` capture.
+ *   recorded by the `insight error message shown` capture. A polled async query reports the same
+ *   out-of-memory failure as a 400 that keeps the `clickhouse_memory_limit_exceeded` code, so that
+ *   code is matched as well as the status.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -91,6 +103,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
     const status = typeof failure.status === 'number' ? failure.status : undefined
     if (status === undefined) {
         return true
+    }
+    if (failure.code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
+        return false
     }
     if (UNREPORTED_STATUSES.has(status)) {
         return false
