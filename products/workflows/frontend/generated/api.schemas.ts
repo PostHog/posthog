@@ -1419,6 +1419,28 @@ export interface WorkflowEmailSendingRatesApi {
     readonly hog_flow_name: string
 }
 
+/**
+ * How much workflow email this project may send, and how much of that it has used.
+ */
+export interface EmailSendingAllowanceApi {
+    /** The project's current sending tier. Projects start at 0 and move up as they build a clean sending history. */
+    readonly tier: number
+    /** The highest tier there is, so the current tier can be shown as progress. */
+    readonly max_tier: number
+    /** How many emails this tier allows per hour. */
+    readonly emails_per_hour: number
+    /** How many emails this tier allows per day. */
+    readonly emails_per_day: number
+    /** The largest audience this tier allows for a single batch send. */
+    readonly max_batch_audience: number
+    /** Emails sent by this project's workflows in the last hour. */
+    readonly emails_sent_last_hour: number
+    /** Emails sent by this project's workflows in the last 24 hours. */
+    readonly emails_sent_last_day: number
+    /** True when these allowances are applied to sends. False while they are only being measured. */
+    readonly enforced: boolean
+}
+
 export interface TeamEmailReputationResponseApi {
     /** Sending health as judged and enforced by AWS SES for this project's tenant; null when the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is unreachable. */
     readonly aws: AwsTenantReputationApi | null
@@ -1435,6 +1457,8 @@ export interface TeamEmailReputationResponseApi {
     readonly email_sending_suspended_at: string | null
     /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
     readonly email_sending_suspension_reason: string
+    /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+    readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
 /**
@@ -1463,6 +1487,8 @@ export interface BlastRadiusRequestApi {
      *
      * * `email` - email */
     dedupe_key?: DedupeKeyEnumApi | null
+    /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
+    sends_email?: boolean
 }
 
 export interface BlastRadiusApi {

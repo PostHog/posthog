@@ -187,6 +187,7 @@ Each tab carries the nav state its href cannot express, in `viewState`:
   A rail click navigates the active tab back to its own remembered href rather
   than to the destination's root. Per tab on purpose: a window-global memory
   would let one tab's rail click restore an href another tab established.
+  Record and replay both go through `isRestorableVisitHref` (canvas `railPane.ts`), so a settings or redirect-alias href is never remembered and a stale stored one is never replayed.
 
 `BrowserTabStrip`'s navigation effect is the **single writer for settled router
 navigation**. It runs on every settled navigation, including the ones a rail
