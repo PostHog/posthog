@@ -81,11 +81,22 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
   },
   "context-wiki": createPiContextWikiExtension(bootstrap.contextWikiPath),
 };
-const runtimeExtensions = (bootstrap.extensions ?? []).map(
+const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
+// A channel task starts in an empty scratch directory, so it needs the tools
+// that find and clone a repository. Resume drops `channelMode` from the
+// bootstrap payload, so read it from the resolved context, not the payload.
+const requestedExtensions = new Set(bootstrap.extensions ?? []);
+if (taskContext?.channelMode) {
+  requestedExtensions.add("repository-tools");
+}
+const runtimeExtensions = [...requestedExtensions].map(
   (extension) => extensionFactories[extension],
 );
-const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
-runtimeExtensions.push(createPiTaskSystemPromptExtension(taskContext));
+runtimeExtensions.push(
+  createPiTaskSystemPromptExtension(taskContext, {
+    repositoryTools: requestedExtensions.has("repository-tools"),
+  }),
+);
 if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
 }
