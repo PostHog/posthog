@@ -135,40 +135,34 @@ describe('aiObservabilityAIDataLogic', () => {
         jest.spyOn(mockApi, 'queryHogQL').mockResolvedValue({
             results: [
                 [
+                    'event-1',
                     '[]',
                     null,
                     '[]',
                     JSON.stringify({ messages: [{ type: 'human', content: 'state input' }] }),
                     null,
                     null,
-                ],
+                ] as Row,
             ],
         } as any)
 
-        const logic = aiObservabilityAIDataLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadAIDataForEvent({
+        logic.actions.ensureAIDataLoaded([
+            {
                 eventId: 'event-1',
                 input: undefined,
                 output: undefined,
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-            })
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                aiDataCache: {
-                    'event-1': {
-                        input: { messages: [{ type: 'human', content: 'state input' }] },
-                        output: [],
-                        tools: undefined,
-                    },
-                },
-            })
+            },
+        ])
+        await settle()
 
+        expect(logic.values.aiDataCache['event-1']).toEqual({
+            input: { messages: [{ type: 'human', content: 'state input' }] },
+            output: [],
+            tools: undefined,
+        })
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
     })
 
