@@ -29,6 +29,7 @@ import { PropertyGroupFilter } from '~/types'
 
 import type { DateRange } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
+import { TRACING_DATE_FORMAT } from './dateFormats'
 import {
     type DurationHistogramRow,
     type LatencyHeatmapRow,
@@ -1264,7 +1265,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                humanFriendlyDetailedTime(currentItem.time, TRACING_DATE_FORMAT, 'HH:mm:ss', {
                                     timestampStyle: 'absolute',
                                 })
                             )

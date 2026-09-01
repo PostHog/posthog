@@ -19,6 +19,7 @@ members = [
   "common/cookieless",
   "common/database",
   "common/dns",
+  "common/grpc",
   "common/health",
   "common/kafka",
   "common/kafka-consumer",
