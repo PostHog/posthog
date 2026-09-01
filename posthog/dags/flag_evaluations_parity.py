@@ -222,6 +222,10 @@ def report_flag_evaluations_parity(
         context.log.info("Skipping Slack notification in non-prod environment")
         return
 
+    # Both regions post to the same channel and team ids are per-region, so the alert
+    # must name the deployment that lost the rows.
+    lines.append(f"Environment: {settings.CLOUD_DEPLOYMENT}")
+
     try:
         slack.get_client().chat_postMessage(
             channel=FLAG_EVALUATIONS_SLACK_CHANNEL,
