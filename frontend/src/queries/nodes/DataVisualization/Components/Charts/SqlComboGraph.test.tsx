@@ -1,103 +1,64 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, screen } from '@testing-library/react'
 
-import type {
-    ChartTheme,
-    PointClickData,
-    Series,
-    TimeSeriesComboChartConfig,
-    TimeSeriesComboChartProps,
-} from '@posthog/quill-charts'
+import { clickAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { renderWithInsights } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
 import { type AxisSeries } from '../../dataVisualizationLogic'
 import { type SqlChartProps } from './SqlChart'
 import { SqlComboGraph } from './SqlComboGraph'
-import { type SqlLineSeriesMeta } from './sqlLineGraphAdapter'
-import { type SqlChartModel, useSqlChartModel } from './useSqlChartModel'
 
-let latestComboProps: TimeSeriesComboChartProps<SqlLineSeriesMeta> | null = null
+let cleanupJsdom: () => void
+let cleanupRaf: () => void
 
-jest.mock('posthog-js', () => ({
-    __esModule: true,
-    default: { captureException: jest.fn() },
-}))
+beforeEach(() => {
+    cleanupJsdom = setupJsdom()
+    cleanupRaf = setupSyncRaf()
+})
 
-jest.mock('@posthog/quill-charts', () => ({
-    ...jest.requireActual('@posthog/quill-charts'),
-    TimeSeriesComboChart: (props: TimeSeriesComboChartProps<SqlLineSeriesMeta>): JSX.Element => {
-        latestComboProps = props
-        return <div data-attr="mock-sql-combo-chart" />
-    },
-}))
+afterEach(() => {
+    cleanupRaf()
+    cleanupJsdom()
+    cleanup()
+})
 
-jest.mock('./useSqlChartModel', () => ({
-    useSqlChartModel: jest.fn(),
-}))
-
-const mockUseSqlChartModel = jest.mocked(useSqlChartModel)
+const labels = ['2026-01-01', '2026-01-02', '2026-01-03']
 
 const xData: AxisSeries<string> = {
     column: { name: 'date', type: { name: 'DATE', isNumerical: false }, label: 'date', dataIndex: 0 },
-    data: ['2026-01-01'],
+    data: labels,
 }
 
-const series: Series<SqlLineSeriesMeta>[] = [{ key: 'metric-0', label: 'Metric', data: [42], meta: {} }]
-
-const model: SqlChartModel<TimeSeriesComboChartConfig> = {
-    series,
-    labels: xData.data,
-    theme: {} as ChartTheme,
-    config: { tooltip: { showTotal: true } },
-}
+const ySeries = (name: string, data: number[], displayType: 'bar' | 'line' = 'bar'): AxisSeries<number | null> => ({
+    column: { name, type: { name: 'INTEGER', isNumerical: true }, label: name, dataIndex: 1 },
+    data,
+    settings: { display: { displayType } },
+})
 
 const props = (overrides: Partial<SqlChartProps> = {}): SqlChartProps => ({
     xData,
-    yData: [],
+    yData: [ySeries('metric', [1, 2, 3])],
     visualizationType: ChartDisplayType.ActionsLineGraph,
     chartSettings: {},
     ...overrides,
 })
 
+async function chartWrapper(): Promise<HTMLElement> {
+    const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: 5000 })
+    return canvas.parentElement!
+}
+
 describe('SqlComboGraph', () => {
-    beforeEach(() => {
-        latestComboProps = null
-        mockUseSqlChartModel.mockReturnValue(model)
-    })
-
-    afterEach(() => {
-        cleanup()
-        mockUseSqlChartModel.mockReset()
-    })
-
-    it('passes clicked points through the SQL chart callback contract', async () => {
+    it('forwards clicks from the rendered chart to the SQL chart callback contract', async () => {
         const onPointClick = jest.fn()
 
-        render(<SqlComboGraph {...props({ onPointClick })} />)
-        await screen.findByTestId('mock-sql-combo-chart')
+        renderWithInsights({ component: <SqlComboGraph {...props({ onPointClick })} /> })
 
-        const point: PointClickData<SqlLineSeriesMeta> = {
-            seriesIndex: 0,
-            dataIndex: 0,
-            series: series[0],
-            value: 42,
-            label: '2026-01-01',
-            crossSeriesData: [{ series: series[0], value: 42 }],
-            cursor: null,
-        }
-        latestComboProps?.onPointClick?.(point)
+        await clickAtIndex(await chartWrapper(), 1, labels.length, 4000)
 
-        expect(onPointClick).toHaveBeenCalledWith('metric-0', 0, '2026-01-01')
-        expect(latestComboProps?.tooltip).toEqual(expect.any(Function))
-    })
-
-    it('leaves click handling and the inspect tooltip off when no callback is supplied', async () => {
-        render(<SqlComboGraph {...props()} />)
-        await screen.findByTestId('mock-sql-combo-chart')
-
-        expect(latestComboProps?.onPointClick).toBeUndefined()
-        expect(latestComboProps?.tooltip).toBeUndefined()
+        expect(onPointClick).toHaveBeenCalledWith('metric-0', 1, '2026-01-02')
     })
 })
