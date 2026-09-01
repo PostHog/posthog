@@ -763,26 +763,6 @@ class TestConnectTimeoutErrorClassification:
 
         mock_capture.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_close_does_not_report_admin_shutdown_error(self):
-        # Queue DB terminates the poll connection via an administrator command (failover,
-        # maintenance restart) while _close() tries the best-effort lease release.
-        # _close() already notes this path is best-effort; the error must not reach
-        # error tracking.
-        consumer = _make_consumer()
-        with (
-            patch.object(
-                consumer._adapter,
-                "release_all_owned",
-                new_callable=AsyncMock,
-                side_effect=psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
-            ),
-            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
-        ):
-            await consumer._close()
-
-        mock_capture.assert_not_called()
-
 
 class TestAdminShutdownErrorClassification:
     def test_classifies_admin_shutdown(self) -> None:
@@ -909,6 +889,26 @@ class TestAdminShutdownErrorClassification:
             await asyncio.wait_for(swept.wait(), timeout=2.0)
             consumer._shutdown.set()
             await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_report_admin_shutdown_error(self):
+        # Queue DB terminates the poll connection via an administrator command (failover,
+        # maintenance restart) while _close() tries the best-effort lease release.
+        # _close() already notes this path is best-effort; the error must not reach
+        # error tracking.
+        consumer = _make_consumer()
+        with (
+            patch.object(
+                consumer._adapter,
+                "release_all_owned",
+                new_callable=AsyncMock,
+                side_effect=psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._close()
 
         mock_capture.assert_not_called()
 

@@ -1392,7 +1392,7 @@ class BatchConsumer:
             except Exception as e:
                 if _is_admin_shutdown_error(e):
                     # Admin-initiated disconnect during teardown is expected; the lease just expires.
-                    logger.warning(self._event("release_all_owned_admin_shutdown_on_shutdown"), error=str(e))
+                    logger.warning(self._event("release_all_owned_admin_shutdown"), error=str(e))
                 else:
                     logger.exception(self._event("release_all_owned_failed_on_shutdown"))
                     capture_exception(e)
