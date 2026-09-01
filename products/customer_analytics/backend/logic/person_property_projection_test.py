@@ -1,9 +1,12 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized, parameterized_class
 
 from products.customer_analytics.backend.logic.person_property_projection import (
+    person_properties_flag_enabled,
     person_property_projection,
     person_property_sync_sources,
 )
@@ -13,6 +16,54 @@ from products.customer_analytics.backend.test.factories import create_custom_pro
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding, schema_binding
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+
+class PersonPropertyRolloutFlagTest(SimpleTestCase):
+    @staticmethod
+    def _set_team(only):
+        only.return_value.get.return_value.organization_id = 123
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=False)
+    def test_self_hosted_instances_do_not_depend_on_the_rollout_flag(self, is_cloud, feature_enabled, only):
+        self._set_team(only)
+
+        assert person_properties_flag_enabled(1) is True
+        is_cloud.assert_called_once_with()
+        feature_enabled.assert_not_called()
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=True)
+    def test_cloud_instances_use_the_rollout_flag(self, is_cloud, feature_enabled, only):
+        self._set_team(only)
+        feature_enabled.return_value = True
+
+        assert person_properties_flag_enabled(1) is True
+        feature_enabled.assert_called_once_with(
+            "warehouse-person-properties",
+            "123",
+            groups={"organization": "123"},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        feature_enabled.reset_mock()
+        feature_enabled.return_value = False
+        assert person_properties_flag_enabled(1) is False
+
+    @patch("products.customer_analytics.backend.logic.person_property_projection.Team.objects.only")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.capture_exception")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.posthoganalytics.feature_enabled")
+    @patch("products.customer_analytics.backend.logic.person_property_projection.is_cloud", return_value=True)
+    def test_cloud_flag_errors_fail_closed(self, is_cloud, feature_enabled, capture_exception, only):
+        self._set_team(only)
+        error = RuntimeError("flag service unavailable")
+        feature_enabled.side_effect = error
+
+        assert person_properties_flag_enabled(1) is False
+        capture_exception.assert_called_once_with(error)
 
 
 # Both binding kinds run every case: the resolvers pick the filter column from the binding, and picking

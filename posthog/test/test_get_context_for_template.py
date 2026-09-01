@@ -7,12 +7,24 @@ from unittest.mock import MagicMock
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import UserHomeSettings
-from posthog.utils import get_context_for_template
+from posthog.utils import get_context_for_template, get_persisted_feature_flags_for_app_context
+
+
+class TestPersistedFeatureFlagsForAppContext(SimpleTestCase):
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
+    def test_self_hosted_context_includes_non_cloud_persisted_flags_without_an_env_override(self, _definitions):
+        with self.settings(CLOUD_DEPLOYMENT=None, DEBUG=False, PERSISTED_FEATURE_FLAGS=[]):
+            assert get_persisted_feature_flags_for_app_context() == ["warehouse-person-properties"]
+
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[])
+    def test_cloud_context_does_not_include_non_cloud_persisted_flags(self, _definitions):
+        with self.settings(CLOUD_DEPLOYMENT="US", DEBUG=False, PERSISTED_FEATURE_FLAGS=[]):
+            assert get_persisted_feature_flags_for_app_context() == []
 
 
 class TestGetContextForTemplate(APIBaseTest):
@@ -33,7 +45,7 @@ class TestGetContextForTemplate(APIBaseTest):
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
-            "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags"], "anonymous": false}',
+            "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags", "warehouse-person-properties"], "anonymous": false}',
             "posthog_bootstrap": "{}",
             "posthog_js_uuid_version": "v7",
             "region": None,

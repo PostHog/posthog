@@ -10,6 +10,10 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
+# Non-cloud deployments do not participate in Cloud rollout evaluation, so features enabled by a
+# server-side non-cloud bypass must also be present in the frontend's persisted baseline.
+NON_CLOUD_PERSISTED_FEATURE_FLAGS = ("warehouse-person-properties",)
+
 # Encryption keys for remote-config feature flag payloads, kept separate from
 # Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
 # An ordered list: the first key encrypts new payloads, every key can decrypt. That

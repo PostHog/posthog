@@ -13,6 +13,7 @@ vast majority of runs) never pay a flag-service call.
 
 import posthoganalytics
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
@@ -36,6 +37,8 @@ def person_properties_flag_enabled(team_id: int) -> bool:
         organization_id = str(Team.objects.only("organization_id").get(id=team_id).organization_id)
     except Team.DoesNotExist:
         return False
+    if not is_cloud():
+        return True
     try:
         return bool(
             posthoganalytics.feature_enabled(

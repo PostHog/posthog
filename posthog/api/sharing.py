@@ -14,7 +14,6 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 import jwt
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import BaseModel
@@ -54,7 +53,7 @@ from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_ip_address, render_template
+from posthog.utils import get_ip_address, get_persisted_feature_flags_for_app_context, render_template
 from posthog.views import preflight_check
 
 from products.access_control.backend.facade.user_access_control import (
@@ -79,7 +78,6 @@ from products.exports.backend.models.exported_asset import (
     asset_for_token,
     get_content_response,
 )
-from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
@@ -324,9 +322,7 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
         "suggested_users_with_access": None,
         "commit_sha": get_git_commit_short(),
         "livestream_host": settings.LIVESTREAM_HOST,
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": True,
     }
 
