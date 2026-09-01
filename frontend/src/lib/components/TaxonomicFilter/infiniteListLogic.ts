@@ -74,9 +74,13 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { getItemGroup } from './InfiniteList'
 import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
 
-// Category endpoints fetch with `exclude_hidden: true`, so a hidden item never appears under
-// its category tab. Keep it out of the aggregated tab too, or that tab shows an "Events" row
-// (say) that the Events tab returns nothing for.
+// Most category endpoints fetch with `exclude_hidden: true` (Events, Event properties, Person
+// properties), so a hidden item never appears under those category tabs. Drop it from the
+// aggregated tab too, or that tab shows an "Events" row (say) that the Events tab returns
+// nothing for. Feature flags and Numerical event properties omit the param, so their own tabs
+// still list hidden items. The aggregate drops those from recents and pinned anyway, which is a
+// deliberate minor inconsistency because the item still reaches the aggregate through its
+// group's own matches.
 function isHiddenDefinition(item: TaxonomicDefinitionTypes): boolean {
     return 'hidden' in item && !!item.hidden
 }
