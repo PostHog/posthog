@@ -122,6 +122,36 @@ export function OnePointForOnePersonProperty(): JSX.Element {
     )
 }
 
+export function NoPointsWithKeyPersonProperties(): JSX.Element {
+    // A merged person keeps its pre-merge ID on events, so the timeline query matches nothing
+    // and returns zero points even though the insight relies on a key person property.
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb4' }
+    useStorybookMocks({
+        get: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
+                points: [],
+                crucial_property_keys: ['name'],
+                effective_date_from: '2021-01-01T00:00:00.000000+00:00',
+                effective_date_to: '2021-06-01T23:59:59.999999+00:00',
+            } as RawPropertiesTimelineResult,
+        },
+    })
+
+    return (
+        <div className="border rounded w-120">
+            <PropertiesTimeline
+                actor={examplePerson}
+                filter={{
+                    date_from: '2021-01-01',
+                    date_to: '2021-06-01',
+                    interval: 'day',
+                    display: ChartDisplayType.ActionsLineGraph,
+                }}
+            />
+        </div>
+    )
+}
+
 export function NoPointsForNoPersonProperties(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
     useStorybookMocks({
