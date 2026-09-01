@@ -28,7 +28,7 @@ export interface EmitEventStepInput<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -54,7 +54,7 @@ export interface EmitEventStepOutput {
      * been ingested. Empty when nothing was emitted.
      */
     ingested: Promise<IngestedEventInfo | null>[]
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -119,7 +119,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
             ok(
                 {
                     ingested,
-                    eventUsageRecord: input.eventUsageRecord,
+                    eventUsageRecords: input.eventUsageRecords,
                     eventUsageBatch: input.eventUsageBatch,
                 },
                 ingested
