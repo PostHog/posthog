@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -34,10 +35,18 @@ import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../..
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import type { AIWindowConfigModeEnumApi } from '../../generated/api.schemas'
+import type { DeliveryConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, targetTypeOptions, urlForSubscription } from './utils'
+import {
+    ALL_DAYS,
+    AI_PROMPT_MAX_LENGTH,
+    coerceDeliveryConfigForScope,
+    SubscriptionBaseProps,
+    targetTypeOptions,
+    urlForSubscription,
+} from './utils'
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -214,6 +223,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     summary_enabled: false,
     summary_prompt_guide: '',
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
+    delivery_config: { post_all_insights_in_main_message: false },
     send_test_now: true,
 }
 
@@ -300,6 +310,7 @@ export interface subscriptionLogicActions {
             dashboard?: number | undefined
             dashboard_export_insights?: number[] | undefined
             deleted?: boolean | undefined
+            delivery_config?: DeliveryConfigApi | undefined
             enabled?: boolean | undefined
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
@@ -332,6 +343,7 @@ export interface subscriptionLogicActions {
             dashboard?: number | undefined
             dashboard_export_insights?: number[] | undefined
             deleted?: boolean | undefined
+            delivery_config?: DeliveryConfigApi | undefined
             enabled?: boolean | undefined
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
@@ -631,6 +643,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // is rejected, since it is not a URL anything could deliver to.
                     target_value: webhookKept ? undefined : subscription.target_value?.trim(),
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
+                    delivery_config: coerceDeliveryConfigForScope(
+                        subscription,
+                        integrationsLogic.findMounted()?.values.integrations
+                    ),
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would

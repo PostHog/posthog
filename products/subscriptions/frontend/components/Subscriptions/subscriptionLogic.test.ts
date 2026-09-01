@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -12,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
 import { subscriptionLogic } from './subscriptionLogic'
 
@@ -872,5 +873,37 @@ describe('subscriptionLogic', () => {
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.prompt).toBeUndefined()
+    })
+
+    it.each([
+        ['removes the gallery flag when files:write is missing', 'chat:write,channels:read', false],
+        ['keeps the gallery flag when files:write is granted', 'chat:write,files:write', true],
+    ] as const)('%s on submit', async (_label, scope, expected) => {
+        const integrations = integrationsLogic()
+        integrations.mount()
+        await expectLogic(integrations).toFinishListeners()
+        integrations.actions.loadIntegrationsSuccess([{ id: 7, kind: 'slack', config: { scope } } as IntegrationType])
+
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 51, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            target_type: 'slack',
+            target_value: 'C123|#general',
+            integration_id: 7,
+            title: 'Gallery test',
+            delivery_config: { post_all_insights_in_main_message: true },
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.delivery_config?.post_all_insights_in_main_message).toBe(expected)
     })
 })

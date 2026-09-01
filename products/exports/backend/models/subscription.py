@@ -212,6 +212,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
+    delivery_config = models.JSONField(default=dict)
 
     class Meta:
         indexes = [
@@ -517,6 +518,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
             "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
+            "post_all_insights_in_main_message": self.delivery_config.get("post_all_insights_in_main_message", False),
         }
         # For insight subscriptions, attribute the subscribed insight's query type (e.g. TrendsQuery,
         # FunnelsQuery) using the same keys as the "insight created/updated" events, so subscriptions

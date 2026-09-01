@@ -51,6 +51,14 @@ WEBHOOK_REJECTED_DISABLE_REASON = DisableReason(
     description="Microsoft Teams stopped accepting messages",
     user_message="Cannot re-enable {target_type} subscription: Microsoft Teams stopped accepting messages. Create a new webhook URL in your Teams channel with the Workflows app, update this subscription with it, then try again.",
 )
+SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
+    key="slack_file_upload_permission_revoked",
+    description="PostHog can no longer upload files to Slack",
+    user_message=(
+        "Cannot re-enable {target_type} subscription: the Slack app needs the files:write permission. "
+        "Add files:write to a custom Slack app, or reconnect PostHog's Slack app, then try again."
+    ),
+)
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
     description="AI subscription prompt or creator is invalid",
