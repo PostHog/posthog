@@ -136,7 +136,10 @@ class AsyncEgressClient(ABC):
         request_headers = {**self._standard_headers(), **(headers or {})}
         try:
             response = await session.request(method, url, headers=request_headers, **kwargs)
-        except aiohttp.ClientError:
+        except (aiohttp.ClientError, TimeoutError):
+            # aiohttp raises a bare TimeoutError when ClientTimeout.total expires; only the connect
+            # phase gets wrapped into a ClientError. Catching just ClientError would drop the most
+            # likely outage from the metric.
             # Best-effort telemetry must never mask the real transport error — record and re-raise it.
             self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
             raise

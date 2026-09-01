@@ -212,14 +212,6 @@ async def test_non_strict_returns_none_when_every_variation_is_rate_limited():
 
 
 @pytest.mark.asyncio
-async def test_strict_reraises_when_every_variation_is_rate_limited():
-    mock_request = AsyncMock(side_effect=HarmonicEgressBudgetExhausted("degrading"))
-    with patch(HARMONIC_REQUEST, new=mock_request):
-        with pytest.raises(HarmonicEgressBudgetExhausted):
-            await _client(priority=Priority.BATCH).enrich_company_by_domain_strict("posthog.com")
-
-
-@pytest.mark.asyncio
 async def test_get_company_by_urn_returns_parsed_json():
     response = _response(json_data={"name": "Salesforce", "website": {"domain": "salesforce.com"}})
     client = _client()

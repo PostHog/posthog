@@ -250,6 +250,9 @@ class AsyncHarmonicClient:
             timeout=aiohttp.ClientTimeout(total=10),
         )
         if response.status == 404:
+            # Returning without reading the body leaves the connection to the garbage collector,
+            # which drops it from the keep-alive pool instead of reusing it.
+            response.release()
             return None
         response.raise_for_status()
         return await response.json()
