@@ -5,7 +5,10 @@ import {
   getFastModeOptions,
   getReasoningEffortOptions,
 } from "@posthog/agent/adapters/reasoning-effort";
-import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
+import {
+  flattenConfigValues,
+  harnessForModelValue,
+} from "@posthog/core/task-detail/configOptions";
 import {
   applyConfigChange,
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -178,7 +181,13 @@ export function usePreviewConfig(
         const modelOpt = getOptionByCategory(initial, "model");
         // The user's explicit last pick always restores, premium families
         // included — a fresh launch must not silently downgrade the model.
-        const restorableModel = lastUsedModel ?? undefined;
+        // A grouped list also holds the other harness's models, so the pick has
+        // to belong to this harness or it would run on the wrong one.
+        const restorableModel =
+          lastUsedModel &&
+          harnessForModelValue(modelOpt, lastUsedModel) === adapter
+            ? lastUsedModel
+            : undefined;
         if (
           restorableModel &&
           modelOpt?.type === "select" &&

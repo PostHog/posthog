@@ -9,7 +9,10 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
-import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
+import {
+  harnessForModelValue,
+  isValidConfigValue,
+} from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
@@ -716,6 +719,15 @@ export function TaskInput({
     if (!initialModel && !initialMode) return;
 
     if (initialModel && isValidConfigValue(modelOption, initialModel)) {
+      // The list spans both harnesses, so a deep-linked model can belong to the
+      // other one. Switch harness first and leave the key unmarked: the reloaded
+      // config comes back around and applies the pick on the right harness.
+      const harness = harnessForModelValue(modelOption, initialModel);
+      if (harness && harness !== adapter) {
+        setLastUsedModel(initialModel);
+        setAdapter(harness);
+        return;
+      }
       setConfigOption(modelOption.id, initialModel);
     }
     if (initialMode && isValidConfigValue(modeOption, initialMode)) {
@@ -723,13 +735,16 @@ export function TaskInput({
     }
     lastAppliedDeepLinkConfigKey.current = initialPromptKey;
   }, [
+    adapter,
     isPreviewLoading,
     initialPromptKey,
     initialModel,
     initialMode,
     modelOption,
     modeOption,
+    setAdapter,
     setConfigOption,
+    setLastUsedModel,
   ]);
 
   const { folders, isLoaded: foldersLoaded } = useFolders();
