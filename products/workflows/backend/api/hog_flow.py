@@ -112,7 +112,12 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
+from products.tasks.backend.facade.workflow_tasks import (
+    WorkflowTaskConnectorsInvalid,
+    WorkflowTaskSkillsInvalid,
+    validate_connectors,
+    validate_skill_names,
+)
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -1315,6 +1320,17 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
                     )
+
+        skills = (inputs.get("skills") or {}).get("value")
+        if skills:
+            get_team = self.context.get("get_team")
+            # Skills are team-scoped, so no owner is needed. Keeping the check owner-free means a
+            # workflow stays saveable after its owner changes.
+            if get_team is not None:
+                try:
+                    validate_skill_names(get_team().id, skills)
+                except WorkflowTaskSkillsInvalid as e:
+                    raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 
         repository = (inputs.get("repository") or {}).get("value")
         if repository and not _REPOSITORY_SHAPE.fullmatch(repository):

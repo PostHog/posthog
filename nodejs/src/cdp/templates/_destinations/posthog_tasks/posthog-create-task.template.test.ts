@@ -16,6 +16,7 @@ describe('posthog create task template', () => {
         model: { model: 'claude-sonnet-5', reasoning_effort: 'high' },
         repository: 'example-org/example-repo',
         connectors: ['0198c9f1-aaaa-0000-0000-000000000001'],
+        skills: ['error-triage', 'db-runbook'],
         posthog_mcp_scopes: 'full',
         max_parallel_tasks: 3,
     }
@@ -77,6 +78,7 @@ describe('posthog create task template', () => {
             reasoning_effort: 'high',
             repository: 'example-org/example-repo',
             connectors: ['0198c9f1-aaaa-0000-0000-000000000001'],
+            skills: ['error-triage', 'db-runbook'],
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
             event: defaultEventBody,

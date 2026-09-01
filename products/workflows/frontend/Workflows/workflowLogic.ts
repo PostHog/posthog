@@ -525,6 +525,7 @@ export interface workflowLogicActions {
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1169,6 +1170,7 @@ export interface workflowLogicActions {
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1378,6 +1380,7 @@ export interface workflowLogicActions {
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -2022,6 +2025,7 @@ export interface workflowLogicActions {
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -2204,6 +2208,7 @@ export interface workflowLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -2582,6 +2587,7 @@ export interface workflowLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string

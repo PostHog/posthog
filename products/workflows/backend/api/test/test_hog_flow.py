@@ -31,6 +31,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
+from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -5267,6 +5268,7 @@ def _create_task_template() -> dict:
             "secret": False,
             "required": False,
         },
+        {"key": "skills", "type": "task_skills", "label": "Skills", "secret": False, "required": False},
         {
             "key": "max_parallel_tasks",
             "type": "number",
@@ -5481,6 +5483,37 @@ class TestCreateTaskActionValidation(APIBaseTest):
         # boundary) - mocking at the same seam the model-catalogue tests below use.
         with patch("products.workflows.backend.api.hog_flow.validate_connectors", return_value=None):
             response = self._post_flow({"connectors": {"value": ["some-installation-id"]}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rejects_a_skill_name_that_does_not_exist(self):
+        response = self._post_flow({"skills": {"value": ["never-was-a-skill"]}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__skills"
+        assert not HogFlow.objects.filter(team=self.team).exists()
+
+    def test_accepts_a_skill_name_that_exists(self):
+        # products.workflows may not depend on products.skills' models directly (tach
+        # boundary) - mocking at the same seam the connector test above uses.
+        with patch("products.workflows.backend.api.hog_flow.validate_skill_names", return_value=None):
+            response = self._post_flow({"skills": {"value": ["error-triage"]}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_still_saves_when_an_attached_skill_was_archived(self):
+        # Archiving soft-deletes every version. The fire path drops an unresolvable skill and
+        # runs anyway, so blocking the save here would strand a workflow nobody can edit.
+        LLMSkill.objects.create(
+            team=self.team,
+            name="error-triage",
+            description="Triage an error spike.",
+            body="# error-triage",
+            deleted=True,
+            is_latest=False,
+        )
+
+        response = self._post_flow({"skills": {"value": ["error-triage"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
