@@ -191,7 +191,8 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                             Go has no instrumentation libraries for provider SDKs yet: start a span around each call
                             and set the \`gen_ai.*\` attributes yourself, as shown in the Go tab. Frameworks that
                             already emit \`gen_ai.*\` spans, like [ADK Go](https://google.golang.org/adk), are captured
-                            automatically.
+                            automatically. ADK Go sends message content as log records rather than span attributes,
+                            so its generations arrive without prompts and responses.
                         `}
                     </Markdown>
 
@@ -251,6 +252,8 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     resp, err := client.Chat.Completions.New(ctx, params) // your existing LLM call
                                     if err != nil {
                                         span.RecordError(err)
+                                        // Status Error is what marks the event as a failed generation in PostHog
+                                        span.SetStatus(codes.Error, err.Error())
                                         span.End()
                                         return err
                                     }
@@ -345,7 +348,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                     <Markdown>
                         {dedent`
-                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language PostHog has no OpenTelemetry helper for (Python, Node.js, and Go have one), point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. The endpoint is signal-specific (traces only), so use the \`OTEL_EXPORTER_OTLP_TRACES_*\` variants rather than the general \`OTEL_EXPORTER_OTLP_*\` ones (the SDK appends \`/v1/traces\` to the latter and would 404).
+                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language other than Python, Node.js, or Go, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. The endpoint is signal-specific (traces only), so use the \`OTEL_EXPORTER_OTLP_TRACES_*\` variants rather than the general \`OTEL_EXPORTER_OTLP_*\` ones (the SDK appends \`/v1/traces\` to the latter and would 404).
                         `}
                     </Markdown>
 

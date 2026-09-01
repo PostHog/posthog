@@ -3,6 +3,7 @@ import React, { Children, ReactNode, createContext, isValidElement, useContext, 
 
 import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
 import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'
+import { PROSE_LANGUAGE } from '@posthog/shared-onboarding/steps'
 
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -194,7 +195,7 @@ function CodeBlock({
         const block = codeBlocks[0]
         return (
             <div className="my-4">
-                {block.language === 'prose' ? (
+                {block.language === PROSE_LANGUAGE ? (
                     <LemonMarkdown disableDocsRedirect={true}>{block.code}</LemonMarkdown>
                 ) : (
                     <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
@@ -223,7 +224,7 @@ function CodeBlock({
                     }))}
                 />
             )}
-            {selectedBlock.language === 'prose' ? (
+            {selectedBlock.language === PROSE_LANGUAGE ? (
                 <LemonMarkdown disableDocsRedirect={true}>{selectedBlock.code}</LemonMarkdown>
             ) : (
                 <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
