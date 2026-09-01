@@ -144,7 +144,7 @@ class TestCspReport(BaseTest):
         mock_buffer.enqueue.assert_not_called()
 
     @patch("posthog.api.report.capture_batch_internal")
-    def test_cloud_keeps_posthog_and_unknown_reports_from_a_mixed_bundle(self, mock_batch_capture):
+    def test_cloud_keeps_non_hobby_reports_from_a_mixed_bundle(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
         posthog_violation = {
             **SINGLE_VIOLATION_REPORT_TO,
@@ -154,6 +154,10 @@ class TestCspReport(BaseTest):
             },
         }
         unknown_origin_violation = {"type": "csp-violation", "body": {"effectiveDirective": "script-src"}}
+        local_violation = {
+            **SINGLE_VIOLATION_REPORT_TO,
+            "body": {**SINGLE_VIOLATION_REPORT_TO["body"], "documentURL": "http://localhost:8010/project/1"},
+        }
         posthog_crash = {**CRASH_REPORT, "url": "https://eu.posthog.com/project/1"}
 
         with self.settings(CLOUD_DEPLOYMENT="US"):
@@ -164,6 +168,7 @@ class TestCspReport(BaseTest):
                         SINGLE_VIOLATION_REPORT_TO,
                         posthog_violation,
                         unknown_origin_violation,
+                        local_violation,
                         CRASH_REPORT,
                         posthog_crash,
                     ]
@@ -176,6 +181,7 @@ class TestCspReport(BaseTest):
         assert [event["properties"]["$current_url"] for event in events] == [
             "https://app.dev.posthog.dev/project/1",
             None,
+            "http://localhost:8010/project/1",
             "https://eu.posthog.com/project/1",
         ]
 

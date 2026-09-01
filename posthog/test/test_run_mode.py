@@ -5,7 +5,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.cloud_utils import is_cloud, is_hobby
+from posthog.cloud_utils import is_cloud, is_hobby, is_hobby_url
 from posthog.run_mode import RunMode, derive_run_mode, run_mode
 
 
@@ -76,3 +76,20 @@ class TestCloudUtilsRunMode(SimpleTestCase):
         with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
             self.assertEqual(is_cloud(), cloud)
             self.assertEqual(is_hobby(), hobby)
+
+    @parameterized.expand(
+        [
+            ("cloud", "https://eu.posthog.com/project/1", False),
+            ("cloud_subdomain", "https://app.posthog.com/project/1", False),
+            ("deployed_dev", "https://app.dev.posthog.dev/project/1", False),
+            ("localhost", "http://localhost:8010/project/1", False),
+            ("ipv4_loopback", "http://127.0.0.1:8010/project/1", False),
+            ("ipv6_loopback", "http://[::1]:8010/project/1", False),
+            ("hobby", "https://posthog.example.com/project/1", True),
+            ("similar_domain", "https://notposthog.com/project/1", True),
+            ("missing", None, False),
+            ("malformed", "https://[", False),
+        ]
+    )
+    def test_identifies_hobby_url(self, _name: str, url: str | None, expected: bool) -> None:
+        self.assertEqual(is_hobby_url(url), expected)

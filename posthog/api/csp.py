@@ -12,7 +12,7 @@ import structlog
 from prometheus_client import Counter
 from rest_framework import status
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby_url
 from posthog.exceptions import generate_exception_response
 from posthog.models.utils import uuid7
 from posthog.sampling import sample_on_property
@@ -45,38 +45,16 @@ CSP_REPORT_TYPES_MAPPING_TABLE = """
 | `$csp_report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
 
-_POSTHOG_DOCUMENT_DOMAINS = ("posthog.com", "posthog.dev")
-
-
-def _is_non_posthog_document_url(document_url: object) -> bool:
-    if not isinstance(document_url, str):
-        return False
-
-    try:
-        hostname = urlsplit(document_url).hostname
-    except ValueError:
-        return False
-
-    if hostname is None:
-        return False
-
-    return not any(hostname == domain or hostname.endswith(f".{domain}") for domain in _POSTHOG_DOCUMENT_DOMAINS)
-
 
 def _filter_reports_by_origin(reports: list[dict[str, object]]) -> list[dict[str, object]]:
     if not is_cloud():
         return reports
 
-    accepted_reports = []
-    dropped_reports = 0
-    for report in reports:
-        if _is_non_posthog_document_url(report.get("document_url")):
-            dropped_reports += 1
-        else:
-            accepted_reports.append(report)
+    accepted_reports = [report for report in reports if not is_hobby_url(report.get("document_url"))]
+    dropped_reports = len(reports) - len(accepted_reports)
 
     if dropped_reports:
-        CSP_REPORT_REJECTED.labels(reason="non_posthog_origin").inc(dropped_reports)
+        CSP_REPORT_REJECTED.labels(reason="hobby_origin").inc(dropped_reports)
 
     return accepted_reports
 

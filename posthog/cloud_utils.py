@@ -1,6 +1,8 @@
 import os
 from datetime import timedelta
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
 is_cloud_cached: Optional[bool] = None
 is_instance_licensed_cached: Optional[bool] = None
 instance_license_cached: Optional["License"] = None
+
+_CLOUD_DOMAINS = ("posthog.com", "posthog.dev")
 
 
 def _run_mode() -> RunMode:
@@ -40,6 +44,31 @@ def is_dev_mode() -> bool:
 def is_hobby() -> bool:
     """Self-hosted install: neither cloud nor local dev. Mirrors `isHobby` in preflightLogic."""
     return _run_mode().is_hobby
+
+
+def is_hobby_url(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+
+    try:
+        parsed_url = urlsplit(url)
+        hostname = parsed_url.hostname
+    except ValueError:
+        return False
+
+    if parsed_url.scheme not in ("http", "https") or hostname is None:
+        return False
+
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return False
+
+    try:
+        if ip_address(hostname).is_loopback:
+            return False
+    except ValueError:
+        pass
+
+    return not any(hostname == domain or hostname.endswith(f".{domain}") for domain in _CLOUD_DOMAINS)
 
 
 def is_ci() -> bool:
