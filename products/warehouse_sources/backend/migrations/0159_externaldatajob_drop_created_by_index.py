@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("warehouse_sources", "0157_reset_plausible_page_breakdowns"),
+        ("warehouse_sources", "0158_migrate_shopify_job_inputs_to_auth_method"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

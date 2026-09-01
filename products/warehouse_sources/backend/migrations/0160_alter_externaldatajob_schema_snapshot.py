@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("warehouse_sources", "0158_externaldatajob_drop_created_by_index"),
-    ]
+    dependencies = [("warehouse_sources", "0159_externaldatajob_drop_created_by_index")]
 
     operations = [
         migrations.AlterField(
