@@ -9,8 +9,15 @@ import { broadcastTestSendLogic } from './broadcastTestSendLogic'
  * does. The audience is untouched by this.
  */
 export function SendTestBroadcastModal(): JSX.Element {
-    const { isModalOpen, recipientEmail, previewPerson, sendDisabledReason, testSendResult, testSendResultLoading } =
-        useValues(broadcastTestSendLogic)
+    const {
+        isModalOpen,
+        recipientEmail,
+        previewPerson,
+        sendDisabledReason,
+        testSendResult,
+        testSendSkipReason,
+        testSendResultLoading,
+    } = useValues(broadcastTestSendLogic)
     const { setModalOpen, setRecipientEmail, sendTestEmail } = useActions(broadcastTestSendLogic)
 
     return (
@@ -55,12 +62,14 @@ export function SendTestBroadcastModal(): JSX.Element {
                         : 'No one matches this audience yet, so variables send as blank text.'}
                 </span>
 
-                {testSendResult?.status === 'skipped' && (
+                {testSendSkipReason ? (
+                    <LemonBanner type="warning">{testSendSkipReason}</LemonBanner>
+                ) : testSendResult?.status === 'skipped' ? (
                     <LemonBanner type="warning">
                         {testSendResult.logs?.map((log) => log.message).join(' ') ||
                             'The email step was skipped, so nothing was sent.'}
                     </LemonBanner>
-                )}
+                ) : null}
                 {testSendResult?.status === 'error' && (
                     <LemonBanner type="error">
                         {testSendResult.errors?.join(', ') || 'Could not send the test email.'}
