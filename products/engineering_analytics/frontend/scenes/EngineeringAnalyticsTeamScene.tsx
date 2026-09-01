@@ -15,8 +15,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EntityHeader } from '../components/EntityHeader'
-import { MetricTile, percentChange } from '../components/MetricTile'
+import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
+import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { compactHoursLabel } from '../lib/format'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
@@ -30,38 +31,6 @@ export const scene: SceneExport<TeamDetailLogicProps> = {
         sourceId: source ?? null,
         window: isTeamsWindow(window) ? window : null,
     }),
-}
-
-function HealthTile({
-    label,
-    tooltip,
-    value,
-    prior,
-    goodWhenDown,
-    vs,
-    loading,
-}: {
-    label: string
-    tooltip: string
-    value: number | null
-    prior: number | null
-    goodWhenDown: boolean
-    vs: string
-    loading: boolean
-}): JSX.Element {
-    return (
-        <MetricTile
-            label={label}
-            tooltip={tooltip}
-            value={value == null ? '—' : humanFriendlyNumber(value)}
-            delta={
-                value != null && prior != null && prior > 0
-                    ? { value: percentChange(value, prior), goodWhenDown, vs: `vs ${vs.toLowerCase()}` }
-                    : undefined
-            }
-            loading={loading}
-        />
-    )
 }
 
 export function EngineeringAnalyticsTeamScene(): JSX.Element {
@@ -153,69 +122,74 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
     return (
         <SceneContent className="pb-16">
             <SceneTitleSection name="Team CI health" resourceType={{ type: 'health' }} />
-            <div className="flex items-start justify-between gap-3">
-                <EntityHeader
-                    icon={<IconPeople />}
-                    title={isUnowned ? 'Unowned surfaces' : ownerTeam}
-                    titleSuffix={
-                        isUnowned ? (
-                            <Tooltip title="Tests whose CI spans carry no ownership stamp. An ownership gap to close, not a real team.">
-                                <LemonTag type="warning">ownership gap</LemonTag>
-                            </Tooltip>
-                        ) : undefined
-                    }
-                    slug={
-                        <>
-                            <Link to={urls.engineeringAnalyticsTeams()}>← All teams</Link>
-                            {!isUnowned && <span>owner: {ownerTeam}</span>}
-                        </>
-                    }
-                />
-                <DateFilter
-                    dateFrom={window}
-                    onChange={(from) => isTeamsWindow(from) && setWindow(from)}
-                    dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
-                    size="small"
-                />
-            </div>
+            <EntityHeader
+                icon={<IconPeople />}
+                title={isUnowned ? 'Unowned surfaces' : ownerTeam}
+                titleSuffix={
+                    isUnowned ? (
+                        <Tooltip title="Tests whose CI spans carry no ownership stamp. An ownership gap to close, not a real team.">
+                            <LemonTag type="warning">ownership gap</LemonTag>
+                        </Tooltip>
+                    ) : undefined
+                }
+            />
+            {/* Same scope grammar as the repo hub: repo chip, crumbs, then the window picker. */}
+            <ScopeBar
+                repoSlot={<RepoScopeChip label={repository ?? 'repository'} to={urls.engineeringAnalytics()} />}
+                crumbs={[
+                    { label: 'teams', to: urls.engineeringAnalyticsTeams() },
+                    { label: isUnowned ? 'unowned' : ownerTeam },
+                ]}
+                showDate={false}
+                extra={
+                    <DateFilter
+                        dateFrom={window}
+                        onChange={(from) => isTeamsWindow(from) && setWindow(from)}
+                        dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
+                        size="small"
+                    />
+                }
+            />
 
-            <div className="flex flex-wrap gap-3">
-                <HealthTile
-                    label="Tests owned"
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <WindowComparisonCard
+                    title="Tests owned"
                     tooltip="Test files this team owns per the daily owners.yaml census."
-                    value={healthRow?.testFileCount ?? null}
-                    prior={healthRow?.testFileCountPrior ?? null}
-                    goodWhenDown={false}
-                    vs={labels.prior}
+                    value={healthRow?.testFileCount}
+                    previousValue={healthRow?.testFileCountPrior}
+                    formatValue={humanFriendlyNumber}
                     loading={healthRowLoading}
+                    emptyText="No census yet for this repository."
                 />
-                <HealthTile
-                    label="Flaky tests"
+                <WindowComparisonCard
+                    title="Flaky tests"
                     tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky."
-                    value={healthRow?.flakyTestCount ?? null}
-                    prior={healthRow?.flakyTestCountPrior ?? null}
+                    value={healthRow?.flakyTestCount}
+                    previousValue={healthRow?.flakyTestCountPrior}
+                    formatValue={humanFriendlyNumber}
                     goodWhenDown
-                    vs={labels.prior}
                     loading={healthRowLoading}
+                    emptyText="No signal in this window."
                 />
-                <HealthTile
-                    label="Failed runs"
+                <WindowComparisonCard
+                    title="Failed runs"
                     tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
-                    value={healthRow?.failedRunCount ?? null}
-                    prior={healthRow?.failedRunCountPrior ?? null}
+                    value={healthRow?.failedRunCount}
+                    previousValue={healthRow?.failedRunCountPrior}
+                    formatValue={humanFriendlyNumber}
                     goodWhenDown
-                    vs={labels.prior}
                     loading={healthRowLoading}
+                    emptyText="No signal in this window."
                 />
                 {!isUnowned && (
-                    <HealthTile
-                        label="PRs merged"
+                    <WindowComparisonCard
+                        title="PRs merged"
                         tooltip="PRs merged by this team's members in the window, bots excluded. Attribution comes from the GitHub team membership snapshot."
-                        value={healthRow?.mergedPrCount ?? null}
-                        prior={healthRow?.mergedPrCountPrior ?? null}
-                        goodWhenDown={false}
-                        vs={labels.prior}
+                        value={healthRow?.mergedPrCount}
+                        previousValue={healthRow?.mergedPrCountPrior}
+                        formatValue={humanFriendlyNumber}
                         loading={healthRowLoading}
+                        emptyText="No team membership data. Sync the GitHub source's team_members endpoint to attribute merges."
                     />
                 )}
             </div>
