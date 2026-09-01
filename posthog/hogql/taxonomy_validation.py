@@ -177,12 +177,16 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
 def _project_scoped(taxonomy: QuerySet, team: Team) -> QuerySet:
     """Scope a definition queryset to the team's project through the indexed scope expression.
 
-    Definitions are project-scoped, so `team_id` is the wrong scope twice over. It reads a narrower
-    row set than the definitions API the taxonomic filter lists from, which makes validation call a
-    name unknown that the filter offers. It also matches no index that reaches `name`: the widest
+    Definitions are project-scoped, so a team-scoped lookup reads a narrower row set than the
+    definitions API the taxonomic filter lists from. Validation then calls a name unknown that the
+    filter offers.
+
+    For property definitions the team scope also reaches no index that leads to `name`. The widest
     index leading with `team_id` is `index_property_def_query`, where `name` sits behind
-    `coalesce(group_type_index, -1)` and `query_usage_30_day`, so a name lookup reads every
-    definition the team has of that type.
+    `coalesce(group_type_index, -1)` and `query_usage_30_day`. Postgres therefore intersects a
+    bitmap over every definition the team has of that type with the shared trigram index on `name`.
+    Event definitions have `posthog_eventdef_team_name_idx` on `(team_id, name)`, so that lookup
+    already seeked one name and the project scope only corrects the row set it reads.
 
     `coalesce(project_id, team_id)` is the leading expression of `event_definition_proj_uniq` and
     `posthog_propdef_proj_uniq`, so scope and `name` are then seeked together in one index.
@@ -263,9 +267,13 @@ def _similar_names(taxonomy: QuerySet, name: str) -> list[str]:
 
     `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
     `index_event_definition_name` and `index_property_definition_name` answer directly. Ranking and
-    the row cap run in Postgres too, so one keystroke reads a few candidate names instead of every
-    name in the project. `name` breaks ties so equally similar candidates come back in a stable
-    order.
+    the row cap run in Postgres, so Python receives at most `SUGGESTION_CANDIDATE_LIMIT` names
+    instead of every name in the project. `name` breaks ties so equally similar candidates come back
+    in a stable order.
+
+    Postgres still intersects the trigram match with the project scope, so a project with millions
+    of definitions pays for a bitmap over the whole scope on every lookup. This call is bounded by
+    what it returns, not by what it reads.
 
     A name longer than the `name` column can never equal a definition, and pg_trgm cost grows with
     the input, so an oversized literal gets no suggestion rather than a wasted comparison.
