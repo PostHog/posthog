@@ -12,6 +12,10 @@ HOG_FLOW_VERSION_APP_SOURCE = "hog_flow_version"
 
 TARGET_SEND_METRIC = "email_sent"
 TARGET_OPEN_METRIC = "email_opened"
+# Clicks, read against the same denominator as opens. A subject line gets a message opened; the body
+# and its call to action are what get it clicked, so the two rates move for different reasons and a
+# suggestion that lifts one while flattening the other is worth seeing.
+TARGET_CLICK_METRIC = "email_link_clicked"
 
 # Sends with open/click tracking off. They raise email_sent but can never raise email_opened, so the
 # open rate reads against (email_sent - email_untracked); the guardrail rates below apply to every send
