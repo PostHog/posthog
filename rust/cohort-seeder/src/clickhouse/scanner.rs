@@ -30,7 +30,8 @@ use crate::domain::{
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
     CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
-    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_LEGACY_SKIPPED,
+    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_DURATION_SECONDS,
+    SHADOW_COMPARE_LEGACY_SKIPPED,
 };
 
 #[derive(Clone)]
@@ -42,6 +43,10 @@ pub struct ChunkScanner {
     allowlist: TeamAllowlist,
     /// `SEEDER_SCAN_SHADOW_COMPARE`: re-scan each chunk wide and diff the tiles. On by default and
     /// diagnostic only — the projected arm's tiles are what the chunk returns either way.
+    ///
+    /// While it is on, a chunk's projected tiles stay live as the legacy aggregate is built, so
+    /// peak scan memory roughly doubles. A `SEEDER_BANDS_PER_DAY` sized against an observed
+    /// `seeder_aggregate_entries` has about half the headroom it had.
     shadow_compare: bool,
 }
 
@@ -128,7 +133,7 @@ impl ChunkScanner {
         let projection = analyses.projection(&active);
         self.record_projection(run.team_id, &projection);
 
-        let (tiles, volume, _) = self
+        let (tiles, volume, projected_fold) = self
             .scan_once(
                 spec,
                 run,
@@ -149,17 +154,31 @@ impl ChunkScanner {
         drop(timer);
 
         if self.shadow_compare {
-            self.compare_scan(
-                spec,
-                run,
-                &domain,
-                &active,
-                &scan_spec,
-                &tiles,
-                lease_cancel,
-                shutdown,
-            )
-            .await?;
+            // A chunk whose authoritative scan is already wide would be compared against its own
+            // query: `scan_sql` renders `FullColumns` identically for both arms, so the verdict is
+            // `match` by construction and says nothing about projecting. Counting it keeps the
+            // verdict series complete without paying a second full-width read for no reading.
+            match projection {
+                ChunkProjection::FullColumns => {
+                    let team = team_label(&self.allowlist, run.team_id);
+                    counter!(SHADOW_COMPARE, "result" => "not_projected", "team_id" => team)
+                        .increment(1);
+                }
+                ChunkProjection::Projected(_) => {
+                    self.compare_scan(
+                        spec,
+                        run,
+                        &domain,
+                        &active,
+                        &scan_spec,
+                        &tiles,
+                        projected_fold,
+                        lease_cancel,
+                        shutdown,
+                    )
+                    .await?;
+                }
+            }
         }
         Ok((tiles, volume))
     }
@@ -221,7 +240,8 @@ impl ChunkScanner {
     }
 
     /// The diagnostic arm: re-scan the same chunk wide, diff the two tile vectors, meter the
-    /// verdict, and drop the legacy tiles.
+    /// verdict, and drop the legacy tiles. Called only for a chunk whose authoritative scan
+    /// narrowed, since a wide one would be compared against itself.
     ///
     /// A scan *failure* here is metered and swallowed: the diagnostic never fails a chunk. A
     /// *cancellation* propagates and is then handled exactly as one raised during the projected
@@ -238,11 +258,15 @@ impl ChunkScanner {
         active: &ActiveConditions,
         scan_spec: &ScanSpec,
         projected_tiles: &[SeedTile],
+        projected_fold: FoldSummary,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<(), ScanHalt> {
         let team = team_label(&self.allowlist, run.team_id);
-        let (legacy_tiles, summary) = match self
+        // Spans the re-scan, its fold, and the diff. Records on every exit, so a cancelled or
+        // failed compare still reports the time it held the chunk's slot and lease.
+        let _timer = MetricTimer::start(SHADOW_COMPARE_DURATION_SECONDS);
+        let (legacy_tiles, legacy_fold) = match self
             .scan_once(
                 spec,
                 run,
@@ -260,7 +284,7 @@ impl ChunkScanner {
             )
             .await
         {
-            Ok((tiles, _, summary)) => (tiles, summary),
+            Ok((tiles, _, legacy_fold)) => (tiles, legacy_fold),
             Err(ScanHalt::Cancelled(cause)) => return Err(ScanHalt::Cancelled(cause)),
             Err(ScanHalt::Failed(error)) => {
                 counter!(SHADOW_COMPARE, "result" => "error", "team_id" => team.clone())
@@ -279,11 +303,13 @@ impl ChunkScanner {
                 return Ok(());
             }
         };
-        // Recorded whatever the verdict, and at zero too: on a chunk the projection narrowed to an
-        // empty literal this is the only count of malformed blobs anything will ever take, and it
-        // is what tells a projection defect apart from the over-count `render_blob` documents.
+        // The difference, not the wide arm's total: a blob kept whole or rebuilt from keys fails
+        // the same parse on both arms and explains no divergence. Recorded whatever the verdict,
+        // and at zero too, because on a blob the projection emptied this is the only count of
+        // malformed rows anything will ever take.
+        let legacy_only_skips = legacy_fold.legacy_only_skips(projected_fold);
         counter!(SHADOW_COMPARE_LEGACY_SKIPPED, "team_id" => team.clone())
-            .increment(summary.globals_parse_errors);
+            .increment(legacy_only_skips);
 
         let diff = diff_tiles(projected_tiles, &legacy_tiles);
         if diff.is_match() {
@@ -300,7 +326,9 @@ impl ChunkScanner {
             missing = diff.missing,
             extra = diff.extra,
             count_differs = diff.count_differs,
-            legacy_globals_parse_errors = summary.globals_parse_errors,
+            legacy_only_globals_parse_errors = legacy_only_skips,
+            legacy_globals_parse_errors = legacy_fold.globals_parse_errors,
+            projected_globals_parse_errors = projected_fold.globals_parse_errors,
             exemplars = ?diff.exemplars,
             "shadow compare diverged between the projected and legacy scans"
         );
@@ -351,9 +379,9 @@ enum RowsSeen {
 
 /// What a fold observed beyond the metrics it emitted.
 ///
-/// `globals_parse_errors` is counted on every arm, metered or not: the projected arm selects an
-/// empty literal wherever no condition reads a blob, so nothing there can fail to parse, and only
-/// the wide arm can report how many rows the two arms therefore treat differently.
+/// `globals_parse_errors` is counted on every arm, metered or not. The two arms only treat a row
+/// differently where the projection emptied a blob, so it is the difference between the arms'
+/// counts that explains a divergence, never either count alone.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct FoldSummary {
     rows: RowsSeen,
@@ -368,6 +396,17 @@ impl FoldSummary {
         if outcome == ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError) {
             self.globals_parse_errors += 1;
         }
+    }
+
+    /// Rows only this wide fold skipped, against the projected fold of the same chunk. A blob the
+    /// projection kept whole or rebuilt from keys fails the same parse on both arms, so the wide
+    /// arm's own total explains nothing; the difference does.
+    ///
+    /// Saturating, because the arms resolve identity independently: an override landing between
+    /// them can move a malformed row out of the scanned band and put the projected count ahead.
+    fn legacy_only_skips(self, projected: Self) -> u64 {
+        self.globals_parse_errors
+            .saturating_sub(projected.globals_parse_errors)
     }
 }
 
@@ -749,6 +788,21 @@ mod tests {
         summary.observe(ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError));
         summary.observe(ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError));
         assert_eq!(summary.globals_parse_errors, 2);
+    }
+
+    /// Publishing the wide arm's own total would attribute every shared parse failure to the
+    /// projection, which is the misreading the counter exists to prevent.
+    #[test]
+    fn only_the_skips_the_projection_caused_reach_the_compare_counter() {
+        let fold = |globals_parse_errors| FoldSummary {
+            rows: RowsSeen::Some,
+            globals_parse_errors,
+        };
+        // A blob kept whole or rebuilt from keys fails on both arms and explains no divergence.
+        assert_eq!(fold(7).legacy_only_skips(fold(7)), 0);
+        assert_eq!(fold(9).legacy_only_skips(fold(4)), 5);
+        // Override drift can put the projected arm ahead; the count floors instead of wrapping.
+        assert_eq!(fold(2).legacy_only_skips(fold(5)), 0);
     }
 
     #[test]

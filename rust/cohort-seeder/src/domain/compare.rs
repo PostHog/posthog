@@ -11,19 +11,25 @@ use super::ids::ConditionHash;
 
 /// Cap on retained exemplars, counted per class: enough to characterize one, small enough to log.
 ///
-/// Per class rather than shared, because the classes are not equally interesting. `Missing` is the
-/// class that stops a rollout and `Extra` is the designed-in benign one, so a chunk with thousands
-/// of `Extra`s must still show the single `Missing` sitting behind them in merge order.
+/// Per class rather than shared, because a shared cap fills in merge order and can silence a whole
+/// class. Every class needs its own examples to be triaged at all, and the one that appears once is
+/// as likely to be the informative one as the one that appears ten thousand times.
 pub const MAX_EXEMPLARS_PER_CLASS: usize = 8;
 
 /// Which arm produced a divergent pair, and so which of the three totals counts it.
+///
+/// The classes describe one pair each. None of them is benign on its own: [`TileDiff::is_match`]
+/// rejects all three, so any of them raises `result="diff"`. Nor does a cause map onto a class —
+/// a row the wide arm skipped for a malformed blob lands in `Extra` when the pair has no other
+/// matching row in the chunk, in `CountDiffers` when it has one, and nowhere at all when the row
+/// matches no condition. Read the class as a shape and the skip counters as the cause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DivergenceClass {
-    /// The legacy arm produced the pair and the projected arm did not — projected work lost.
+    /// The legacy arm produced the pair and the projected arm did not.
     Missing,
-    /// The projected arm produced the pair and the legacy arm did not — the depth pin's home, and
-    /// the home of every row whose blob the wide arm could not parse at all.
+    /// The projected arm produced the pair and the legacy arm did not.
     Extra,
+    /// Both arms produced the pair with different counts.
     CountDiffers,
 }
 
@@ -117,8 +123,13 @@ impl TileDiff {
 }
 
 /// Diff two tile vectors from the same chunk scanned twice. Both inputs are `into_tiles`
-/// outputs, sorted by `(person_id, condition_hash)` by construction; only the counts can
-/// differ between arms, because every other field is built from arguments the arms share.
+/// outputs, sorted by `(person_id, condition_hash)` by construction.
+///
+/// Every field the two arms build from shared arguments is identical, which leaves the count. The
+/// key is the exception: `person_id` comes from the unfenced `person_distinct_id_overrides` join,
+/// so a merge landing between the arms re-keys a row and shows up here as a paired `Missing` and
+/// `Extra` for one condition under two persons. That pair is override drift, not a projection
+/// defect, and it does not reproduce on a re-scan.
 pub fn diff_tiles(projected: &[SeedTile], legacy: &[SeedTile]) -> TileDiff {
     let mut diff = TileDiff::default();
     let (mut left, mut right) = (0, 0);

@@ -48,19 +48,32 @@ pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total"
 /// object or escaped the static analysis, so the scan selects every column. A team sitting at
 /// `full_columns` is the signal to read the run's census for which event names block it.
 pub const CHUNKS_PROJECTED: &str = "seeder_chunks_projected_total";
-/// Shadow-compare verdicts per chunk, labelled by closed `result` (`match`/`diff`/`error`) and
-/// `team_id` (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on. `diff` is the
-/// validation failure signal — the paired `warn!` carries the chunk attribution and exemplars.
-/// `error` means the diagnostic wide scan itself failed and the chunk's projected tiles were
-/// emitted unverified.
-pub const SHADOW_COMPARE: &str = "seeder_shadow_compare_total";
-/// Rows the shadow compare's legacy wide arm refused to build globals for, labelled by `team_id`
-/// (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on, and at zero as well.
+/// Shadow-compare verdicts per chunk, labelled by closed `result`
+/// (`match`/`diff`/`error`/`not_projected`) and `team_id` (counter). Emitted only while
+/// `SEEDER_SCAN_SHADOW_COMPARE` is on, once per chunk that finishes its scan. A chunk cancelled
+/// by shutdown or a lost lease increments nothing and runs again later.
 ///
-/// The projected arm selects an empty literal wherever no condition reads a blob, so nothing there
-/// can fail to parse. Only the wide arm can count these, and the count is what separates a
-/// projection defect from the malformed-blob over-count `sql::render_blob` documents — which lands
-/// in `result="diff"` indistinguishably otherwise.
+/// `diff` is the validation failure signal — the paired `warn!` carries the chunk attribution and
+/// exemplars. `error` means the diagnostic wide scan itself failed and the chunk's projected tiles
+/// were emitted unverified. `not_projected` means the authoritative scan was already wide, so
+/// re-running it would compare a query against itself; those chunks are counted rather than
+/// scanned twice, and they are not evidence about projecting.
+pub const SHADOW_COMPARE: &str = "seeder_shadow_compare_total";
+/// Wall time of one chunk's diagnostic wide re-scan, including its fold and diff (histogram).
+///
+/// The compare arm runs after the authoritative scan on the same task, holding the chunk's worker
+/// slot and lease, and [`CHUNK_SCAN_DURATION_SECONDS`] deliberately closes before it. Without this
+/// series the arm's cost shows up only as slower chunk throughput, with nothing naming the cause —
+/// which is the reading behind the decision to turn the knob off for the rest of a long reseed.
+pub const SHADOW_COMPARE_DURATION_SECONDS: &str = "seeder_shadow_compare_duration_seconds";
+/// Rows only the shadow compare's legacy wide arm refused to build globals for, labelled by
+/// `team_id` (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on, and at zero as well.
+///
+/// The difference between the two arms' skip counts, not the wide arm's total. A blob the
+/// projection keeps whole or rebuilds from keys fails the same parse on both arms and explains no
+/// divergence; only a blob the projection replaced with an empty literal is skipped on one side
+/// and evaluated on the other. That difference is what separates a projection defect from the
+/// over-count `sql::render_blob` documents, which lands in `result="diff"` indistinguishably.
 pub const SHADOW_COMPARE_LEGACY_SKIPPED: &str = "seeder_shadow_compare_legacy_skipped_total";
 /// Top-level JSON keys a narrowed scan rebuilds one blob from, labelled by `blob`
 /// (`properties`/`person_properties`) and `team_id` (histogram). Zero means the blob is not read at
@@ -286,6 +299,10 @@ const PROJECTION_KEYS_BUCKETS: &[f64] = &[0.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 6
 const HISTOGRAM_LADDERS: &[(&str, &[f64])] = &[
     (PROJECTION_KEYS, PROJECTION_KEYS_BUCKETS),
     (CHUNK_SCAN_DURATION_SECONDS, SCAN_DURATION_SECONDS_BUCKETS),
+    (
+        SHADOW_COMPARE_DURATION_SECONDS,
+        SCAN_DURATION_SECONDS_BUCKETS,
+    ),
     (
         PERSON_CHUNK_SCAN_DURATION_SECONDS,
         SCAN_DURATION_SECONDS_BUCKETS,
