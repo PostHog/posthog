@@ -1474,17 +1474,22 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @override_settings(HOGLAND_API_URL="https://hogland.example", HOGLAND_API_TOKEN="hog-tok")
-    def test_hogland_run_forces_off_modal_vm_and_network_allowlist(self, activity_environment, test_task):
+    def test_hogland_run_drops_modal_vm_allowlist_and_default_image(self, activity_environment, test_task):
         # A run that resolves to hogland must carry use_modal_vm_sandbox and
-        # use_modal_network_allowlist as False, so provisioning builds a plain hogland
-        # box instead of a Modal VM_BASE config with the Modal provider allowlist. The
-        # VM payload and the flag below would each set their value True; the force-off
-        # must still land both at False for a hogland run.
+        # use_modal_network_allowlist as False and custom_image_name as None, so
+        # provisioning builds a plain hogland box on the golden instead of a Modal
+        # VM_BASE config with the org default image and the provider allowlist. The
+        # payload's default_custom_image (applied because the user picked none) must not
+        # gate the run onto Modal, and the force-off must land all three Modal-only
+        # values at their hogland state.
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         with (
-            patch(VM_FLAG_PAYLOAD_TARGET, return_value='{"default_base_origin_products": ["user_created"]}'),
+            patch(
+                VM_FLAG_PAYLOAD_TARGET,
+                return_value='{"default_base_origin_products": ["user_created"], "default_custom_image": "posthog-dev-stack"}',
+            ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
                 return_value=True,
@@ -1495,6 +1500,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_backend == "hogland"
         assert result.use_modal_vm_sandbox is False
         assert result.use_modal_network_allowlist is False
+        assert result.custom_image_name is None
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):
@@ -1540,7 +1546,7 @@ class TestResolveSandboxBackend:
             "run_id": "run-1",
             "state": None,
             "task_runtime": "acp",
-            "custom_image_name": None,
+            "has_user_custom_image": False,
         }
         kwargs.update(overrides)
         return _resolve_sandbox_backend(**kwargs)
@@ -1560,17 +1566,18 @@ class TestResolveSandboxBackend:
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"custom_image_name": "posthog-sandbox-custom-x"},
+            {"has_user_custom_image": True},
             {"task_runtime": "pi"},
         ],
-        ids=["custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hard_incapabilities_fall_back_to_modal_even_with_the_flag_on(self, overrides):
-        # A custom image or the Pi runtime cannot run on hogland's default template, so
-        # they force Modal even with the flag on. The Modal VM-sandbox and
-        # network-allowlist preferences are deliberately not gated here — a flagged run
-        # wins hogland over them (covered by the caller force-off test).
+        # A real user/environment custom image or the Pi runtime cannot run on hogland's
+        # golden, so they force Modal even with the flag on. The Modal VM-sandbox /
+        # network-allowlist preferences and the org default image are deliberately not
+        # gated here — a flagged run wins hogland over them (covered by the caller
+        # force-off test).
         assert self._resolve_with_flag(True, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
@@ -1622,15 +1629,15 @@ class TestResolveSandboxBackend:
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"custom_image_name": "img"},
+            {"has_user_custom_image": True},
             {"task_runtime": "pi"},
         ],
-        ids=["custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hogland_override_cannot_defeat_hard_incapabilities(self, overrides):
         # A stale or forged hogland override surviving a cloud resume must not route a
-        # custom-image or Pi run to hogland — the capability gates sit ahead of the override.
+        # user-custom-image or Pi run to hogland — the capability gates sit ahead of the override.
         assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS)
