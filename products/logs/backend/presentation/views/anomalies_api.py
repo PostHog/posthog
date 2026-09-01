@@ -239,8 +239,7 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
     band_ready_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "When this series has enough history to carry a band, so a learning series can count down to it. "
-            "Null once the band is drawn."
+            "When this series gains its band, so a learning series can count down to it. Null once the band is drawn."
         ),
     )
     buckets = LogsSeriesBandBucketSerializer(

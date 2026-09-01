@@ -1291,7 +1291,7 @@ export interface LogsSeriesBandSeriesApi {
     /** Earliest bucket with data inside the fetched lookback. */
     history_start: string
     /**
-     * When this series has enough history to carry a band, so a learning series can count down to it. Null once the band is drawn.
+     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
      * @nullable
      */
     band_ready_at: string | null
