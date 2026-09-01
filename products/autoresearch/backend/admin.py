@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db import models
 from django.http import HttpRequest
 
 from .models import (
@@ -9,6 +10,21 @@ from .models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+
+
+class PipelineLockedAdminMixin(admin.ModelAdmin):
+    """Makes `pipeline` read-only once the row exists.
+
+    Rows that reference this one check same-pipeline consistency only on their own save,
+    so moving a saved row to another pipeline would strand its referencing rows under the
+    old pipeline and team.
+    """
+
+    def get_readonly_fields(self, request: HttpRequest, obj: models.Model | None = None) -> tuple[str, ...]:
+        readonly = super().get_readonly_fields(request, obj)
+        if obj is not None:
+            return (*readonly, "pipeline")
+        return tuple(readonly)
 
 
 class AutoresearchModelInline(admin.TabularInline):
@@ -78,7 +94,7 @@ class AutoresearchIterationInline(admin.TabularInline):
 
 
 @admin.register(AutoresearchTrainingRun)
-class AutoresearchTrainingRunAdmin(admin.ModelAdmin):
+class AutoresearchTrainingRunAdmin(PipelineLockedAdminMixin):
     list_display = ("id", "pipeline", "status", "iteration_count", "best_holdout_score", "task_run_id", "created_at")
     list_filter = ("status", "created_at")
     search_fields = ("pipeline__name",)
@@ -96,7 +112,7 @@ class AutoresearchTrainingRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(AutoresearchModel)
-class AutoresearchModelAdmin(admin.ModelAdmin):
+class AutoresearchModelAdmin(PipelineLockedAdminMixin):
     list_display = (
         "id",
         "pipeline",
@@ -122,6 +138,11 @@ class AutoresearchModelAdmin(admin.ModelAdmin):
         "archived_at",
     )
     raw_id_fields = ("pipeline", "source_training_run")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # Models are created by the training loop and promotion. The add form excludes the
+        # read-only model_recipe, so a hand-created row would fail its NOT NULL constraint.
+        return False
 
     fieldsets = (
         (None, {"fields": ("id", "pipeline", "role", "is_preliminary")}),
@@ -168,7 +189,7 @@ class AutoresearchRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(AutoresearchSuggestion)
-class AutoresearchSuggestionAdmin(admin.ModelAdmin):
+class AutoresearchSuggestionAdmin(PipelineLockedAdminMixin):
     list_display = ("id", "pipeline", "priority", "status", "source", "created_by", "created_at")
     list_filter = ("priority", "status", "source", "created_at")
     search_fields = ("pipeline__name", "prompt")

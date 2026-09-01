@@ -10,6 +10,7 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 import posthoganalytics
 
 from posthog.models.team import Team
+from posthog.permissions import posthog_feature_flag_value
 
 from products.feature_flags.backend.facade import api as feature_flags_facade
 
@@ -35,18 +36,29 @@ def has_autoresearch_access(
     if settings.DEBUG and not getattr(settings, "TEST", False):
         return _local_flag_enabled(team_id=team_id)
 
+    if team_id is not None and organization_id is None:
+        organization_id = _organization_id_for_team(team_id)
+
+    # An organization-targeted rollout reaches the in-app flag evaluation, which sends the
+    # organization group. The shared helper sends it too, or the product renders and every
+    # request 403s. It also honors POSTHOG_FEATURE_FLAGS_FORCE_ENABLED, which a direct SDK
+    # call would skip.
+    if organization_id is not None:
+        return bool(
+            posthog_feature_flag_value(
+                AUTORESEARCH_FLAG,
+                distinct_id,
+                organization_id=organization_id,
+                team_id=team_id,
+            )
+        )
+
+    # No resolvable organization: evaluate with whatever group context exists.
     groups: dict[str, str] = {}
     group_properties: dict[str, dict[str, str]] = {}
     if team_id is not None:
         groups["project"] = str(team_id)
         group_properties["project"] = {"id": str(team_id)}
-        if organization_id is None:
-            organization_id = _organization_id_for_team(team_id)
-    # An organization-targeted rollout reaches the in-app flag evaluation, which sends the
-    # organization group. Send it here too, or the product renders and every request 403s.
-    if organization_id is not None:
-        groups["organization"] = str(organization_id)
-        group_properties["organization"] = {"id": str(organization_id)}
 
     return bool(
         posthoganalytics.feature_enabled(
