@@ -60,7 +60,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.exports.backend.facade.auth import export_asset_matches_renderer_token
+from products.exports.backend.facade.auth import get_export_renderer_asset_context
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -741,17 +741,19 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             if url_team_id is not None and str(team_id) != url_team_id:
                 raise AuthenticationFailed(detail="Token project does not match the requested project.")
 
-            if not export_asset_matches_renderer_token(
+            export_context = get_export_renderer_asset_context(
                 asset_id=exported_asset_id,
                 team_id=team_id,
                 created_by_id=user_id,
                 scope=scopes[0],
-            ):
+            )
+            if export_context is None:
                 raise AuthenticationFailed(detail="Token export asset invalid.")
 
             self.scopes = scopes
             self.team_id = team_id
             self.exported_asset_id = exported_asset_id
+            self.export_context = export_context
             user = User.objects.get(pk=user_id)
             return user, None
         except (jwt.DecodeError, jwt.InvalidAudienceError):

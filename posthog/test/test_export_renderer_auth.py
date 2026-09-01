@@ -13,13 +13,27 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestExportRendererAuthentication(APIBaseTest):
-    def _make_export_renderer_token(self, *, team: Team | None = None, scope: str = "heatmap:read") -> str:
+    def _make_export_renderer_token(
+        self,
+        *,
+        team: Team | None = None,
+        scope: str = "heatmap:read",
+        export_context: dict[str, object] | None = None,
+    ) -> str:
         team = team or self.team
-        export_context = (
-            {"session_recording_id": "test-recording"}
-            if scope == "session_recording:read"
-            else {"heatmap_url": "https://example.com", "heatmap_type": "screenshot"}
-        )
+        if export_context is None:
+            export_context = (
+                {"session_recording_id": "test-recording"}
+                if scope == "session_recording:read"
+                else {
+                    "heatmap_url": "https://example.com",
+                    "heatmap_data_url": "https://example.com",
+                    "heatmap_type": "click",
+                    "width": 1400,
+                    "common_filters": {"date_from": "-7d"},
+                    "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+                }
+            )
         asset = ExportedAsset.objects.create(
             team=team,
             created_by=self.user,
@@ -37,16 +51,27 @@ class TestExportRendererAuthentication(APIBaseTest):
             PosthogJwtAudience.EXPORT_RENDERER,
         )
 
+    def _heatmap_url(self, target_url: str = "https://example.com") -> str:
+        return (
+            f"/api/environments/{self.team.id}/heatmaps?type=click&date_from=-7d"
+            f"&url_exact={target_url}&viewport_width_min=1260&viewport_width_max=1540"
+            "&aggregation=total_count&limit=0"
+        )
+
     @staticmethod
     def _unauthenticated_client() -> APIClient:
         return APIClient()
 
     @parameterized.expand(
         [
-            ("session_recordings", "/api/environments/{team_id}/session_recordings", "session_recording:read"),
+            (
+                "session_recording",
+                "/api/environments/{team_id}/session_recordings/test-recording",
+                "session_recording:read",
+            ),
             (
                 "heatmaps",
-                "/api/environments/{team_id}/heatmaps?type=click&date_from=2024-01-01&url_exact=https://example.com&viewport_width_min=0",
+                "/api/environments/{team_id}/heatmaps?type=click&date_from=-7d&url_exact=https://example.com&viewport_width_min=1260&viewport_width_max=1540&aggregation=total_count&limit=0",
                 "heatmap:read",
             ),
         ]
@@ -58,7 +83,34 @@ class TestExportRendererAuthentication(APIBaseTest):
             url_template.format(team_id=self.team.id),
             headers={"authorization": f"Bearer {token}"},
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code not in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}
+
+    @parameterized.expand(
+        [
+            ("recording_list", "/api/environments/{team_id}/session_recordings"),
+            ("different_recording", "/api/environments/{team_id}/session_recordings/another-recording"),
+        ]
+    )
+    def test_recording_token_rejected_for_another_resource(self, _name: str, url_template: str) -> None:
+        token = self._make_export_renderer_token(scope="session_recording:read")
+        response = self._unauthenticated_client().get(
+            url_template.format(team_id=self.team.id),
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_heatmap_token_rejected_for_another_query(self) -> None:
+        token = self._make_export_renderer_token()
+        for url in (
+            self._heatmap_url("https://other.example.com"),
+            self._heatmap_url().replace("date_from=-7d", "date_from=-30d"),
+        ):
+            with self.subTest(url=url):
+                response = self._unauthenticated_client().get(
+                    url,
+                    headers={"authorization": f"Bearer {token}"},
+                )
+                assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_export_renderer_token_rejected_on_another_team(self):
         other_team = self.create_team_with_organization(self.organization)
