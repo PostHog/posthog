@@ -62,6 +62,15 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Rokt rejected these credentials. Please regenerate the app ID and app secret in One Platform and reconnect.",
             "403 Client Error: Forbidden for url": "These Rokt credentials cannot read this account. Please check the account ID and the app's permissions.",
+            # The same request body is sent on every retry, so a 400 from the report endpoint will
+            # never become data. Likely causes: the account type does not support advertiser
+            # campaigns, a time zone or currency code setting is unrecognised, or the account is
+            # not fully configured in One Platform.
+            "400 Client Error: Bad Request for url": (
+                "Rokt rejected the report request as invalid. This can happen if the account type does not support "
+                "advertiser campaigns, if the time zone or currency code setting is unrecognised, or if the account "
+                "is not fully configured in One Platform. Check your account settings, or contact Rokt support."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
