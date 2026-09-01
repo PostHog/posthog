@@ -2308,7 +2308,7 @@ def _git_common_dir(repo_root: Path) -> Path | None:
     return worktree_dir
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitHealth:
     pack_count: int
     packs_capped: bool
@@ -2547,8 +2547,9 @@ def _names_path(haystack: str, path: str) -> bool:
 
     A plain substring test reads `/work/posthog-copy` as `/work/posthog`, and a
     trailing boundary alone still reads `/tmp/work/posthog` as `/work/posthog`.
+    An option value such as `--git-dir=<path>` puts an equals sign before the path.
     """
-    return re.search(r"(?<![^\s'\"])" + re.escape(path) + r"(?=$|[\s/'\"])", haystack) is not None
+    return re.search(r"(?<![^\s='\"])" + re.escape(path) + r"(?=$|[\s/'\"])", haystack) is not None
 
 
 def _is_within(candidate: Path, root: Path) -> bool:
@@ -2751,10 +2752,9 @@ def doctor_git(fix: bool) -> None:
             health.stale_lock.unlink()
             click.secho("Removed a stale git maintenance lock.", fg="yellow")
             click.echo("Scheduled git maintenance was disabled for as long as it was there.")
-            health.stale_lock = None
             acted = True
         except FileNotFoundError:
-            health.stale_lock = None  # Another process removed it first.
+            pass  # Another process removed it first.
         except OSError as e:
             # Reporting clean here would hide a lock that still disables every
             # scheduled task, which is the failure this check exists to remove.

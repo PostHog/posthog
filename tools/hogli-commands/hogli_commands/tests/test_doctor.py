@@ -1647,3 +1647,22 @@ def test_doctor_git_reports_a_stale_lock_it_cannot_remove(monkeypatch: pytest.Mo
 
     assert "clean" not in result.output
     assert "stays disabled" in result.output
+
+
+def test_housekeeping_scan_claims_git_dir_given_as_an_option_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `git --git-dir=<path> repack` puts an equals sign before the path, and the
+    # process runs outside the checkout, so the working directory says nothing.
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: (
+            SimpleNamespace(returncode=0, stdout="4242\n", stderr="")
+            if cmd[0] == "pgrep"
+            else SimpleNamespace(returncode=0, stdout="git --git-dir=/home/x/posthog/.git repack -adl\n", stderr="")
+        ),
+    )
+    monkeypatch.setattr("hogli_commands.doctor._process_cwd", lambda pid: Path("/somewhere/else"))
+    monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: Path("/somewhere/else/.git"))
+
+    assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is True
