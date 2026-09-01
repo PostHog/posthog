@@ -296,7 +296,7 @@ def _enqueue_user(
     if cooldown is CacheGuard.UNAVAILABLE:
         # Counted as a failure, not a dedup: during an outage every push takes this branch, and
         # a cooldown_deduped spike would point diagnosis at duplicate suppression instead.
-        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason="cache_unavailable").inc()
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason="cooldown_unavailable").inc()
         logger.warning("push_dispatcher.cooldown_unavailable", subject=cooldown_subject, kind=kind)
         return
     if cooldown is CacheGuard.ALREADY_PRESENT:
