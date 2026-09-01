@@ -56,13 +56,16 @@ Before it is exposed beyond trusted callers, it must authenticate the calling se
 
 Every producer holds one long-lived HTTP/2 connection and never re-resolves the
 service address, so a new pod would take no traffic until a producer restarts.
-The server closes each connection after `USAGE_INGESTION_MAX_CONNECTION_AGE_SECONDS`
+The server closes each connection after `USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS`
 (60 by default) to force that re-resolution, which is what makes a scale-up reach
 the pods it adds.
+The personhog services carry the same setting under the same name, at 300 seconds.
 Without it, a scale-up leaves the new pods idle while the old ones throttle, and
 only replacing every pod redistributes the load.
 Set the variable to 0 to turn the behavior off, which is the escape hatch if the
 reconnects ever cost more than the imbalance they fix.
+A value between 1 and 9 is rejected at startup, because it would leave producers
+reconnecting instead of sending.
 This only spreads traffic if the Service is a ClusterIP; a headless Service hands
 the client one address it can reconnect to.
 

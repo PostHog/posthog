@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
@@ -20,11 +22,13 @@ pub struct Config {
         default = "clickhouse_billing_usage_records"
     )]
     pub topic: String,
-    // Producers pin one connection, so the server ends each one to make them re-resolve the
-    // service. 0 turns that off, which is the escape hatch if the reconnects ever cost more
-    // than the imbalance they fix.
-    #[envconfig(from = "USAGE_INGESTION_MAX_CONNECTION_AGE_SECONDS", default = "60")]
-    pub max_connection_age_seconds: u64,
+    /// Maximum age of a gRPC connection in seconds before the server sends GOAWAY.
+    /// Producers reconnect transparently, which restaggers them across the pods.
+    /// 0 = disabled (connections live indefinitely).
+    /// Shorter than personhog's 300 because a producer holds one connection and this fleet
+    /// runs near its CPU request when the load lands unevenly.
+    #[envconfig(from = "USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS", default = "60")]
+    pub grpc_max_connection_age_secs: u64,
 }
 
 impl Config {
@@ -33,11 +37,19 @@ impl Config {
             return Err("USAGE_INGESTION_MAX_BATCH_SIZE must be between 1 and 5000".to_string());
         }
         // A few seconds would make every producer spend its time reconnecting.
-        if self.max_connection_age_seconds > 0 && self.max_connection_age_seconds < 10 {
+        if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
             return Err(
-                "USAGE_INGESTION_MAX_CONNECTION_AGE_SECONDS must be 0 or at least 10".to_string(),
+                "USAGE_INGESTION_GRPC_MAX_CONNECTION_AGE_SECS must be 0 or at least 10".to_string(),
             );
         }
         Ok(())
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
+        }
     }
 }

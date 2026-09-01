@@ -65,6 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let resolver = Arc::new(PostgresOrganizationResolver::new(database));
 
+    // Read before the config is partially moved into the Kafka config below.
+    let max_connection_age = config.grpc_max_connection_age();
+
     let kafka_config = KafkaConfig {
         kafka_hosts: config.kafka_hosts,
         kafka_tls: config.kafka_tls,
@@ -127,9 +130,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
     // synchronized reconnect shows up as a latency sawtooth.
     let mut builder = Server::builder();
-    if config.max_connection_age_seconds > 0 {
-        builder =
-            builder.max_connection_age(Duration::from_secs(config.max_connection_age_seconds));
+    if let Some(age) = max_connection_age {
+        builder = builder.max_connection_age(age);
     }
     builder
         .layer(GrpcMetricsLayer)
