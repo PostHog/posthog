@@ -2095,15 +2095,10 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
 export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
     .object({
         uuid: zod.string().describe('UUID of the user whose email is being verified.'),
-        token: zod
-            .string()
-            .optional()
-            .describe('Verification token from the emailed link. Required unless a code is provided.'),
         code: zod
             .string()
-            .optional()
             .describe(
-                'The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
+                'The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
             ),
     })
-    .describe('Request body for POST \/api\/users\/verify_email\/. Exactly one of token or code is required.')
+    .describe('Request body for POST \/api\/users\/verify_email\/.')

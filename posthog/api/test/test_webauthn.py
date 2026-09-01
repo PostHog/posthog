@@ -238,7 +238,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.json()["email"], self.user.email)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_blocks_explicitly_unverified_email_accounts(
         self, mock_verify, mock_send_email_verification, mock_is_email_available
@@ -277,7 +277,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_send_email_verification.assert_called_once_with(self.user, None)
+        mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):
