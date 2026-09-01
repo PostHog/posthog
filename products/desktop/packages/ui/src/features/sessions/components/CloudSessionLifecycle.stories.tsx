@@ -23,13 +23,14 @@ export const SandboxUnavailable: Story = {
 };
 
 /** Red "stream failed" state, for side-by-side comparison of tone. */
-export const StreamDisconnected: StoryObj<typeof CloudStreamDisconnectedBanner> =
-  {
-    render: () => (
-      <CloudStreamDisconnectedBanner
-        errorTitle="Lost connection"
-        errorMessage="The cloud run stream ended. Retry to reconnect."
-        onRetry={() => undefined}
-      />
-    ),
-  };
+export const StreamDisconnected: StoryObj<
+  typeof CloudStreamDisconnectedBanner
+> = {
+  render: () => (
+    <CloudStreamDisconnectedBanner
+      errorTitle="Lost connection"
+      errorMessage="The cloud run stream ended. Retry to reconnect."
+      onRetry={() => undefined}
+    />
+  ),
+};
