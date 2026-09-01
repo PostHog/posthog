@@ -1,7 +1,7 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
-import { Counter, Gauge } from 'prom-client'
+import { Counter } from 'prom-client'
 
 import { SEMANTIC_REFUSAL_METADATA_KEY, SEMANTIC_REFUSAL_OP_ID_REUSED } from '~/common/personhog/identity'
 import { grpcErrorType } from '~/common/personhog/metrics'
@@ -38,23 +38,6 @@ export const personhogStoreMergeCacheCounter = new Counter({
 export const personhogStoreShadowShedCounter = new Counter({
     name: 'personhog_store_shadow_shed_segments_total',
     help: 'Unwritten segments discarded at batch release in shadow mode, where a failed flush cannot fail the batch',
-})
-
-export const personhogStoreStaleReadCounter = new Counter({
-    name: 'personhog_store_stale_read_total',
-    help: 'Update-class reads answered below a standing version floor; retried re-reads, exhausted fails the batch',
-    labelNames: ['outcome'],
-})
-
-export const personhogStoreDeathStampCounter = new Counter({
-    name: 'personhog_store_death_stamps_total',
-    help: 'Destroyed-person marks stamped, by the signal that proved the death; a spike on one site attributes it',
-    labelNames: ['site'],
-})
-
-export const personhogStoreDestroyedMarksGauge = new Gauge({
-    name: 'personhog_store_destroyed_marks',
-    help: 'Destroyed-person marks the memo holds; retained for the verdict-replay window, so the population tracks merge volume over the last ~25h',
 })
 
 export const personhogStoreFenceCounter = new Counter({
@@ -116,29 +99,6 @@ export interface PersonhogPersonsStoreOptions {
      * merge-mode policy decides the event's fate.
      */
     syncMergeMoveLimit: number
-}
-
-/**
- * The document a merge hands its caller: the refreshed read, unless the
- * response survivor is strictly newer. A read served by a deposed leader
- * inside its detection window can answer below the merge's own commit;
- * the memo's floor already refuses that install, and this guards the
- * returned copy, which a fold plan serves to every later event in its
- * run.
- */
-function newerSurvivor(response: InternalPerson, refreshed: InternalPerson): InternalPerson {
-    if (
-        typeof response.version === 'number' &&
-        typeof refreshed.version === 'number' &&
-        refreshed.version < response.version
-    ) {
-        // A strong read below the merge's own commit is the deposed-leader
-        // detection window showing itself; the count is the one trace an
-        // operator gets, since the floor's install refusals are silent.
-        personhogStoreMergeCacheCounter.inc({ action: 'refresh_below_response' })
-        return response
-    }
-    return refreshed
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -208,16 +168,6 @@ const REDIRECT_MAX_ATTEMPTS = 5
  * third gives up rather than reading against a moving memo forever.
  */
 const PERSON_NOW_MAX_READS = 3
-
-/**
- * How many times an update-class fetch re-reads a person whose answers
- * keep arriving below the standing floor. The leader that set the floor
- * serves at or past it on a fresh read, so one retry normally clears it;
- * exhaustion means reads are being served from before a version the
- * leader provably passed, and failing the batch beats classifying
- * against them.
- */
-const FLOOR_READ_MAX_ATTEMPTS = 3
 
 /**
  * Pause between re-resolves while identity still answers with a person the
@@ -322,8 +272,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private memo: PersonhogPersonMemo = new PersonhogPersonMemo(
         (personKey) => this.hasUnwrittenOps(personKey),
-        (personKey, document) => this.projectPendingOps(personKey, document),
-        (personKey) => this.entries.get(personKey)?.inFlight === true
+        (personKey, document) => this.projectPendingOps(personKey, document)
     )
     /**
      * Redirects in flight, keyed by the person being written TO; the lane
@@ -365,20 +314,12 @@ export class PersonhogPersonsStore implements PersonsStore {
      * leader hop.
      */
     async fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
-        const cached = this.memo.lookup(teamId, distinctId, 'checking')
+        const cached = this.memo.lookup(teamId, distinctId)
         if (cached !== undefined) {
             return cached
         }
-        const read = this.memo.beginRead(teamId, batchId, [`${teamId}:${distinctId}`])
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
-        const answered = resolved?.person ? `${teamId}:${resolved.person.id}` : undefined
-        if (read.moved(`${teamId}:${distinctId}`, answered)) {
-            // A merge rewrote the memo mid-flight, so this response may name
-            // a person it destroyed. The caller gets the answer; the memo
-            // keeps the merge's.
-            return this.memo.snapshot(resolved?.person ?? null)
-        }
-        return this.memo.record(teamId, distinctId, resolved?.person ?? null, batchId, { readClass: 'checking' })
+        return this.memo.record(teamId, distinctId, resolved?.person ?? null, batchId)
     }
 
     /**
@@ -387,54 +328,19 @@ export class PersonhogPersonsStore implements PersonsStore {
      * batch's events, so the baseline has to be the leader's.
      */
     async fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
-        const cached = this.memo.lookup(teamId, distinctId, 'update')
+        const cached = this.memo.lookup(teamId, distinctId)
         if (cached !== undefined) {
             return cached
         }
-        const read = this.memo.beginRead(teamId, batchId, [`${teamId}:${distinctId}`])
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
-            if (read.moved(`${teamId}:${distinctId}`)) {
-                return null
-            }
-            return this.memo.record(teamId, distinctId, null, batchId, { readClass: 'update' })
+            return this.memo.record(teamId, distinctId, null, batchId)
         }
         // A null here means the person vanished between resolve and read
         // (merged or deleted mid-flight); record the resolution miss and
         // let the caller's create path re-resolve authoritatively.
-        //
-        // A document below the standing floor is provably stale, and
-        // handing it to the caller would let the fold suppress a genuine
-        // change as no-change. Re-read bounded; on exhaustion fail the
-        // batch rather than classify against it.
-        let person: InternalPerson | null
-        for (let attempt = 1; ; attempt++) {
-            person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
-            if (person === null || !this.memo.refusesBelowFloor(`${teamId}:${resolved.person.id}`, person)) {
-                break
-            }
-            personhogStoreStaleReadCounter.inc({
-                outcome: attempt === FLOOR_READ_MAX_ATTEMPTS ? 'exhausted' : 'retried',
-            })
-            if (attempt === FLOOR_READ_MAX_ATTEMPTS) {
-                throw new Error(
-                    `person ${resolved.person.id} in team ${teamId} kept reading below the version floor after ` +
-                        `${FLOOR_READ_MAX_ATTEMPTS} attempts; failing rather than classifying against a stale document`
-                )
-            }
-            // Back-to-back re-reads would all land inside the same deposed
-            // leader's detection window; the pause is what gives the loop a
-            // chance to outlive it. The caller's generic retry spreads the
-            // exhaustion throw further, but that is its own policy, not
-            // something this loop may lean on.
-            await new Promise((resolve) => setTimeout(resolve, 50 * attempt))
-        }
-        if (read.moved(`${teamId}:${distinctId}`, `${teamId}:${resolved.person.id}`)) {
-            // A merge spoke for this id mid-flight; hand back the read but
-            // leave the memo with the merge's answer.
-            return this.memo.snapshot(person)
-        }
-        return this.memo.record(teamId, distinctId, person, batchId, { readClass: 'update' })
+        const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
+        return this.memo.record(teamId, distinctId, person, batchId)
     }
 
     async createPerson(
@@ -451,14 +357,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<CreatePersonResult> {
-        // Every id this call will map, because it records them all and a
-        // merge speaking for any one of them makes the whole answer older
-        // than the merge's.
-        const writtenKeys = [
-            primaryDistinctId.distinctId,
-            ...(extraDistinctIds ?? []).map((extra) => extra.distinctId),
-        ].map((id) => `${teamId}:${id}`)
-        const read = this.memo.beginRead(teamId, batchId, writtenKeys)
         const createResult = await this.repository.getOrCreatePersonByDistinctId(
             {
                 teamId,
@@ -473,43 +371,19 @@ export class PersonhogPersonsStore implements PersonsStore {
         )
         const { created } = createResult
         let { person } = createResult
-        // Whether this person's state came through the leader, which decides
-        // the provenance its baseline is installed under. A created person
-        // counts: creation is leader-durable, so the document is the leader's.
-        let leaderBacked = created
         if (!created) {
-            // Identity's document lags the leader, and it becomes the
-            // baseline the caller's ops fold against, where a stale value can
-            // make a genuinely new $set classify as no-change. So this branch
-            // pays the same leader read the update fetch does.
+            // The found branch answers identity's document, which lags the
+            // leader; the leader's copy is fresher and worth the read for
+            // the baseline the caller's ops fold against. A null means the
+            // person was deleted or merged away mid-call; the caller keeps
+            // identity's answer and the tombstone redirect heals any ops
+            // that fold onto it.
             const leaderDoc = await this.repository.fetchPersonById(teamId, person.id, CALLER_TAG)
             if (leaderDoc === null) {
-                // A null from the leader means the person was deleted or
-                // merged away, and this read is the one death signal this
-                // pod gets for a merge on another pod. The marks and id
-                // bumps keep the dead answer out of the memo (the flush's
-                // destroyed-person rescue redirects any folded ops to the
-                // survivor); the caller still gets the identity answer.
-                personhogStoreDeathStampCounter.inc({ site: 'create_leader_null' })
-                this.memo.markDestroyed(`${teamId}:${person.id}`)
-                for (const key of writtenKeys) {
-                    this.memo.bumpId(key)
-                }
+                this.memo.dropBaseline(`${teamId}:${person.id}`)
                 return { success: true, person: this.memo.snapshot(person), messages: [], created }
             }
             person = leaderDoc
-            leaderBacked = true
-        }
-        // The person this call answered with travels too: a merge can destroy
-        // it without naming any of these ids, which is the same sibling case
-        // the read paths guard against.
-        const answered = `${teamId}:${person.id}`
-        if (writtenKeys.some((key) => read.moved(key, answered))) {
-            // A merge spoke for one of these ids while this call was in
-            // flight; the response may describe a person the merge
-            // destroyed. The caller still gets it — installing it is what
-            // must not happen.
-            return { success: true, person: this.memo.snapshot(person), messages: [], created }
         }
         const personKey = `${teamId}:${person.id}`
         this.memo.recordResolution(batchId, `${teamId}:${primaryDistinctId.distinctId}`, personKey)
@@ -517,7 +391,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // and the service can leave a live conflicting extra mapped to its
         // existing person, so an edge recorded here could name a person the
         // service never mapped that id to. Extras resolve on first touch.
-        this.memo.offerBaseline(personKey, person, leaderBacked ? 'leader-read' : 'identity-read')
+        this.memo.offerBaseline(personKey, person)
         // The identity service publishes its own downstream messages on
         // the creation branch, so none are surfaced here.
         return { success: true, person: this.memo.snapshot(person), messages: [], created }
@@ -578,7 +452,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // reads rather than passes: ending on a read would throw away the
         // answer it just settled.
         for (;;) {
-            const resolved = this.memo.lookup(person.team_id, distinctId, 'checking')
+            const resolved = this.memo.lookup(person.team_id, distinctId)
             if (resolved) {
                 return resolved
             }
@@ -635,7 +509,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // caller holds a view this store composed, and seeding from it
         // would replay ops it already contains.
         if (!this.hasUnwrittenOps(personKey)) {
-            this.memo.offerBaseline(personKey, person, 'identity-read')
+            this.memo.offerBaseline(personKey, person)
         }
         const existing = this.entries.get(personKey)
         if (!existing) {
@@ -742,11 +616,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number
     ): Promise<Map<string, string>> {
         const resolvedKeys = new Map<string, string>()
-        const read = this.memo.beginRead(
-            teamId,
-            batchId,
-            distinctIds.map((distinctId) => `${teamId}:${distinctId}`)
-        )
         let resolved
         try {
             resolved = await this.repository.resolvePersonsByDistinctIds(
@@ -754,39 +623,29 @@ export class PersonhogPersonsStore implements PersonsStore {
                 CALLER_TAG
             )
         } catch (error) {
-            // This answer decides which persons are held and written before
-            // the fold; a memo fallback would leave unseen persons unheld,
-            // their buffered ops landing after the fold unordered. Wrapped
-            // because an unwrapped error reaches the merge service's
-            // catch-all, which would ack the event with the merge lost.
+            // This answer decides which lanes drain before the fold.
+            // Wrapped because an unwrapped error reaches the merge
+            // service's catch-all, which would ack the event with the
+            // merge lost.
             personhogStoreMergeCacheCounter.inc({ action: 'drain_resolve_failed' })
             throw new PersonMergeCallFailedError(
-                `personhog merge fence resolve failed: ${error instanceof Error ? error.message : String(error)}`,
+                `personhog merge drain resolve failed: ${error instanceof Error ? error.message : String(error)}`,
                 error
             )
         }
-        // A merge that settled while this was in flight has already repointed
-        // whichever of these ids it named, and its answer is the newer one.
-        // The keys still travel, because fencing a person the merge is about
-        // to destroy is right either way; only the memo write is withheld,
-        // and only for the ids that actually moved.
         for (const entry of resolved) {
             if (entry.person) {
                 resolvedKeys.set(entry.distinctId, `${teamId}:${entry.person.id}`)
-                const answered = `${teamId}:${entry.person.id}`
-                if (!read.moved(`${teamId}:${entry.distinctId}`, answered)) {
-                    this.memo.record(entry.teamId, entry.distinctId, entry.person, batchId, { readClass: 'checking' })
-                }
+                this.memo.record(entry.teamId, entry.distinctId, entry.person, batchId)
             }
         }
         return resolvedKeys
     }
 
     /**
-     * Writes every affected lane before the merge goes out, so the saga folds
-     * people whose buffered changes already landed. The fence excludes other
-     * writers, and passing it down keeps these writes from parking behind
-     * this very merge.
+     * Writes every affected lane before the merge goes out, so the saga
+     * folds people whose buffered changes already landed. Best-effort: a
+     * lane it cannot write lands after the merge through the redirect.
      */
     private async writeLanesBeforeMerge(personKeys: string[]): Promise<void> {
         const captured: CapturedLane[] = []
@@ -977,15 +836,12 @@ export class PersonhogPersonsStore implements PersonsStore {
             const errored = merged.length === 0 && result.results.some((source) => source.outcome === 'error')
             if (overLimit || conflicted || refused || errored) {
                 personhogStoreMergeCacheCounter.inc({ action: 'fold_skip_abort' })
-                if (result.survivor && typeof result.survivor.version === 'number') {
+                if (result.survivor) {
                     // The saga's partial folds and the aborted-writes
-                    // delivery moved the leader past this version even
-                    // though the fold aborted; the standing baseline must
-                    // not go on serving from before it.
-                    this.memo.dropBaselineBehindWrites(
-                        `${request.teamId}:${result.survivor.id}`,
-                        result.survivor.version
-                    )
+                    // delivery moved the leader even though the fold
+                    // aborted; the standing baseline must not serve from
+                    // before them, so the next reader re-reads.
+                    this.memo.dropBaseline(`${request.teamId}:${result.survivor.id}`)
                 }
                 return {
                     survivor: null,
@@ -994,90 +850,18 @@ export class PersonhogPersonsStore implements PersonsStore {
                 }
             }
         }
-        let survivor = result.survivor
         if (result.survivor) {
-            // Update authority enters the memo only through leader reads
-            // and own-write answers, never through a response document,
-            // whose replayed or identity-lagged state could suppress a
-            // genuinely new value as no-change. So the survivor's version
-            // only floors the key (state the leader provably passed), and
-            // one leader read supplies the document the batch folds
-            // against.
-            const survivorKey = `${request.teamId}:${result.survivor.id}`
-            this.memo.dropBaselineBehindWrites(
-                survivorKey,
-                typeof result.survivor.version === 'number' ? result.survivor.version : undefined
-            )
-            // The one read that installs authority outside a read handle,
-            // so it carries the team-epoch stamp by hand: a concurrent
-            // merge failing without a verdict bumps the epoch because which
-            // persons died is unknowable, and a refresh served before that
-            // failure must not reinstall state the invalidation dropped.
-            // The epoch is the one stamp taken — destruction is covered by
-            // the marks record() consults, and a concurrent gone-arm id
-            // bump is not: an edge re-recorded over one heals through the
-            // tombstone redirect, which is the accepted cost of skipping a
-            // full handle here.
-            const epochBefore = this.memo.epochOf(request.teamId)
-            let refreshed: InternalPerson | null
-            try {
-                refreshed = await this.repository.fetchPersonById(request.teamId, result.survivor.id, CALLER_TAG)
-            } catch (error) {
-                // The verdict is durable and reconciled; only the refresh
-                // is lost, so installing nothing degrades to read
-                // amplification while throwing would fail a batch whose
-                // merge committed. The caller still folds against the
-                // response document, which is safe because the service
-                // already applied the merge's own ops durably.
-                personhogStoreMergeCacheCounter.inc({ action: 'survivor_refresh_failed' })
-                logger.warn('🤔', 'merge survivor refresh failed; batch proceeds without a leader document', {
-                    team_id: request.teamId,
-                    person_id: result.survivor.id,
-                    error: String(error),
-                })
-                return {
-                    survivor: result.survivor,
-                    results: result.results,
-                }
-            }
-            if (refreshed === null) {
-                // The survivor itself is gone — destroyed by a later merge or
-                // deletion the response predates. The same stamps the create
-                // path applies on this signal: the marks keep the dead
-                // document out of the memo and the flush's destroyed-person
-                // rescue carries any folded ops through the tombstone
-                // redirect.
-                personhogStoreDeathStampCounter.inc({ site: 'merge_refresh_null' })
-                this.memo.markDestroyed(survivorKey)
-                this.memo.bumpId(`${request.teamId}:${request.targetDistinctId}`)
-                for (const distinctId of touched) {
-                    this.memo.bumpId(`${request.teamId}:${distinctId}`)
-                }
-            } else if (this.memo.epochOf(request.teamId) !== epochBefore) {
-                // The team view was invalidated while the read was on the
-                // wire, so this answer may predate destructions nobody
-                // verdicted to this pod; installing nothing degrades to
-                // read amplification, and the caller's fold stays safe
-                // because its ops are durable server-side. A mid-read
-                // watermark sweep trips this too, so the counter reads as
-                // an upper bound on invalidations.
-                personhogStoreMergeCacheCounter.inc({ action: 'refresh_stale_epoch' })
-                survivor = newerSurvivor(result.survivor, refreshed)
-            } else {
-                // The leader's document is at or past everything this merge
-                // committed, so read-your-write holds, and these ids serve
-                // the update read class through it.
-                this.memo.record(request.teamId, request.targetDistinctId, refreshed, batchId, {
-                    readClass: 'update',
-                })
-                for (const distinctId of touched) {
-                    this.memo.record(request.teamId, distinctId, refreshed, batchId, { readClass: 'update' })
-                }
-                survivor = newerSurvivor(result.survivor, refreshed)
+            // The response document installs under newer-wins and serves
+            // the batch's later reads of the touched ids without a
+            // re-resolve; a replayed verdict's older document loses to
+            // whatever stands.
+            this.memo.record(request.teamId, request.targetDistinctId, result.survivor, batchId)
+            for (const distinctId of touched) {
+                this.memo.record(request.teamId, distinctId, result.survivor, batchId)
             }
         }
         return {
-            survivor,
+            survivor: result.survivor,
             results: result.results,
         }
     }
@@ -1139,7 +923,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        const read = this.memo.beginRead(person.team_id, _batchId, [`${person.team_id}:${_distinctId}`])
         const unsupported = Object.keys(otherUpdates).filter((key) => key !== 'is_identified' && key !== 'last_seen_at')
         if (unsupported.length > 0) {
             // The field names are the whole diagnostic value here: the error
@@ -1168,59 +951,22 @@ export class PersonhogPersonsStore implements PersonsStore {
             },
             CALLER_TAG
         )
-        const directKey = `${person.team_id}:${person.id}`
+        const personKey = `${person.team_id}:${person.id}`
         if (!updated) {
-            // A null document with the write applied is the same fact the
-            // lane path floors on: the leader moved past whatever we held,
-            // and a read served before this write must not refill the view
-            // with pre-write state. A null document without an applied
-            // write is a genuine no-op and leaves the baseline alone.
+            // A null document with the write applied means the leader moved
+            // past whatever we held; drop the baseline so the next reader
+            // re-reads. Without an applied write it is a genuine no-op.
             if (applied) {
-                // Unlike the lane path, nothing marks this write in flight,
-                // so a concurrent read can install a post-apply baseline
-                // before this runs and held + 1 would overshoot the leader
-                // by one. Unreachable today — the leader answers a document
-                // on every applied write — so this arm is cross-version
-                // defense, and an overshoot costs re-reads, never a loss.
-                const held = this.memo.viewOfPerson(directKey)?.version
-                if (typeof held === 'number') {
-                    this.memo.dropBaseline(directKey, held + 1)
-                } else if (typeof person.version === 'number') {
-                    // No memo view, but the caller's document is a sound
-                    // anchor: the leader held its version when it was read,
-                    // and this write moved past whatever the leader held.
-                    this.memo.dropBaseline(directKey, person.version + 1)
-                } else {
-                    this.memo.raiseFloorPastAppliedWrite(directKey)
-                }
+                this.memo.dropBaseline(personKey)
             }
             return [person, [], false]
         }
-        // Every write installs what the leader answered, or the baseline
-        // goes on naming the read it was built from. This path bypasses the
-        // lane, so any ops still buffered there replay on top.
-        //
-        // A merge that rewrote the memo meanwhile may have destroyed this
-        // person, and installing then would resurrect a baseline reconcile
-        // just deleted. Leaving the old one is no better, since it names a
-        // read this write has already superseded, so the batch gives up its
-        // view and the next read rebuilds it from the leader.
-        const personKey = directKey
-        if (!read.moved(`${person.team_id}:${_distinctId}`, personKey)) {
-            // The edge is recorded with the install so the baseline is
-            // referenced by this batch and released with it; an unreferenced
-            // baseline would outlive every batch, since eviction only runs
-            // when a reference or a lane lets go.
-            this.memo.recordResolution(_batchId, `${person.team_id}:${_distinctId}`, personKey)
-            this.memo.offerBaseline(personKey, updated, 'own-write')
-        } else {
-            // The answer's version floors the drop: a read served before
-            // this write applied and delivered after it would otherwise
-            // find the absence and refill it with pre-write state, and a
-            // later event whose $set matches that state would be filtered
-            // as no-change while the leader holds something newer.
-            this.memo.dropBaseline(personKey, updated.version)
-        }
+        // Every write installs what the leader answered under newer-wins.
+        // This path bypasses the lane, so any ops still buffered there
+        // replay on top. The edge is recorded with the install so the
+        // baseline is referenced by this batch and released with it.
+        this.memo.recordResolution(_batchId, `${person.team_id}:${_distinctId}`, personKey)
+        this.memo.offerBaseline(personKey, updated)
         // No ClickHouse message: the leader's changelog is this backend's
         // person feed, so emitting here would double-publish.
         return [updated, [], false]
@@ -1239,7 +985,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return false
             }
             seen.add(key)
-            return this.memo.lookup(entry.teamId, entry.distinctId, 'checking') === undefined
+            return this.memo.lookup(entry.teamId, entry.distinctId) === undefined
         })
         if (unresolved.length === 0) {
             return
@@ -1251,16 +997,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         for (const entry of unresolved) {
             this.prefetchingBatches.add(entry.batchId)
         }
-        // Captured per id before the resolve goes out: a merge speaking for
-        // one of them while this response is in flight makes that fill
-        // suspect, because the absence it would fill may be a resolution the
-        // merge released. The others are unaffected and still fill.
-        const reads = new Map(
-            unresolved.map((entry) => [
-                `${entry.teamId}:${entry.distinctId}`,
-                this.memo.beginRead(entry.teamId, entry.batchId, [`${entry.teamId}:${entry.distinctId}`]),
-            ])
-        )
         try {
             const resolved = await this.repository.resolvePersonsByDistinctIds(
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId })),
@@ -1271,32 +1007,25 @@ export class PersonhogPersonsStore implements PersonsStore {
                 resolved.map((entry, i) =>
                     limit(async () => {
                         const { batchId } = unresolved[i]
-                        const distinctKey = `${entry.teamId}:${entry.distinctId}`
-                        const read = reads.get(distinctKey)
-                        if (read === undefined || read.moved(distinctKey) || !this.prefetchingBatches.has(batchId)) {
+                        // Re-checked before recording: the batch can release
+                        // while the response is in flight, and recording for
+                        // a released batch recreates its key set so nothing
+                        // ever releases it again.
+                        if (!this.prefetchingBatches.has(batchId)) {
                             return
                         }
                         if (!entry.person) {
-                            this.memo.record(entry.teamId, entry.distinctId, null, batchId, { readClass: 'update' })
+                            this.memo.record(entry.teamId, entry.distinctId, null, batchId)
                             return
                         }
                         const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
-                        // Re-checked after this read as well as before it: the
-                        // batch can release while the read is in flight, and
-                        // recording for a released batch recreates its key set
-                        // so nothing ever releases it again.
-                        if (
-                            read.moved(distinctKey, `${entry.teamId}:${entry.person.id}`) ||
-                            !this.prefetchingBatches.has(batchId)
-                        ) {
+                        if (!this.prefetchingBatches.has(batchId)) {
                             return
                         }
                         // Fill-only: this response raced everything the batch
-                        // did since the request went out.
-                        this.memo.record(entry.teamId, entry.distinctId, person, batchId, {
-                            readClass: 'update',
-                            fillOnly: true,
-                        })
+                        // did since the request went out, so it may supply a
+                        // document but must not move a standing edge.
+                        this.memo.record(entry.teamId, entry.distinctId, person, batchId, { fillOnly: true })
                     })
                 )
             )
@@ -1649,21 +1378,12 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (personId === entry.personId) {
                 const personKey = `${entry.teamId}:${personId}`
                 if (answer !== null) {
-                    this.memo.offerBaseline(personKey, answer, 'own-write')
+                    this.memo.offerBaseline(personKey, answer)
                 } else {
                     // The call returned without throwing, so the write
-                    // applied and the leader moved past what we held; the
-                    // held version plus one floors the drop against a read
-                    // served before the write and delivered after it. With
-                    // no baseline to read a version from, the existing
-                    // floor still advances by one, since the applied write
-                    // moved the leader past whatever that floor recorded.
-                    const held = this.memo.viewOfPerson(personKey)?.version
-                    if (typeof held === 'number') {
-                        this.memo.dropBaseline(personKey, held + 1)
-                    } else {
-                        this.memo.raiseFloorPastAppliedWrite(personKey)
-                    }
+                    // applied and the leader moved past what we held; drop
+                    // the baseline so the next reader re-reads.
+                    this.memo.dropBaseline(personKey)
                 }
             }
         }
@@ -1682,11 +1402,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         // than dropping. A write landing under a live leader fence bounces
         // there and the batch redelivers behind the holder.
         let vanished = entry.personId
-        // The furthest leader version any of this redirect's writes reached,
-        // carried across attempts and throws: it becomes the floor under the
-        // survivor's dropped baseline, so a read issued before those writes
-        // cannot refill the absence with the state they replaced.
-        const surviving: { version?: number } = {}
         for (let attempt = 0; attempt < REDIRECT_MAX_ATTEMPTS; attempt++) {
             // The resolve sits inside the try because it is a network call
             // like the write: a transient identity failure has to put the
@@ -1727,14 +1442,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // id goes back to identity on its next event rather than
                     // folding onto the dead person and paying this again.
                     this.memo.releaseResolution(`${entry.teamId}:${entry.distinctId}`)
-                    // Stamped like every other removal: a read already on
-                    // the wire for this id or this person would otherwise
-                    // reinstall the dead answer after the release, and the
-                    // null-record guard would then refuse identity's
-                    // truthful absence for the rest of the batch.
-                    this.memo.bumpId(`${entry.teamId}:${entry.distinctId}`)
-                    personhogStoreDeathStampCounter.inc({ site: 'redirect_gone' })
-                    this.memo.markDestroyed(`${entry.teamId}:${entry.personId}`)
                     // Only the lane's own person needs dropping here. Every
                     // other person a chain of merges walked through was
                     // dropped as it was proved gone, which is also where
@@ -1765,7 +1472,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // ops travel as they stand, deletions included, because
                     // weakening them would diverge from Postgres and discard
                     // a deletion the customer asked for.
-                    await this.writeSegments(entry, survivorId, progress, surviving)
+                    await this.writeSegments(entry, survivorId, progress)
                 } finally {
                     settleRedirect()
                     registered.delete(redirecting)
@@ -1778,35 +1485,18 @@ export class PersonhogPersonsStore implements PersonsStore {
                 // person and paying this path again — the same repoint the
                 // Postgres cache performs on this exact signal.
                 this.memo.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
-                // Stamped like every other removal: without the bump, a read
-                // of this id already on the wire passes its moved check and
-                // reinstalls the dead edge over the repoint, and without the
-                // mark a read answering the dead person refills its
-                // baseline. Both heal through the redirect, but only after
-                // folding events onto the corpse again.
-                this.memo.bumpId(`${entry.teamId}:${entry.distinctId}`)
-                personhogStoreDeathStampCounter.inc({ site: 'redirect_written' })
-                this.memo.markDestroyed(`${entry.teamId}:${entry.personId}`)
+                this.memo.dropBaseline(`${entry.teamId}:${entry.personId}`)
                 // These ops just landed on the survivor, whose baseline
-                // answers for its own lane and cannot know about them, and
-                // the two lanes' unwritten ops have no defined order to
-                // rebuild from. So drop it and re-read, unless the
-                // survivor's own lane concurrently installed a document
-                // past these writes, which already contains them.
-                this.memo.dropBaselineBehindWrites(`${entry.teamId}:${survivorId}`, surviving.version)
+                // answers for its own lane and cannot know about them; drop
+                // it so the next reader re-reads past them.
+                this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
                 return 'written'
             } catch (error) {
                 if (error instanceof NoRowsUpdatedError) {
-                    // The write proved this survivor gone, which is a death
-                    // signal like any other: the mark drops its baseline and
-                    // refuses reinstalls, or a concurrently installed
-                    // document would keep serving the dead person. The
-                    // behind-writes drop still runs for its floor, which the
-                    // mark alone does not raise past the landed segments.
+                    // The write proved this survivor gone too; drop its
+                    // baseline so nothing serves the dead person.
                     if (survivorId !== undefined) {
-                        personhogStoreDeathStampCounter.inc({ site: 'redirect_vanished' })
-                        this.memo.markDestroyed(`${entry.teamId}:${survivorId}`)
-                        this.memo.dropBaselineBehindWrites(`${entry.teamId}:${survivorId}`, surviving.version)
+                        this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
                     }
                     // The person this pass resolved is gone too; the next pass
                     // must not settle for it again.
@@ -1831,7 +1521,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // belongs to another lane, so nothing else here will
                     // correct it.
                     if (survivorId !== undefined) {
-                        this.memo.dropBaselineBehindWrites(`${entry.teamId}:${survivorId}`, surviving.version)
+                        this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
                     }
                     // Logged here rather than at the caller, which has only
                     // the lane's own person, the one this redirect just
@@ -1902,16 +1592,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             authoritative.delete(survivorKey)
             inferred.delete(survivorKey)
         }
-        // Every merged source's id, bumped even when the memo has never
-        // seen it — a first-touch read has no edge for the loop further down
-        // to find. Attached and same-person ids are deliberately not here:
-        // their pre-merge reads answer null (an attach means the id was
-        // unresolved until this merge), and the null-record guard already
-        // refuses to downgrade the live mapping the caller writes, so a bump
-        // would only add declines for reads the guard covers.
-        for (const source of destroyed) {
-            this.memo.bumpId(source.distinctKey)
-        }
         if (authoritative.size === 0 && inferred.size === 0) {
             return
         }
@@ -1940,21 +1620,18 @@ export class PersonhogPersonsStore implements PersonsStore {
                 continue
             }
             if (authoritative.has(personKey)) {
-                if (survivorKey !== undefined && !this.memo.isDestroyed(survivorKey)) {
+                if (survivorKey !== undefined) {
                     // Every id of a destroyed person belongs to the survivor,
                     // including ones this request never named; leaving them
                     // unresolved would send a resuming fold back to the dead
-                    // person. Whether these edges serve the update class is
-                    // the survivor baseline's own provenance to answer.
+                    // person.
                     this.memo.recordResolution(batchId, key, survivorKey)
                 } else {
                     this.memo.releaseResolution(key)
                 }
-                this.memo.bumpId(key)
                 cleared++
             } else if (inferred.has(personKey)) {
                 this.memo.releaseResolution(key)
-                this.memo.bumpId(key)
                 cleared++
             }
         }
@@ -1963,11 +1640,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             // The person no longer exists, so its baseline goes whatever
             // still names it; the ids were just repointed or released.
             this.memo.deletePerson(personKey)
-            // Marked as well as deleted: a read still on the wire that
-            // answers this person has to be able to tell, and its id may
-            // never have been named by this merge.
-            personhogStoreDeathStampCounter.inc({ site: 'merge_verdict' })
-            this.memo.markDestroyed(personKey)
         }
         if (stranded > 0) {
             logger.info('merge destroyed a person still holding folded ops; the flush redirects them', {
@@ -2019,7 +1691,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             this.retireEntry(personKey)
         }
         this.memo.releaseBatch(batchId)
-        personhogStoreDestroyedMarksGauge.set(this.memo.destroyedCount())
     }
 
     /**
@@ -2055,7 +1726,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             this.retireEntry(personKey)
         }
         this.memo.releaseBatch(batchId)
-        personhogStoreDestroyedMarksGauge.set(this.memo.destroyedCount())
     }
 
     /**

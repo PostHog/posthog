@@ -838,9 +838,9 @@ describe('PersonhogPersonsStore', () => {
             expect(result.survivor).toBeNull()
         })
 
-        it('an aborted fold still floors the survivor at the version its response proved', async () => {
+        it('an aborted fold drops the survivor baseline it may have moved past', async () => {
             const bound = store.forBatch(0)
-            ;(store as any).memo.offerBaseline('1:7', { ...person, version: 3 }, 'leader-read')
+            ;(store as any).memo.offerBaseline('1:7', { ...person, version: 3 })
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, version: 9 },
                 results: [
@@ -852,31 +852,9 @@ describe('PersonhogPersonsStore', () => {
             await bound.mergePersons(mergeReq())
 
             // The saga's partial folds and the aborted-writes delivery moved
-            // the leader past the standing baseline despite the abort.
+            // the leader past the standing baseline despite the abort, so
+            // the next reader re-reads instead of serving it.
             expect((store as any).memo.hasBaseline('1:7')).toBe(false)
-            ;(store as any).memo.offerBaseline('1:7', { ...person, version: 8 }, 'leader-read')
-            expect((store as any).memo.hasBaseline('1:7')).toBe(false)
-        })
-
-        it('a refresh answered under a team invalidation installs nothing', async () => {
-            const bound = store.forBatch(0)
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor: { ...person, version: 5 },
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-            })
-            repository.fetchPersonById.mockImplementation((() => {
-                // A concurrent merge fails without a verdict while this read
-                // is on the wire; which persons died is unknowable, and
-                // every other read declines through the epoch it takes.
-                ;(store as any).memo.invalidateTeam(1)
-                return Promise.resolve({ ...person, version: 6 })
-            }) as never)
-
-            const result = await bound.mergePersons(mergeReq(['anon-1']))
-
-            // The caller still gets the read; the memo must not.
-            expect(result.survivor?.version).toBe(6)
-            expect((store as any).memo.lookup(1, 'd1', 'update')).toBeUndefined()
         })
 
         it('a refresh answered below the merge keeps the newer response survivor', async () => {
@@ -899,69 +877,7 @@ describe('PersonhogPersonsStore', () => {
             expect(result.survivor).toMatchObject({ version: 5, properties: { plan: 'folded' } })
         })
 
-        it('an update read below a standing floor re-reads instead of serving the stale document', async () => {
-            // The memo refuses the install either way; the defect this pins
-            // is the returned copy, which the fold would otherwise classify
-            // ops against and suppress a genuine change as no-change.
-            const bound = store.forBatch(0)
-            ;(store as any).memo.dropBaseline('1:7', 5)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById
-                .mockResolvedValueOnce({ ...person, version: 3, properties: { plan: 'stale' } } as never)
-                .mockResolvedValue({ ...person, version: 5, properties: { plan: 'current' } } as never)
-
-            const seen = await bound.fetchForUpdate(1, 'd1')
-
-            expect(seen).toMatchObject({ version: 5, properties: { plan: 'current' } })
-        })
-
-        it('an update read that keeps arriving below the floor fails the batch', async () => {
-            const bound = store.forBatch(0)
-            ;(store as any).memo.dropBaseline('1:7', 5)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, version: 3 } as never)
-
-            await expect(bound.fetchForUpdate(1, 'd1')).rejects.toThrow('below the version floor')
-        })
-
-        it('a successful redirect stamps the id and the dead person like every removal', async () => {
-            // Without the bump, a read of this id already on the wire passes
-            // its moved check and reinstalls the dead edge the repoint just
-            // healed; without the mark, a read answering the dead person
-            // refills its baseline.
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-            repository.updatePersonProperties.mockImplementationOnce((() =>
-                Promise.reject(new NoRowsUpdatedError('merged away'))) as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
-            ] as never)
-
-            await bound.flush()
-
-            const memo = (store as any).memo
-            expect(memo.resolutionOf('1:d1')).toBe('1:9')
-            expect(memo.versionOf('1:d1')).toBeGreaterThan(0)
-            expect(memo.isDestroyed('1:7')).toBe(true)
-        })
-
-        it('an anchorless direct diff with an applied null answer floors at the caller document', async () => {
-            // No memo view stands, but the caller's document is a sound
-            // anchor: the leader held its version at the read, and the
-            // applied write moved past it.
-            const bound = store.forBatch(0)
-            repository.updatePersonProperties.mockResolvedValueOnce({ person: null, updated: true } as never)
-
-            await bound.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'd1')
-
-            const memo = (store as any).memo
-            memo.offerBaseline('1:7', { ...person, version: 1 }, 'leader-read')
-            expect(memo.hasBaseline('1:7')).toBe(false)
-            memo.offerBaseline('1:7', { ...person, version: 2 }, 'leader-read')
-            expect(memo.hasBaseline('1:7')).toBe(true)
-        })
-
-        it('a direct diff answered with no document but an applied write floors the view', async () => {
+        it('a direct diff answered with no document but an applied write drops the baseline', async () => {
             const bound = store.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
             repository.fetchPersonById.mockResolvedValue({ ...person } as never)
@@ -971,9 +887,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'd1')
 
             // The write applied, so the pre-write baseline must not go on
-            // serving, and a read carrying it back must be refused.
-            expect((store as any).memo.hasBaseline('1:7')).toBe(false)
-            ;(store as any).memo.offerBaseline('1:7', { ...person, version: 1 }, 'leader-read')
+            // serving; the next reader re-reads.
             expect((store as any).memo.hasBaseline('1:7')).toBe(false)
         })
     })
@@ -1044,35 +958,6 @@ describe('PersonhogPersonsStore', () => {
             allowIdentifiedSources: false,
             mergeMode: createDefaultSyncMergeMode(),
             createdAtMs: 3_600_000,
-        })
-
-        it('a drained lane stops serving the update class', async () => {
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { a: 1 } }), 'd1')
-            // The write answers without a document, so the drain leaves no
-            // leader-backed state behind.
-            repository.updatePersonProperties.mockResolvedValue({ person: null } as never)
-            await bound.flush()
-            // The entry outlives its segments while the batch still holds it.
-            expect((store as any).entries.get('1:7').segments).toHaveLength(0)
-
-            // A checking read refills the baseline from identity, which lags.
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'd1', person: { ...person, version: 2, properties: { plan: 'lagged' } } },
-            ] as never)
-            await bound.fetchForChecking(1, 'd1')
-
-            // With the lane drained, nothing entitles that identity document
-            // to serve the update class, so the read has to reach the leader.
-            const fresher = { ...person, version: 9, properties: { plan: 'enterprise' } }
-            repository.fetchPersonById.mockResolvedValue(fresher as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: fresher },
-            ] as never)
-
-            const seen = await bound.fetchForUpdate(1, 'd1')
-            expect(seen?.version).toBe(9)
-            expect(repository.fetchPersonById).toHaveBeenCalled()
         })
 
         it("a create that finds an existing person serves the leader's document, not identity's", async () => {
@@ -1273,115 +1158,12 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.baselineCount).toBe(0)
         })
 
-        it('does not install a created person a merge destroyed mid-call', async () => {
-            const bound = store.forBatch(0)
-            repository.getOrCreatePersonByDistinctId = jest.fn().mockImplementation((() => {
-                // The merge names a different id entirely, so only the
-                // person it destroyed connects it to this call.
-                ;(store as any).reconcileMergedPersons(1, [{ personKey: '1:7', distinctKey: '1:elsewhere' }], '1:11', 0)
-                return Promise.resolve({ success: true, person, created: true })
-            }) as never)
-
-            await bound.createPerson(DateTime.now(), {}, {}, {}, 1, null, false, 'advisory-uuid', { distinctId: 'd1' })
-
-            // Installing it would put a destroyed person back as the batch's
-            // baseline, and no id in this call was named by the merge.
-            expect((store as any).memo.hasBaseline('1:7')).toBe(false)
-        })
-
         const memoOf = (): any => (store as any).memo
 
-        it('a merge verdict replayed after its survivor died cannot resurrect it', () => {
-            const memo = (store as any).memo
-            // Merge B destroyed person 9 — the survivor merge A's stale,
-            // retried verdict still names.
-            ;(store as any).reconcileMergedPersons(1, [{ personKey: '1:9', distinctKey: '1:b-src' }], '1:11', 0)
-
-            // Merge A's replay lands afterwards, offering the destroyed
-            // person through both install doors the memo has.
-            memo.record(1, 'd1', { ...person, id: '9' }, 0, { readClass: 'update' })
-            memo.offerBaseline('1:9', { ...person, id: '9' }, 'own-write')
-
-            // Installing either would make a destroyed person the batch's
-            // live, leader-backed answer for every later event on d1.
-            expect(memo.resolutionOf('1:d1')).not.toBe('1:9')
-            expect(memo.hasBaseline('1:9')).toBe(false)
-        })
-
-        it('a caller-held destroyed person cannot re-enter through fold seeding', async () => {
-            const bound = store.forBatch(0)
-            ;(store as any).reconcileMergedPersons(1, [{ personKey: '1:7', distinctKey: '1:elsewhere' }], '1:11', 0)
-
-            // The caller still holds person 7 from before the merge and folds
-            // onto a sibling id the memo has never seen, so personNow falls
-            // back to the caller's copy and the fold seeds a baseline for it.
-            await bound.applyEventOps(person, ops({ $set: { late: 'op' } }), 'd-sibling')
-
-            // The ops themselves stay in the lane and the redirect will carry
-            // them; what must not happen is the destroyed person becoming the
-            // batch's readable baseline again.
-            expect(memoOf().hasBaseline('1:7')).toBe(false)
-        })
-
-        it('a moved diff update floors its drop at the version the leader answered', async () => {
-            const bound = store.forBatch(0)
-            // A merge speaks for d1 while the write is on the wire, so the
-            // answer cannot be installed and the baseline is dropped.
-            repository.updatePersonProperties.mockImplementation((() => {
-                memoOf().bumpId('1:d1')
-                return Promise.resolve({ person: { ...person, version: 5 }, updated: true })
-            }) as never)
-            await bound.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'd1')
-            expect(memoOf().hasBaseline('1:7')).toBe(false)
-
-            // A strong read served before the write applied delivers late;
-            // filling the absence with it would let a later matching $set
-            // classify as no-change against state the leader has moved past.
-            memoOf().recordResolution(0, '1:d1', '1:7')
-            memoOf().record(1, 'd1', { ...person, version: 4 }, 0, { readClass: 'update' })
-            expect(memoOf().hasBaseline('1:7')).toBe(false)
-
-            memoOf().record(1, 'd1', { ...person, version: 5 }, 0, { readClass: 'update' })
-            expect(memoOf().viewOfPerson('1:7')?.version).toBe(5)
-        })
-
-        it('a stale read cannot refill the baseline a redirect dropped', async () => {
-            const bound = store.forBatch(0)
-            const survivor = { ...person, id: '9', version: 3 }
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd2', person: survivor },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue(survivor as never)
-            await bound.fetchForUpdate(1, 'd2')
-
-            await bound.applyEventOps(person, ops({ $set: { late: 'op' } }), 'd1')
-            repository.updatePersonProperties.mockImplementationOnce((() =>
-                Promise.reject(new NoRowsUpdatedError('merged away'))) as never)
-            repository.updatePersonProperties.mockResolvedValue({
-                person: { ...survivor, version: 9 },
-                updated: true,
-            } as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: survivor },
-            ] as never)
-            await bound.flush()
-
-            // The redirect's write reached version 9 and dropped the
-            // survivor's baseline. This read predates it; filling the absence
-            // would revive the state those writes replaced, and a later event
-            // diffing against it would be filtered into a lost write.
-            memoOf().record(1, 'd2', { ...survivor, version: 3 }, 0, { readClass: 'update' })
-            expect(memoOf().hasBaseline('1:9')).toBe(false)
-
-            memoOf().record(1, 'd2', { ...survivor, version: 9 }, 0, { readClass: 'update' })
-            expect(memoOf().viewOfPerson('1:9')?.version).toBe(9)
-        })
-
-        it('a create that finds a person the leader has lost memoizes nothing and stamps the death', async () => {
-            // The leader answers null only for a destroyed person, and a
-            // merge on another pod leaves no local stamp to catch it — this
-            // read is the one death signal this pod gets, so it stamps like
-            // the redirect's gone arm.
+        it('a create that finds a person the leader has lost memoizes nothing', async () => {
+            // The leader answers null only for a destroyed person; the
+            // caller keeps identity's answer, and memoizing it would serve
+            // the dead person for the rest of the batch.
             repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
             repository.fetchPersonById.mockResolvedValue(null as never)
             const bound = store.forBatch(0)
@@ -1402,77 +1184,6 @@ describe('PersonhogPersonsStore', () => {
             expect(result.success && result.person?.id).toBe('7')
             expect(memoOf().resolutionOf('1:d1')).toBeUndefined()
             expect(memoOf().hasBaseline('1:7')).toBe(false)
-            expect(memoOf().isDestroyed('1:7')).toBe(true)
-            expect(memoOf().versionOf('1:d1')).toBeGreaterThan(0)
-        })
-
-        it('a filtered-only lane folded against a destroyed person writes instead of vanishing', async () => {
-            // Ops diffing clean against the dead document prove nothing
-            // about the survivor, so the lane must write and let the
-            // tombstone redirect carry them there.
-            person.properties = { $browser: 'Firefox' }
-            repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
-            repository.fetchPersonById.mockResolvedValue(null as never)
-            const bound = store.forBatch(0)
-            await bound.createPerson(
-                DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
-                {},
-                1,
-                null,
-                false,
-                'advisory-uuid',
-                { distinctId: 'd1' },
-                undefined
-            )
-
-            await bound.applyEventOps(person, ops({ $set: { $browser: 'Chrome' } }, 'pageview'), 'd1')
-
-            repository.updatePersonProperties.mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9', properties: {} } },
-            ] as never)
-
-            await bound.flush()
-
-            const calls = repository.updatePersonProperties.mock.calls as unknown as [{ personId: string }][]
-            expect(calls.length).toBeGreaterThan(1)
-            expect(calls[calls.length - 1][0]).toMatchObject({ personId: '9' })
-        })
-
-        it('a redirect that ends gone stamps the id and the person like every removal', async () => {
-            // Without the stamps, a read already on the wire reinstalls the
-            // dead answer after the release, and the null-record guard then
-            // refuses identity's truthful absence for the rest of the batch.
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-            repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('merged away') as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([] as never)
-
-            await bound.flush()
-
-            expect(memoOf().isDestroyed('1:7')).toBe(true)
-            expect(memoOf().versionOf('1:d1')).toBeGreaterThan(0)
-        })
-
-        it('an evicted baseline floors the absence it leaves behind', async () => {
-            // Eviction is a drop whose dropper held a version the leader
-            // has reached; a read served before it and delivered after must
-            // not refill the absence with older state.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, version: 6 } as never)
-            const bound = store.forBatch(0)
-            await bound.fetchForUpdate(1, 'd1')
-
-            store.releaseBatch(0)
-            expect(memoOf().hasBaseline('1:7')).toBe(false)
-
-            memoOf().offerBaseline('1:7', { ...person, version: 4 }, 'leader-read')
-            expect(memoOf().hasBaseline('1:7')).toBe(false)
-
-            memoOf().offerBaseline('1:7', { ...person, version: 6 }, 'leader-read')
-            expect(memoOf().viewOfPerson('1:7')?.version).toBe(6)
         })
 
         it('a direct diff update releases its baseline with the batch', async () => {
@@ -1486,20 +1197,6 @@ describe('PersonhogPersonsStore', () => {
             store.releaseBatch(0)
 
             expect(memoOf().baselineCount).toBe(0)
-        })
-
-        it('reconcile releases an id whose survivor a later merge destroyed', () => {
-            const memo = (store as any).memo
-            memo.recordResolution(0, '1:d9', '1:9')
-            // Merge B destroyed 7 — the survivor merge A is about to name.
-            ;(store as any).reconcileMergedPersons(1, [{ personKey: '1:7', distinctKey: '1:b-src' }], '1:11', 0)
-
-            // Merge A's reconcile: source 9 destroyed, survivor 7 — but 7 is
-            // itself dead, so repointing d9 at it would aim every later event
-            // on d9 at a person that no longer exists.
-            ;(store as any).reconcileMergedPersons(1, [{ personKey: '1:9', distinctKey: '1:d9' }], '1:7', 0)
-
-            expect(memo.resolutionOf('1:d9')).toBeUndefined()
         })
 
         it('a merge on an unrelated id does not discard this read', async () => {
@@ -1525,25 +1222,22 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.resolutionOf('1:d1')).toBe('1:7')
         })
 
-        it('fails rather than folding onto a person the memo says the id left', async () => {
+        it('folds onto the person the memo names, not the caller’s stale copy', async () => {
             const bound = store.forBatch(0)
             const other = { ...person, id: '9' }
             // d1 belongs to 9 and its document was dropped, so the fold has
-            // to read. Every read is overtaken by a merge, so none records.
+            // to read rather than trust the caller's copy of person 7.
             ;(store as any).memo.recordResolution(0, '1:d1', '1:9')
             repository.resolvePersonsByDistinctIds.mockResolvedValue([
                 { teamId: 1, distinctId: 'd1', person: other },
             ] as never)
-            repository.fetchPersonById.mockImplementation((() => {
-                ;(store as any).memo.bumpId('1:d1')
-                return Promise.resolve(other)
-            }) as never)
+            repository.fetchPersonById.mockResolvedValue(other as never)
+
+            const [projected] = await bound.applyEventOps(person, ops({ $set: { late: 'op' } }), 'd1')
 
             // Folding onto person 7 would repoint d1 off 9 and onto a person
             // a merge left behind, and later events would compose on top.
-            await expect(bound.applyEventOps(person, ops({ $set: { late: 'op' } }), 'd1')).rejects.toThrow(
-                'belongs to another person'
-            )
+            expect(projected.id).toBe('9')
             expect((store as any).memo.resolutionOf('1:d1')).toBe('1:9')
         })
 
@@ -1626,40 +1320,6 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.viewOfPerson('1:7').properties).toEqual({ j: 'B' })
         })
 
-        it('a read landing mid-write does not replay the op already on the wire', async () => {
-            const bound = store.forBatch(0)
-            const held = { ...person, properties: { k: 'x' } }
-            // One event both writing and unsetting the key resolves to gone,
-            // because the key was there before the op. Replaying it over a
-            // document that already took it reads the other way.
-            await bound.applyEventOps(held, ops({ $set: { k: 'v' }, $unset: ['k'] }), 'd1')
-            let releaseWrite: () => void = () => {}
-            repository.updatePersonProperties.mockImplementation((() => {
-                return new Promise((resolve) => {
-                    releaseWrite = () => resolve({ person: { ...held, version: 3, properties: {} }, updated: true })
-                })
-            }) as never)
-            const flushing = bound.flush()
-            await new Promise((resolve) => setImmediate(resolve))
-
-            // The leader has applied it; a sibling read sees the result.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd2', person: held },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...held, version: 3, properties: {} } as never)
-            await bound.fetchForUpdate(1, 'd2')
-
-            // Asserted while the write is still on the wire, which is the
-            // whole window: counting the sent op again would put back the key
-            // the leader has just removed, and an event arriving here would
-            // diff against it.
-            expect((store as any).memo.viewOfPerson('1:7').properties).toEqual({})
-
-            releaseWrite()
-            await flushing
-            expect((store as any).memo.viewOfPerson('1:7').properties).toEqual({})
-        })
-
         it('a refused write leaves nothing asserted that the leader never took', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
@@ -1734,35 +1394,6 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.hasBaseline('1:9')).toBe(false)
         })
 
-        it('a redirect keeps a survivor baseline that already contains its writes', async () => {
-            const bound = store.forBatch(0)
-            // The survivor's own lane wrote concurrently and installed the
-            // document its write produced, past anything this redirect lands.
-            ;(store as any).memo.offerBaseline(
-                '1:9',
-                { ...person, id: '9', version: 10, properties: { own: 'newer' } },
-                'own-write'
-            )
-
-            await bound.applyEventOps(person, ops({ $set: { late: 'op' } }), 'd1')
-            repository.updatePersonProperties.mockImplementationOnce((() =>
-                Promise.reject(new NoRowsUpdatedError('merged away'))) as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
-            ] as never)
-
-            await bound.flush()
-
-            // The redirect's writes answered version 2, and a document at
-            // version 10 already contains them. Dropping it would discard
-            // the newer state and floor at 2, letting a read served between
-            // the two writes reinstall a document missing the later one.
-            expect((store as any).memo.viewOfPerson('1:9')).toMatchObject({
-                version: 10,
-                properties: { own: 'newer' },
-            })
-        })
-
         it('a discarded projection is rebuilt from the leader plus what the lane has not sent', async () => {
             const bound = store.forBatch(0)
             // The lane holds k='A' unsent while the leader still answers the
@@ -1788,40 +1419,6 @@ describe('PersonhogPersonsStore', () => {
             })
         })
 
-        it('a merge landing inside the fold read does not fold onto the person it destroyed', async () => {
-            const bound = store.forBatch(0)
-            const doomed = { ...person, id: '9' }
-            const survivor = { ...person, id: '11' }
-            // d1 names 9, whose document a redirect discarded, so the fold
-            // has to read. The caller still holds the person it resolved
-            // before any of this.
-            ;(store as any).memo.recordResolution(0, '1:d1', '1:9')
-            let releaseFetch = (): void => {}
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: doomed },
-            ] as never)
-            repository.fetchPersonById.mockReturnValue(
-                new Promise((resolve) => {
-                    releaseFetch = () => resolve(doomed)
-                }) as never
-            )
-
-            const folding = bound.applyEventOps(person, ops({ $set: { late: 'op' } }), 'd1')
-            await new Promise((resolve) => setImmediate(resolve))
-            // A merge completes while that read is in flight: 9 is gone and
-            // d1 belongs to 11.
-            ;(store as any).memo.bumpId('1:d1')
-            ;(store as any).memo.repointResolution('1:d1', '1:11')
-            ;(store as any).memo.offerBaseline('1:11', survivor, 'own-write')
-            releaseFetch()
-            const [landed] = await folding
-
-            // Answering with the read would name the destroyed person as the
-            // id's owner and repoint d1 off the survivor back onto it.
-            expect(landed.id).toBe('11')
-            expect((store as any).memo.resolutionOf('1:d1')).toBe('1:11')
-        })
-
         it('a size rejection mid-redirect still heals the id it resolved', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
@@ -1840,49 +1437,6 @@ describe('PersonhogPersonsStore', () => {
             // Left pointing at the dead person, every later event in the
             // batch would fold onto it and pay the redirect again.
             expect((store as any).memo.resolutionOf('1:d1')).toBe('1:9')
-        })
-
-        it('a fetch parked across a destroying merge folds onto the survivor, not what it read', async () => {
-            const bound = store.forBatch(0)
-            const survivor = { ...person, id: '7', uuid: 'target-uuid', properties: { plan: 'survivor' } }
-            const doomed = { ...person, id: '9', uuid: 'source-uuid', properties: { plan: 'source' } }
-            let releaseFetch = (): void => {}
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: doomed },
-            ] as never)
-            repository.fetchPersonById
-                .mockReturnValueOnce(
-                    new Promise((resolve) => {
-                        releaseFetch = () => resolve(doomed)
-                    }) as never
-                )
-                // The merge's survivor refresh reads the leader afterwards.
-                .mockResolvedValue(survivor as never)
-            const fetching = bound.fetchForUpdate(1, 'anon-1')
-
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor,
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-            } as never)
-            await bound.mergePersons({
-                teamId: 1,
-                targetDistinctId: 'd1',
-                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                eventOps: ops({}, '$identify'),
-                eventUuid: 'event-uuid',
-                allowIdentifiedSources: false,
-                mergeMode: createDefaultSyncMergeMode(),
-                createdAtMs: 3_600_000,
-            })
-
-            // The read completed before the merge, so it answers the person
-            // the merge destroyed. Nothing may be written against it.
-            releaseFetch()
-            const fetched = await fetching
-            expect(fetched?.id).toBe('9')
-
-            const [landed] = await bound.applyEventOps(fetched!, ops({ $set: { late: 'op' } }), 'anon-1')
-            expect(landed.id).toBe('7')
         })
 
         it('an id whose person was merged twice folds onto the last survivor', async () => {
@@ -1946,50 +1500,6 @@ describe('PersonhogPersonsStore', () => {
             // person from the middle.
             const [landed] = await bound.applyEventOps(first, ops({ $set: { late: 'op' } }), 'anon-1')
             expect(landed.id).toBe('11')
-        })
-
-        it('an attach-only merge still invalidates a fetch that resolved before it', async () => {
-            const bound = store.forBatch(0)
-            // The response survivor is the sync plane's own resolve; the
-            // leader has moved past it, which the refresh discovers.
-            const responseSurvivor = { ...person, properties: { plan: 'folded' }, version: 5 }
-            const leaderNow = { ...person, properties: { plan: 'refreshed' }, version: 6 }
-            // The fetch resolves the id, then parks on its by-id read. The
-            // merge runs while it is parked and destroys nothing, which is
-            // every $identify that attaches an unseen id.
-            let releaseFetch = (): void => {}
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById
-                .mockReturnValueOnce(
-                    new Promise((resolve) => {
-                        releaseFetch = () => resolve(person)
-                    }) as never
-                )
-                .mockResolvedValue(leaderNow as never)
-            const fetching = bound.fetchForUpdate(1, 'd1')
-
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor: responseSurvivor,
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'attached', sourcePersonId: null }],
-            } as never)
-            const result = await bound.mergePersons(mergeReq())
-
-            // The response document never installs; the refresh's leader
-            // read is what the batch classifies against, and it is what the
-            // caller gets back to fold this event with.
-            expect(result.survivor).toMatchObject({ properties: { plan: 'refreshed' }, version: 6 })
-            const memo = (store as any).memo
-            expect(memo.snapshot(memo.lookup(1, 'd1', 'update'))).toMatchObject({
-                properties: { plan: 'refreshed' },
-                version: 6,
-            })
-
-            // The read predates the merge, and its document predates the
-            // version the merge's resolve proved the leader passed, so the
-            // floor and the version guard refuse it.
-            releaseFetch()
-            await fetching
-            expect(memo.snapshot(memo.lookup(1, 'd1', 'update'))).toMatchObject({ version: 6 })
         })
 
         it('a fence releasing mid-round cannot make the flush ack over a deferred lane', async () => {
@@ -2139,9 +1649,8 @@ describe('PersonhogPersonsStore', () => {
             expect(result.foldAborted).toBe(reason)
             expect(result.survivor).toBeNull()
             // The abort does not unwind what the saga durably did: anon-1's
-            // person really merged, so the memo must already reflect it, or
+            // person really merged, so its id already reads the survivor, or
             // later events fold onto the destroyed person.
-            expect((store as any).memo.isDestroyed('1:9')).toBe(true)
             expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
         })
 
@@ -2506,25 +2015,6 @@ describe('PersonhogPersonsStore', () => {
             expect(result.success && result.person.properties).toEqual({ plan: 'leader' })
         })
 
-        it('an awaited fetch crossing a merge installs nothing', async () => {
-            const bound = store.forBatch(0)
-            repository.resolvePersonsByDistinctIds.mockImplementation(() => {
-                // A merge reconciles while this resolve is in flight,
-                // repointing the memo; the stale answer names the dead person.
-                ;(store as any).reconcileMergedPersons(
-                    1,
-                    [{ rank: 0, personKey: '1:9', distinctKey: '1:anon-1' }],
-                    '1:7',
-                    0
-                )
-                return Promise.resolve([{ teamId: 1, distinctId: 'd2', person: { ...person, id: '9' } }]) as never
-            })
-
-            await bound.fetchForChecking(1, 'd2')
-
-            expect((store as any).memo.resolutionOf('1:d2')).not.toBe('1:9')
-        })
-
         it('a deterministic INVALID_ARGUMENT is not wrapped as a call failure', async () => {
             const bound = store.forBatch(0)
             const rejection = new ConnectError('invalid', Code.InvalidArgument)
@@ -2613,44 +2103,6 @@ describe('PersonhogPersonsStore', () => {
             createdAtMs: 3_600_000,
         })
 
-        it('a prefetch response crossing a merge fills nothing', async () => {
-            const boundPrefetch = store.forBatch(0)
-            const bound = store.forBatch(1)
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, id: '9' } as never)
-            await bound.fetchForUpdate(1, 'anon-1')
-
-            // The prefetch resolves anon-2 to the doomed person, and a merge
-            // destroys it while the leader read is in flight. The late fill
-            // must not reinstall the dead person under anon-2.
-            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
-                Promise.resolve(
-                    keys
-                        .filter((key) => key.distinctId === 'anon-2')
-                        .map((key) => ({ teamId: 1, distinctId: key.distinctId, person: { ...person, id: '9' } }))
-                )) as never)
-            // Only the prefetch's own read runs the merge; the merge's
-            // survivor refresh calls this mock too and must not recurse.
-            let mergeRan = false
-            repository.fetchPersonById.mockImplementation((async (_teamId: number, personId: string) => {
-                if (!mergeRan) {
-                    mergeRan = true
-                    repository.mergePersons = jest.fn().mockResolvedValue({
-                        survivor: person,
-                        results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-                    })
-                    await bound.mergePersons(mergeReq())
-                }
-                return { ...person, id: personId }
-            }) as never)
-            await store.prefetchPersons([{ teamId: 1, distinctId: 'anon-2', batchId: 0 }])
-
-            expect((store as any).memo.resolutionOf('1:anon-2')).not.toBe('1:9')
-            void boundPrefetch
-        })
-
         it('a merge call failure fails the batch instead of acking', async () => {
             const bound = store.forBatch(0)
             repository.mergePersons = jest.fn().mockRejectedValue(new Error('transport closed') as never)
@@ -2660,26 +2112,6 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('round-3 regressions', () => {
-        it('a sibling id\u2019s checking read cannot degrade the update baseline', async () => {
-            const bound = store.forBatch(0)
-            // d1 read through the leader; the leader knows key k.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, properties: { k: 'leader' } } as never)
-            await bound.fetchForUpdate(1, 'd1')
-
-            // Identity lags the leader and does not know k yet. State is
-            // shared per person, so replacing here would give d1's next update
-            // read a baseline without k, and an $unset k would classify
-            // no-change and be suppressed.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd2', person: { ...person, properties: {} } },
-            ] as never)
-            await bound.fetchForChecking(1, 'd2')
-
-            const seen = await bound.fetchForUpdate(1, 'd1')
-            expect(seen?.properties).toEqual({ k: 'leader' })
-        })
-
         it('a caller mutating a fetched absent-person fallback cannot corrupt the memo', async () => {
             const bound = store.forBatch(0)
             // The absent-person fallback was the one fetch branch that
@@ -2837,45 +2269,6 @@ describe('PersonhogPersonsStore', () => {
 
             const seen = await bound1.fetchForUpdate(1, 'd1')
             expect(seen?.properties).toEqual(expect.objectContaining({ flag: 'on' }))
-        })
-
-        it('the update read class does not serve an identity-backed baseline', async () => {
-            const bound = store.forBatch(0)
-            // Identity's embedded person lags the leader: the checking read
-            // memoizes the lagged shape.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: { ...person, properties: { plan: 'lagged' } } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, properties: { plan: 'leader' } } as never)
-            await bound.fetchForChecking(1, 'd1')
-
-            const seen = await bound.fetchForUpdate(1, 'd1')
-
-            // The update baseline must come from the leader, so the checking
-            // hit is a miss for this class and the leader read runs.
-            expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
-            expect(seen?.properties).toEqual({ plan: 'leader' })
-        })
-
-        it('a leader read vouches for the person under every id that names it', async () => {
-            const bound = store.forBatch(0)
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'd1', person },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, properties: { plan: 'leader' } } as never)
-            await bound.fetchForUpdate(1, 'd1')
-
-            // A sibling id resolves through identity to the same person.
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'd2', person },
-            ] as never)
-            await bound.fetchForChecking(1, 'd2')
-
-            // Provenance describes the state, and the state is shared: d2's
-            // update read is entitled to the leader document d1 paid for.
-            const seen = await bound.fetchForUpdate(1, 'd2')
-            expect(seen?.properties).toEqual({ plan: 'leader' })
-            expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
         })
 
         it('a mid-redirect fold survives even when the direct write landed segments first', async () => {
