@@ -37,7 +37,7 @@ from products.replay_vision.backend.alert_destinations import (
     VISION_ALERT_EVENT_IDS,
     VISION_ALERT_SLACK_CONTEXT_ELEMENTS,
 )
-from products.replay_vision.backend.api.vision_actions_shim import _parse_rrule, compose_scout_body, rrule_to_cron
+from products.replay_vision.backend.api.vision_actions_shim import _parse_rrule, rrule_to_cron
 from products.replay_vision.backend.models.vision_action import ActionMode, AlertFrequency, VisionAction
 from products.replay_vision.backend.models.vision_alert import (
     ALERT_WINDOW_DAYS,
@@ -46,6 +46,7 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertKind,
     VisionAlertMetric,
 )
+from products.replay_vision.backend.scout_digest_body import compose_digest_scout_body
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 
 logger = structlog.get_logger(__name__)
@@ -362,8 +363,11 @@ class Command(BaseCommand):
         payload: dict[str, Any] = {
             "name": _scout_slug(action),
             "description": f'Migrated Replay Vision digest "{action.name}" for scanner "{action.scanner.name}".',
-            "body": compose_scout_body(
-                action.name, action.scanner.name, action.selection or {}, action.synthesis_config or {}
+            "body": compose_digest_scout_body(
+                str(action.scanner_id),
+                selection=action.selection,
+                prompt_guide=(action.synthesis_config or {}).get("prompt_guide"),
+                max_observations=action.max_observations,
             ),
             "config": {
                 "enabled": action.enabled,

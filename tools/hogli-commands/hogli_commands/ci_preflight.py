@@ -46,6 +46,7 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.complexity_lint import PYTHON_SCOPE, TYPESCRIPT_SCOPE
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
@@ -68,7 +69,21 @@ class DiffCheck:
     # so nested workspaces like products/desktop validate their own lockfile instead
     # of the root one. Capability (node_modules present) is checked per workspace.
     workspace_scoped: bool = False
+    # A zero exit with output is a warning worth showing, not a clean pass —
+    # for advisory checks whose findings print on stdout with exit 0. Warnings
+    # never block and never count toward the advisory footer.
+    soft: bool = False
     matched: list[str] = field(default_factory=list)
+
+    @property
+    def measures(self) -> bool:
+        """Whether this check runs something, or only advises.
+
+        A check that runs nothing has found nothing, so it must not be reported
+        as a finding whatever shape it takes: a nudge (``advice``) and a
+        guidance-only check (``verify is None``) are both unmeasured.
+        """
+        return self.advice is None and self.verify is not None
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
@@ -111,6 +126,15 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["ruff", "check"],
         fix=["ruff", "check", "--fix"],
         takes_files=True,
+    ),
+    DiffCheck(
+        key="complexity",
+        label="cyclomatic complexity (warn >10)",
+        # From complexity_lint.py so preflight and the command can't drift on scope.
+        triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
+        verify=["hogli", "lint:complexity"],
+        takes_files=True,
+        soft=True,
     ),
     DiffCheck(
         key="ruff-format",
@@ -205,10 +229,14 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="openapi",
-        label="OpenAPI types out of date (frontend/MCP drift)",
+        # Measuring real drift means regenerating and diffing, which needs the dev stack.
+        # This check only knows that the diff touches files the generated types are built
+        # from, so the label names that trigger instead of asserting the types are stale.
+        # A branch keeps those source edits in its diff after a regen, so a label that
+        # claims staleness can never be cleared by running the fix.
+        label="OpenAPI sources changed (generated types may need a regen)",
         # From build.py so preflight and build:openapi can't drift on which diffs need a regen.
         triggers=list(BUILD_TRIGGERS["build:openapi"]),
-        # Drift detection regenerates then diffs — needs the DB. Guidance-only here.
         verify=None,
         fix=["hogli", "build:openapi"],
         requires=("stack",),
@@ -285,7 +313,7 @@ def _unmet(chk: DiffCheck) -> list[Requirement]:
     return [req for req in chk.requires if not _capability_met(req)]
 
 
-Status = Literal["pass", "fail", "advisory", "skipped"]
+Status = Literal["pass", "fail", "warning", "advisory", "skipped"]
 
 # Generous: pnpm installs and migrations:check are legitimately slow, but a wedged
 # command must not hang the agent loop forever (output is captured, not streamed).
@@ -361,7 +389,10 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         # Guidance-only (no runnable local check, or its fix needs an absent capability):
         # advise regardless, so the hint still shows on a bare checkout — even with --fix.
         # Ownership framing lives once in the advisory footer, not per check.
-        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit before pushing"
+        # Phrased as a condition the reader can check, because nothing here measured
+        # whether the fix is needed: an unconditional "run this and commit" reads as a
+        # finding, and sends anyone who already ran it looking for a diff that isn't there.
+        return "advisory", f"if you have not run `{' '.join(chk.fix or [])}` since changing them, run it and commit"
     elif unmet:
         return "skipped", f"needs {', '.join(unmet)}"
     else:
@@ -379,6 +410,9 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     except subprocess.TimeoutExpired:
         return "fail", f"`{cmd[0]}` timed out after {_CHECK_TIMEOUT_SECONDS}s"
     if result.returncode == 0:
+        if chk.soft and result.stdout.strip():
+            warn_lines = result.stdout.strip().splitlines()
+            return "warning", " · ".join(warn_lines[:3])
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
@@ -553,8 +587,14 @@ def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
     return "pass", f"{behind} commits behind master{synced} — no conflict or drift risk detected", props
 
 
-_ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "skipped": "·"}
-_COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow", "skipped": "bright_black"}
+_ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "warning": "⚠", "advisory": "→", "skipped": "·"}
+_COLOR: dict[Status, str] = {
+    "pass": "green",
+    "fail": "red",
+    "warning": "yellow",
+    "advisory": "yellow",
+    "skipped": "bright_black",
+}
 
 
 def _emit_telemetry(summary: dict[str, Any]) -> None:
@@ -667,7 +707,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
-        advisories += status == "advisory" and chk.advice is None
+        advisories += status == "advisory" and chk.measures
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])

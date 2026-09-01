@@ -91,11 +91,6 @@ const SKELETON_ROW_WIDTHS = [60, 80, 40, 75, 50, 66] as const;
 function ChannelItemsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-px">
-      <SkeletonText
-        lines={1}
-        maxWidth={100}
-        className="mx-2 mt-1.5 mb-1 w-12 text-xs"
-      />
       {SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex items-center gap-2 px-2 py-1.5">
           <Skeleton className="size-4 shrink-0 rounded" />
@@ -225,7 +220,6 @@ export function ChannelItemsPane({
     itemCount: items.length,
     narrowed,
   });
-  const showHeader = listState === "ready" || listState === "empty";
 
   const {
     selectedTaskIds,
@@ -338,45 +332,45 @@ export function ChannelItemsPane({
       className="relative flex min-h-0 flex-1 flex-col"
       data-testid="channel-items-pane"
     >
-      {showHeader && (
-        <div className="flex flex-col gap-1 border-border border-b px-2 py-1.5">
-          {headerLeft && (
-            <div className="flex flex-wrap items-center gap-0.5">
-              {headerLeft}
-            </div>
-          )}
-          <InputGroup className="h-7">
-            <InputGroupAddon align="inline-start">
-              <MagnifyingGlass size={12} className="text-muted-foreground" />
-            </InputGroupAddon>
-            <InputGroupInput
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search…"
-              aria-label={searchLabel}
-              className="text-[12px]"
+      {/* The header stays through the load: the tabs in `headerLeft` are how you
+          choose what the list is fetching, so they can't wait on the fetch. */}
+      <div className="flex flex-col gap-1 border-border border-b px-2 py-1.5">
+        {headerLeft && (
+          <div className="flex flex-wrap items-center gap-0.5">
+            {headerLeft}
+          </div>
+        )}
+        <InputGroup className="h-7">
+          <InputGroupAddon align="inline-start">
+            <MagnifyingGlass size={12} className="text-muted-foreground" />
+          </InputGroupAddon>
+          <InputGroupInput
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search…"
+            aria-label={searchLabel}
+            className="text-[12px]"
+          />
+          <InputGroupAddon align="inline-end">
+            <ChannelFilterMenu
+              filters={filters}
+              onFilterChange={(key, value) =>
+                setFilters({ ...rawFilters, [key]: value })
+              }
+              onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+              sort={sort}
+              onSortChange={setSort}
+              grouping={grouping}
+              onGroupingChange={changeGrouping}
+              onEditAppearance={() => setAppearanceOpen(true)}
+              sources={sources}
+              showCreatedBy={hasMultipleAuthors}
+              showRunFilters={hasRuns}
+              active={filtersActive}
             />
-            <InputGroupAddon align="inline-end">
-              <ChannelFilterMenu
-                filters={filters}
-                onFilterChange={(key, value) =>
-                  setFilters({ ...rawFilters, [key]: value })
-                }
-                onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
-                sort={sort}
-                onSortChange={setSort}
-                grouping={grouping}
-                onGroupingChange={changeGrouping}
-                onEditAppearance={() => setAppearanceOpen(true)}
-                sources={sources}
-                showCreatedBy={hasMultipleAuthors}
-                showRunFilters={hasRuns}
-                active={filtersActive}
-              />
-            </InputGroupAddon>
-          </InputGroup>
-        </div>
-      )}
+          </InputGroupAddon>
+        </InputGroup>
+      </div>
 
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
       <div

@@ -76,6 +76,7 @@ import type {
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
     SignalsScoutConfigListParams,
+    SignalsScoutConfigSyncParams,
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
@@ -854,8 +855,20 @@ export const signalsScoutConfigRun = async (
     })
 }
 
-export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/configs/sync/`
+export const getSignalsScoutConfigSyncUrl = (projectId: string, params?: SignalsScoutConfigSyncParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/sync/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/sync/`
 }
 
 /**
@@ -864,9 +877,10 @@ export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
  */
 export const signalsScoutConfigSync = async (
     projectId: string,
+    params?: SignalsScoutConfigSyncParams,
     options?: RequestInit
 ): Promise<SignalScoutConfigApi[]> => {
-    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId, params), {
         ...options,
         method: 'POST',
     })

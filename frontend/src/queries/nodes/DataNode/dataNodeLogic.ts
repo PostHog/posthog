@@ -920,7 +920,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ) {
             // For normal loads, use appropriate refresh type
             let refreshType: RefreshType
-            if (queryVarsHaveChanged) {
+            if (queryVarsHaveChanged || isAccountsTableQuery(props.query)) {
                 refreshType =
                     isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
             } else {

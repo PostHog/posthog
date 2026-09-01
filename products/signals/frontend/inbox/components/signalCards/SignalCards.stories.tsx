@@ -186,6 +186,41 @@ const errorTrackingIssue = makeSignal({
     extra: { fingerprint: 'fp-upload-413' },
 })
 
+// The real signal content carries the issue's full stack trace as a code fence (it is written for
+// the report LLM, see `emit_issue_lifecycle_signal`), so a fixture with a long one pins the
+// three-line cap the card applies to it.
+const STACK_TRACE = [
+    'RequestEntityTooLarge: upload chunk exceeds 10 MB',
+    'handle_upload in app/api/uploads.py line 214',
+    'validate_request in app/api/middleware.py line 61',
+    'process_chunks in app/uploads/chunking.py line 88',
+    'next_chunk in app/uploads/chunking.py line 47',
+    'write_chunk in app/uploads/storage.py line 132',
+    'put_object in app/clients/object_store.py line 55',
+    'with_retries in app/clients/retry.py line 29',
+    'inner in contextlib.py line 85',
+    'request in httpclient/session.py line 402',
+    'send in httpclient/adapters.py line 318',
+    'raise_for_status in httpclient/models.py line 761',
+    'handle_error in app/clients/object_store.py line 71',
+    'to_upload_error in app/uploads/errors.py line 18',
+    'log_failure in app/uploads/telemetry.py line 33',
+    'capture in analytics/client.py line 96',
+    'enqueue in analytics/queue.py line 54',
+    'flush in analytics/queue.py line 78',
+    'run in concurrent/futures/thread.py line 58',
+    '_bootstrap_inner in threading.py line 1038',
+    '_bootstrap in threading.py line 995',
+].join('\n')
+
+const errorTrackingIssueWithStackTrace = makeSignal({
+    source_product: 'error_tracking',
+    source_type: 'issue_created',
+    source_id: 'issue-3',
+    content: `New error tracking issue created - this particular exception was observed for the first time:\nRequestEntityTooLarge: upload chunk exceeds 10 MB\n\n\`\`\`\n${STACK_TRACE}\n\`\`\``,
+    extra: { fingerprint: 'fp-upload-413-created' },
+})
+
 const healthCheck = makeSignal({
     source_product: 'health_checks',
     source_type: 'health_issue',
@@ -396,6 +431,52 @@ export const TicketAttachments: Story = {
 
 export const GenericFallbacks: Story = {
     render: () => <Rail signals={[genericWithEntityLink, genericWithExternalLink, genericWithoutLink]} />,
+}
+
+/** The stack trace fence in the signal content is cut to three lines instead of filling the rail. */
+export const ErrorTrackingStackTrace: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/error_tracking/issues/:issue_id/': () => [
+                    200,
+                    {
+                        id: 'issue-3',
+                        name: 'RequestEntityTooLarge',
+                        description: 'upload chunk exceeds 10 MB',
+                        assignee: null,
+                        status: 'active',
+                        first_seen: '2026-06-08T09:30:00Z',
+                        external_issues: [],
+                    },
+                ],
+            },
+            post: {
+                '/api/environments/:team_id/query/ErrorTrackingQuery/': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                first_seen: '2026-06-08T09:30:00Z',
+                                last_seen: BASE_DATE,
+                                aggregations: {
+                                    occurrences: 12,
+                                    sessions: 8,
+                                    users: 6,
+                                    volume_buckets: [
+                                        { label: '2026-06-08T00:00:00Z', value: 2 },
+                                        { label: '2026-06-09T00:00:00Z', value: 4 },
+                                        { label: '2026-06-10T00:00:00Z', value: 6 },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+    render: () => <Rail signals={[errorTrackingIssueWithStackTrace]} />,
 }
 
 /** One card per source with a dedicated renderer, so a layout change to any of them shows up here. */

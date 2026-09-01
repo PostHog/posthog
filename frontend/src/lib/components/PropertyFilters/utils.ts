@@ -17,6 +17,7 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
+    AccountRelationshipPropertyFilter,
     ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
@@ -124,6 +125,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+        [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
         [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
@@ -334,6 +336,12 @@ export function isRevenueAnalyticsPropertyFilter(
 ): filter is RevenueAnalyticsPropertyFilter {
     return filter?.type === PropertyFilterType.RevenueAnalytics
 }
+export function isAccountRelationshipPropertyFilter(
+    filter?: { type?: string } | null
+): filter is AccountRelationshipPropertyFilter {
+    return filter?.type === PropertyFilterType.AccountRelationship
+}
+
 export function isAccountCustomPropertyFilter(filter?: AnyFilterLike | null): filter is AccountCustomPropertyFilter {
     return filter?.type === PropertyFilterType.AccountCustomProperty
 }
@@ -427,6 +435,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
+        isAccountRelationshipPropertyFilter(filter) ||
         isAccountCustomPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
@@ -472,6 +481,7 @@ export function isPropertyFilterWithOperator(
             isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
+            isAccountRelationshipPropertyFilter(filter) ||
             isAccountCustomPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
@@ -524,6 +534,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+    [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
     [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -582,6 +593,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Account]: PropertyDefinitionType.Account,
+        [PropertyFilterType.AccountRelationship]: PropertyDefinitionType.AccountRelationship,
         [PropertyFilterType.AccountCustomProperty]: PropertyDefinitionType.AccountCustomProperty,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,

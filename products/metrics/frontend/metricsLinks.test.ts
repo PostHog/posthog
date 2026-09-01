@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { metricUrl, metricsUrlForService } from './metricsLinks'
+import { correlationServiceNames, metricUrl, metricsUrlForService } from './metricsLinks'
 
 describe('metricsLinks', () => {
     const paramsOf = (url: string): Record<string, any> => combineUrl(url).searchParams
@@ -66,6 +66,49 @@ describe('metricsLinks', () => {
     it('scopes a service link to the window the caller was looking at', () => {
         expect(paramsOf(metricsUrlForService('checkout', { dateFrom: '-30m', dateTo: null }))).toMatchObject({
             dateFrom: '-30m',
+        })
+    })
+
+    describe('correlationServiceNames', () => {
+        // Which services the logs/traces pivot offers. Getting this wrong sends someone to an
+        // empty log view during an incident, which teaches them not to click it again.
+        it('prefers the services the filter bar pinned', () => {
+            expect(correlationServiceNames(['checkout'], [{ service_name: 'billing' }])).toEqual(['checkout'])
+        })
+
+        it('falls back to the services the chart is grouped by', () => {
+            expect(correlationServiceNames([], [{ service_name: 'billing' }, { service_name: 'checkout' }])).toEqual([
+                'billing',
+                'checkout',
+            ])
+        })
+
+        it.each([['service_name'], ['service.name']])('reads the %s group-by label', (key) => {
+            expect(correlationServiceNames([], [{ [key]: 'checkout' }])).toEqual(['checkout'])
+        })
+
+        it('de-duplicates services split across several series', () => {
+            expect(
+                correlationServiceNames(
+                    [],
+                    [
+                        { service_name: 'checkout', http_status: '200' },
+                        { service_name: 'checkout', http_status: '500' },
+                    ]
+                )
+            ).toEqual(['checkout'])
+        })
+
+        it.each([
+            ['no scope at all', [] as string[], [{ http_status: '200' }]],
+            ['the unknown-service chip', [''], []],
+        ])('offers nothing for %s, rather than a link to everything', (_name, selected, labels) => {
+            expect(correlationServiceNames(selected, labels)).toEqual([])
+        })
+
+        it('caps the list so a wide group-by cannot render hundreds of menu items', () => {
+            const labels = Array.from({ length: 30 }, (_, i) => ({ service_name: `svc-${i}` }))
+            expect(correlationServiceNames([], labels)).toHaveLength(12)
         })
     })
 })
