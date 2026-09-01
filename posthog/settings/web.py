@@ -546,118 +546,59 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {
-            # `source_product` names the same choice set on several signals components, so pin one name.
-            "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
-            "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
-            "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
-            "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
-            # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
+            # Most enum components are named automatically: ChoicesEnumNameOverrides walks
+            # every django.db.models.Choices subclass at schema-build time and names the
+            # component after the class (EarlyAccessFeature.Stage -> EarlyAccessFeatureStageEnum),
+            # so defining choices as a TextChoices class is all a new enum needs. See
+            # posthog/openapi/enum_names.py for the derivation and its safety rules.
+            #
+            # An entry below is for a choice set no class can carry, and each group states
+            # why. drf-spectacular matches an entry to fields by a hash of the exact
+            # (value, label) pairs, so editing values or labels on either side silently
+            # detaches the entry; posthog/openapi/enum_name_guard.py and --fail-on-warn in
+            # `hogli build:openapi-schema` turn the fallout into a build failure.
+            # `python manage.py find_enum_collisions` diagnoses a fresh collision and
+            # suggests a fix.
+            #
+            # Two definitions share identical (value, label) pairs but mean different
+            # things. The hash cannot tell them apart, so no class is derived and the
+            # entry decides the name.
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
-            "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
-            "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
-            "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
-            # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
-            "MetricsRecalculationStatusEnum": (
-                "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
-            ),
-            "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
-            # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
-            "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
-            # Same field name as the installation scope above, different values.
+            "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            # Inline-choices variant of TaskRun.Status (labels == values), shared by
-            # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
-            "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
-            "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
-            "TaskRunReasoningEffortEnum": [
-                "off",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max",
-                "ultracode",
-                None,
-            ],
             "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
-            "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-            # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
-            "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
-            "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
-            # `severity` is shared by a data quality check, its overview projection, and the severity a
-            # past run was judged at.
-            "DataQualityCheckSeverityEnum": ["error", "warn"],
-            # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
-            "CanvasStateScopeEnum": ["user", "shared"],
-            # `kind` is a generic field name; one shared name for the canvas kind set.
-            "CanvasKindEnum": ["freeform", "grid", "component"],
-            # `status`/`op`/`columns`/`schemaVersion` are generic field names; pin the grid layout sets.
-            "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
-            # Integer choice sets need explicit (value, label) pairs; a bare list is
-            # only matched for string choices.
-            "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
-            "CanvasLayoutSchemaVersionEnum": [(1, 1)],
-            # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
-            "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
-            "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
-            "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
-            # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
-            # daily/weekly/monthly choice set; pin one name for both.
+            "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            #
+            # The published name is already derived by a different choice set, so the
+            # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
-            # Canvas source diagnostics and marketing-analytics UTM issues share the same
-            # error/warning severity pair; pin one shared name for the choice set.
+            "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
+            "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            "TaskArtifactStatusEnum": ["active", "failed"],
+            #
+            # The same choice set is declared in more than one product. A shared Choices
+            # class would cross a product boundary, so the entry names the set centrally.
+            "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
             "DiagnosticSeverityEnum": ["error", "warning"],
-            # ReviewHog findings expose the same priority set on two fields (effective_priority +
-            # reviewer_priority); pin one shared name for the choice set.
-            "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
-            # The metrics query's OTel metric-type filter; without a pinned name it
-            # collides with the experiments MetricTypeEnum (funnel/ratio/...).
-            "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
-            # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
-            # subset enums keep their own auto-resolved names.
+            "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+            "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            #
+            # The definition site is a deliberately Django-free module (facade contracts,
+            # signals taxonomy), so it cannot define a models.Choices class.
+            "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
+            "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
+            "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
+            "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
+            "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+            "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
-            # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
-            "VerdictEnum": ["yes", "no", "inconclusive"],
-            # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
-            # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
-            # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
-            # changes the hash, so this warning comes back rather than drifting silently.
-            "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
-            # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
-            # schedule/github/api choice set — pin them to a single named enum.
-            "LoopTriggerTypeEnum": ["schedule", "github", "api"],
-            # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
-            # palette color later would change the hash and silently rename the generated type.
-            "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
-            "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
-            "SavedQuerySyncFrequencyEnum": [
-                "never",
-                "15min",
-                "30min",
-                "1hour",
-                "6hour",
-                "12hour",
-                "24hour",
-                "7day",
-                "30day",
-            ],
-            # Same member set minus `never`, shared by the `materialize` body and by each cadence the
-            # saved-query sync frequency bounds offer. Both mean "a cadence to run at", so one name.
-            "MaterializeSyncFrequencyEnum": [
-                "15min",
-                "30min",
-                "1hour",
-                "6hour",
-                "12hour",
-                "24hour",
-                "7day",
-                "30day",
-            ],
+            "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
+            #
+            # The choices come from a typing.Literal via get_args; there is no class.
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
             "PropertyFilterTypeEnum": [
                 "event",
@@ -691,24 +632,7 @@ SPECTACULAR_SETTINGS = {
                 "flag",
                 "workflow_variable",
             ],
-            "AssigneeTypeEnum": ["user", "role"],
-            "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
-            "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
-            # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
-            # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
-            # a per-type override they all collide into one mangled name. Override key is the
-            # stable component name; value is the singleton list even though length is 1.
-            "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
-            "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
-            "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
-            "ExperimentsListWidgetTypeEnum": ["experiments_list"],
-            "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
-            "SurveyResultsWidgetTypeEnum": ["survey_results"],
-            "LogsListWidgetTypeEnum": ["logs_list"],
-            "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
-            # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
-            "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
                 "default",
                 "acceptEdits",
@@ -719,7 +643,65 @@ SPECTACULAR_SETTINGS = {
                 "full-access",
                 None,
             ],
-            "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            #
+            # The choices are computed: a subset or union of another definition, a plain
+            # Python enum's values, or a per-widget constant. Converting each producer to
+            # a TextChoices class would delete its entry here.
+            "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
+            "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
+            "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
+            "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
+            "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
+            "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+            "TaskRunReasoningEffortEnum": [
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode",
+                None,
+            ],
+            "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
+            "DataQualityCheckSeverityEnum": ["error", "warn"],
+            "CanvasStateScopeEnum": ["user", "shared"],
+            "CanvasKindEnum": ["freeform", "grid", "component"],
+            "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
+            "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
+            "CanvasLayoutSchemaVersionEnum": [(1, 1)],
+            "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
+            "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
+            "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
+            "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
+            "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+            "VerdictEnum": ["yes", "no", "inconclusive"],
+            "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
+            "LoopTriggerTypeEnum": ["schedule", "github", "api"],
+            "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
+            "SavedQuerySyncFrequencyEnum": [
+                "never",
+                "15min",
+                "30min",
+                "1hour",
+                "6hour",
+                "12hour",
+                "24hour",
+                "7day",
+                "30day",
+            ],
+            "MaterializeSyncFrequencyEnum": [
+                "15min",
+                "30min",
+                "1hour",
+                "6hour",
+                "12hour",
+                "24hour",
+                "7day",
+                "30day",
+            ],
+            "AssigneeTypeEnum": ["user", "role"],
             "TaskRunArtifactTypeEnum": [
                 "plan",
                 "context",
@@ -731,21 +713,23 @@ SPECTACULAR_SETTINGS = {
                 "skill_bundle",
             ],
             "AdapterEnum": ["slack_message", "slack_canvas", "slack_file", "document_connector", "github_pr"],
-            "TaskArtifactStatusEnum": ["active", "failed"],
-            # Same-value collisions: identical choice sets appear on fields with different names.
-            # href_matching, text_matching, url_matching on ActionStep all share the same choices.
             "ActionStepMatchingEnum": ["contains", "regex", "exact"],
             "DetailModeValueEnum": ["minimal", "detailed"],
-            "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
-            # runtime_adapter on TaskRunCreateRequestSerializer (full set) vs
-            # ClaudeTaskRunCreateSchemaSerializer and CodexTaskRunCreateSchemaSerializer (subsets).
             "RuntimeAdapterEnum": ["claude", "codex"],
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
-            # StaffCacheEntryQuery/Response's singular `cache` field and StaffCacheMutation's
-            # `caches` list item share the same evaluation/definitions choice set. Pin to a
-            # stable name so "cache" and "caches" don't collide into a hash name.
             "StaffCacheKindEnum": ["evaluation", "definitions"],
+            #
+            # One single-value discriminator enum per dashboard widget.
+            # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
+            "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
+            "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
+            "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
+            "ExperimentsListWidgetTypeEnum": ["experiments_list"],
+            "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
+            "SurveyResultsWidgetTypeEnum": ["survey_results"],
+            "LogsListWidgetTypeEnum": ["logs_list"],
+            "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         }
     ),
 }
