@@ -62,6 +62,16 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 ),
         },
         {
+            title: 'Tests',
+            key: 'testFileCount',
+            width: 110,
+            align: 'right',
+            tooltip:
+                'Test files this team owns per the daily owners.yaml census, with the value at the window start. The denominator the signal columns lack.',
+            sorter: (a, b) => (a.testFileCount ?? -1) - (b.testFileCount ?? -1),
+            render: (_, row) => <CountWithPrior current={row.testFileCount} prior={row.testFileCountPrior} />,
+        },
+        {
             title: 'Flaky tests',
             key: 'flakyTestCount',
             width: 140,
@@ -104,6 +114,16 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             render: (_, row) => (
                 <CountWithPrior current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />
             ),
+        },
+        {
+            title: 'PRs merged',
+            key: 'mergedPrCount',
+            width: 110,
+            align: 'right',
+            tooltip:
+                "PRs merged by this team's members in the window, bots excluded. Attribution comes from the GitHub team membership snapshot; teams are never ranked by author.",
+            sorter: (a, b) => (a.mergedPrCount ?? -1) - (b.mergedPrCount ?? -1),
+            render: (_, row) => <CountWithPrior current={row.mergedPrCount} prior={row.mergedPrCountPrior} />,
         },
     ]
 

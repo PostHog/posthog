@@ -70,11 +70,14 @@ export function DeltaBadge({
 
 /** Current count with the prior window's count as muted context. Table cells stay colorless on
  *  purpose: four colored percent badges per row drown the numbers they annotate. */
-export function CountWithPrior({ current, prior }: { current: number; prior: number }): JSX.Element {
+export function CountWithPrior({ current, prior }: { current: number | null; prior: number | null }): JSX.Element {
+    if (current == null) {
+        return <div className="text-right text-sm text-tertiary">–</div>
+    }
     return (
         <div className="flex items-baseline justify-end gap-1.5">
             <span className="text-sm font-semibold tabular-nums">{humanFriendlyNumber(current)}</span>
-            {prior !== current && (
+            {prior != null && prior !== current && (
                 <Tooltip title="Count in the previous window">
                     <span className="text-xs text-tertiary tabular-nums whitespace-nowrap">
                         was {humanFriendlyNumber(prior)}

@@ -71,7 +71,10 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
             "emission time from the repo's ownership map (the distributed owners.yaml files); unstamped "
             "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
-            "owner only. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "owner only. Each row also carries test_file_count (the daily owners.yaml census denominator, with "
+            "a window-start twin) and merged_pr_count (merged PRs by the team's members, bots excluded); teams "
+            "with census counts but no CI signal appear with zero signal counts and a null last_seen_at. Teams "
+            "are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

@@ -41,6 +41,12 @@ export interface TeamCIHealthRow {
     failedRunCountPrior: number
     sameCommitRecoveryRunCount: number
     sameCommitRecoveryRunCountPrior: number
+    /** Owned test files per the daily owners.yaml census; null until a census ran. */
+    testFileCount: number | null
+    testFileCountPrior: number | null
+    /** Merged PRs by the team's members; null without the membership snapshot. */
+    mergedPrCount: number | null
+    mergedPrCountPrior: number | null
 }
 
 export interface TeamsData {
@@ -117,6 +123,10 @@ export const teamsLogic = kea<teamsLogicType>([
                                 failedRunCountPrior: it.failed_run_count_prior,
                                 sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
                                 sameCommitRecoveryRunCountPrior: it.same_commit_recovery_run_count_prior,
+                                testFileCount: it.test_file_count ?? null,
+                                testFileCountPrior: it.test_file_count_prior ?? null,
+                                mergedPrCount: it.merged_pr_count ?? null,
+                                mergedPrCountPrior: it.merged_pr_count_prior ?? null,
                             })
                         ),
                         truncated: data.truncated,
