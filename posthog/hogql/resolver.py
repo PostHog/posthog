@@ -52,7 +52,11 @@ from posthog.hogql.resolver_utils import (
     suggest_field_names,
     suggested_field_fix,
 )
-from posthog.hogql.transforms.trino.persons import lower_trino_table, resolve_internal_trino_table
+from posthog.hogql.transforms.trino.persons import (
+    lower_trino_table,
+    resolve_internal_trino_logical_table,
+    resolve_trino_table_reference,
+)
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
     infer_array_constant_type,
@@ -1349,7 +1353,9 @@ class Resolver(CloningVisitor):
                 return node
 
             if self.dialect == "trino":
-                database_table = resolve_internal_trino_table(table_name_chain, self.context)
+                database_table = resolve_trino_table_reference(
+                    cast(ast.Field, node.table), self.context
+                ) or resolve_internal_trino_logical_table(table_name_chain, self.context)
             else:
                 database_table = None
 

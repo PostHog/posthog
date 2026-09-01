@@ -29,6 +29,8 @@ class TestTrinoSemantics(APIBaseTest):
         modifiers: HogQLQueryModifiers | None = None,
     ) -> HogQLContext:
         modifiers = modifiers or HogQLQueryModifiers()
+        if modifiers.personsOnEventsMode is None:
+            modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         return HogQLContext(
             team_id=self.team.pk,
             team=self.team,
@@ -86,6 +88,25 @@ class TestTrinoSemantics(APIBaseTest):
         self.assertNotIn("COHORT", sql)
         self.assertIn('"ducklake"."analytics"."raw_cohort_people"', sql)
 
+    def test_v2_events_person_fields_use_exported_properties_and_latest_person_mapping(self) -> None:
+        context = self._semantic_context(["events", "persons"])
+
+        sql, _ = prepare_and_print_ast(
+            parse_select("SELECT person_id, person.id, person.properties.email FROM events"),
+            context,
+            "trino",
+        )
+
+        self.assertIn('"ducklake"."analytics"."events"', sql)
+        self.assertIn('"ducklake"."analytics"."persons"', sql)
+        self.assertIn('"events"."person_properties"', sql)
+        self.assertNotIn("raw_persons", sql)
+        self.assertNotIn("raw_person_distinct_ids", sql)
+        self.assertNotIn("raw_person_distinct_id_overrides", sql)
+        self.assertIn("person_distinct_id_version", sql)
+        self.assertIn("person_version", sql)
+        self.assertIn("_inserted_at", sql)
+
     def test_restricted_user_cannot_compile_any_trino_query(self) -> None:
         self.organization.available_product_features = [
             {
@@ -118,6 +139,9 @@ class TestTrinoAccessControl(SimpleTestCase):
         context = HogQLContext(
             database=Database(include_posthog_tables=True),
             enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
             restricted_properties={
                 RestrictedProperty(
                     name="private_email",
@@ -134,7 +158,8 @@ class TestTrinoPersonsSemantics(SimpleTestCase):
     def _context(self, modifiers: HogQLQueryModifiers | None = None) -> HogQLContext:
         return HogQLContext(
             database=Database(include_posthog_tables=True),
-            modifiers=modifiers or HogQLQueryModifiers(),
+            modifiers=modifiers
+            or HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
             enable_select_queries=True,
             trino_table_locators={
                 "events": ("ducklake", "analytics", "events_production"),
@@ -152,6 +177,7 @@ class TestTrinoPersonsSemantics(SimpleTestCase):
         )
 
         self.assertIn('"ducklake"."analytics"."persons_production"', sql)
+        self.assertNotIn("__trino_physical_persons", sql)
         self.assertNotIn("raw_persons", sql)
         self.assertIn("GROUP BY", sql)
         self.assertIn("max_by", sql)
@@ -182,33 +208,28 @@ class TestTrinoPersonsSemantics(SimpleTestCase):
         self.assertIn("person_distinct_id_version", sql)
         self.assertIn("_inserted_at", sql)
 
-    def test_internal_persons_relation_cannot_bypass_logical_lowering(self) -> None:
+    def test_physical_persons_relation_is_not_addressable_by_hogql_name(self) -> None:
         context = self._context()
 
-        with self.assertRaisesRegex(TrinoLoweringError, "TRINO_INTERNAL_TABLE_UNAVAILABLE"):
+        with self.assertRaises(QueryError):
             prepare_and_print_ast(
                 parse_select("SELECT id FROM __trino_physical_persons"),
                 context,
                 "trino",
             )
 
-    def test_lazy_person_join_uses_physical_persons_table(self) -> None:
-        context = self._context(HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED))
+    def test_non_v2_persons_on_events_modes_fail_closed(self) -> None:
+        for mode in (
+            None,
+            PersonsOnEventsMode.DISABLED,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+        ):
+            with self.subTest(mode=mode):
+                context = self._context(HogQLQueryModifiers(personsOnEventsMode=mode))
 
-        sql, _ = prepare_and_print_ast(
-            parse_select("SELECT person.properties.email FROM events"),
-            context,
-            "trino",
-        )
-
-        self.assertNotIn("person.properties.email", sql)
-        self.assertIn('"ducklake"."analytics"."persons_production"', sql)
-        self.assertNotIn("raw_persons", sql)
-        self.assertNotIn("raw_person_distinct_ids", sql)
-        self.assertNotIn("raw_person_distinct_id_overrides", sql)
-        self.assertIn("GROUP BY", sql)
-        self.assertIn("max_by", sql)
-        self.assertIn("person_distinct_id_version", sql)
-        self.assertIn("person_version", sql)
-        self.assertIn("_inserted_at", sql)
-        self.assertIn(" JOIN ", sql)
+                with self.assertRaisesRegex(
+                    TrinoLoweringError,
+                    "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
+                ):
+                    prepare_and_print_ast(parse_select("SELECT 1"), context, "trino")

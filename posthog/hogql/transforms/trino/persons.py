@@ -6,7 +6,6 @@ from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
-    FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
     LazyTable,
@@ -19,8 +18,6 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS, PersonsTable
 from posthog.hogql.errors import QueryError
 
-TRINO_PHYSICAL_PERSONS_TABLE_NAME = "__trino_physical_persons"
-TRINO_PERSONS_BY_DISTINCT_ID_TABLE_NAME = "__trino_persons_by_distinct_id"
 TRINO_PERSONS_PDI_TABLE_NAME = "__trino_persons_pdi"
 
 # DuckLake does not export last_seen_at, so the lowering rejects it before SQL reaches Trino.
@@ -30,7 +27,7 @@ TRINO_EXPORTED_PERSONS_FIELDS: dict[str, FieldOrTable] = {
 
 
 class TrinoPhysicalPersonsTable(Table):
-    name: str | None = TRINO_PHYSICAL_PERSONS_TABLE_NAME
+    name: str | None = None
     fields: dict[str, FieldOrTable] = {
         **TRINO_EXPORTED_PERSONS_FIELDS,
         "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
@@ -41,7 +38,7 @@ class TrinoPhysicalPersonsTable(Table):
     trino_locator_name: ClassVar[str] = "persons"
 
     def to_printed_hogql(self) -> str:
-        return TRINO_PHYSICAL_PERSONS_TABLE_NAME
+        return "persons"
 
 
 TRINO_PHYSICAL_PERSONS_TABLE = TrinoPhysicalPersonsTable()
@@ -72,32 +69,11 @@ def _latest_rows_select(
 
     return ast.SelectQuery(
         select=select,
-        select_from=ast.JoinExpr(table=ast.Field(chain=[TRINO_PHYSICAL_PERSONS_TABLE_NAME])),
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=["persons"], type=ast.TableType(table=TRINO_PHYSICAL_PERSONS_TABLE))
+        ),
         group_by=[ast.Field(chain=[group_field])],
     )
-
-
-class TrinoPersonsByDistinctIdTable(LazyTable):
-    name: str | None = TRINO_PERSONS_BY_DISTINCT_ID_TABLE_NAME
-    fields: dict[str, FieldOrTable] = {
-        **PERSONS_FIELDS,
-        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-    }
-
-    def lazy_select(
-        self,
-        table_to_add: LazyTableToAdd,
-        context: HogQLContext,
-        node: ast.SelectQuery,
-    ) -> ast.SelectQuery:
-        return _latest_rows_select(
-            table_to_add,
-            group_field="distinct_id",
-            version_fields=("person_distinct_id_version", "person_version", "_inserted_at"),
-        )
-
-    def to_printed_hogql(self) -> str:
-        return TRINO_PERSONS_BY_DISTINCT_ID_TABLE_NAME
 
 
 class TrinoPersonsPDITable(LazyTable):
@@ -129,7 +105,6 @@ class TrinoPersonsPDITable(LazyTable):
         return TRINO_PERSONS_PDI_TABLE_NAME
 
 
-TRINO_PERSONS_BY_DISTINCT_ID_TABLE = TrinoPersonsByDistinctIdTable()
 TRINO_PERSONS_PDI_TABLE = TrinoPersonsPDITable()
 
 
@@ -164,21 +139,21 @@ class TrinoPersonsTable(LazyTable):
 TRINO_PERSONS_TABLE = TrinoPersonsTable()
 
 
-def is_internal_trino_table(table_name_chain: list[str | int]) -> bool:
-    return table_name_chain in (
-        [TRINO_PHYSICAL_PERSONS_TABLE_NAME],
-        [TRINO_PERSONS_BY_DISTINCT_ID_TABLE_NAME],
-        [TRINO_PERSONS_PDI_TABLE_NAME],
-    )
-
-
-def resolve_internal_trino_table(table_name_chain: list[str], context: HogQLContext) -> Table | None:
+def resolve_trino_table_reference(field: ast.Field, context: HogQLContext) -> Table | None:
     if "persons" not in context.trino_table_locators:
         return None
-    if table_name_chain == [TRINO_PHYSICAL_PERSONS_TABLE_NAME]:
+    if isinstance(field.type, ast.TableType) and field.type.table is TRINO_PHYSICAL_PERSONS_TABLE:
         return TRINO_PHYSICAL_PERSONS_TABLE
-    if table_name_chain == [TRINO_PERSONS_BY_DISTINCT_ID_TABLE_NAME]:
-        return TRINO_PERSONS_BY_DISTINCT_ID_TABLE
+    return None
+
+
+def is_internal_trino_logical_table(table_name_chain: list[str | int]) -> bool:
+    return table_name_chain == [TRINO_PERSONS_PDI_TABLE_NAME]
+
+
+def resolve_internal_trino_logical_table(table_name_chain: list[str], context: HogQLContext) -> Table | None:
+    if "persons" not in context.trino_table_locators:
+        return None
     if table_name_chain == [TRINO_PERSONS_PDI_TABLE_NAME]:
         return TRINO_PERSONS_PDI_TABLE
     return None
@@ -190,16 +165,13 @@ def lower_trino_table(table: Table, context: HogQLContext) -> Table:
     if isinstance(table, PersonsTable):
         return TRINO_PERSONS_TABLE
     if isinstance(table, EventsTable):
-        person_field = table.fields.get("person")
-        if not isinstance(person_field, FieldTraverser) or person_field.chain != ["pdi", "person"]:
-            return table
         return table.model_copy(
             update={
                 "fields": {
                     **table.fields,
-                    "person": LazyJoin(
+                    "override": LazyJoin(
                         from_field=["distinct_id"],
-                        join_table=TRINO_PERSONS_BY_DISTINCT_ID_TABLE,
+                        join_table=TRINO_PERSONS_PDI_TABLE,
                         to_field=["distinct_id"],
                         resolver=FOREIGN_KEY,
                     ),

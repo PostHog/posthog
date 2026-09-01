@@ -160,9 +160,12 @@ def prepare_ast_for_printing(
             normalize_trino_ast,
         )
         from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_context,
             validate_trino_source_ast,
         )
 
+        with context.timings.measure("validate_trino_context"):
+            validate_trino_context(context)
         with context.timings.measure("validate_trino_source_ast"):
             validate_trino_source_ast(node)
 
