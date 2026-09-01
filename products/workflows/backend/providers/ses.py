@@ -33,10 +33,17 @@ ISP_METRICS: tuple[str, ...] = ("SEND", "DELIVERY", "PERMANENT_BOUNCE", "COMPLAI
 # SES caps a BatchGetMetricData request at ten queries.
 METRIC_QUERY_BATCH_SIZE = 10
 
+# Bounds one metric call. Also the amount of budget a call needs before it may start, below.
+METRIC_CONNECT_TIMEOUT_SECONDS = 2.0
+METRIC_READ_TIMEOUT_SECONDS = 5.0
+METRIC_CALL_WORST_CASE_SECONDS = METRIC_CONNECT_TIMEOUT_SECONDS + METRIC_READ_TIMEOUT_SECONDS
+
 # The breakdown runs inside a web request, and the fan-out is one query per domain, provider and
 # metric, issued in sequence. Without a ceiling an unresponsive SES holds a worker for minutes on
 # boto3's 60 second default. Past the budget the caller gets no breakdown, which is the same
 # degradation as any other SES failure and better than partial counts, whose rates would be wrong.
+# The budget covers every call the breakdown makes, ranking included, and a call starts only with
+# its worst case still inside it — so the ceiling holds even when SES answers slowly.
 METRIC_QUERY_BUDGET_SECONDS = 20.0
 
 
@@ -99,7 +106,11 @@ class SESProvider:
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
-            config=Config(connect_timeout=2, read_timeout=5, retries={"max_attempts": 1}),
+            config=Config(
+                connect_timeout=METRIC_CONNECT_TIMEOUT_SECONDS,
+                read_timeout=METRIC_READ_TIMEOUT_SECONDS,
+                retries={"max_attempts": 1},
+            ),
         )
 
     def _tenant_name_for_team(self, team_id: int) -> str:
@@ -529,12 +540,16 @@ class SESProvider:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
 
-    def _busiest_domains(self, domains: Sequence[str], *, start: datetime, end: datetime, limit: int) -> list[str]:
+    def _busiest_domains(
+        self, domains: Sequence[str], *, start: datetime, end: datetime, limit: int, deadline: float
+    ) -> list[str]:
         """The `limit` domains that sent the most over the window.
 
         One SEND query per domain with no ISP dimension, which is a fraction of the per-provider
         fan-out it decides. A domain whose query fails sorts last rather than raising: losing it is
         the same outcome the unconditional slice already had, and this panel never fails the page.
+        Ranking shares the caller's deadline, and running out of it falls back to the first few
+        rather than spending the whole budget deciding what to spend it on.
         """
         totals: dict[str, int] = dict.fromkeys(domains, 0)
         subjects = {f"d{index}": domain for index, domain in enumerate(domains)}
@@ -551,6 +566,9 @@ class SESProvider:
         ]
         try:
             for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
+                if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
+                    logger.warning("Ran out of budget ranking sending domains; keeping the first few")
+                    return list(domains)[:limit]
                 response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
                 for result in response.get("Results", []):
                     domain = subjects.get(result["Id"])
@@ -592,6 +610,8 @@ class SESProvider:
         if not domains or not isps:
             return []
 
+        deadline = monotonic() + METRIC_QUERY_BUDGET_SECONDS
+
         # VDM rejects the whole batch if either bound is a partial day, so the window is whole UTC
         # days ending at the last midnight. Today is therefore excluded.
         end = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -600,7 +620,7 @@ class SESProvider:
         # Bounding the fan-out by taking an arbitrary slice drops whichever domains sort last, which
         # can be the only one sending today. One cheap query each says which ones actually sent.
         if max_domains is not None and len(domains) > max_domains:
-            domains = self._busiest_domains(domains, start=start, end=end, limit=max_domains)
+            domains = self._busiest_domains(domains, start=start, end=end, limit=max_domains, deadline=deadline)
 
         # Dimensions filter rather than group, and the response echoes only the query id, so a
         # per-provider breakdown needs one query per (domain, provider, metric) and a local index
@@ -627,9 +647,8 @@ class SESProvider:
         # (provider, metric) pairs whose query failed. Their series is empty for want of an answer,
         # not because nothing happened, so every rate derived from them is reported as unknown.
         failed: set[tuple[str, str]] = set()
-        deadline = monotonic() + METRIC_QUERY_BUDGET_SECONDS
         for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
-            if monotonic() > deadline:
+            if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
                 raise TimeoutError(
                     f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s for {len(domains)} domain(s)"
                 )

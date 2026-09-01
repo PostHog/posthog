@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from itertools import count
 from typing import Optional
 
 import pytest
@@ -13,7 +14,7 @@ import dns.resolver
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.providers.ses import METRIC_QUERY_BUDGET_SECONDS, SESProvider
 
 TEST_DOMAIN = "test.posthog.com"
 
@@ -781,6 +782,57 @@ class TestGetIdentityIspMetrics(TestCase):
             if "ISP" in query["Dimensions"]
         ]
         assert set(per_provider) == {"busy.test"}
+
+    def test_slow_ses_cannot_hold_the_request_past_the_budget(self):
+        # The budget used to start after domain ranking and to be checked only against the clock,
+        # so ranking ran outside it and the last call could still start with the budget nearly
+        # spent — holding a web worker well past the ceiling the constant advertises.
+        clock = iter(count(start=0.0, step=6.0))
+
+        def respond(Queries):
+            return {
+                "Results": [
+                    {"Id": query["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [10]}
+                    for query in Queries
+                ],
+                "Errors": [],
+            }
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+        with patch("products.workflows.backend.providers.ses.monotonic", lambda: next(clock)):
+            with pytest.raises(TimeoutError):
+                self.provider.get_identity_isp_metrics(
+                    ["a.test", "b.test"], window_days=30, isps=["Gmail", "Yahoo", "Outlook"]
+                )
+
+        elapsed = 6.0 * self.mock_client.batch_get_metric_data.call_count
+        assert elapsed <= METRIC_QUERY_BUDGET_SECONDS
+
+    def test_ranking_that_runs_out_of_budget_keeps_the_first_domains(self):
+        # Ranking shares the budget, so it stops rather than spending all of it deciding which
+        # domains to spend it on. Losing the ranking is the old unconditional slice, not an error.
+        clock = iter(count(start=0.0, step=8.0))
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: {
+            "Results": [
+                {"Id": query["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [10]}
+                for query in Queries
+            ],
+            "Errors": [],
+        }
+        domains = [f"d{index}.test" for index in range(11)]
+
+        with patch("products.workflows.backend.providers.ses.monotonic", lambda: next(clock)):
+            with pytest.raises(TimeoutError):
+                self.provider.get_identity_isp_metrics(domains, window_days=30, isps=["Gmail"], max_domains=2)
+
+        ranking_calls = [
+            kwargs
+            for _, kwargs in self.mock_client.batch_get_metric_data.call_args_list
+            if all("ISP" not in query["Dimensions"] for query in kwargs["Queries"])
+        ]
+        # Eleven domains rank in two batches; the second would have started with less budget left
+        # than one call can take.
+        assert len(ranking_calls) == 1
 
     def test_providers_that_received_nothing_are_omitted(self):
         # Without this a silent provider divides by zero; a row of zeros would also read as a
