@@ -537,4 +537,46 @@ describe('sidepanelTicketsLogic', () => {
         errorToast.mockRestore()
         successToast.mockRestore()
     })
+
+    // The open thread also polls on a timer with a non-quiet load. If that load is still in flight
+    // when a send succeeds, the send's quiet refresh supersedes it — so when the older poll load
+    // then fails it must stay quiet, or it toasts "Failed to load" over the "Message sent!" the
+    // reader just saw. The failure is still worth counting.
+    it('stays quiet when an in-flight poll load fails after a newer load supersedes it', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setCurrentTicket({
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket)
+        await expectLogic(logic).toFinishAllListeners()
+
+        // First call is the poll load that fails; the newer load that supersedes it succeeds.
+        ;(posthog as any).conversations.getMessages = jest
+            .fn()
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValue({ messages: [], has_more: false })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            // The poll starts a non-quiet load, then the post-send refresh supersedes it with a
+            // quiet one that bumps the revision before the poll load's failure is handled.
+            logic.actions.loadMessages('t1')
+            logic.actions.loadMessages('t1', true)
+        }).toFinishAllListeners()
+
+        expect(errorToast).not.toHaveBeenCalled()
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'thread_load_failed' })
+
+        errorToast.mockRestore()
+    })
 })

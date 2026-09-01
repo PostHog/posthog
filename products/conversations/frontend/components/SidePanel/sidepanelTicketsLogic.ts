@@ -601,6 +601,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!ticketId || !posthog.conversations) {
                 return
             }
+            // Tag each load so a newer one wins. The post-send refresh, a poll, and opening another
+            // ticket all dispatch loadMessages, so an older request that settles late must not apply
+            // its snapshot or toast over fresher state.
+            const revision = (cache.messageRevision = (cache.messageRevision ?? 0) + 1)
             actions.setMessagesLoading(true)
             try {
                 const allMessages: ConversationMessage[] = []
@@ -610,8 +614,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Fetch all pages of messages using `after` timestamp pagination
                 while (hasMore) {
                     const response = await (posthog.conversations.getMessages as any)(ticketId, after)
-                    // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
-                    if (!response || values.currentTicket?.id !== ticketId) {
+                    // Drop this result if the reader switched tickets or a newer load superseded it,
+                    // so an older snapshot can't overwrite fresher state.
+                    if (!response || values.currentTicket?.id !== ticketId || cache.messageRevision !== revision) {
                         return
                     }
                     const messages = response.messages as ConversationMessage[]
@@ -642,10 +647,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     reason: 'thread_load_failed',
                     error: e,
                 })
-                // A quiet refresh runs right after a successful send. The message did leave the
-                // browser, so an error toast here would contradict the "Message sent!" the reader
-                // just saw. Keep the telemetry, drop the toast — a later poll or reopen recovers.
-                if (!quiet) {
+                // Toast only for the load the reader is actually waiting on. A quiet refresh (the one
+                // that runs right after a successful send) never toasts, and neither does a load a newer
+                // request has already superseded — such as a poll load still in flight when the send's
+                // refresh bumped the revision. Either toast would contradict the "Message sent!" just
+                // shown. The telemetry above still counts every failure so the outage stays measurable.
+                if (!quiet && cache.messageRevision === revision) {
                     lemonToast.error('Failed to load messages. Please try again.')
                 }
             } finally {
