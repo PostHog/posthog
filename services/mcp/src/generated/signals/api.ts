@@ -590,15 +590,22 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                 zod.object({
                                     hog_function_id: zod
                                         .string()
+                                        .optional()
                                         .describe(
-                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. Absent when the owning product records the destination in some other form."
+                                        ),
+                                    url: zod
+                                        .string()
+                                        .optional()
+                                        .describe(
+                                            'Destination URL the owning product records when it has no CDP destination for this scout, e.g. a delivery target carried over by a migration. Signals stores it for that product and never delivers to it, so it is not returned on reads.'
                                         ),
                                 }),
                                 zod.null(),
                             ])
                             .optional()
                             .describe(
-                                "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
+                                "The webhook another product set up for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
                     })
                     .optional()
@@ -780,15 +787,22 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                         zod.object({
                             hog_function_id: zod
                                 .string()
+                                .optional()
                                 .describe(
-                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. Absent when the owning product records the destination in some other form."
+                                ),
+                            url: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Destination URL the owning product records when it has no CDP destination for this scout, e.g. a delivery target carried over by a migration. Signals stores it for that product and never delivers to it, so it is not returned on reads.'
                                 ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
+                        "The webhook another product set up for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -961,15 +975,22 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                         zod.object({
                             hog_function_id: zod
                                 .string()
+                                .optional()
                                 .describe(
-                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. Absent when the owning product records the destination in some other form."
+                                ),
+                            url: zod
+                                .string()
+                                .optional()
+                                .describe(
+                                    'Destination URL the owning product records when it has no CDP destination for this scout, e.g. a delivery target carried over by a migration. Signals stores it for that product and never delivers to it, so it is not returned on reads.'
                                 ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
+                        "The webhook another product set up for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()

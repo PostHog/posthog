@@ -53,6 +53,7 @@ from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENC
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
+    SignalScoutOutputDestinationsSerializer,
     SignalScoutSlackDestinationSerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -2301,6 +2302,43 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.output_destinations == destination
 
+    def test_list_reads_a_webhook_destination_that_carries_no_hog_function_id(self) -> None:
+        # Another product writes this column through the facade, which skips the write serializer,
+        # so a webhook can hold a URL instead of a CDP id. One such row must not fail the config
+        # list for the whole project.
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            output_destinations={
+                "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"},
+                "webhook": {"url": "https://hooks.example.com/t/a-token"},
+            },
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        destinations = response.json()[0]["output_destinations"]
+        assert destinations["slack"]["channel"] == "CSCOUTS|#scout-findings"
+        # The URL can carry a token, and the owning product redacts it on its own surface.
+        assert destinations["webhook"] == {}
+
+    def test_partial_update_webhook_url_is_stored_and_not_returned(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        destination = {"webhook": {"url": "https://hooks.example.com/t/a-token"}}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"] == {"slack": None, "webhook": {}}
+        config.refresh_from_db()
+        assert config.output_destinations == destination
+
     def test_partial_update_slack_dm_destination_round_trips(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
@@ -3507,3 +3545,17 @@ class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]
+
+
+class TestSignalScoutOutputDestinationsRepresentation(SimpleTestCase):
+    def test_drops_only_the_destination_it_cannot_represent(self) -> None:
+        # Another product writes this column through the facade, so a destination can reach storage
+        # in a shape the fields do not describe. One of those must not fail the whole read.
+        stored = {
+            "slack": {"channel": "CSCOUTS|#scout-findings"},
+            "webhook": {"hog_function_id": "0199-hog"},
+        }
+
+        represented = SignalScoutOutputDestinationsSerializer(stored).data
+
+        assert represented == {"webhook": {"hog_function_id": "0199-hog"}}

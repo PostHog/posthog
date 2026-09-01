@@ -22,7 +22,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.fields import empty
+from rest_framework.fields import SkipField, empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
@@ -2147,10 +2147,25 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
 
 class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     hog_function_id = serializers.CharField(
+        # Optional because the owning product may record its destination in another form. A required
+        # field here makes such a row unreadable, and one unreadable row fails the whole config list.
+        required=False,
         help_text=(
             "Id of the CDP destination delivering this scout's reports. Set by the product that "
-            "provisioned it, so it can find that destination again to update or remove it."
-        )
+            "provisioned it, so it can find that destination again to update or remove it. Absent "
+            "when the owning product records the destination in some other form."
+        ),
+    )
+    url = serializers.CharField(
+        required=False,
+        # Write-only: a destination URL can carry a token, and the owning product reads this field
+        # from its own surface, where it redacts the URL for a viewer who may not edit it.
+        write_only=True,
+        help_text=(
+            "Destination URL the owning product records when it has no CDP destination for this "
+            "scout, e.g. a delivery target carried over by a migration. Signals stores it for that "
+            "product and never delivers to it, so it is not returned on reads."
+        ),
     )
 
 
@@ -2164,11 +2179,36 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "The CDP destination another product provisioned for this scout's reports. Null or "
-            "omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the "
-            "reference lives here so the owning product can manage the destination's lifecycle."
+            "The webhook another product set up for this scout's reports. Null or omitted means no "
+            "webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here "
+            "so the owning product can manage the destination's lifecycle."
         ),
     )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        """Represent each destination on its own.
+
+        Another product writes this column through the facade, which skips this serializer, so a
+        destination can reach storage in a shape the fields here do not describe. Represented as one
+        object, such a row raises and takes the whole scout config list of that project with it, so
+        an unreadable destination drops out of the response on its own instead.
+        """
+        represented: dict[str, Any] = {}
+        for name, field in self.fields.items():
+            if field.write_only:
+                continue
+            try:
+                destination = field.get_attribute(instance)
+            except SkipField:
+                continue
+            if destination is None:
+                represented[name] = None
+                continue
+            try:
+                represented[name] = field.to_representation(destination)
+            except Exception:
+                logger.warning("signals_scout_output_destination_unreadable", destination=name)
+        return represented
 
 
 def _validate_output_destinations(value: dict, context: dict) -> dict:
