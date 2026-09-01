@@ -726,9 +726,15 @@ def clear_dashboard_from_group_type_mapping(
 
     Uses GetGroupTypeMappingByDashboardId to find the mapping, then UpdateGroupTypeMapping to clear it.
     """
+    # Imported here so a patched or faked client is picked up at call time.
+    from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
-    client = require_personhog_client()
+    client = get_personhog_client()
+    if client is None:
+        # personhog is the only group type mapping store, so without a client there is
+        # no mapping that can reference this dashboard. Let the delete proceed.
+        return
 
     def _fn() -> None:
         resp = client.get_group_type_mapping_by_dashboard_id(
