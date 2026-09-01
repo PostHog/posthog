@@ -510,41 +510,13 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
-                # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
-                # patched(): summary workflows already in flight at deploy replay the prior inline path.
-                try:
-                    if workflow.patched("signals-deferred-inbox-notification"):
-                        await workflow.start_child_workflow(
-                            SignalReportInboxNotificationWorkflow.run,
-                            InboxNotificationInput(team_id=inputs.team_id, report_id=inputs.report_id),
-                            id=SignalReportInboxNotificationWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
-                            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                            parent_close_policy=ParentClosePolicy.ABANDON,
-                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                            execution_timeout=timedelta(
-                                seconds=settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS + 600
-                            ),
-                        )
-                    else:
-                        await workflow.execute_activity(
-                            dispatch_inbox_slack_notifications_activity,
-                            DispatchInboxSlackNotificationsInput(
-                                team_id=inputs.team_id,
-                                report_id=inputs.report_id,
-                                source_products=source_products,
-                            ),
-                            start_to_close_timeout=timedelta(minutes=2),
-                            retry_policy=RetryPolicy(maximum_attempts=2),
-                        )
-                except temporalio.exceptions.WorkflowAlreadyStartedError:
-                    pass
-                except Exception:
-                    workflow.logger.exception(
-                        f"Failed to dispatch inbox notification for {inputs.report_id}",
-                    )
                 # Start implementation once the report has settled, after an optional buffer. A signal
                 # landing just after the report went READY would otherwise ship a PR for a summary the
                 # re-research is about to rewrite; waiting lets that signal fold into a re-research run.
+                # Runs before the notification below on purpose: the notification decides whether to
+                # wait for the implementation PR from the task existing on its first check, so it has
+                # to find the task already created, and a buffer that ends in a re-research must not
+                # announce the summary that re-research is about to replace.
                 # The whole block is best-effort — the report is already READY, so a failure here must
                 # not flip it to FAILED via the outer handler. patched(): in-flight histories predate it
                 # and already auto-started from the research activity, so they skip this.
@@ -579,6 +551,38 @@ class SignalReportSummaryWorkflow:
                         workflow.logger.exception(
                             f"Implementation buffer/auto-start failed for {inputs.report_id}",
                         )
+                # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
+                # patched(): summary workflows already in flight at deploy replay the prior inline path.
+                try:
+                    if workflow.patched("signals-deferred-inbox-notification"):
+                        await workflow.start_child_workflow(
+                            SignalReportInboxNotificationWorkflow.run,
+                            InboxNotificationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            id=SignalReportInboxNotificationWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
+                            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                            parent_close_policy=ParentClosePolicy.ABANDON,
+                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                            execution_timeout=timedelta(
+                                seconds=settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS + 600
+                            ),
+                        )
+                    else:
+                        await workflow.execute_activity(
+                            dispatch_inbox_slack_notifications_activity,
+                            DispatchInboxSlackNotificationsInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                source_products=source_products,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                except temporalio.exceptions.WorkflowAlreadyStartedError:
+                    pass
+                except Exception:
+                    workflow.logger.exception(
+                        f"Failed to dispatch inbox notification for {inputs.report_id}",
+                    )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(

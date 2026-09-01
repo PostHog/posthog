@@ -23,7 +23,10 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
-from products.signals.backend.temporal.inbox_notification import InboxNotificationInput
+from products.signals.backend.temporal.inbox_notification import (
+    InboxNotificationInput,
+    SignalReportInboxNotificationWorkflow,
+)
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
@@ -122,6 +125,10 @@ class _Recorder:
         self.researches = 0
         self.autostarts = 0
         self.candidate_checks = 0
+        # Auto-starts completed by the time the notification child made its first state check. The
+        # child only waits for the implementation PR if the task already exists then, so a 0 here
+        # means the card ships without the PR link.
+        self.autostarts_at_notification: list[int] = []
 
 
 def _signal_data() -> SignalData:
@@ -136,13 +143,18 @@ def _signal_data() -> SignalData:
     )
 
 
-# The deferred-notification branch starts this child workflow by name; a stub that returns
-# immediately lets the child start (and the parent proceed) without wiring its activities.
+# The deferred-notification branch starts this child workflow by name; a stub stands in for it so
+# the child can start without wiring its activities. The one activity it does run mirrors the real
+# child's first state check, which is what decides whether it waits for the implementation PR.
 @workflow.defn(name="signal-report-inbox-notification")
 class _StubInboxNotificationWorkflow:
     @workflow.run
     async def run(self, input: InboxNotificationInput) -> None:
-        return None
+        await workflow.execute_activity(
+            "record_notification_check_activity",
+            input,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
 
 
 async def _run_summary_workflow(recorder: _Recorder) -> None:
@@ -201,6 +213,12 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_autostart(input: MaybeAutostartImplementationInput) -> None:
         recorder.autostarts += 1
 
+    @activity.defn(name="record_notification_check_activity")
+    async def fake_notification_check(input: InboxNotificationInput) -> None:
+        recorder.autostarts_at_notification.append(recorder.autostarts)
+
+    report_id = str(uuid.uuid4())
+
     async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
         async with Worker(
             env.client,
@@ -218,16 +236,25 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_buffer,
                 fake_candidate,
                 fake_autostart,
+                fake_notification_check,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await asyncio.wait_for(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4())),
+                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=report_id),
                     id=f"summary-settle-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
                 ),
+                timeout=30,
+            )
+            # The notification child is detached (ABANDON), so it can outlive the parent; wait for
+            # it before asserting on what it saw.
+            await asyncio.wait_for(
+                env.client.get_workflow_handle(
+                    SignalReportInboxNotificationWorkflow.workflow_id_for(1, report_id)
+                ).result(),
                 timeout=30,
             )
 
@@ -240,6 +267,8 @@ async def test_no_buffer_autostarts_immediately_at_settle():
     assert recorder.researches == 1
     assert recorder.candidate_checks == 0
     assert recorder.autostarts == 1
+    # The task exists before the notification looks, so its card can wait for the PR.
+    assert recorder.autostarts_at_notification == [1]
 
 
 @pytest.mark.asyncio
@@ -250,6 +279,7 @@ async def test_buffer_autostarts_when_no_signal_arrives():
     assert recorder.researches == 1
     assert recorder.candidate_checks == 1
     assert recorder.autostarts == 1
+    assert recorder.autostarts_at_notification == [1]
 
 
 @pytest.mark.asyncio
@@ -261,3 +291,5 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     assert recorder.researches == 2
     assert recorder.candidate_checks == 2
     assert recorder.autostarts == 1
+    # Only the settled run notifies, so no card goes out for the summary the re-research replaced.
+    assert recorder.autostarts_at_notification == [1]
