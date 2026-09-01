@@ -127,7 +127,7 @@ export function EnvVarRows({
 
   if (rows.length === 0) {
     return wrap(
-      <div className="flex flex-col items-start gap-2 rounded-(--radius-3) border border-(--gray-5) border-dashed px-3 py-3">
+      <div className="flex flex-col items-start gap-2 rounded-(--radius-3) border border-border border-dashed px-3 py-3">
         <Text className="text-(--gray-11) text-[11.5px]">
           None yet. Add them one at a time, or paste a .env file into the first
           row.

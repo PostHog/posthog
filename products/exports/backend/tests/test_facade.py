@@ -15,7 +15,7 @@ from products.exports.backend.facade.api import (
     render_png_export,
 )
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestValidateAdhocExportContext(SimpleTestCase):

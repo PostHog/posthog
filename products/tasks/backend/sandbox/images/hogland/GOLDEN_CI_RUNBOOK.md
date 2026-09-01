@@ -25,12 +25,14 @@ same contents into a hogland snapshot, it does not change the container image.
    job additionally gates on `github.ref == 'refs/heads/master'`. This closes the
    `ref` RCE in the workflow YAML (see "Known open security issues").
 1. `render_skills` job — renders the agent skills the golden ships, the same way
-   the sandbox-base image build does (`cd-sandbox-base-image.yml`'s `build_skills`
-   job): stands up a DB, `uv sync`s, migrates, runs `hogli build:skills` to expand
-   the skill `.md.j2` templates, then merges in the context-mill skills. Uploads
-   the merged set as the `tasks-golden-skills` artifact. Rendered once, reused by
-   every cluster. It shares the master arm gate, so an unarmed nightly does not
-   pay for a full DB render.
+   `cd-sandbox-base-image.yml`'s `build_skills` job does. It stands up a DB,
+   restores the schema cache saved on master so `migrate` only tops up the newer
+   migrations, runs `setup_dev --no-data`, then `hogli build:skills` to expand the
+   skill `.md.j2` templates and merges in the context-mill skills. The DB is
+   needed because 24 skill templates call `render_hogql_example`, which reads
+   `Team.objects.first()`. Uploads the merged set as the `tasks-golden-skills`
+   artifact. Rendered once, reused by every cluster. It shares the master arm
+   gate, so an unarmed nightly renders nothing.
 2. Joins the hogland tailnet as `tag:hogland-ci` (the tag whose ACL reaches the
    `tag:hogplane` device serving the API).
 3. Authenticates to hogplane as a per-cluster `svc-ci-*` service-account
@@ -125,9 +127,9 @@ For **each** cluster the workflow targets (dev, then prod-us):
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
     clusters. The prod-us leg stays a no-op until this is set, so it does not
     fail nightly before its own principal + TrustMapping exist.
-  - `HOGLAND_CLI_REF` (**required**) — the `PostHog/hogland` ref to build the CLI
-    from. Must be a released `v*-cli` tag; the workflow fails if it is unset or
-    not a `*-cli` tag (a moving branch like `main` is not reproducible).
+  - No `HOGLAND_CLI_REF` needed — the workflow resolves the newest released
+    `vX.Y.Z-cli` tag from `PostHog/hogland` at runtime (immutable and reviewed,
+    never `main`), guarding a `v1.5.0-cli` minimum.
   - The quiet-window guard's rollout workflow is **per cluster**, hardcoded in the
     bake matrix (dev: `deploy.yml`, prod-us: `promote-to-prod.yml`) — not a shared
     var, because the two clusters roll out through different workflows. The guard
@@ -138,9 +140,12 @@ For **each** cluster the workflow targets (dev, then prod-us):
     cluster means adding its rollout workflow file to the matrix.
   - `TS_HOGLAND_CI_CLIENT_ID`, `TS_HOGLAND_CI_AUDIENCE` — shared with
     `hogbox-preview-env.yml`; already present if preview is provisioned.
-- **Secrets** — a GitHub App with read access to `PostHog/hogland` (for the CLI
-  checkout), exposed as `GH_APP_HOGLAND_CLI_APP_ID` +
-  `GH_APP_HOGLAND_CLI_PRIVATE_KEY`. See `/managing-github-actions-secrets`.
+- **Secrets** — the workflow checks out `PostHog/hogland` to build the CLI with
+  the existing `GH_APP_HOGLAND_DEPLOYER` GitHub App (org secrets
+  `GH_APP_HOGLAND_DEPLOYER_APP_ID` + `GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY`),
+  minted read-only: `contents: read` for the checkout, `actions: read` so the
+  quiet-window guard can list hogland rollout runs. The App must be installed on
+  `PostHog/hogland` with both.
 
 ## Running it
 

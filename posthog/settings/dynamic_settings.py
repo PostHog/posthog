@@ -257,6 +257,16 @@ CONSTANCE_CONFIG = {
         "Whether rate limiting is enabled",
         bool,
     ),
+    "GROWTH_SIGNUP_ENRICHMENT_ENABLED": (
+        get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool),
+        "Kill switch for signup enrichment (products/growth/backend/enrichment): dispatch at signup, the daily re-enrichment sweep, and the recovery backfill. Every pod reads this row, so it is the one per-region toggle.",
+        bool,
+    ),
+    "GROWTH_ICP_REENRICH_DAILY_CAP": (
+        get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int),
+        "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
+        int,
+    ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
@@ -345,6 +355,8 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
+    "GROWTH_ICP_REENRICH_DAILY_CAP",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",

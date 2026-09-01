@@ -501,6 +501,114 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+_AWS_CREDENTIALS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "aws_access_key_id": {"type": "string"},
+        "aws_secret_access_key": {"type": "string"},
+    },
+    "required": ["aws_access_key_id", "aws_secret_access_key"],
+}
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
+            _AWS_CREDENTIALS_SCHEMA,
+        ],
+    }
+)
+class RedshiftCopyBucketCredentialsField(serializers.JSONField):
+    """Inline AWS credentials or the id of an aws-s3-kind Integration."""
+
+    pass
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
+            {"type": "string", "description": "ARN of an IAM role attached to the Redshift cluster."},
+            _AWS_CREDENTIALS_SCHEMA,
+        ],
+    }
+)
+class RedshiftCopyAuthorizationField(serializers.JSONField):
+    """IAM role ARN, inline AWS credentials, or the id of an aws-s3-kind Integration."""
+
+    pass
+
+
+class RedshiftCopyInputsSerializer(serializers.Serializer):
+    """S3 staging configuration for a Redshift batch export running in COPY mode."""
+
+    s3_bucket = serializers.CharField(help_text="S3 bucket where files are staged before the Redshift COPY.")
+    region_name = serializers.CharField(help_text="AWS region of the staging S3 bucket.")
+    s3_key_prefix = serializers.CharField(help_text="Key prefix for staged files in the S3 bucket.")
+    authorization = RedshiftCopyAuthorizationField(
+        help_text=(
+            "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached "
+            "to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
+        ),
+    )
+    bucket_credentials = RedshiftCopyBucketCredentialsField(
+        help_text=(
+            "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an "
+            "aws-s3-kind Integration."
+        ),
+    )
+
+
+class RedshiftDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for a Redshift batch-export destination.
+
+    Connection credentials may live in a linked Integration (when one is provided) or inline in
+    this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+    `products/batch_exports/backend/service.py`.
+    """
+
+    database = serializers.CharField(help_text="Redshift database name to connect to.")
+    host = serializers.CharField(
+        required=False,
+        help_text=(
+            "Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift "
+            "integration; plain Redshift integrations store the host themselves."
+        ),
+    )
+    schema = serializers.CharField(
+        required=False,
+        default="public",
+        help_text="Redshift schema name containing the destination table.",
+    )
+    table_name = serializers.CharField(
+        required=False,
+        default="events",
+        help_text="Redshift table name to write exported rows into.",
+    )
+    port = serializers.IntegerField(
+        required=False,
+        default=5439,
+        help_text="Port the Redshift server listens on.",
+    )
+    properties_data_type = serializers.ChoiceField(
+        choices=["varchar", "super"],
+        required=False,
+        default="varchar",
+        help_text="Data type used for JSON-like columns such as event properties.",
+    )
+    mode = serializers.ChoiceField(
+        choices=["INSERT", "COPY"],
+        required=False,
+        default="INSERT",
+        help_text="How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.",
+    )
+    copy_inputs = RedshiftCopyInputsSerializer(
+        required=False,
+        help_text="S3 staging configuration, required when mode is 'COPY'.",
+    )
+
+
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="BatchExportDestinationConfig",
@@ -512,6 +620,7 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
             "AwsS3": AwsS3DestinationConfigSerializer,
             "S3Compatible": S3CompatibleDestinationConfigSerializer,
             "Snowflake": SnowflakeDestinationConfigSerializer,
+            "Redshift": RedshiftDestinationConfigSerializer,
         },
         resource_type_field_name="type",
     )
@@ -617,6 +726,20 @@ class SnowflakeDestinationRequestSerializer(serializers.Serializer):
     config = SnowflakeDestinationConfigSerializer()
 
 
+class RedshiftDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating a Redshift batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["Redshift"])
+    integration_id = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "ID of an aws-redshift-kind Integration providing connection credentials. Preferred over "
+            "inline credentials. Use the integrations-list MCP tool to find one."
+        ),
+    )
+    config = RedshiftDestinationConfigSerializer()
+
+
 BatchExportDestinationRequest = PolymorphicProxySerializer(
     component_name="BatchExportDestinationRequest",
     serializers={
@@ -627,6 +750,7 @@ BatchExportDestinationRequest = PolymorphicProxySerializer(
         "AwsS3": AwsS3DestinationRequestSerializer,
         "S3Compatible": S3CompatibleDestinationRequestSerializer,
         "Snowflake": SnowflakeDestinationRequestSerializer,
+        "Redshift": RedshiftDestinationRequestSerializer,
     },
     resource_type_field_name="type",
 )
@@ -637,10 +761,11 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
-    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for every one of
-    those except Snowflake, where inline credentials remain supported for the time being. Existing
-    Postgres and Snowflake exports created before integrations keep their inline credentials.
-    Runtime validation remains `BatchExportDestinationSerializer.validate_destination`.
+    S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
+    every one of those except Snowflake and Redshift, where inline credentials remain supported for
+    the time being. Existing Postgres, Snowflake and Redshift exports created before integrations
+    keep their inline credentials. Runtime validation remains
+    `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -711,21 +836,36 @@ S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
 }
 
 
+def _coerce_integration_id(value: typing.Any) -> int | None:
+    """Return the integration id encoded in a Redshift COPY credential value, if any.
+
+    `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
+    leaves on the decrypt round trip, so an id may arrive as an int or a numeric string.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model.
 
     The `config` field is polymorphic and typed only for destinations that keep
     credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-    AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
-    typed OpenAPI schema. Secret fields are stripped from `config` on read.
+    AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape
+    but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
     """
 
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
             "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, "
-            "Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped "
-            "from responses."
+            "Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are "
+            "stripped from responses."
         ),
     )
     integration = TeamScopedPrimaryKeyRelatedField(
@@ -743,7 +883,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
             "AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake "
-            "(inline credentials remain supported); unused for other types."
+            "and Redshift (inline credentials remain supported); unused for other types."
         ),
     )
 
@@ -785,7 +925,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         # resolve them at run time), so they must be required here only when no Integration is linked.
         # For the S3 family this is only possible when updating an export that predates integrations:
         # creating one without an Integration is rejected in `validate_destination`.
-        # TODO: remove this code once inline credentials are gone for S3 and integrations are enforced for Snowflake
+        # TODO: remove this code once inline credentials are gone for S3 and integrations are enforced
+        # for Snowflake and Redshift
         conditionally_required: set[str] = set()
         if attrs.get("integration") is None:
             if export_type in S3_FAMILY_TYPES:
@@ -794,6 +935,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                     conditionally_required.add("endpoint_url")
             elif export_type == BatchExportDestination.Destination.SNOWFLAKE:
                 conditionally_required = {"account", "user"}
+            elif export_type == BatchExportDestination.Destination.REDSHIFT:
+                conditionally_required = {"user", "password", "host"}
 
         for destination_field in destination_fields:
             is_required = (
@@ -1455,6 +1598,29 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 )
 
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
+            integration = destination_attrs.get("integration")
+
+            # Sticky integration: an export that uses one cannot drop back to inline credentials.
+            # TODO: remove this guard once integrations are mandatory for Redshift and inline credentials are gone.
+            if instance is not None and instance.destination.integration is not None and integration is None:
+                raise serializers.ValidationError(
+                    "Cannot remove the integration from a Redshift batch export that uses one. "
+                    "Re-send its `integration` to keep it (or a different one to swap)."
+                )
+
+            if integration is not None:
+                # (Team ownership is already enforced by the team-scoped `integration` field.)
+                if integration.kind != Integration.IntegrationKind.AWS_REDSHIFT:
+                    raise serializers.ValidationError("Integration is not a Redshift integration.")
+
+                # Only plain Redshift integrations store a host; AWS-flavor ones obtain
+                # temporary credentials for a cluster endpoint that stays in the export config.
+                if "host" not in integration.config and not merged_config.get("host"):
+                    raise serializers.ValidationError(
+                        "A 'host' is required when using an AWS Redshift integration: "
+                        "set it to the cluster or workgroup endpoint."
+                    )
+
             mode = merged_config.get("mode")
 
             if mode == "COPY":
@@ -1467,15 +1633,60 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("Missing required input for 'COPY'")
 
                 credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
-                if credential_keys - copy_inputs["bucket_credentials"].keys():
+
+                bucket_credentials = copy_inputs["bucket_credentials"]
+                bucket_integration_id = _coerce_integration_id(bucket_credentials)
+                authorization = copy_inputs.get("authorization")
+                authorization_integration_id = _coerce_integration_id(authorization)
+
+                existing_copy_inputs = existing_config.get("copy_inputs") or {}
+
+                for field_name, copy_integration_id in (
+                    ("bucket_credentials", bucket_integration_id),
+                    ("authorization", authorization_integration_id),
+                ):
+                    # Sticky like the top-level integration: COPY credentials that reference an
+                    # integration cannot drop back to inline values.
+                    # TODO: remove this guard once integrations are mandatory for Redshift and
+                    # inline credentials are gone.
+                    if (
+                        instance is not None
+                        and copy_integration_id is None
+                        and _coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
+                    ):
+                        raise serializers.ValidationError(
+                            f"Cannot switch '{field_name}' from an integration to inline credentials. "
+                            "Send a different integration ID to swap, or omit the field to keep the current one."
+                        )
+                    if copy_integration_id is None:
+                        continue
+                    # These ids live inside `config` rather than the team-scoped `integration`
+                    # field, so team ownership must be checked here.
+                    if not Integration.objects.filter(
+                        id=copy_integration_id,
+                        team_id=self.context["team_id"],
+                        kind=Integration.IntegrationKind.AWS_S3,
+                    ).exists():
+                        raise serializers.ValidationError(
+                            f"'{field_name}' does not reference an AWS S3 integration of this project."
+                        )
+
+                if bucket_integration_id is None and (
+                    not isinstance(bucket_credentials, dict) or credential_keys - bucket_credentials.keys()
+                ):
                     raise serializers.ValidationError("Missing required bucket credentials for 'COPY'")
 
-                authorization = copy_inputs.get("authorization")
-                if isinstance(authorization, dict):
-                    if credential_keys - authorization.keys():
-                        raise serializers.ValidationError("Missing required credentials for 'COPY'")
-                elif isinstance(authorization, str) and not authorization.strip():
-                    raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+                if authorization_integration_id is None:
+                    if isinstance(authorization, dict):
+                        if credential_keys - authorization.keys():
+                            raise serializers.ValidationError("Missing required credentials for 'COPY'")
+                    elif isinstance(authorization, str):
+                        if not authorization.strip():
+                            raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+                    else:
+                        raise serializers.ValidationError(
+                            "Authorization for 'COPY' must be an IAM role ARN, AWS credentials, or an integration ID."
+                        )
 
         if destination_type == BatchExportDestination.Destination.WORKFLOWS:
             team_id = self.context["team_id"]
@@ -1499,14 +1710,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
             BatchExportDestination.Destination.POSTGRES,
             BatchExportDestination.Destination.REDSHIFT,
         ):
-            # Integration-backed Postgres exports keep the host in the linked Integration
-            # rather than in `config`; inline configs (Redshift, legacy Postgres) keep it in
-            # `config`. Prefer the Integration's host when one is provided so we don't skip
+            # PostgreSQL-server integrations (Postgres, plain Redshift) keep the host in the
+            # linked Integration; AWS Redshift integrations and inline configs keep it in
+            # `config`. Prefer the Integration's host when it has one so we don't skip
             # SSRF validation (and don't `KeyError` on a `config` that has no `host`).
             integration = destination_attrs.get("integration")
-            if integration is not None:
-                host = integration.config.get("host")
-            else:
+            host = integration.config.get("host") if integration is not None else None
+            if host is None:
                 host = merged_config.get("host")
 
             if host is not None:
@@ -1689,7 +1899,14 @@ def recursive_dict_merge(
         if not isinstance(value, dict):
             continue
 
-        merged[key] = recursive_dict_merge(old.get(key, None) or {}, new.get(key, None) or {})
+        # Recurse only when both sides are dicts: a dict replacing a scalar (e.g. inline
+        # credentials replacing an IAM role or an integration id) is an overwrite, not a merge.
+        old_value = old.get(key)
+        new_value = new.get(key)
+        merged[key] = recursive_dict_merge(
+            old_value if isinstance(old_value, dict) else {},
+            new_value if isinstance(new_value, dict) else {},
+        )
 
     return merged
 

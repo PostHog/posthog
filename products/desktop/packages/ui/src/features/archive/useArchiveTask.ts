@@ -183,7 +183,7 @@ function makeOrchestrationDeps(
   };
 }
 
-export async function archiveTaskImperative(
+async function archiveTaskImperative(
   taskId: string,
   queryClient: QueryClient,
   keys: ArchiveCacheKeys,

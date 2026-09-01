@@ -67,9 +67,14 @@ jobs:
                       posthog-test-durations-
 
             - name: Set the previous map aside
+              # .test_durations is not tracked, so there is nothing to restore it from
+              # and a cache miss leaves no file at all.
               run: |
-                  cp .test_durations /tmp/previous_durations
-                  git checkout -- .test_durations
+                  if [ -f .test_durations ]; then
+                      mv .test_durations /tmp/previous_durations
+                  else
+                      echo "::warning::No cached map restored; a drifting Products slice has no stand-in"
+                  fi
 
             - name: Download timing artifacts
               env:
@@ -103,12 +108,21 @@ jobs:
                   set -e
                   if [ "$products_status" -ne 0 ]; then
                       echo "::warning::Products durations refresh exited $products_status; keeping the previous products slice. Drift or an incomplete JUnit set are the expected causes, see the log above."
-                      # Only entries the fresh slices do not carry: the outlier merge would
-                      # otherwise let a stale value here beat a fresh one for the same test.
-                      jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations 2>/dev/null) > /tmp/fresh_durations
-                      jq --slurpfile fresh /tmp/fresh_durations \
-                          'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
-                          /tmp/previous_durations > /tmp/products_durations
+                      if [ -f /tmp/previous_durations ]; then
+                          # Only entries the fresh slices do not carry: the outlier merge would
+                          # otherwise let a stale value here beat a fresh one for the same test.
+                          jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations 2>/dev/null) > /tmp/fresh_durations
+                          jq --slurpfile fresh /tmp/fresh_durations \
+                              'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
+                              /tmp/previous_durations > /tmp/products_durations
+                      else
+                          # No cached slice to stand in and no fresh one. A map with no product
+                          # entries would still become the newest cache and the latest successful
+                          # artifact, so every consumer would fall back to the file-count estimate
+                          # and under-shard the fixture-heavy products. Leave the older map newest.
+                          echo "::error::Products slice failed with no previous map to stand in; refusing to publish a map without product entries"
+                          exit 1
+                      fi
                   fi
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations \

@@ -123,7 +123,6 @@ export function ReportCardView(props: ReportCardViewProps) {
                 <ConventionalCommitScopeTag
                   type={conventionalTitle.type}
                   scope={conventionalTitle.scope}
-                  compact
                 />
               )
             }

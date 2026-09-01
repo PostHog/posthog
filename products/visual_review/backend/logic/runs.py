@@ -336,12 +336,42 @@ def complete_run(run_id: UUID) -> Run:
 def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     run = run_queries.get_run_with_snapshots(run_id)
 
-    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
-    run.error_message = error_message
-    run.completed_at = timezone.now()
-    run.save(update_fields=["status", "error_message", "completed_at"])
+    if error_message:
+        # A failing run has to reach FAILED even when the recount is what failed. The diff
+        # task calls this from its exception handler, so recounting first would hit the same
+        # failure again and leave the run in PROCESSING while clients poll it.
+        run.status = RunStatus.FAILED
+        run.error_message = error_message
+        run.completed_at = timezone.now()
+        run.save(update_fields=["status", "error_message", "completed_at"])
+        gating._update_counts_and_post_status(run)
+        return run
 
-    gating._update_counts_and_post_status(run)
+    # Recount first, so one write publishes the status and the settled counts together.
+    # The counts `complete_run` saved come from the hash classification, and the diff task
+    # then reclassifies every snapshot whose diff came in under the threshold. A reader
+    # that sees COMPLETED before the recount therefore gets counts that still report drift
+    # the run no longer has, and the CLI fails CI on them.
+    try:
+        snapshots = gating._recount(run)
+    except Exception as exc:
+        # Terminalize before the exception leaves. `complete_run` runs its no-change path
+        # synchronously with no exception handler behind it, and it returns early on a run
+        # that is already PROCESSING, so every later retry would be a no-op. Report the
+        # failure rather than publish counts the recount did not settle.
+        logger.exception("visual_review.recount_failed", run_id=str(run_id))
+        run.status = RunStatus.FAILED
+        run.error_message = f"Recount failed: {exc}"
+        run.completed_at = timezone.now()
+        run.save(update_fields=["status", "error_message", "completed_at"])
+        raise
+
+    run.status = RunStatus.COMPLETED
+    run.error_message = ""
+    run.completed_at = timezone.now()
+    run.save(update_fields=["status", "error_message", "completed_at", *gating.COUNT_FIELDS])
+
+    gating._post_status(run, snapshots)
 
     return run
 

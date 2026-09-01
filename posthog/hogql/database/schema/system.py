@@ -1,4 +1,6 @@
+from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -25,6 +27,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -32,9 +35,16 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
 
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
 from products.customer_analytics.backend.facade.hogql import (
+    account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_email_thread_links,
+    account_email_threads,
+    account_meetings,
     account_relationship_definitions,
     account_relationships,
     account_resource_notebooks,
@@ -1317,12 +1327,33 @@ file_system: PostgresTable = PostgresTable(
     },
 )
 
-activity_logs: PostgresTable = PostgresTable(
+
+class _ActivityLogsTable(PostgresTable):
+    """Compiles its visibility rules on first use rather than at import: the rule list lives under
+    `posthog.models`, and this module keeps the ORM off its import path."""
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        # The Canvas rule reads `system.canvases`, which access control removes from the schema for a
+        # caller denied the canvas resource; without the table it drops Canvas rows instead.
+        canvases_readable = (
+            context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
+        )
+        return list(activity_visibility_predicates(canvases_readable))
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
+
+        return activity_log_retention_start_for_team(team, team_id)
+
+
+activity_logs: _ActivityLogsTable = _ActivityLogsTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
     access_scope="activity_log",
     # Matches `premium_feature_on_cloud` on the REST activity-log viewsets, which gate the same rows.
     required_feature_on_cloud=AvailableFeature.AUDIT_LOGS,
+    # Same lookback the REST viewsets apply, so the SQL surface can't read past the plan's window.
+    retention_field="created_at",
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),
@@ -2159,6 +2190,11 @@ support_tickets: PostgresTable = PostgresTable(
         "ticket_number": IntegerDatabaseField(
             name="ticket_number", description="Human-friendly sequential ticket number."
         ),
+        "organization_id": StringDatabaseField(
+            name="organization_id",
+            nullable=True,
+            description="Customer organization key. This matches a customer analytics account's external_id.",
+        ),
         "channel_source": StringDatabaseField(
             name="channel_source", description="Channel the ticket came in on, e.g. 'email', 'widget'."
         ),
@@ -2836,6 +2872,14 @@ class SystemTables(TableNode):
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
+        ),
+        "_account_meetings": TableNode(name="_account_meetings", table=account_meetings, hidden=True),
+        "_account_channel_summaries": TableNode(
+            name="_account_channel_summaries", table=account_channel_summaries, hidden=True
+        ),
+        "_account_email_threads": TableNode(name="_account_email_threads", table=account_email_threads, hidden=True),
+        "_account_email_thread_links": TableNode(
+            name="_account_email_thread_links", table=account_email_thread_links, hidden=True
         ),
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True

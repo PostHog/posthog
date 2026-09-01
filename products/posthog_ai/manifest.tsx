@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             iconType: 'task',
             // Master/detail with internally-scrolling columns — the scene fills the viewport height.
             layout: 'app-full-scene-height',
+            docsHref: 'https://posthog.com/docs/posthog-desktop/tasks',
         },
     },
     routes: {

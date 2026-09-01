@@ -14,6 +14,8 @@ describe("isSupportedReasoningEffort", () => {
     ["claude", "zai-org/glm-5.3", "high", true],
     ["claude", "zai-org/glm-5.3", "max", true],
     ["claude", "zai-org/glm-5.3", "medium", false],
+    ["claude", "zai-org/glm-5.3-flash", "high", true],
+    ["claude", "zai-org/glm-5.3-flash", "medium", false],
     ["claude", "claude-opus-4-8", "minimal", false],
     ["claude", "claude-opus-5", "ultracode", true],
     ["claude", "claude-sonnet-5", "ultracode", true],

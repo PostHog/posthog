@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 
 /** Shows a freshly-issued gateway token exactly once (creation or rotation). */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function NewTokenDialog({
   account,
   onClose,

@@ -38,6 +38,7 @@ const CLAUDE_MODEL_EFFORTS: Readonly<
   "claude-fable-5": EXTENDED_EFFORTS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
   "zai-org/glm-5.3": ["high", "max"],
+  "zai-org/glm-5.3-flash": ["high", "max"],
   "claude-opus-5": EXTENDED_EFFORTS,
 };
 

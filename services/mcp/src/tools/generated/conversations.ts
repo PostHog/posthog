@@ -245,6 +245,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         if (params.priority !== undefined) {
             body['priority'] = params.priority
         }
+        if (params.assignee !== undefined) {
+            body['assignee'] = params.assignee
+        }
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at
         }

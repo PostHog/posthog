@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
+    run_windowed_job_created_floor_constant,
 )
 
 _LIMIT = 200
@@ -54,7 +55,11 @@ _AGGREGATE_SELECT = f"""
         countIf(conclusion IN ('failure', 'timed_out')) / nullIf(countIf(status = 'completed'), 0) AS failure_rate,
         countIf(run_attempt > 1) AS retry_job_count
     FROM __JOBS_SOURCE__ AS j
-    WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
+    -- NOT is_rerun_copy: "Re-run failed jobs" re-lists every already-passed job under the new attempt
+    -- with the earlier attempt's timestamps. Counting those would double every duration sample and
+    -- report retry pressure for jobs nobody retried.
+    WHERE NOT is_rerun_copy
+        AND workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY job_name
     ORDER BY job_count DESC
     LIMIT {_LIMIT}
@@ -89,8 +94,12 @@ def query_job_aggregates(
     date_to: datetime | None,
     branch: str | None,
 ) -> list[WorkflowJobAggregate]:
-    jobs_source = curated.jobs_source()
-    cost_source = curated.job_cost_source()
+    # Both templates window the job's OWN created_at, but this query EXCLUDES re-run copies, and a copy
+    # is only recognisable while its original attempt is still in the scan: a re-run a day or more after
+    # the original push would otherwise pull the copy inside the window, drop the original below a tight
+    # floor, and count the copy as an execution. So take the wide floor, same as the cost surfaces.
+    jobs_source = curated.jobs_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True)
     if jobs_source is None or cost_source is None:
         return []
 
@@ -98,6 +107,7 @@ def query_job_aggregates(
     placeholders: dict[str, ast.Expr] = {
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
+        "job_created_floor": run_windowed_job_created_floor_constant(date_from),
     }
     # Shared filter clauses (each registers its own placeholder). The jobs/cost templates window and
     # branch-filter on the per-job created_at + head_branch; the run-count template reads the run

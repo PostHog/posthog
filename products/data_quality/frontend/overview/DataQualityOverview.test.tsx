@@ -165,7 +165,10 @@ describe('DataQualityOverview', () => {
         await waitFor(() => expect(runSubjectButtons()).toHaveLength(1))
 
         const disclosure = queryAll('[data-attr="data-quality-subject-disclosure"]')[0]
-        const link = document.querySelector('a[href="/models/node-1"]')!
+        // Suffix match: the rendered href carries the /project/:id prefix, so an exact match on the
+        // path would find nothing and the assertion below would pass on a null link.
+        const link = document.querySelector('a[href$="/models/node-1/tests"]')
+        expect(link).not.toBeNull()
         expect(disclosure.contains(link)).toBe(false)
         expect(disclosure.contains(runSubjectButtons()[0])).toBe(false)
         expect(disclosure.getAttribute('aria-expanded')).toEqual('true')

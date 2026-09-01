@@ -597,6 +597,22 @@ export const accountsRelationshipsCreate = async (
     })
 }
 
+export const getAccountsRelationshipsDestroyUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/`
+}
+
+export const accountsRelationshipsDestroy = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountsRelationshipsDestroyUrl(projectId, accountId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAccountsRelationshipsEndCreateUrl = (projectId: string, accountId: string, id: string) => {
     return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/end/`
 }

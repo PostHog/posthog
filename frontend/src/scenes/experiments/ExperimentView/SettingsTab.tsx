@@ -9,7 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { DEFAULT_LOOKBACK_DAYS } from '../constants'
+import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getBaselineVariantKey } from '../utils'

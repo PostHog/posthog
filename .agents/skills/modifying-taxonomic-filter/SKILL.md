@@ -140,9 +140,15 @@ The rebuild is opt-in in exactly **two consumer wrappers**:
 `TaxonomicPopover.tsx` and
 `PropertyFilters/components/TaxonomicPropertyFilter.tsx`. Both check
 `TAXONOMIC_FILTER_MENU_REBUILD` and render `<TaxonomicFilterMenu>` or the
-legacy `<TaxonomicFilter>`. Call sites that build their own popover (e.g.
-`ActionFilterRow`) never see the rebuild — so "does this reach the
-rebuild?" depends on the call site, not a single global switch.
+legacy `<TaxonomicFilter>`. A call site reaching one of those wrappers can
+still land on the legacy path: `TaxonomicPopover` renders the rebuild only
+when `newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref
+== null`), because the rebuilt menu cannot honour those three capabilities.
+So "does this reach the rebuild?" depends on the wrapper _and_ the props
+that call site passes, not a single global switch — `ActionFilterRow` goes
+through `TaxonomicPopover` and passes none of the three, so it does reach
+the rebuild. Only a call site that hand-rolls its own popover around
+`<TaxonomicFilter>` bypasses the wrappers entirely.
 
 **Touching tab/group rendering means testing all three surfaces.**
 

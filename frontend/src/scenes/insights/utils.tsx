@@ -69,9 +69,9 @@ import {
 
 import { insightLogic } from './insightLogic'
 
-export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
+export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null | undefined): boolean => {
     return (
-        filter !== null &&
+        filter != null &&
         filter.type === EntityTypes.EVENTS &&
         filter.id === null &&
         (!filter.name || filter.name === 'All events')
@@ -98,7 +98,7 @@ export const formatEventName = (name: string | undefined | null): string | undef
 }
 
 export const getDisplayNameFromEntityFilter = (
-    filter: EntityFilter | ActionFilter | null,
+    filter: EntityFilter | ActionFilter | null | undefined,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings

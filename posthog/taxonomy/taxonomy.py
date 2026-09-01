@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from typing import Literal, NotRequired, TypedDict
 
 STALE_EVENT_DAYS = 30
@@ -18,6 +19,18 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+
+
+def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
+    """Whether an LLM prompt must leave this entry out."""
+    return bool(definition.get("system") or definition.get("ignored_in_assistant"))
+
+
+def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]]:
+    """The entries of a taxonomy group that an LLM prompt may show."""
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items():
+        if not is_hidden_from_assistant(definition):
+            yield name, definition
 
 
 """
@@ -488,6 +501,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
         },
+        # Descriptions here must stay in step with the matching workflow email metric definitions in
+        # products/workflows/frontend/Workflows/workflowMetricsSummaryLogic.ts, since the two surfaces
+        # count the same thing.
+        "$workflows_email_sent": {
+            "label": "Workflow email sent",
+            "description": "Fires when a workflow sends an email to a recipient.",
+        },
+        "$workflows_email_delivered": {
+            "label": "Workflow email delivered",
+            "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
+        },
+        "$workflows_email_failed": {
+            "label": "Workflow email failed",
+            "description": "Fires when a workflow email could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.",
+        },
+        "$workflows_email_opened": {
+            "label": "Workflow email opened",
+            "description": "Fires when a recipient opens a workflow email. Emails sent without open tracking can never record an open, so they are missing from this count.",
+        },
+        "$workflows_email_link_clicked": {
+            "label": "Workflow email link clicked",
+            "description": "Fires when a recipient clicks a link in a workflow email. Emails sent without click tracking can never record a click, so they are missing from this count.",
+        },
+        "$workflows_email_bounced": {
+            "label": "Workflow email bounced",
+            "description": "Fires when a workflow email bounces.",
+        },
+        "$workflows_email_blocked": {
+            "label": "Workflow email marked as spam",
+            "description": 'Fires when a recipient reports a workflow email as spam. Despite the event name, this does not count blocked mail: it counts spam complaints that mailbox providers pass back through their feedback loops. Gmail does not send those reports, so a Gmail user marking an email as spam is not counted here. Workflow metrics show the same count as "Marked as spam".',
+        },
+        "$workflows_email_unsubscribed": {
+            "label": "Workflow email unsubscribed",
+            "description": "Fires when a recipient unsubscribes from workflow emails, through the one-click unsubscribe link or the preferences page. The `category` property holds the message category they left, or `$all` when they opted out of everything.",
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "label": "Workflow email tracking consent updated",
+            "description": "Fires when a recipient changes whether workflow emails can track their opens and clicks, on the email preferences page.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -780,12 +832,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
@@ -2558,7 +2610,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent"],
+            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
@@ -2886,6 +2938,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP region",
             "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
+        },
+        "$mcp_scope_preset": {
+            "label": "MCP scope preset",
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": ["scout", "research", "implementation", "sandbox", "user"],
         },
         "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
@@ -3358,6 +3415,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$issue_description": {
             "label": "Issue description",
             "description": "The description of the error tracking issue this exception belongs to.",
+            "type": "String",
+        },
+        "$issue_severity": {
+            "label": "Issue severity",
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": ["low", "medium", "high", "critical"],
             "type": "String",
         },
         "$exception_release": {
@@ -3959,10 +4022,13 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
 
+# Event properties that only carry person property updates for ingestion to apply. Querying them
+# is deprecated, so every place that offers properties to pick from — the taxonomic filter, the
+# property definitions API, HogQL and Hog autocomplete, the AI taxonomy — leaves them out.
+QUERY_DEPRECATED_EVENT_PROPERTIES: set[str] = {"$set", "$set_once"}
+
 IGNORED_EVENT_NAMES: list[str] = [
-    name
-    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
-    if defn.get("system") or defn.get("ignored_in_assistant")
+    name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
 ]
 
 # Core PostHog events, derived from the taxonomy. Used to determine which events

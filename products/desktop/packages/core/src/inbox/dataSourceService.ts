@@ -2,12 +2,7 @@ import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { inject, injectable } from "inversify";
 import { LINEAR_OAUTH_FLOW, type LinearOAuthFlow } from "./identifiers";
 
-export type DataSourceType =
-  | "github"
-  | "linear"
-  | "jira"
-  | "zendesk"
-  | "pganalyze";
+type DataSourceType = "github" | "linear" | "jira" | "zendesk" | "pganalyze";
 
 const REQUIRED_SCHEMAS: Record<DataSourceType, string[]> = {
   github: ["issues"],
@@ -19,7 +14,7 @@ const REQUIRED_SCHEMAS: Record<DataSourceType, string[]> = {
 
 const FULL_TABLE_REPLICATION = "full_refresh" as const;
 
-export function schemasPayload(source: DataSourceType) {
+function schemasPayload(source: DataSourceType) {
   return REQUIRED_SCHEMAS[source].map((name) => ({
     name,
     should_sync: true,

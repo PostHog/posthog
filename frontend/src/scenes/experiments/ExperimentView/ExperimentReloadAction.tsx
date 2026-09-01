@@ -12,7 +12,8 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { hasEnded } from 'scenes/experiments/experimentStatus'
+
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 
 import { experimentLogic } from '../experimentLogic'
 

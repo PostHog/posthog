@@ -555,11 +555,16 @@ def execute_bytecode(
                         push_stack(functions[name](*args))
                     elif name in STL:
                         check_allowed(name)
+                        stl_fn = STL[name]
+                        if stl_fn.minArgs is not None and arg_count < stl_fn.minArgs:
+                            raise HogVMException(f"Function {name} requires at least {stl_fn.minArgs} arguments")
+                        if stl_fn.maxArgs is not None and arg_count > stl_fn.maxArgs:
+                            raise HogVMException(f"Function {name} requires at most {stl_fn.maxArgs} arguments")
                         if version == 0:
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
                             args = stack_keep_first_elements(len(stack) - arg_count)
-                        push_stack(STL[name].fn(args, team, stdout, remaining_timeout()))
+                        push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
                     elif name in BYTECODE_STL:
                         arg_names = BYTECODE_STL[name][0]
                         if len(arg_names) != arg_count:
