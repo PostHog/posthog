@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="batchimport",
             index=models.Index(
-                fields=["created_at", "leased_until"],
+                fields=["created_at"],
                 name="batchimport_running_claim_idx",
                 condition=models.Q(status="running"),
             ),
