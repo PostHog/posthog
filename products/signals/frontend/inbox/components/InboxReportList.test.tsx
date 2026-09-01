@@ -100,4 +100,36 @@ describe('InboxReportList', () => {
         await screen.findByText('Report page-2')
         expect(requestedOffsets).toEqual(['0', '1'])
     })
+
+    it('shows an error with retry when the first page fails, and recovers on retry', async () => {
+        let firstPageAttempts = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const { searchParams } = new URL(request.url)
+                    // The badge count request must still succeed — a non-zero count is what used to
+                    // hold the skeleton up forever once the page load failed.
+                    if (searchParams.get('limit') === '1') {
+                        return [200, { count: 5, next: null, previous: null, results: [] }]
+                    }
+                    firstPageAttempts += 1
+                    if (firstPageAttempts === 1) {
+                        return [500, { detail: 'boom' }]
+                    }
+                    return [200, { count: 5, next: null, previous: null, results: [makeReport('recovered')] }]
+                },
+            },
+        })
+
+        render(<InboxReportList tabKey="reports" Card={StubCard} emptyState={{ content: <div>empty</div> }} />)
+
+        const retry = await screen.findByText('Retry')
+        expect(screen.getByText("Couldn't load these reports.")).toBeInTheDocument()
+
+        act(() => retry.click())
+
+        await screen.findByText('Report recovered')
+        expect(screen.queryByText("Couldn't load these reports.")).not.toBeInTheDocument()
+    })
 })
