@@ -192,14 +192,21 @@ class QueryCoalescer:
         except (RedisError, orjson.JSONDecodeError):
             return None
 
-    def store_success_response(self, status_code: int, content: bytes, content_type: str) -> None:
-        """Store full HTTP success response for followers to replay."""
+    def store_success_response(
+        self, status_code: int, content: bytes, content_type: str, retry_after: Optional[str] = None
+    ) -> None:
+        """Store full HTTP success response for followers to replay.
+
+        `retry_after` carries the leader's Retry-After header so a coalesced 503/504
+        follower gets the same back-off window as the leader instead of no header.
+        """
         try:
             payload = orjson.dumps(
                 {
                     "status": status_code,
                     "body": content.decode("utf-8") if isinstance(content, bytes) else content,
                     "content_type": content_type,
+                    "retry_after": retry_after,
                 }
             )
             self._redis.set(self._done_key, payload, ex=DONE_TTL_SECONDS)
@@ -324,7 +331,9 @@ class QueryCoalescingMiddleware:
             if response.status_code < 400 or response.status_code >= 500:
                 # Coalesce successes (2xx) and server errors (5xx).
                 # 4xx are user-specific (permissions, validation) and must not be shared.
-                coalescer.store_success_response(response.status_code, response.content, content_type)
+                coalescer.store_success_response(
+                    response.status_code, response.content, content_type, response.get("Retry-After")
+                )
             else:
                 log.warning(
                     "query_coalescing_middleware_leader_error",
@@ -433,8 +442,13 @@ class QueryCoalescingMixin(_MixinBase):
             self.response = self.finalize_response(request, response, *args, **kwargs)
             return self.response
 
-        return HttpResponse(
+        response = HttpResponse(
             coalesced["body"],
             status=coalesced["status"],
             content_type=coalesced.get("content_type", "application/json"),
         )
+        # Replay the leader's Retry-After so a coalesced 503/504 keeps its back-off window.
+        retry_after = coalesced.get("retry_after")
+        if retry_after is not None:
+            response["Retry-After"] = str(retry_after)
+        return response
