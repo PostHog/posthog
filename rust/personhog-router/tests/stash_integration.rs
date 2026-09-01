@@ -72,6 +72,7 @@ async fn make_backend(leader_addr: std::net::SocketAddr, stash: StashTable) -> A
 
 fn mk_request(team_id: i64, person_id: i64, set_email: &str) -> UpdatePersonPropertiesRequest {
     UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id,
         person_id,
         event_name: "test".to_string(),

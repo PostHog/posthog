@@ -59,6 +59,7 @@ fn fence_request(team_id: i64, person_id: i64, op_id: &Uuid) -> FencePersonReque
 
 fn update_request(team_id: i64, person_id: i64) -> UpdatePersonPropertiesRequest {
     UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id,
         person_id,
         event_name: "$set".to_string(),

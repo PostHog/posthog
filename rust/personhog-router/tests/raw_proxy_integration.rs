@@ -252,6 +252,7 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let response = client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -295,6 +296,7 @@ async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
     let status = client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -349,6 +351,7 @@ async fn raw_proxy_a_dead_leader_after_a_fence_is_not_reported_as_fenced() {
     let status = client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -389,6 +392,7 @@ async fn raw_proxy_write_then_strong_read_roundtrip() {
     client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -446,6 +450,7 @@ async fn raw_proxy_leader_requests_without_key_headers_rejected() {
 
     let update_result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -514,6 +519,7 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
 
     let result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -551,6 +557,7 @@ async fn raw_proxy_compressed_leader_requests_transit_untouched() {
     let response = compressed
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -633,6 +640,7 @@ async fn raw_proxy_rejects_oversized_leader_request() {
     let result = client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),

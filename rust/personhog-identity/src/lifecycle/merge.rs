@@ -335,6 +335,54 @@ impl MergeOpExecutor {
         .map_err(|e| Status::internal(format!("database error: {e}")))
     }
 
+    /// Whether this terminal row is a claim abort: nothing was destroyed
+    /// and no fence was installed, so the record is disposable and a
+    /// retry re-runs the merge fresh.
+    pub fn is_claim_abort(row: &OpRow) -> bool {
+        row.completed_at.is_some()
+            && row
+                .outcome
+                .as_ref()
+                .and_then(|o| o.get("claim_abort"))
+                .and_then(Value::as_bool)
+                == Some(true)
+    }
+
+    /// Delete a claim-aborted op so the caller's retry re-runs fresh. The
+    /// flag is re-checked in SQL, so only a row of that shape can go.
+    // See `find` for why result_large_err is allowed.
+    #[allow(clippy::result_large_err)]
+    pub async fn discard_claim_abort(&self, op_id: Uuid) -> Result<(), Status> {
+        let mut tx = self
+            .engine
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| Status::internal(format!("discard begin failed: {e}")))?;
+        let deleted = sqlx::query!(
+            r#"
+            DELETE FROM lifecycle_op
+            WHERE op_id = $1
+              AND completed_at IS NOT NULL
+              AND (outcome->>'claim_abort')::boolean IS TRUE
+            "#,
+            op_id
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| Status::internal(format!("discard failed: {e}")))?;
+        if deleted.rows_affected() > 0 {
+            sqlx::query!("DELETE FROM lifecycle_op_person WHERE op_id = $1", op_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| Status::internal(format!("discard marks failed: {e}")))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("discard commit failed: {e}")))?;
+        Ok(())
+    }
+
     /// Drive the op to terminal with the given frozen request (a resumed
     /// row's own request, or a freshly frozen one) and return the row.
     // See `find` for why result_large_err is allowed.
@@ -821,12 +869,18 @@ async fn abort_in_claim_tx(
     op: &OpRow,
     dispositions: Vec<Disposition>,
 ) -> Result<(), SagaError> {
-    let outcome = outcome_from_dispositions(
+    let mut outcome = outcome_from_dispositions(
         &dispositions,
         Some(OUTCOME_SKIPPED_CONFLICT),
         None,
         &HashMap::new(),
     )?;
+    // A claim abort destroyed nothing and installed no fences, so its
+    // verdict is not worth keeping: the entrance deletes a row carrying
+    // this flag on the next presentation of the op id and re-runs the
+    // merge fresh, which is what makes a plain caller retry meaningful
+    // where a recorded conflict would replay forever.
+    outcome["claim_abort"] = Value::Bool(true);
     if !complete_op_in_tx(
         &mut tx,
         op.op_id,

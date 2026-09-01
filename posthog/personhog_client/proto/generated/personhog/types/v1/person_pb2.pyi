@@ -348,6 +348,7 @@ class UpdatePersonPropertiesRequest(_message.Message):
         "unset_properties",
         "is_identified",
         "last_seen_at",
+        "force_update",
     )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
@@ -357,6 +358,7 @@ class UpdatePersonPropertiesRequest(_message.Message):
     UNSET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
     LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
+    FORCE_UPDATE_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     event_name: str
@@ -365,6 +367,7 @@ class UpdatePersonPropertiesRequest(_message.Message):
     unset_properties: _containers.RepeatedScalarFieldContainer[str]
     is_identified: bool
     last_seen_at: int
+    force_update: bool
 
     def __init__(
         self,
@@ -376,6 +379,7 @@ class UpdatePersonPropertiesRequest(_message.Message):
         unset_properties: _Optional[_Iterable[str]] = ...,
         is_identified: bool = ...,
         last_seen_at: _Optional[int] = ...,
+        force_update: bool = ...,
     ) -> None: ...
 
 class UpdatePersonPropertiesResponse(_message.Message):

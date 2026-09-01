@@ -209,6 +209,13 @@ message MergeSourceResult {
   // re-reading; every other outcome leaves it absent rather than naming a
   // person still live.
   optional int64 source_person_id = 3;
+  // Whether a retry can change this source's outcome. True means the
+  // answer is final however it is retried, and the caller acks the event;
+  // false means a retry may genuinely succeed, and the caller lets
+  // redelivery try again. This is the caller's whole durability decision:
+  // outcome names stay labels for warnings, never inputs to it, so a
+  // value this build has never heard of is still handled correctly.
+  bool settled = 4;
 }
 
 message MergePersonsResponse {
