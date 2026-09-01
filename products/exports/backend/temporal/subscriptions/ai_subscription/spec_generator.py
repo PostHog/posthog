@@ -23,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     EVENT_SELECTION_PROMPT_NAME,
     PLAN_GENERATION_PROMPT,
     PLANNER_PROMPT_NAME,
+    prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
 )
@@ -89,7 +90,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 5
+AI_QUERY_PLAN_VERSION = 6
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -551,8 +552,11 @@ def generate_query_plan(
         posthog_properties=posthog_properties,
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
+    planner_prompt = prepend_hogql_query_writing_rules(
+        resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT)
+    )
     rendered_prompt = render_prompt(
-        resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
+        planner_prompt,
         {
             "context_blob": context_blob,
             "cleaned_prompt": cleaned_prompt,
