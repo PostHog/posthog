@@ -63,6 +63,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     isPromptPending,
     promptStartedAt,
     isInitializing,
+    sandboxUnavailable,
     cloudBranch,
     cloudStatus,
     errorTitle,
@@ -191,6 +192,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               isInitializing={isInitializing}
               isCloud={isCloud}
               cloudStatus={cloudStatus}
+              sandboxUnavailable={sandboxUnavailable}
               slackThreadUrl={slackThreadUrl}
             />
           </ErrorBoundary>

@@ -377,6 +377,7 @@ export interface ISessionStore {
       output?: Record<string, unknown> | null;
       errorMessage?: string | null;
       branch?: string | null;
+      sandboxAlive?: boolean | null;
     },
   ): void;
   setPendingPermissions(
@@ -8452,6 +8453,7 @@ export class SessionService {
           output: update.output,
           errorMessage: update.errorMessage,
           branch: update.branch,
+          sandboxAlive: update.sandboxAlive,
         });
 
         if (update.status === "in_progress") {

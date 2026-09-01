@@ -116,6 +116,14 @@ export interface AgentSession {
   editingQueuedId?: string;
   isCloud?: boolean;
   cloudStatus?: TaskRunStatus;
+  /**
+   * Server's view of whether the run's sandbox is still alive, from the cloud
+   * status stream. `false` means a non-terminal run lost its sandbox (stopped
+   * or unreachable) and is waiting to reconnect — the UI reads this to tell
+   * "sandbox unavailable" apart from an agent that is quietly working. Undefined
+   * until the stream reports it; a fresh resume run starts undefined.
+   */
+  sandboxAlive?: boolean | null;
   cloudStage?: string | null;
   cloudOutput?: Record<string, unknown> | null;
   cloudArtifacts?: TaskRunArtifact[];

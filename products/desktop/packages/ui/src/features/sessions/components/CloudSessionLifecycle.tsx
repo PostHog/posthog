@@ -1,4 +1,4 @@
-import { Warning } from "@phosphor-icons/react";
+import { CloudSlash, Warning } from "@phosphor-icons/react";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Button, Flex, Text } from "@radix-ui/themes";
 
@@ -49,6 +49,46 @@ export function CloudStreamDisconnectedBanner({
           </Button>
         )}
       </Flex>
+    </Flex>
+  );
+}
+
+interface SandboxUnavailableBannerProps {
+  onRetry?: () => void;
+}
+
+/**
+ * A non-terminal cloud run whose sandbox the server reports as gone. Distinct
+ * from the red error banner: the run has not failed, it is waiting for its
+ * sandbox to come back, so this reads as amber "reconnecting" and keeps Retry
+ * available. Stop stays in the task header throughout.
+ */
+export function SandboxUnavailableBanner({
+  onRetry,
+}: SandboxUnavailableBannerProps) {
+  return (
+    <Flex
+      align="center"
+      justify="between"
+      gap="3"
+      py="2"
+      px="3"
+      className="shrink-0 border-(--amber-5) border-b bg-(--amber-2)"
+    >
+      <Flex align="center" gap="2" className="min-w-0">
+        <CloudSlash size={14} weight="duotone" color="var(--amber-9)" />
+        <Text className="shrink-0 font-medium text-(--amber-12) text-[13px]">
+          Sandbox unavailable
+        </Text>
+        <Text color="gray" className="truncate text-[13px]">
+          Reconnecting to your cloud runner. Your messages send once it is back.
+        </Text>
+      </Flex>
+      {onRetry && (
+        <Button variant="soft" size="1" color="amber" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
     </Flex>
   );
 }

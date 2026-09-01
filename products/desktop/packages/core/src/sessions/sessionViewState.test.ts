@@ -119,4 +119,30 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunTerminal).toBe(false);
     expect(state.isInitializing).toBe(true);
   });
+
+  it.each<
+    [string, boolean | null | undefined, TaskRunStatus, boolean, boolean]
+  >([
+    ["sandbox reported gone on a live run", false, "in_progress", false, true],
+    ["sandbox alive again", true, "in_progress", false, false],
+    ["aliveness unknown", undefined, "in_progress", false, false],
+    ["run already errored", false, "in_progress", true, false],
+    ["run is terminal", false, "completed", false, false],
+  ])(
+    "sandboxUnavailable is %s → %s",
+    (_name, sandboxAlive, runStatus, asError, expected) => {
+      const session = makeSession(runStatus);
+      session.sandboxAlive = sandboxAlive;
+      if (asError) session.status = "error";
+
+      const state = deriveSessionViewState(
+        session,
+        makeTask(runStatus),
+        null,
+        true,
+      );
+
+      expect(state.sandboxUnavailable).toBe(expected);
+    },
+  );
 });

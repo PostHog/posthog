@@ -17,6 +17,12 @@ export interface SessionViewState {
   isPromptPending: boolean;
   promptStartedAt: number | null | undefined;
   isInitializing: boolean;
+  /**
+   * A non-terminal cloud run whose sandbox the server reports as not alive:
+   * stopped or unreachable, waiting to reconnect. Lets the view show a distinct
+   * "sandbox unavailable" state instead of an indistinguishable working spinner.
+   */
+  sandboxUnavailable: boolean;
   cloudBranch: string | null;
   errorTitle: string | undefined;
   errorMessage: string | undefined;
@@ -64,6 +70,9 @@ export function deriveSessionViewState(
           isNewSessionWithInitialPrompt ||
           isResumingExistingSession));
 
+  const sandboxUnavailable =
+    isCloudRunNotTerminal && !hasError && session?.sandboxAlive === false;
+
   const cloudBranch = effectiveIsCloud
     ? (workspace?.baseBranch ?? task.latest_run?.branch ?? null)
     : null;
@@ -79,6 +88,7 @@ export function deriveSessionViewState(
     isPromptPending,
     promptStartedAt,
     isInitializing,
+    sandboxUnavailable,
     cloudBranch,
     errorTitle: session?.errorTitle,
     errorMessage:
