@@ -87,8 +87,9 @@
 # - Docker Hub login reads Depot's secret store (secrets.DOCKERHUB_*) rather than
 #   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER because Depot never indirects
 #   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
-#   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Only the credential
-#   source differs: canonical now matches this file's best-effort login.
+#   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Login is best-effort
+#   because these jobs only pull public images and can fall back to anonymous pulls,
+#   which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
 #   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
