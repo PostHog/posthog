@@ -13,6 +13,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    BENJAMIN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -34,6 +35,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     VmSandboxDecision,
     _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
+    _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
     _is_desktop_workspace_warm_enabled,
@@ -48,6 +50,10 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
+BENJAMIN_PAYLOAD_TARGET = (
+    "products.tasks.backend.temporal.process_task.activities."
+    "get_task_processing_context.posthoganalytics.get_feature_flag_payload"
+)
 
 
 @pytest.mark.parametrize(
@@ -853,6 +859,120 @@ class TestGetTaskProcessingContextActivity:
                     organization_id="organization-id",
                     run_id="run-id",
                     state={"rtk_enabled": False},
+                )
+                is False
+            )
+
+    @pytest.mark.parametrize("launched_value", [True, False])
+    def test_benjamin_launch_persisted_value_pins_later_resolutions(self, launched_value):
+        with patch(BENJAMIN_PAYLOAD_TARGET) as payload_mock:
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    state={"benjamin_effective": launched_value, "benjamin_enabled": not launched_value},
+                )
+                is launched_value
+            )
+
+        payload_mock.assert_not_called()
+
+    @pytest.mark.parametrize("state_override", [True, False])
+    def test_benjamin_state_override_wins_without_consulting_the_flag(self, state_override):
+        with patch(BENJAMIN_PAYLOAD_TARGET) as payload_mock:
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    state={"benjamin_enabled": state_override},
+                )
+                is state_override
+            )
+
+        payload_mock.assert_not_called()
+
+    def test_benjamin_disabled_when_flag_serves_no_payload(self):
+        with patch(BENJAMIN_PAYLOAD_TARGET, return_value=None) as payload_mock:
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                )
+                is False
+            )
+
+        payload_mock.assert_called_once_with(
+            BENJAMIN_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @pytest.mark.parametrize(
+        "payload, origin_product, expected",
+        [
+            ({"origins": {"user_created": 1}}, Task.OriginProduct.USER_CREATED, True),
+            ({"origins": {"user_created": 0}}, Task.OriginProduct.USER_CREATED, False),
+            ({"origins": {"slack": 1}, "default": 0}, Task.OriginProduct.USER_CREATED, False),
+            ({"origins": {"slack": 0}, "default": 1}, Task.OriginProduct.SLACK, False),
+            ({"origins": {}, "default": 1}, Task.OriginProduct.USER_CREATED, True),
+            ({"default": 1}, None, True),
+            ('{"default": 1}', Task.OriginProduct.USER_CREATED, True),
+            ("not json at all", Task.OriginProduct.USER_CREATED, False),
+            ({"default": "1"}, Task.OriginProduct.USER_CREATED, False),
+            ({"origins": ["user_created"]}, Task.OriginProduct.USER_CREATED, False),
+            (None, Task.OriginProduct.USER_CREATED, False),
+        ],
+    )
+    def test_benjamin_applies_the_payload_rollout_fraction(self, payload, origin_product, expected):
+        with patch(BENJAMIN_PAYLOAD_TARGET, return_value=payload):
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=origin_product,
+                )
+                is expected
+            )
+
+    @pytest.mark.parametrize(
+        "run_id, fraction, expected",
+        [
+            ("run-a", 0.77, False),
+            ("run-a", 0.78, True),
+            ("run-b", 0.04, True),
+            ("run-b", 0.03, False),
+        ],
+    )
+    def test_benjamin_buckets_runs_deterministically_by_run_id(self, run_id, fraction, expected):
+        with patch(BENJAMIN_PAYLOAD_TARGET, return_value={"default": fraction}):
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id=run_id,
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                )
+                is expected
+            )
+
+    def test_benjamin_fails_closed_on_flag_error(self):
+        with patch(BENJAMIN_PAYLOAD_TARGET, side_effect=RuntimeError("flag service failed")):
+            assert (
+                _is_benjamin_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=Task.OriginProduct.USER_CREATED,
                 )
                 is False
             )

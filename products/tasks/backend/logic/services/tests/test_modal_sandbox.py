@@ -655,13 +655,16 @@ class TestModalSandboxAgentServer:
             assert "POSTHOG_CODE_FAST_MODE" not in command
 
     @pytest.mark.parametrize(
-        "rtk_enabled, expected_env",
+        "toggles, expected_env",
         [
-            (True, "POSTHOG_RTK=1"),
-            (False, "POSTHOG_RTK=0"),
+            ({"rtk_enabled": True}, "POSTHOG_RTK=1"),
+            ({"rtk_enabled": False}, "POSTHOG_RTK=0"),
+            ({"benjamin_enabled": True}, "POSTHOG_BENJAMIN=1"),
+            ({"benjamin_enabled": False}, "POSTHOG_BENJAMIN=0"),
+            ({}, "POSTHOG_BENJAMIN=0"),
         ],
     )
-    def test_start_agent_server_rtk_env(self, mock_sandbox: Any, rtk_enabled, expected_env):
+    def test_start_agent_server_toggle_env(self, mock_sandbox: Any, toggles, expected_env):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
@@ -671,7 +674,7 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
-            rtk_enabled=rtk_enabled,
+            **toggles,
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
