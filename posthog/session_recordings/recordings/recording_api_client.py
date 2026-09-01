@@ -63,7 +63,8 @@ class RecordingApiClient:
         except (RecordingDeletedError, BlockFetchError):
             raise
         except aiohttp.ClientError as e:
-            logger.exception(
+            # The caller retries, so this read can still succeed. It logs the error when the retries fail.
+            logger.warning(
                 "recording_api_client.fetch_block_failed",
                 url=url,
                 session_id=session_id,
