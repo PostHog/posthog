@@ -45,6 +45,22 @@ describe('posthog create task template', () => {
         },
     })
 
+    const slackReactionGlobals = (properties: Record<string, any> = {}): Record<string, any> => ({
+        event: {
+            event: '$slack_reaction_added',
+            properties: {
+                integration_id: 42,
+                channel: 'C0ALERTS',
+                reaction: 'mag',
+                user: 'U123',
+                item_user: 'U-ALERT-BOT',
+                item_ts: '1700000000.000100',
+                slack_team_id: 'T123',
+                ...properties,
+            },
+        },
+    })
+
     beforeEach(async () => {
         await tester.beforeEach()
     })
@@ -147,6 +163,32 @@ describe('posthog create task template', () => {
         const body = parseJSON(params.body!)
         expect(body.slack_context).toBeUndefined()
         expect(body.event.event).toEqual('$slack_message_received')
+    })
+
+    it('binds a reaction-triggered run to the message that was reacted to', async () => {
+        const { params } = await invokeAndGetFetch(fullInputs, slackReactionGlobals())
+
+        // A reaction carries no ts of its own, so the reacted message is both the thread to answer
+        // in and the message to acknowledge. slack_user_id is who reacted, not the alert bot that
+        // wrote the message — the run is steered by the person who asked for it.
+        expect(parseJSON(params.body!).slack_context).toEqual({
+            integration_id: 42,
+            channel: 'C0ALERTS',
+            thread_ts: '1700000000.000100',
+            message_ts: '1700000000.000100',
+            slack_user_id: 'U123',
+            slack_team_id: 'T123',
+            is_ext_shared_channel: false,
+        })
+    })
+
+    it('sends no slack context for a reaction when the thread reply toggle is off', async () => {
+        const { params } = await invokeAndGetFetch(
+            { ...fullInputs, reply_in_slack_thread: false },
+            slackReactionGlobals()
+        )
+
+        expect(parseJSON(params.body!).slack_context).toBeUndefined()
     })
 
     it('sends no slack context for a non-Slack trigger even with the toggle on', async () => {

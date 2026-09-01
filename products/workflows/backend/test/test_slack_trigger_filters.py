@@ -109,3 +109,66 @@ class TestSlackTriggerFilters(ClickhouseTestMixin, APIBaseTest):
         ]
         assert self._matches(properties)
         assert not self._matches(properties, _event(bot_id="B42"))
+
+
+SLACK_REACTION_GLOBALS: dict[str, Any] = {
+    "event": "$slack_reaction_added",
+    "properties": {
+        "channel": "C0ALERTS",
+        "slack_team_id": "T123",
+        "reaction": "mag",
+        "user": "U123",
+        "item_user": "U0ALERTBOT",
+        "item_type": "message",
+        "item_ts": "1700000000.000100",
+        "is_ext_shared_channel": False,
+    },
+}
+
+
+def _reaction_event(**overrides):
+    return {**SLACK_REACTION_GLOBALS, "properties": {**SLACK_REACTION_GLOBALS["properties"], **overrides}}
+
+
+class TestSlackReactionTriggerFilters(ClickhouseTestMixin, APIBaseTest):
+    """Same contract as the message trigger above: the editor writes property filters, the engine
+    runs their bytecode, and these check the two agree on the reaction event's shape."""
+
+    def _matches(self, properties: list[dict], globals: dict | None = None) -> bool:
+        expr = hog_function_filters_to_expr(filters={"properties": properties}, team=self.team, actions={})
+        bytecode = json.loads(json.dumps(create_bytecode(expr).bytecode))
+        return execute_bytecode(bytecode, globals or SLACK_REACTION_GLOBALS).result is True
+
+    @parameterized.expand(
+        [
+            ("the chosen emoji", {"reaction": "mag"}, True),
+            ("another emoji", {"reaction": "eyes"}, False),
+        ]
+    )
+    def test_emoji_filter(self, _name, overrides, expected):
+        assert self._matches([_prop("reaction", ["mag"], "exact")], _reaction_event(**overrides)) is expected
+
+    def test_emoji_filter_matches_any_of_several(self):
+        properties = [_prop("reaction", ["mag", "rotating_light"], "exact")]
+        assert self._matches(properties, _reaction_event(reaction="rotating_light"))
+        assert not self._matches(properties, _reaction_event(reaction="tada"))
+
+    @parameterized.expand(
+        [
+            ("a listed user reacted", {"user": "U123"}, True),
+            ("someone else reacted", {"user": "U999"}, False),
+        ]
+    )
+    def test_specific_people_matches_who_reacted(self, _name, overrides, expected):
+        # `user` is the reactor, not the message author. Filtering on item_user instead would gate
+        # on who posted the alert, which for a bot-posted alert is the same value every time.
+        assert self._matches([_prop("user", ["U123"], "exact")], _reaction_event(**overrides)) is expected
+
+    def test_channel_and_emoji_combine_with_and(self):
+        properties = [
+            _prop("channel", ["C0ALERTS"], "exact"),
+            _prop("reaction", ["mag"], "exact"),
+        ]
+        assert self._matches(properties)
+        assert not self._matches(properties, _reaction_event(channel="C0OTHER"))
+        assert not self._matches(properties, _reaction_event(reaction="eyes"))

@@ -34,6 +34,7 @@ export const WORKFLOW_TRIGGER_TYPE_OPTIONS: { value: WorkflowTriggerTypeFilter; 
     { value: 'data-warehouse-table', label: 'Data warehouse table' },
     { value: 'data-warehouse-view', label: 'Data warehouse view' },
     { value: 'slack-message', label: 'Slack message' },
+    { value: 'slack-reaction', label: 'Slack reaction' },
 ]
 
 const WORKFLOW_TRIGGER_TYPE_FILTERS = WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => option.value)

@@ -19,11 +19,13 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+const SLACK_REACTION_ADDED_EVENT = '$slack_reaction_added'
 const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
 
 // The event that starts each trigger type. Type alone would match every other signal on this topic.
 const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([
     ['slack-message', SLACK_MESSAGE_RECEIVED_EVENT],
+    ['slack-reaction', SLACK_REACTION_ADDED_EVENT],
     ['github-event', GITHUB_EVENT_RECEIVED_EVENT],
 ])
 
@@ -97,7 +99,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
 
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
-        const ownSlackMessages = await this.findOwnSlackMessages(invocationGlobals)
+        const ownSlackEvents = await this.findOwnSlackEvents(invocationGlobals)
 
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
@@ -124,7 +126,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
                     INTERNAL_EVENT_TRIGGER_EVENTS.get(flow.trigger.type) === globals.event.event &&
-                    !ownSlackMessages.has(globals) &&
+                    !ownSlackEvents.has(globals) &&
                     !isOwnGithubEvent(globals),
             }),
         ])
@@ -163,21 +165,28 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
     }
 
     /**
-     * Slack messages PostHog's own app posted, resolved through the integration the emit stamped
-     * on the event.
+     * Slack messages PostHog's own app posted, and reactions its own bot added, resolved through
+     * the integration the emit stamped on the event.
      *
      * A workflow that replies in Slack sees its own reply arrive back on this topic, so without
-     * this it retriggers itself forever. This is part of eligibility rather than a trigger's stored
-     * filters, which a workflow created through the API or MCP would not carry.
+     * this it retriggers itself forever. Reactions have the same loop, and a tighter one: a
+     * reaction-triggered run acks the message it fired on with :eyes: and swaps that for :hedgehog:
+     * when it finishes, so a workflow watching either emoji would restart itself on its own ack.
+     * A message is matched on `app_id` (any install of the PostHog app posted it) and a reaction on
+     * `bot_user_id` (this workspace's bot user is the one that reacted), because those are the
+     * identities Slack puts on the respective events. This is part of eligibility rather than a
+     * trigger's stored filters, which a workflow created through the API or MCP would not carry.
      */
-    private async findOwnSlackMessages(
+    private async findOwnSlackEvents(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<Set<HogFunctionInvocationGlobals>> {
         const candidates = invocationGlobals.filter(
             (globals) =>
-                globals.event.event === SLACK_MESSAGE_RECEIVED_EVENT &&
-                typeof globals.event.properties.app_id === 'string' &&
-                typeof globals.event.properties.integration_id === 'number'
+                typeof globals.event.properties.integration_id === 'number' &&
+                ((globals.event.event === SLACK_MESSAGE_RECEIVED_EVENT &&
+                    typeof globals.event.properties.app_id === 'string') ||
+                    (globals.event.event === SLACK_REACTION_ADDED_EVENT &&
+                        typeof globals.event.properties.user === 'string'))
         )
 
         if (!candidates.length) {
@@ -189,11 +198,16 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         ])
 
         return new Set(
-            candidates.filter(
-                (globals) =>
-                    integrations[globals.event.properties.integration_id as number]?.config?.app_id ===
-                    globals.event.properties.app_id
-            )
+            candidates.filter((globals) => {
+                const config = integrations[globals.event.properties.integration_id as number]?.config
+                if (globals.event.event === SLACK_REACTION_ADDED_EVENT) {
+                    // Fails open when the install predates `bot_user_id` being stored: dropping every
+                    // reaction from such a workspace would break the trigger outright, while the
+                    // required emoji filter still keeps a self-trigger loop off the common paths.
+                    return !!config?.bot_user_id && config.bot_user_id === globals.event.properties.user
+                }
+                return config?.app_id === globals.event.properties.app_id
+            })
         )
     }
 

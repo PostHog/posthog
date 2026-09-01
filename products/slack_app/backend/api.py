@@ -102,7 +102,12 @@ from products.slack_app.backend.slack_link_unfurl import (
     link_url_region,
     parse_posthog_resource_link,
 )
-from products.slack_app.backend.slack_workflow_events import emit_slack_message_event, is_triggering_message
+from products.slack_app.backend.slack_workflow_events import (
+    emit_slack_message_event,
+    emit_slack_reaction_event,
+    is_triggering_message,
+    is_triggering_reaction,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -110,6 +115,7 @@ HANDLED_EVENT_TYPES = [
     "app_mention",
     "link_shared",
     "message",
+    "reaction_added",
     "member_joined_channel",
     "team_join",
     "assistant_thread_started",
@@ -703,6 +709,41 @@ def _mirror_message_event_to_other_region(
         return
     if not is_triggering_message(event):
         return
+    _queue_emit_only_mirror(
+        request, slack_team_id=slack_team_id, incoming_host=incoming_host, other_domain=other_domain
+    )
+
+
+def _mirror_reaction_event_to_other_region(
+    request: HttpRequest,
+    event: dict,
+    *,
+    slack_team_id: str,
+    incoming_host: str,
+    other_domain: str,
+) -> None:
+    """Queue an emit-only copy of a reaction for the other region.
+
+    Same reason as the message mirror: a workspace connected in both regions would otherwise only
+    ever run the triggers of whichever region Slack delivered to. Every triggering reaction is
+    mirrored, with no top-level equivalent to exclude — a reaction reaches no follow-up pipeline, so
+    this is its only way across.
+    """
+    if not is_triggering_reaction(event):
+        return
+    _queue_emit_only_mirror(
+        request, slack_team_id=slack_team_id, incoming_host=incoming_host, other_domain=other_domain
+    )
+
+
+def _queue_emit_only_mirror(
+    request: HttpRequest,
+    *,
+    slack_team_id: str,
+    incoming_host: str,
+    other_domain: str,
+) -> None:
+    """Hand the untouched Slack envelope to the other region, flagged so it only emits."""
     headers = _proxy_request_headers(request)
     headers[EMIT_ONLY_MIRROR_HEADER] = "1"
     # noqa reason: the task module imports this module's probe and transport, so a module-level
@@ -2039,6 +2080,44 @@ def _route_app_home_opened(
     return ROUTE_HANDLED_LOCALLY
 
 
+def _route_reaction_added(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str,
+    is_ext_shared_channel: bool,
+) -> str:
+    """Write the reaction out for this region's workflow triggers, and settle the other region's copy.
+
+    Mirrors the `message` path's cross-region shape: with no connection here the whole event defers
+    to the other region, and with one the event is handled here while a workspace connected over
+    there as well gets an emit-only mirror.
+    """
+    # A mirror copy exists only to feed the receiving region's emit, so it stops here either way.
+    if _is_emit_only_mirror(request):
+        emit_slack_reaction_event(event, slack_team_id, event_id=event_id, is_ext_shared_channel=is_ext_shared_channel)
+        return ROUTE_HANDLED_LOCALLY
+
+    should_try_other_region = emit_slack_reaction_event(
+        event, slack_team_id, event_id=event_id, is_ext_shared_channel=is_ext_shared_channel
+    )
+    if not proxied and cross_region_routing_enabled():
+        if should_try_other_region:
+            return _proxy_event_and_return_route(request, other_domain)
+        _mirror_reaction_event_to_other_region(
+            request,
+            event,
+            slack_team_id=slack_team_id,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+        )
+    return ROUTE_HANDLED_LOCALLY
+
+
 def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """Drop the workspace's cached Slack profiles so a reinstall resolves users from
     fresh ``users.info`` data instead of emails cached under the previous install.
@@ -2101,6 +2180,20 @@ def route_posthog_code_event_to_relevant_region(
             incoming_host=incoming_host,
             other_domain=other_domain,
             can_defer=can_defer_to_other_region,
+        )
+
+    # Reactions only ever feed workflow triggers. There is no mention pipeline behind them, so this
+    # branch is the whole handling: emit, settle the cross-region copy, done.
+    if event_type == "reaction_added":
+        return _route_reaction_added(
+            request,
+            event,
+            slack_team_id,
+            event_id,
+            proxied=proxied,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+            is_ext_shared_channel=is_ext_shared_channel,
         )
 
     # Assistant surface: DMs to the app and agent-container events resolve the DMing user and run

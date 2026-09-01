@@ -197,6 +197,13 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
     }),
     z.object({
+        type: z.literal('slack-reaction'),
+        filters: z.object({
+            // Reaction properties only, channel and emoji included — see the trigger registry entry
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
         type: z.literal('data-warehouse-view'),
         // The materialized view's own name, which is also its HogQL name
         table_name: z.string(),

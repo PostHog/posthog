@@ -1,12 +1,13 @@
-"""Forward Slack channel messages onto the internal events topic.
+"""Forward Slack channel messages and reactions onto the internal events topic.
 
-Deliberately dumb: check Slack is telling us about a new post, resolve the PostHog projects behind
-the Slack workspace, then write the message out as-is. A workflow's trigger config decides what it
-wants, and the CDP consumer evaluates that, so nothing here needs to know a trigger exists.
+Deliberately dumb: check Slack is telling us about a new post or reaction, resolve the PostHog
+projects behind the Slack workspace, then write the event out as-is. A workflow's trigger config
+decides what it wants, and the CDP consumer evaluates that, so nothing here needs to know a trigger
+exists.
 """
 
 import uuid
-from typing import Any
+from typing import Any, Protocol
 
 from django.conf import settings
 
@@ -18,6 +19,7 @@ from posthog.models.integration import Integration
 logger = structlog.get_logger(__name__)
 
 SLACK_MESSAGE_RECEIVED_EVENT = "$slack_message_received"
+SLACK_REACTION_ADDED_EVENT = "$slack_reaction_added"
 
 # Slack labels edits, deletions and joins `message` too, and those retrigger a workflow's own reply.
 # `bot_message` stays in: "apps and bots only" is a trigger mode.
@@ -25,9 +27,19 @@ _TRIGGERING_SUBTYPES: frozenset[str | None] = frozenset(
     {None, "bot_message", "file_share", "me_message", "thread_broadcast"}
 )
 
+# Reactions land on files and file comments too. Only a message carries the thread coordinates a
+# workflow needs to answer where the reaction happened, so the rest are dropped at the door.
+_REACTION_ITEM_TYPE = "message"
+
 # Fixed namespace so the event uuid is a pure function of (team, Slack event id). Slack redelivers
 # on any non-2xx, and the handler's retry guard only covers the copies that carry the retry header.
 _SLACK_EVENT_NAMESPACE = uuid.UUID("6f1a4b3c-0d2e-4f6a-9b5c-8e7d1a2f3b4c")
+
+
+class _PropertiesBuilder(Protocol):
+    def __call__(
+        self, event: dict[str, Any], slack_team_id: str, *, integration_id: int, is_ext_shared_channel: bool
+    ) -> dict[str, Any]: ...
 
 
 def _event_properties(
@@ -58,6 +70,46 @@ def _event_properties(
     }
 
 
+def _reaction_item(event: dict[str, Any]) -> dict[str, Any]:
+    """The thing that was reacted to, or an empty dict when Slack sent something unexpected."""
+    item = event.get("item")
+    return item if isinstance(item, dict) else {}
+
+
+def reaction_name(raw: Any) -> str:
+    """The emoji's base name, with any skin tone dropped.
+
+    Slack sends `+1::skin-tone-3` when the person who reacted has a default tone set. A filter
+    stores the emoji someone picked, so matching on the raw value silently ignores every teammate
+    whose tone differs from theirs. The full value stays on `slack_event` for anyone who needs it.
+    """
+    return str(raw or "").split("::", 1)[0]
+
+
+def _reaction_properties(
+    event: dict[str, Any], slack_team_id: str, *, integration_id: int, is_ext_shared_channel: bool
+) -> dict[str, Any]:
+    item = _reaction_item(event)
+    return {
+        # The PostHog Slack connection this copy belongs to. The CDP consumer reads its stored bot
+        # user id from here to recognize, and ignore, a reaction PostHog itself added.
+        "integration_id": integration_id,
+        # Flat, and under the same key a message uses, so one channel picker serves both triggers.
+        # Slack files a reaction's channel under `item`, not beside `user` like a message does.
+        "channel": item.get("channel"),
+        "slack_team_id": slack_team_id,
+        "reaction": reaction_name(event.get("reaction")),
+        # `user` reacted; `item_user` wrote the message they reacted to. Naming the reactor `user`
+        # keeps "who can start a run" the same filter on both triggers.
+        "user": event.get("user"),
+        "item_user": event.get("item_user"),
+        "item_type": item.get("type"),
+        "item_ts": item.get("ts"),
+        "is_ext_shared_channel": is_ext_shared_channel,
+        "slack_event": event,
+    }
+
+
 def is_triggering_message(event: dict[str, Any]) -> bool:
     """Whether a workflow trigger could fire on this message, and the emit would write it out.
 
@@ -65,6 +117,17 @@ def is_triggering_message(event: dict[str, Any]) -> bool:
     hop on the subtypes (edits, joins, deletions) no trigger fires on.
     """
     return bool(settings.SLACK_WORKFLOW_TRIGGERS_ENABLED) and event.get("subtype") in _TRIGGERING_SUBTYPES
+
+
+def is_triggering_reaction(event: dict[str, Any]) -> bool:
+    """Whether a workflow trigger could fire on this reaction, and the emit would write it out.
+
+    The webhook asks before spending a probe or a hop, same as `is_triggering_message`.
+    """
+    if not settings.SLACK_WORKFLOW_TRIGGERS_ENABLED:
+        return False
+    item = event.get("item")
+    return isinstance(item, dict) and item.get("type") == _REACTION_ITEM_TYPE and bool(item.get("ts"))
 
 
 def emit_slack_message_event(
@@ -86,7 +149,53 @@ def emit_slack_message_event(
     """
     if not is_triggering_message(event):
         return False
+    return _emit(
+        event,
+        slack_team_id,
+        event_name=SLACK_MESSAGE_RECEIVED_EVENT,
+        build_properties=_event_properties,
+        distinct_id=str(event.get("user") or event.get("bot_id") or event.get("channel") or slack_team_id),
+        event_id=event_id,
+        is_ext_shared_channel=is_ext_shared_channel,
+    )
 
+
+def emit_slack_reaction_event(
+    event: dict[str, Any],
+    slack_team_id: str,
+    *,
+    event_id: str | None,
+    is_ext_shared_channel: bool,
+) -> bool:
+    """Write one internal event per PostHog project connected to this Slack workspace.
+
+    Same contract as `emit_slack_message_event`, including the cross-region return and the promise
+    never to raise inside the webhook.
+    """
+    if not is_triggering_reaction(event):
+        return False
+    item = _reaction_item(event)
+    return _emit(
+        event,
+        slack_team_id,
+        event_name=SLACK_REACTION_ADDED_EVENT,
+        build_properties=_reaction_properties,
+        distinct_id=str(event.get("user") or item.get("channel") or slack_team_id),
+        event_id=event_id,
+        is_ext_shared_channel=is_ext_shared_channel,
+    )
+
+
+def _emit(
+    event: dict[str, Any],
+    slack_team_id: str,
+    *,
+    event_name: str,
+    build_properties: _PropertiesBuilder,
+    distinct_id: str,
+    event_id: str | None,
+    is_ext_shared_channel: bool,
+) -> bool:
     try:
         # A Slack workspace can be connected to several projects (the unique constraint on
         # Integration is per team), and each configures its own workflows, so every one gets a copy.
@@ -101,16 +210,14 @@ def emit_slack_message_event(
         logger.exception("slack_workflow_event_integration_lookup_failed", slack_team_id=slack_team_id)
         return False
 
-    distinct_id = str(event.get("user") or event.get("bot_id") or event.get("channel") or slack_team_id)
-
     for team_id, integration_id in integrations:
         try:
             produce_internal_event(
                 team_id,
                 InternalEventEvent(
-                    event=SLACK_MESSAGE_RECEIVED_EVENT,
+                    event=event_name,
                     distinct_id=distinct_id,
-                    properties=_event_properties(
+                    properties=build_properties(
                         event,
                         slack_team_id,
                         integration_id=integration_id,

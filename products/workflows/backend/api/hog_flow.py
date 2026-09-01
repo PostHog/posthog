@@ -1163,11 +1163,18 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|github-event, "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|slack-reaction"
+            "|github-event, "
             "filters?}. "
             "slack-message runs once per message posted in a connected Slack channel, and takes only "
             "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
             "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
+            "slack-reaction runs once per emoji reaction added to a message in a connected Slack channel, "
+            "and takes only filters: {properties: [<cond>]} over the reaction properties (channel, reaction, "
+            "user, item_user, item_ts). reaction holds the emoji name without colons or skin tone, and "
+            "user is who reacted, not who wrote the message. channel and reaction are both required, each "
+            "with an exact-match filter; without them the trigger runs on every reaction in every connected "
+            "channel. Runs are person-less, so person-dependent steps are rejected. "
             "github-event runs once per matching GitHub delivery, and takes only filters: "
             "{properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, "
             "bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, "
@@ -1475,10 +1482,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "slack-message":
-                # Everything the trigger selects on — channel, poster, text, thread — is a property
-                # of the Slack message, so there is no config beyond the filters. The event name is
-                # fixed, which is what makes an events/actions entry here meaningless.
+            elif data.get("config", {}).get("type") in ("slack-message", "slack-reaction"):
+                # Everything either trigger selects on — channel, poster, text, thread, emoji — is a
+                # property of the Slack event, so there is no config beyond the filters. The event
+                # name is fixed, which is what makes an events/actions entry here meaningless.
+                trigger_config_type = data["config"]["type"]
                 filters = data.get("config", {}).get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
@@ -1489,7 +1497,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {
                             "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                            if trigger_config_type == "slack-message"
+                            else "Pick a Slack channel for this trigger. Without one it runs on every reaction in every channel the Slack bot is in."
                         }
+                    )
+                # An unpinned emoji means every reaction fires the run, PostHog's own :eyes: ack
+                # among them, so a workflow that reacts back would retrigger itself forever.
+                if (
+                    trigger_config_type == "slack-reaction"
+                    and not is_draft
+                    and not _has_exact_string_filter(filters, "reaction")
+                ):
+                    raise serializers.ValidationError(
+                        {"filters": "Pick at least one emoji, or the trigger fires on every reaction in the channel."}
                     )
                 # Left on the default "events" source: the internal event is event-shaped, so
                 # property filters compile against event.properties.* with no special casing.

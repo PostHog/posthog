@@ -8,6 +8,7 @@ describe('HogFlowFunctionConfiguration', () => {
             ['webhook', { event: false, person: false, groups: false, request: true }],
             // Slack-triggered runs are person-less.
             ['slack-message', { event: true, person: false, groups: false, request: false }],
+            ['slack-reaction', { event: true, person: false, groups: false, request: false }],
             // GitHub-triggered runs are person-less too.
             ['github-event', { event: true, person: false, groups: false, request: false }],
         ])('exposes the right globals for a %s trigger', (triggerType, present) => {
@@ -36,6 +37,21 @@ describe('HogFlowFunctionConfiguration', () => {
                 integration_id: expect.any(Number),
             })
             expect('thread_ts' in properties).toBe(true)
+        })
+
+        // A reaction names the message it landed on rather than carrying one of its own, so the
+        // sample has to expose item_ts — that is what a reply step threads under.
+        it('exposes the Slack reaction properties for a slack-reaction trigger', () => {
+            const properties = buildSampleGlobals('slack-reaction', undefined).event.properties
+            expect(properties).toMatchObject({
+                channel: expect.any(String),
+                reaction: expect.any(String),
+                user: expect.any(String),
+                item_user: expect.any(String),
+                item_ts: expect.any(String),
+                slack_team_id: expect.any(String),
+                integration_id: expect.any(Number),
+            })
         })
 
         // Locks the sample property names to what the GitHub trigger emits, so hand-typed
@@ -70,6 +86,7 @@ describe('HogFlowFunctionConfiguration', () => {
 
         it.each([
             ['slack-message', ['prompt', 'reply_in_slack_thread']],
+            ['slack-reaction', ['prompt', 'reply_in_slack_thread']],
             ['event', ['prompt']],
             [undefined, ['prompt']],
         ])('for the AI task step on a %s trigger shows %j', (triggerType, expectedKeys) => {

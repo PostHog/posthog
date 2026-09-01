@@ -119,6 +119,7 @@ export const ROW_SCOPED_TRIGGER_TYPES = new Set([
     'data-warehouse-table',
     'data-warehouse-view',
     'slack-message',
+    'slack-reaction',
     'github-event',
 ])
 
