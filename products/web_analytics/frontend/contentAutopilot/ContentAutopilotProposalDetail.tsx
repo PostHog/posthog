@@ -58,7 +58,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
     const confirmReject = (): void => {
         LemonDialog.open({
             title: 'Reject this proposal?',
-            description: 'The proposal will leave the review queue. This does not change your site or repository.',
+            description: 'The proposal will leave the review queue. This does not change your site.',
             primaryButton: {
                 children: 'Reject proposal',
                 status: 'danger',
@@ -69,17 +69,17 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
     }
 
     const deliveryBlocked = !selectedProposal.validation_report.passed
-        ? 'Resolve blocking validation failures before delivery'
+        ? 'Fix the blocked checks before exporting'
         : selectedProposal.lifecycle_status !== 'ready_for_review'
-          ? 'Only proposals ready for review can be delivered'
+          ? 'Only a proposal ready for review can be exported'
           : undefined
     const deliveryMutationLoading = exportedProposalLoading
     const deliveryDisabledReason =
         deliveryBlocked ??
-        (proposalHasUnsavedChanges ? 'Save or discard your changes before delivery' : undefined) ??
+        (proposalHasUnsavedChanges ? 'Save or discard your changes before exporting' : undefined) ??
         (proposalMutationLoading ? 'Wait for proposal changes to finish' : undefined)
     const reviewDisabledReason = deliveryMutationLoading
-        ? 'Wait for delivery to finish'
+        ? 'Wait for the export to finish'
         : proposalHasUnsavedChanges
           ? 'Save or discard your changes first'
           : undefined
@@ -150,7 +150,8 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                     <h3>Validation</h3>
                     {!selectedProposal.validation_report.passed ? (
                         <LemonBanner type="error" className="mb-3">
-                            This proposal has blocking failures and cannot be delivered.
+                            You cannot export this proposal until its blocked checks pass. Edit the draft or regenerate
+                            it.
                         </LemonBanner>
                     ) : null}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -180,7 +181,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                                 proposalDetailLoading
                                     ? 'Wait for the proposal to load'
                                     : deliveryMutationLoading
-                                      ? 'Wait for delivery to finish'
+                                      ? 'Wait for the export to finish'
                                       : !proposalHasUnsavedChanges
                                         ? 'No unsaved changes'
                                         : undefined
