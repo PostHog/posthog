@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1315_githubinstallrequest_account"),
-        ("warehouse_sources", "0157_reset_plausible_page_breakdowns"),
+        ("warehouse_sources", "0158_migrate_shopify_job_inputs_to_auth_method"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
