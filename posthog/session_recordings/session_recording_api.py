@@ -39,7 +39,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
+from tenacity import (
+    AsyncRetrying,
+    retry,
+    retry_if_exception,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_random_exponential,
+)
 
 from posthog.schema import (
     HideViewedRecordings,
@@ -170,12 +178,38 @@ SESSION_RECORDING_THROTTLED = Counter(
     labelnames=["location", "auth_type"],
 )
 
+BLOCK_FETCH_RETRY_COUNTER = Counter(
+    "session_snapshots_block_fetch_retry_total",
+    "Recording block reads that were retried, by how the retries ended",
+    labelnames=["outcome"],
+)
+
+# The user waits for these retries, so keep the extra latency small. The budget also stops
+# a slow Recording API from multiplying the 30 second per-request timeout by the attempts.
+BLOCK_FETCH_MAX_ATTEMPTS = 3
+BLOCK_FETCH_RETRY_BUDGET_SECONDS = 10
+
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
 
 
 def _count_session_recording_throttled(location: str, auth_type: str) -> None:
     SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type).inc()
     _OTEL_PLAYBACK.record_counter_twin(SESSION_RECORDING_THROTTLED, 1, {"location": location, "auth_type": auth_type})
+
+
+def _count_block_fetch_retry(outcome: str) -> None:
+    BLOCK_FETCH_RETRY_COUNTER.labels(outcome=outcome).inc()
+    _OTEL_PLAYBACK.record_counter_twin(BLOCK_FETCH_RETRY_COUNTER, 1, {"outcome": outcome})
+
+
+def _block_fetch_retrying() -> AsyncRetrying:
+    return AsyncRetrying(
+        retry=retry_if_exception(lambda e: isinstance(e, BlockFetchError) and e.retriable),
+        # Jitter spreads the retries, because one wobble fails every block of every playback at once.
+        wait=wait_random_exponential(multiplier=0.05, max=1),
+        stop=stop_after_attempt(BLOCK_FETCH_MAX_ATTEMPTS) | stop_after_delay(BLOCK_FETCH_RETRY_BUDGET_SECONDS),
+        reraise=True,
+    )
 
 
 logger = structlog.get_logger(__name__)
@@ -1632,9 +1666,13 @@ class SessionRecordingViewSet(
         decompress: bool,
     ) -> BlockList:
         async def fetch_single_block(block_index: int) -> tuple[int, bytes | None]:
-            try:
-                block = blocks[block_index]
-                content = await api_client.fetch_block(
+            block = blocks[block_index]
+            attempts = 0
+
+            async def fetch_once() -> bytes:
+                nonlocal attempts
+                attempts += 1
+                return await api_client.fetch_block(
                     block.key,
                     block.start_byte,
                     block.end_byte,
@@ -1642,18 +1680,27 @@ class SessionRecordingViewSet(
                     self.team.id,
                     decompress=decompress,
                 )
-                return block_index, content
+
+            try:
+                content: bytes = await _block_fetch_retrying()(fetch_once)
             except RecordingDeletedError:
                 # Let this propagate up to return a 410 response
                 raise
             except BlockFetchError:
+                if attempts > 1:
+                    _count_block_fetch_retry("failed")
                 logger.exception(
                     "fetch_block_failed",
                     recording_id=recording.session_id,
                     team_id=self.team.id,
                     block_index=block_index,
+                    attempts=attempts,
                 )
                 return block_index, None
+
+            if attempts > 1:
+                _count_block_fetch_retry("recovered")
+            return block_index, content
 
         tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
         results = await asyncio.gather(*tasks)

@@ -12,6 +12,12 @@ from posthog.session_recordings.recordings.recording_api_jwt import recording_ap
 logger = structlog.get_logger(__name__)
 
 
+def _is_retriable_client_error(error: aiohttp.ClientError) -> bool:
+    status = getattr(error, "status", None)
+    # Retry timeouts and rate limits. A second attempt cannot change any other 4xx.
+    return status is None or not (400 <= status < 500) or status in {408, 429}
+
+
 class RecordingApiClient:
     """
     Async client for fetching recording blocks via the Recording API.
@@ -37,7 +43,7 @@ class RecordingApiClient:
                 url, params=params, headers=recording_api_auth_headers(team_id, "read")
             ) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockFetchError("Block not found", retriable=False)
                 if response.status == 410:
                     data = await response.json()
                     deleted_at = data.get("deleted_at")
@@ -65,7 +71,9 @@ class RecordingApiClient:
                 error=str(e),
                 exc_info=False,
             )
-            raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
+            raise BlockFetchError(
+                f"Failed to fetch block from Recording API: {str(e)}", retriable=_is_retriable_client_error(e)
+            )
 
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"
