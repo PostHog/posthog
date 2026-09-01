@@ -39883,6 +39883,39 @@ export namespace Schemas {
     }
 
     /**
+     * * `hogql` - hogql
+     */
+    export type FileDownloadHogQLModelEnum = typeof FileDownloadHogQLModelEnum[keyof typeof FileDownloadHogQLModelEnum];
+
+
+    export const FileDownloadHogQLModelEnum = {
+      Hogql: 'hogql',
+    } as const;
+
+    /**
+     * Request shape for counting the rows a file download batch export would produce.
+     */
+    export interface FileDownloadCountRowsRequest {
+      /** Model to count rows for. Only 'hogql' is supported.
+       *
+       * * `hogql` - hogql */
+      model: FileDownloadHogQLModelEnum;
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      hogql_query: string;
+    }
+
+    /**
+     * Typed output for view set `count_rows`.
+     */
+    export interface FileDownloadCountRowsResponse {
+      /**
+         * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+         * @minimum 0
+         */
+      count: number;
+    }
+
+    /**
      * * `events` - events
      */
     export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
@@ -39890,16 +39923,6 @@ export namespace Schemas {
 
     export const FileDownloadEventsRequestModelEnum = {
       Events: 'events',
-    } as const;
-
-    /**
-     * * `hogql` - hogql
-     */
-    export type FileDownloadHogQLRequestModelEnum = typeof FileDownloadHogQLRequestModelEnum[keyof typeof FileDownloadHogQLRequestModelEnum];
-
-
-    export const FileDownloadHogQLRequestModelEnum = {
-      Hogql: 'hogql',
     } as const;
 
     /**
