@@ -809,6 +809,12 @@ WHERE and(
                 columns = [*list(columns), "context.columns.cross_sell"]
                 results_mapped = [[*row, ""] for row in (results_mapped or [])]
 
+        strategy = (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            if self.used_preaggregated_tables
+            else WebAnalyticsPreComputeStrategy.LIVE
+        )
+
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
@@ -816,12 +822,8 @@ WHERE and(
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
-            preComputeStrategy=(
-                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                if self.used_preaggregated_tables
-                else WebAnalyticsPreComputeStrategy.LIVE
-            ),
-            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
+            preComputeStrategy=strategy,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
             **self.paginator.response_params(),
         )
 

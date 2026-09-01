@@ -18,6 +18,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -172,10 +173,25 @@ class TestEligibilityReasonTagging(BaseTest):
 
     def test_rejection_reason_is_tagged_then_cleared_once_a_gate_admits(self) -> None:
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=DateRangeOverMax(120))
-        assert lazy_precompute_ineligible_reason() == "DateRangeOverMax"
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "DateRangeOverMax"
 
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=None)
-        assert lazy_precompute_ineligible_reason() is None
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) is None
+
+    @parameterized.expand(
+        [
+            (WebAnalyticsPreComputeStrategy.PRE_AGGREGATED,),
+            (WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,),
+        ]
+    )
+    def test_rejection_reason_is_dropped_when_another_strategy_serves_the_read(
+        self, strategy: WebAnalyticsPreComputeStrategy
+    ) -> None:
+        # The lazy gate can refuse a read that the pre-aggregated tables then serve. Telemetry that
+        # breaks down by the reason must not count such a read as live.
+        log_eligibility_outcome(log_prefix="web_stats_table", team_id=self.team.pk, error=DateRangeOverMax(120))
+
+        assert lazy_precompute_ineligible_reason(strategy) is None
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):
