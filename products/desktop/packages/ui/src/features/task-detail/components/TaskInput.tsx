@@ -78,8 +78,6 @@ import { useAutoresearchEnabled } from "../../autoresearch/useAutoresearchEnable
 import { useFileSearchStore } from "../../command/fileSearchStore";
 import { NewTaskFilePreview } from "../../command/NewTaskFilePreview";
 import { EnvironmentSelector } from "../../environments/EnvironmentSelector";
-import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
-import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { AdditionalDirectoriesButton } from "../../folder-picker/AdditionalDirectoriesButton";
 import { FolderPicker } from "../../folder-picker/FolderPicker";
 import { GitHubRepoPicker } from "../../folder-picker/GitHubRepoPicker";
@@ -484,8 +482,6 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
-  const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
     repositoriesCount: repositories.length,
@@ -493,14 +489,12 @@ export function TaskInput({
   });
 
   useEffect(() => {
-    if (didResolveRuntimeRef.current || !settingsHydrated || !flagsLoaded) {
+    if (didResolveRuntimeRef.current || !settingsHydrated) {
       return;
     }
     didResolveRuntimeRef.current = true;
-    setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
-    );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
+    setRuntime(lastUsedAgentRuntime === "pi" ? "pi" : "acp");
+  }, [lastUsedAgentRuntime, settingsHydrated]);
 
   const { workspaceMode, setWorkspaceMode, overrideWorkspaceMode } =
     useResolvedWorkspaceMode({
@@ -1665,11 +1659,9 @@ export function TaskInput({
                         onChange={handleThoughtChange}
                         onModelChange={handleModelChange}
                         onAdapterChange={setAdapter}
-                        onHarnessChange={
-                          piHarnessEnabled ? handleHarnessChange : undefined
-                        }
+                        onHarnessChange={handleHarnessChange}
                         onHarnessModelChange={handleHarnessModelChange}
-                        includePiHarness={piHarnessEnabled}
+                        includePiHarness
                         onConfigOptionChange={setConfigOption}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}

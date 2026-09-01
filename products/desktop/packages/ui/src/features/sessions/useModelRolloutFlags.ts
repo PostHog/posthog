@@ -11,8 +11,8 @@ import type { ModelRolloutFlags } from "./modelOptionFilters";
 
 /**
  * The rollout flags gating individual models, read in one place. Dev builds
- * default them on, like pi-harness, so the full catalog shows without a
- * posthog override. Memoized so the object can sit in dependency arrays.
+ * default them on, so the full catalog shows without a posthog override.
+ * Memoized so the object can sit in dependency arrays.
  */
 export function useModelRolloutFlags(): ModelRolloutFlags {
   const dev = import.meta.env.DEV;

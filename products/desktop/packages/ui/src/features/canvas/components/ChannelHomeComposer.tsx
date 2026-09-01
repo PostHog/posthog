@@ -25,8 +25,6 @@ import { toast } from "../../../primitives/toast";
 import { spendStopMessage, useSpendStop } from "../../billing/useSpendStop";
 import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
-import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
-import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
 import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
@@ -120,6 +118,7 @@ export const ChannelHomeComposer = forwardRef<
     lastUsedInitialTaskMode,
     setLastUsedReasoningEffort,
     setLastUsedModel,
+    _hasHydrated: settingsHydrated,
   } = useSettingsStore();
 
   const adapter = lastUsedAdapter;
@@ -134,8 +133,6 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
-  const flagsLoaded = useFeatureFlagsLoaded();
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
 
@@ -145,15 +142,13 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   useEffect(() => {
-    if (didResolveRuntimeRef.current || !flagsLoaded) {
+    if (didResolveRuntimeRef.current || !settingsHydrated) {
       return;
     }
 
     didResolveRuntimeRef.current = true;
-    setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
-    );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
+    setRuntime(lastUsedAgentRuntime === "pi" ? "pi" : "acp");
+  }, [lastUsedAgentRuntime, settingsHydrated]);
 
   const { hasGithubIntegration, isLoadingIntegrations } =
     useUserRepositoryIntegration();
@@ -553,11 +548,9 @@ export const ChannelHomeComposer = forwardRef<
               onChange={handleThoughtChange}
               onModelChange={handleModelChange}
               onAdapterChange={setAdapter}
-              onHarnessChange={
-                piHarnessEnabled ? handleHarnessChange : undefined
-              }
+              onHarnessChange={handleHarnessChange}
               onHarnessModelChange={handleHarnessModelChange}
-              includePiHarness={piHarnessEnabled}
+              includePiHarness
               onConfigOptionChange={setConfigOption}
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
