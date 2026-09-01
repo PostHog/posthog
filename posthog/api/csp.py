@@ -63,6 +63,10 @@ def _drop_self_hosted_reports(reports: list[dict[str, object]], token: Optional[
 
     `CSP_DROP_SELF_HOSTED_REPORTS` gates the drop itself. While it is off the classifier still
     runs and records `would_drop`, so the counter shows what enabling it costs before it costs it.
+
+    Call this after sampling, never before. Sampling discards most violations, so classifying
+    first would count reports that never become events and overstate the counter by the inverse
+    of the sample rate.
     """
     if not is_cloud():
         return reports
@@ -328,17 +332,15 @@ def process_csp_report(request):
             else:
                 raise ValueError("Invalid CSP report")
 
-            accepted_reports = _drop_self_hosted_reports([properties], token)
-            if not accepted_reports:
-                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
-            properties = accepted_reports[0]
-
             if not sample_csp_report(properties, sample_rate, add_metadata=True):
                 logger.warning(
                     "CSP report sampled out - report-uri format",
                     document_url=properties.get("document_url"),
                     sample_rate=sample_rate,
                 )
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
+            if not _drop_self_hosted_reports([properties], token):
                 return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return (
@@ -360,12 +362,8 @@ def process_csp_report(request):
             else:
                 raise ValueError("Invalid CSP report")
 
-            violations_props = _drop_self_hosted_reports(
-                [parse_report_to(item) for item in items if is_csp_violation(item)], token
-            )
-            crash_props = _drop_self_hosted_reports(
-                [parse_crash_report(item) for item in items if is_crash_report(item)], token
-            )
+            violations_props = [parse_report_to(item) for item in items if is_csp_violation(item)]
+            crash_props = [parse_crash_report(item) for item in items if is_crash_report(item)]
 
             if not violations_props and not crash_props:
                 return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
@@ -378,8 +376,12 @@ def process_csp_report(request):
             # Crash reports skip sampling: they are rare and each one is a dead tab, so
             # applying the CSP sample rate would silently discard most of the signal.
             events = [
-                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
-            ] + [build_crash_event(prop, distinct_id, session_id, user_agent) for prop in crash_props]
+                build_csp_event(prop, distinct_id, session_id, version, user_agent)
+                for prop in _drop_self_hosted_reports(sampled_violations, token)
+            ] + [
+                build_crash_event(prop, distinct_id, session_id, user_agent)
+                for prop in _drop_self_hosted_reports(crash_props, token)
+            ]
 
             if not events:
                 logger.warning(

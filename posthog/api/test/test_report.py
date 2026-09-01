@@ -155,6 +155,32 @@ class TestCspReport(BaseTest):
         assert (mock_batch_capture.called or mock_capture.called) is not self_hosted_token
         mock_buffer.enqueue.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI),
+            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO]),
+        ]
+    )
+    def test_cloud_does_not_count_a_self_hosted_violation_that_sampling_discarded(self, _name, content_type, payload):
+        # The counter sizes the drop before we enable it, so it has to match ingested volume.
+        # Classifying before sampling would overstate it by the inverse of the sample rate.
+        would_drop_before = CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get()
+
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
+            patch("posthog.api.report.capture_internal") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/report/?token={PH_US_API_KEY}&sample_rate=0",
+                data=json.dumps(payload),
+                content_type=content_type,
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not mock_batch_capture.called and not mock_capture.called
+        assert CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get() == would_drop_before
+
     @patch("posthog.api.report.capture_batch_internal")
     def test_cloud_counts_but_keeps_self_hosted_reports_while_the_drop_is_off(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())

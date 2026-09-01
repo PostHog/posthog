@@ -95,6 +95,9 @@ class TestCloudUtilsRunMode(SimpleTestCase):
             ("ipv4_loopback_trailing_dot", "http://127.0.0.1./project/1", False),
             ("missing", None, False),
             ("malformed", "https://[", False),
+            # Chrome reports `about` as the document URL for a violation inside an `about:blank`
+            # frame. The report is valid but names no origin, so it must not be treated as hobby.
+            ("about_blank_frame", "about", False),
         ]
     )
     def test_identifies_hobby_url(self, _name: str, url: str | None, expected: bool) -> None:
