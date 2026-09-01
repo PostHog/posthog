@@ -55,23 +55,23 @@ CSP_REPORT_TYPES_MAPPING_TABLE = """
 
 
 def _drop_self_hosted_reports(reports: list[dict[str, object]], token: Optional[str]) -> list[dict[str, object]]:
-    """Ignore reports that a self-hosted PostHog install sent to Cloud.
+    """Ignore reports that a legacy self-hosted PostHog install sent to Cloud.
 
-    Self-hosted installs run the same `CSPMiddleware` as Cloud, so they report with PostHog's
-    own project token until the operator upgrades. Customers configure this endpoint with their
-    own project token, so the token separates the two; the document URL alone cannot.
+    Three sources reach this endpoint:
 
-    The token gate is what protects customers: a report on any other token returns below, from
-    any domain. The document URL then splits what is left, because Cloud's own app sends with
-    this token too — a PostHog or local host is Cloud reporting on itself and has to survive.
-    So that second check only ever keeps more than the token gate alone would.
+    - A customer's site, on their own team token. Kept, from any domain.
+    - Cloud's own app, on PostHog's token from a PostHog or local host. Kept.
+    - A self-hosted install, on PostHog's token because it runs PostHog's own `CSPMiddleware`,
+      from the operator's own host. Dropped.
 
-    `CSP_DROP_SELF_HOSTED_REPORTS` gates the drop itself. While it is off the classifier still
-    runs and records `would_drop`, so the counter shows what enabling it costs before it costs it.
+    Only the token tells the first case from the other two, so the token gate runs first and is
+    what protects customers. The document URL then splits Cloud's own app from self-hosted.
+
+    `CSP_DROP_SELF_HOSTED_REPORTS` gates the drop. While it is off the classifier still records
+    `would_drop`, so the counter shows what enabling it costs before it costs it.
 
     Call this after sampling, never before. Sampling discards most violations, so classifying
-    first would count reports that never become events and overstate the counter by the inverse
-    of the sample rate.
+    first would overstate the counter by the inverse of the sample rate.
     """
     if not is_cloud():
         return reports
