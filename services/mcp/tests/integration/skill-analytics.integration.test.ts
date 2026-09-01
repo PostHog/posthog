@@ -1,6 +1,5 @@
 import http from 'node:http'
 import { gunzipSync } from 'node:zlib'
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
@@ -84,7 +83,7 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
         const tools = catalog.getPreBuiltEntries().map((entry) => {
             const preBuilt = catalog.getToolByName(entry.name)!
             return {
-                ...preBuilt.base,
+                ...preBuilt.build(),
                 title: entry.title,
                 description: entry.description ?? '',
                 annotations: entry.annotations,

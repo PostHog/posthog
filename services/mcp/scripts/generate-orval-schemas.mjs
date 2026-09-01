@@ -26,6 +26,7 @@ import {
 } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
+import { lazifyZodSchemas } from './lib/lazy-zod-schemas.mjs'
 import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -175,18 +176,26 @@ function prepareOrval(moduleName, filteredSchema, tmpDir) {
 }
 
 function postprocessOrvalOutput(outputFile) {
-    // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
-    // can tree-shake unused schemas out of the bundle.
     const generated = fs.readFileSync(outputFile, 'utf-8')
     const withoutRedundantEnumDescriptions = generated.replace(
         /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
         ''
     )
-    const annotated = withoutRedundantEnumDescriptions.replace(
-        /^(export const \w+ =) (zod\.)/gm,
-        '$1 /* @__PURE__ */ $2'
-    )
-    fs.writeFileSync(outputFile, annotated)
+    // Exported schemas become builder functions, so a pod holds no schema
+    // objects between calls (see lib/lazy-zod-schemas.mjs). Unused builders
+    // tree-shake without a @__PURE__ annotation.
+    const { source } = lazifyZodSchemas(withoutRedundantEnumDescriptions, outputFile)
+    fs.writeFileSync(outputFile, source)
+}
+
+function formatGeneratedFiles(files) {
+    const result = spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', ...files], {
+        stdio: 'pipe',
+        cwd: repoRoot,
+    })
+    if (result.status !== 0) {
+        console.warn(`hogli format:js failed:\n${result.stderr?.toString() ?? ''}${result.stdout?.toString() ?? ''}`)
+    }
 }
 
 // ------------------------------------------------------------------
@@ -262,5 +271,5 @@ console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalEnabledOps} enabl
 
 if (outputDirs.length > 0) {
     const generatedFiles = outputDirs.map((d) => path.join(d, 'api.ts'))
-    spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', ...generatedFiles], { stdio: 'pipe', cwd: repoRoot })
+    formatGeneratedFiles(generatedFiles)
 }

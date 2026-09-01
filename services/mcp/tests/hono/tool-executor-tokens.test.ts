@@ -81,20 +81,22 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
     }
 }
 
+type FakeToolBase = {
+    schema: z.ZodObject<Record<string, never>>
+    handler: ReturnType<typeof vi.fn>
+    _meta?: { ui?: { resourceUri?: string } }
+}
+
 function makeFakeTool(
     name: string,
     handler: () => Promise<unknown> = async () => 'ok',
     _meta?: { ui?: { resourceUri?: string } }
-): {
-    name: string
-    base: {
-        schema: z.ZodObject<Record<string, never>>
-        handler: ReturnType<typeof vi.fn>
-        _meta?: { ui?: { resourceUri?: string } }
-    }
-} {
+): { name: string; build: () => FakeToolBase; base: FakeToolBase } {
     return {
         name,
+        build() {
+            return this.base
+        },
         base: {
             schema: z.object({}),
             handler: vi.fn().mockImplementation(handler),
@@ -123,6 +125,9 @@ describe('ToolExecutor token estimates', () => {
         it('emits the execute-sql generation with the validated args', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'execute-sql',
+                build() {
+                    return this.base
+                },
                 base: {
                     schema: z.object({ query: z.string() }),
                     handler: vi.fn().mockResolvedValue('ok'),
@@ -240,7 +245,7 @@ describe('ToolExecutor token estimates', () => {
             const tools = catalog.getPreBuiltEntries().map((entry) => {
                 const preBuilt = catalog.getToolByName(entry.name)!
                 return {
-                    ...preBuilt.base,
+                    ...preBuilt.build(),
                     title: entry.title,
                     description: entry.description ?? '',
                     annotations: entry.annotations,

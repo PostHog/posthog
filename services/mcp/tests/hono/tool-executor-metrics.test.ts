@@ -110,15 +110,17 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
     }
 }
 
+type FakeToolBase = { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
+
 function makeFakeTool(
     name: string,
     handler: () => Promise<unknown> = async () => 'ok'
-): {
-    name: string
-    base: { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
-} {
+): { name: string; build: () => FakeToolBase; base: FakeToolBase } {
     return {
         name,
+        build() {
+            return this.base
+        },
         base: {
             schema: z.object({}),
             handler: vi.fn().mockImplementation(handler),
@@ -405,6 +407,9 @@ describe('ToolExecutor metrics', () => {
         it('records validation_error without starting a timer', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'strict-tool',
+                build() {
+                    return this.base
+                },
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
@@ -421,6 +426,9 @@ describe('ToolExecutor metrics', () => {
         it('emits an errored analytics event with the rejected fields on a schema rejection', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'strict-tool',
+                build() {
+                    return this.base
+                },
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
@@ -462,7 +470,7 @@ describe('ToolExecutor metrics', () => {
             const tools = catalog.getPreBuiltEntries().map((entry) => {
                 const preBuilt = catalog.getToolByName(entry.name)!
                 return {
-                    ...preBuilt.base,
+                    ...preBuilt.build(),
                     title: entry.title,
                     description: entry.description ?? '',
                     annotations: entry.annotations,
@@ -694,7 +702,7 @@ describe('ToolExecutor metrics', () => {
                 const tools = catalog.getPreBuiltEntries().map((entry) => {
                     const preBuilt = catalog.getToolByName(entry.name)!
                     return {
-                        ...preBuilt.base,
+                        ...preBuilt.build(),
                         title: entry.title,
                         description: entry.description ?? '',
                         annotations: entry.annotations,
