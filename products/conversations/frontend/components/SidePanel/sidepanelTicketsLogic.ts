@@ -601,7 +601,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!ticketId || !posthog.conversations) {
                 return
             }
-            // Tag each load so a newer one wins. The post-send refresh, a poll, and opening another
+            // A load for a ticket the reader is no longer viewing can never apply its result, so skip
+            // it before touching the shared revision. Otherwise a post-send refresh for a thread they
+            // just left (sendMessage dispatches loadMessages(ticket_id) unconditionally) would bump the
+            // revision and cancel the live load for the ticket they switched to, leaving that thread
+            // showing "No messages yet." until the next poll.
+            if (values.currentTicket?.id !== ticketId) {
+                return
+            }
+            // Tag each load so a newer one wins. The post-send refresh, a poll, and reopening the same
             // ticket all dispatch loadMessages, so an older request that settles late must not apply
             // its snapshot or toast over fresher state.
             const revision = (cache.messageRevision = (cache.messageRevision ?? 0) + 1)

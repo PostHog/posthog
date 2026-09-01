@@ -515,6 +515,16 @@ describe('sidepanelTicketsLogic', () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+
+        // The composer only shows inside a thread, so the reader is viewing the ticket they reply in;
+        // the post-send refresh loads that same ticket.
+        logic.actions.setCurrentTicket({
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket)
+        await expectLogic(logic).toFinishAllListeners()
         ;(posthog as any).conversations.getMessages = jest.fn().mockRejectedValue(new Error('offline'))
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
         const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('' as never)
@@ -578,5 +588,46 @@ describe('sidepanelTicketsLogic', () => {
         expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'thread_load_failed' })
 
         errorToast.mockRestore()
+    })
+
+    // A reader can open ticket B while a send in ticket A is still pending. When A's send resolves it
+    // refreshes A, but the reader is now on B, so A's doomed refresh must not cancel B's live load and
+    // leave B falsely empty. Guards the revision-bump ordering the earlier fix introduced.
+    it('keeps the newly opened ticket loaded when an older ticket send resolves after the switch', async () => {
+        ;(posthog as any).conversations.getMessages = jest.fn().mockImplementation((ticketId: string) =>
+            Promise.resolve({
+                messages:
+                    ticketId === 'b'
+                        ? [
+                              {
+                                  id: 'm-b',
+                                  content: 'hi from B',
+                                  author_type: 'user',
+                                  author_name: 'B',
+                                  created_at: '2026-07-14T00:00:00Z',
+                              },
+                          ]
+                        : [],
+                has_more: false,
+            })
+        )
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            // The reader switches to B, which starts B's load; then A's late send refreshes A while B's
+            // load is still in flight.
+            logic.actions.setCurrentTicket({
+                id: 'b',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-14T00:00:00Z',
+            } as ConversationTicket)
+            logic.actions.loadMessages('a', true)
+        }).toFinishAllListeners()
+
+        expect(logic.values.currentTicket?.id).toBe('b')
+        expect(logic.values.messages.map((m) => m.id)).toEqual(['m-b'])
     })
 })
