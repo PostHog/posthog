@@ -1,6 +1,8 @@
 import os
+from typing import Literal
 from uuid import UUID
 
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -140,7 +142,11 @@ DROP_EVENTS_BY_TOKEN_DISTINCT_ID = get_from_env("DROP_EVENTS_BY_TOKEN_DISTINCT_I
 # every producer in a project, so this organization-level rollout lets the real-time usage page
 # query all of an organization's projects without exposing the table elsewhere.
 #
-# Empty by default, including on Cloud: organization IDs are UUIDs and must be explicitly opted in.
-BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS: set[UUID] = {
-    UUID(organization_id) for organization_id in get_set(os.getenv("BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS", ""))
+# Local development enables the table for all organizations. Cloud and self-hosted deployments need explicit UUIDs.
+_BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS = "*" if DEBUG and not TEST else ""
+BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS: set[UUID | Literal["*"]] = {
+    "*" if organization_id == "*" else UUID(organization_id)
+    for organization_id in get_set(
+        os.getenv("BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS", _BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS)
+    )
 }

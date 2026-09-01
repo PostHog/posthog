@@ -289,6 +289,9 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             assert "posthog.billing_usage_records" in listed_tables(same_organization_team)
             assert "posthog.billing_usage_records" not in listed_tables(other_organization_team)
 
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS={"*"}):
+            assert "posthog.billing_usage_records" in listed_tables(other_organization_team)
+
             usage_columns = {
                 row[0]
                 for row in execute_hogql_query(
