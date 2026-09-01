@@ -114,3 +114,20 @@ export const TrunkQuarantineDebt: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
 }
+
+const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
+    ...TRUNK_QUARANTINE,
+    owners_resolved: false,
+    teams: [{ owner_team: 'unowned', test_count: 3, overdue_count: 2, oldest_age_days: 44 }],
+    tests: TRUNK_QUARANTINE.tests.map((test) => ({ ...test, file: '', owner_team: 'unowned' })),
+}
+
+export const TrunkQuarantineDebtOwnersUnavailable: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
+    decorators: [
+        mswDecorator({
+            get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': OWNERS_UNAVAILABLE },
+        }),
+    ],
+}
