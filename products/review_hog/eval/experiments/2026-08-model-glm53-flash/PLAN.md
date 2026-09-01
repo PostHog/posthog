@@ -7,7 +7,7 @@ known-issue registry, judge verdicts, and the L1/L2 runs are the ground truth an
 
 ## Decisions (grilled 2026-08-31)
 
-1. **Credentials:** prod Baseten key (`posthog-llm-gateway-secrets` / `BASETEN_API_KEY`) +
+1. **Credentials:** prod Baseten key (from the gateway's production secret store) +
    `https://inference.baseten.co/v1`, added to the repo root `.env` as `LLM_GATEWAY_BASETEN_API_*`.
 2. **Gateway config:** local-only, uncommitted, reverted after the runs — `zai-org/glm-5.3-flash`
    added to `background_agents.allowed_models` and `background_agents` added to its

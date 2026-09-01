@@ -14,7 +14,7 @@ Run-by-run results stay in [PLAN.md](./PLAN.md); this file carries the traps.
 2. **GLM 5.3 Flash is Baseten-exclusive in the gateway.** No Cloudflare/Modal fallback (the local
    Modal endpoint only hosts GLM 5.2). Needs `LLM_GATEWAY_BASETEN_API_BASE`
    (`https://inference.baseten.co/v1`) + `LLM_GATEWAY_BASETEN_API_KEY` in the repo root `.env`
-   (prod key lives in AWS secret `posthog-llm-gateway-secrets`, property `BASETEN_API_KEY`).
+   (get the key from the gateway's production secret store).
    Without both, NO product advertises the model and the agent silently drops it.
 3. **The background_agents allowlist trap (sol-arm incident, again).** ReviewHog sandboxes call
    the gateway as product `background_agents`. GLM 5.3 Flash needed two local config edits in
