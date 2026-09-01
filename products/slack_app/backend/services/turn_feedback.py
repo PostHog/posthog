@@ -3,8 +3,9 @@
 Rating is analytics only: it changes nothing about the run, and a reader who picks the
 other rating later simply sends a second event. What a pick produces is the pair of
 events AI observability already understands, ``$ai_metric`` for the rating and
-``$ai_feedback`` for the reason, tagged ``ai_product="posthog_slack"`` so Slack feedback
-sits beside the web and desktop clients' rather than in a surface of its own.
+``$ai_feedback`` for the reason, tagged with the same ``ai_product`` the run's own
+generations carry so Slack feedback sits beside the web and desktop clients' rather than
+in a surface of its own.
 
 Kept out of ``api.py`` so that module stays the interactivity router: it imports the hint
 extractor for region ownership and the two handler entrypoints.
@@ -36,9 +37,13 @@ TURN_FEEDBACK_MODAL_CALLBACK_ID = "slack_app_turn_feedback_modal"
 _MODAL_TEXT_BLOCK_ID = "feedback_text"
 _MODAL_TEXT_ACTION_ID = "text"
 
-# Slack feedback joins the web client's (``posthog_ai``) and the desktop client's
-# (``posthog_code``) under one metric, split by this property.
-AI_PRODUCT = "posthog_slack"
+# What the run's own generations are already tagged with, so a rating joins them: a
+# Slack-origin run resolves to this gateway product (`_ORIGIN_TO_GATEWAY_PRODUCT` in
+# `products/tasks/backend/temporal/process_task/ai_gateway_token.py`) and the gateway
+# stamps it onto every `$ai_generation`. The other clients make the same match — desktop
+# sends `posthog_code`, web sends `posthog_ai` — which is what puts all PostHog AI
+# feedback on one metric, split by this property.
+AI_PRODUCT = "slack_app"
 
 # Slack's own cap on a `plain_text_input`, and Slack rejects the whole view past it, so the
 # modal would not open at all. Below the desktop client's 4000 on purpose: a reason typed

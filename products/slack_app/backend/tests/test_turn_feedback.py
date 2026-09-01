@@ -114,7 +114,9 @@ class TestTurnFeedback(TestCase):
         properties = kwargs["properties"]
         assert properties["$ai_metric_name"] == "quality"
         assert properties["$ai_metric_value"] == rating
-        assert properties["ai_product"] == "posthog_slack"
+        # Must match what the gateway stamps on the run's own generations, or a rating
+        # cannot be joined to the turn it rates.
+        assert properties["ai_product"] == "slack_app"
         assert properties["task_run_id"] == str(self.task_run.id)
         assert properties["task_id"] == str(self.task.id)
         # The rated answer's own message, so a thread of answers stays separable.
