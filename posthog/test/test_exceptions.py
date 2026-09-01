@@ -10,7 +10,12 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.exceptions import (
+    CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS,
+    ClickHouseAtCapacity,
+    ClickHouseQueryTimeOut,
+    exception_handler,
+)
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -61,6 +66,24 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             assert "WWW-Authenticate" not in response
         else:
             assert response["WWW-Authenticate"] == expected_header
+
+    @parameterized.expand(
+        [
+            ("at_capacity", ClickHouseAtCapacity(), 503),
+            ("query_timeout", ClickHouseQueryTimeOut(), 504),
+        ]
+    )
+    def test_retry_after_on_transient_clickhouse_capacity(
+        self,
+        _name: str,
+        exception: APIException,
+        expected_status: int,
+    ) -> None:
+        # Without Retry-After, API clients retry blind during a capacity event and worsen the pileup.
+        response = exception_handler(exception, {"request": self._request()})
+        assert response is not None
+        assert response.status_code == expected_status
+        assert response["Retry-After"] == str(CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS)
 
     def test_hint_ignores_host_header(self) -> None:
         """A spoofed Host header must not steer the discovery URL away from SITE_URL."""

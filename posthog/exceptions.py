@@ -78,8 +78,15 @@ class DatabaseSchemaUnavailable(APIException):
     default_code = "database_schema_unavailable"
 
 
+# Advisory back-off in seconds. The handler in drf-exceptions-hog turns a truthy `wait` into a
+# `Retry-After` header, so a client that retries gets a real window instead of hammering a busy
+# cluster. Both codes signal transient cluster load, so they share one value.
+CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS = 30
+
+
 class ClickHouseAtCapacity(APIException):
     status_code = 503
+    wait = CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
@@ -102,6 +109,7 @@ class ClickHouseBytesLimitExceeded(ValidationError):
 
 class ClickHouseQueryTimeOut(APIException):
     status_code = 504
+    wait = CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
