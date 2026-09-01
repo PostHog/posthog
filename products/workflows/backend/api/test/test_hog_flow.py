@@ -5580,3 +5580,61 @@ class TestCreateTaskActionValidation(APIBaseTest):
         response = self._post_flow({"max_parallel_tasks": {"value": value}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestRunScoutActionValidation(APIBaseTest):
+    """Save-time check specific to the "Run scout" step: it used to fail only on the first run,
+    once per fire, in a child environment. This locks in that the same misconfiguration is now
+    rejected when the workflow is saved."""
+
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-run-scout"
+        template["name"] = "Run scout"
+        template["inputs_schema"] = [
+            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True}
+        ]
+        sync_template_to_db(template)
+
+    def _post_flow(self, team: Team):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-run-scout",
+                "inputs": {"skill_name": {"value": "signals-scout-general"}},
+            },
+        }
+        # Strict validation, same as any programmatic caller - the path a misconfigured
+        # workflow is actually authored through.
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{team.id}/hog_flows",
+                {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+    def test_rejects_the_action_in_a_child_environment(self):
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+
+        response = self._post_flow(child)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__template_id"
+        assert not HogFlow.objects.filter(team=child).exists()
+
+    def test_accepts_the_action_in_the_main_environment(self):
+        response = self._post_flow(self.team)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
