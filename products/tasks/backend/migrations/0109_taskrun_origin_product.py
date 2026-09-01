@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=products.tasks.backend.models.task_origin_product_choices,
                 default="",
+                db_default="",
                 max_length=20,
             ),
         ),

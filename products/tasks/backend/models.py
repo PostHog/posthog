@@ -1984,7 +1984,13 @@ class TaskRun(models.Model):
     # Copy of the parent task's origin_product, populated on creation and never changed.
     # It lets the per-minute monitoring gauges group by origin_product without joining
     # posthog_task on every run row. See `collect_task_run_state_metrics`.
-    origin_product = models.CharField(max_length=20, choices=task_origin_product_choices, blank=True, default="")
+    origin_product = models.CharField(
+        max_length=20,
+        choices=task_origin_product_choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -2113,12 +2119,17 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
-            # Serves the per-minute monitoring gauges, which filter by status and group by
-            # status, environment, and origin_product. Without it those aggregates scan the
-            # whole run table on every tick.
+            # Open statuses remain selective, so status leads the index for untimed gauges.
             models.Index(
                 fields=["status", "environment", "origin_product"],
                 name="task_run_status_env_origin_idx",
+            ),
+            # Terminal rows dominate over time, so the recency range must lead this partial index.
+            models.Index(
+                fields=["updated_at"],
+                include=["status", "environment", "origin_product"],
+                name="task_run_terminal_updated_idx",
+                condition=models.Q(status__in=["completed", "failed", "cancelled"]),
             ),
         ]
 

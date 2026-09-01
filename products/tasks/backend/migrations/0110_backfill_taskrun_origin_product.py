@@ -22,7 +22,7 @@ def backfill_origin_product(apps, schema_editor):
                 UPDATE posthog_task_run tr
                 SET origin_product = t.origin_product
                 FROM posthog_task t
-                WHERE tr.task_id = t.id AND tr.id = ANY(%s)
+                WHERE tr.task_id = t.id AND tr.id = ANY(%s) AND tr.origin_product = ''
                 """,
                 [ids],
             )
