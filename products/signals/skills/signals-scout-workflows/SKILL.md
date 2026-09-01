@@ -54,6 +54,16 @@ Per workflow, `workflows-stats` with `version=<the workflow's current version>`,
 | `email_link_clicked`             | Clicks. Same denominator as opens                                        |
 | `email_bounced`, `email_blocked` | The counter-metrics. Read them before proposing anything about copy      |
 
+**Feedback arrives after the send, so read a version that has had time to answer.** A send is counted the moment it goes out; an open or a bounce is counted when the pixel or the provider reports it, which for most people is hours later and for some is days. Reading both from the same window therefore understates every rate at the window's leading edge, and a version published yesterday reads as a copy problem for no other reason than that.
+
+So end the read before now, and check the version's age before you trust it:
+
+- Read the window as whole days that have closed, not up to this minute.
+- Skip a version whose sends began less than 48 hours ago, whatever its numbers say. Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
+- If a version's sends sit almost entirely in the last day of the window, treat the rate as immature for the same reason, even when the version itself is older.
+
+Per-version reads are what make this checkable: `workflows-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
+
 **Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here. So treat it as unreadable rather than bad: write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on. If a later run sees opens on that step, the gap has closed and the numbers are usable.
 
 ### Profile shape
@@ -72,13 +82,34 @@ Per workflow, `workflows-stats` with `version=<the workflow's current version>`,
 File a suggestion through `workflows-suggest` when, and only when, all of these hold:
 
 - The workflow is on the opted-in list, and has no suggestion still waiting on a person.
-- The step clears the sample floor: at least 20 tracked sends in the window you read.
+- The step clears the sample floor: at least 20 tracked sends in the window you read, and the version has been sending for at least 48 hours so its opens have had time to arrive.
 - The counter-metrics are not the story. If bounces or complaints are elevated, that is the finding, and it belongs in a report rather than in a copy change.
 - You can state the change as a concrete edit, not advice. "Shorten the subject" is advice. The new subject line is a change.
 
-Send the workflow's full `actions` list with your edit applied — `actions` replaces the whole list, so a partial one is refused. Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), the click rate over that same denominator, and the counter-metrics with their own denominators. A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that. A rate without `n` is refused at create, and rightly.
+Send the version you read as `base_version`, and the workflow's full `actions` list with your edit applied — `actions` replaces the whole list, so a partial one is refused. Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), the click rate over that same denominator, and the counter-metrics with their own denominators. A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that. A rate without `n` is refused at create, and rightly.
+
+The panel reads your evidence back by name, and the API refuses anything it cannot read, so send these keys:
+
+```json
+{
+  "metric": "email_opened",
+  "current_value": 0.0865,
+  "target_value": 0.2,
+  "n": 208,
+  "window": "-7d",
+  "click_through": 0.0192,
+  "guardrails": [
+    { "metric": "email_bounced", "value": 0.0, "n": 208 },
+    { "metric": "email_blocked", "value": 0.0, "n": 208 }
+  ]
+}
+```
+
+`metric`, `current_value`, `n` and `guardrails` are required. Rates are fractions, never strings: `0.0865`, not `"8.65%"`. A number under a key of your own naming (`current_open_rate`) is refused, because a person would otherwise read a well-evidenced suggestion as having no evidence at all.
 
 Your suggestion is the output. It appears on the workflow itself, which is where the person who owns that workflow decides. Never edit the workflow, and never approve: there is no tool for either, by design.
+
+Your run carries the scope `workflows-suggest` needs. A tool description that names a scope is telling you what the tool requires, not what your token lacks, so make the call rather than ruling it out. If the call comes back with an error, read it: a validation error names the field to fix and the call is worth retrying, while a permission error is the only evidence that filing is closed to you. Closing out with a finding you never tried to file wastes the run.
 
 ### Remember
 
