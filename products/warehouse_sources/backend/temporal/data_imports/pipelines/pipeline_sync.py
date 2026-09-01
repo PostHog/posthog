@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_initial_sync_complete,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -125,11 +127,16 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
-        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        schema.last_synced_at = job.created_at
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
-        schema.save(skip_activity_log=True)
+        # `last_full_run_at` rides along in the same locked write: only a run that reached
+        # post-load extracted anything, which is what bounds how long a schema can go on
+        # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
+        # also stops this save from clobbering a concurrent `sync_type_config` update.
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
+            extra_model_fields={"last_synced_at": job.created_at},
+        )
 
     await _update()
 
