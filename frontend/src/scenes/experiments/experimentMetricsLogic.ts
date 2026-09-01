@@ -729,6 +729,16 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
+                 * A run is already active: don't create a second one (the backend enforces one active
+                 * run per experiment). Remember the change, coalesced to the stronger scope, and fire it
+                 * from the poll-terminal branch when the current run ends. cold_run is the initial fill and
+                 * never queues.
+                 */
+                if (trigger !== 'cold_run' && values.isRecalculating) {
+                    actions.setQueuedRerun(trigger)
+                    return
+                }
+                /**
                  * Dim the metrics that already show something (a value or an error) so they read as
                  * "refreshing" until the new result streams in. Cold runs have nothing prior, so nothing to dim.
                  */

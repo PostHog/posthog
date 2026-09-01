@@ -599,6 +599,54 @@ describe('experimentMetricsLogic', () => {
             }).toDispatchActions(['setCurrentRecalculation'])
             expect(createMock).toHaveBeenCalled()
         })
+
+        describe('queuing', () => {
+            it('queues instead of posting when a run is active', async () => {
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            inProgressRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isRecalculating).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('metric_config_change')
+                }).toDispatchActions(['setQueuedRerun'])
+
+                expect(logic.values.queuedRerun).toBe('metric_config_change')
+                expect(createMock).not.toHaveBeenCalled()
+            })
+
+            it('does not queue a cold_run (cold_run always starts fresh)', async () => {
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            inProgressRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isRecalculating).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('cold_run')
+                }).toDispatchActions(['setCurrentRecalculation'])
+
+                expect(logic.values.queuedRerun).toBeNull()
+                expect(createMock).toHaveBeenCalled()
+            })
+        })
     })
 
     describe('loading + progress selectors', () => {
