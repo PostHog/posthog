@@ -398,12 +398,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     # changes, so the editor must be able to run them. Only changed queries are
                     # checked, and only when a share exists - normal autosave on unshared
                     # notebooks does no access work at all.
-                    if (
-                        locked_instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-                        # org admins have full access, so skip the gate for a faster save
-                        and not (self.user_access_control and self.user_access_control.is_organization_admin)
-                        and is_publicly_shared(locked_instance)
-                    ):
+                    if locked_instance.team.organization.is_feature_available(
+                        AvailableFeature.ACCESS_CONTROL
+                    ) and is_publicly_shared(locked_instance):
                         blocked = blocked_access_in_notebook_edit(
                             self.context["request"].user, locked_instance, validated_data.get("content")
                         )

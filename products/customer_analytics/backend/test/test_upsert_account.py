@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import TaggedItem, Team, User
+from posthog.models import OrganizationMembership, TaggedItem, Team, User
 
 from products.customer_analytics.backend.max_tools import (
     AccountPropertiesInput,
@@ -107,6 +107,32 @@ class TestUpsertAccountTool(BaseTest):
             action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": None})
         )
         assert await self._active_holder_ids(account) == set()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_project_member_cannot_replace_or_end_single_holder_relationship(self):
+        await self._create_definition("CSM")
+        successor = await sync_to_async(self._create_user)("successor@posthog.com")
+        member = await sync_to_async(self._create_user)("member@posthog.com")
+        await sync_to_async(OrganizationMembership.objects.filter(user=member).update)(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Acme")
+        await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": self.user.id})
+        )
+        member_tool = UpsertAccountTool(team=self.team, user=member, config=self._config)
+
+        _, replacement = await member_tool._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": successor.id})
+        )
+        _, ending = await member_tool._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": None})
+        )
+
+        assert replacement["error"] == "invalid_relationship_assignment"
+        assert ending["error"] == "invalid_relationship_assignment"
+        assert await self._active_holder_ids(account) == {self.user.id}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

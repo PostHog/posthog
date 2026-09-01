@@ -45,14 +45,13 @@ def check_can_add_insight_to_shared_dashboard(
     if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
     uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
-    # org admins have full access, so skip the gate for a faster write
-    if uac.is_organization_admin:
-        return
     if not is_publicly_shared(dashboard):
         return
-    blocked = blocked_access_for_user(user, dashboard.team, [query])
+    blocked = set(blocked_access_for_shared_viewer(dashboard.team, [query]))
+    if not uac.is_organization_admin:
+        blocked.update(blocked_access_for_user(user, dashboard.team, [query]))
     if blocked:
-        blocked_list = ", ".join(f"`{name}`" for name in blocked)
+        blocked_list = ", ".join(f"`{name}`" for name in sorted(blocked))
         raise serializers.ValidationError(
             f"Can't add this insight: you don't have access to {blocked_list}, and this dashboard is publicly shared."
         )
@@ -62,9 +61,13 @@ def blocked_access_for_publisher(user: User, team: Team, config: SharingConfigur
     """Return protected resources the publisher or shared viewer cannot read."""
     queries = _queries_exposed_by(config)
     blocked = set(blocked_access_for_user(user, team, queries))
-    shared_viewer = cast(User, SharedLinkUser(SharingConfiguration(team=team, enabled=True)))
-    blocked.update(blocked_access_for_user(shared_viewer, team, queries, check_runner_access=False))
+    blocked.update(blocked_access_for_shared_viewer(team, queries))
     return sorted(blocked)
+
+
+def blocked_access_for_shared_viewer(team: Team, queries: list[dict[str, Any]]) -> list[str]:
+    shared_viewer = cast(User, SharedLinkUser(SharingConfiguration(team=team, enabled=True)))
+    return blocked_access_for_user(shared_viewer, team, queries, check_runner_access=False)
 
 
 def blocked_access_for_user(
@@ -162,4 +165,6 @@ def blocked_access_in_notebook_edit(user: User, notebook: Any, new_content: dict
             ).values_list("query", flat=True)
             if isinstance(q, dict)
         )
-    return blocked_access_for_user(user, notebook.team, changed_queries)
+    blocked = set(blocked_access_for_user(user, notebook.team, changed_queries))
+    blocked.update(blocked_access_for_shared_viewer(notebook.team, changed_queries))
+    return sorted(blocked)

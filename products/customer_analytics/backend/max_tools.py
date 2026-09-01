@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.scopes import APIScopeObject
+from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.customer_analytics.backend.facade.api import (
@@ -331,9 +332,15 @@ class UpsertAccountTool(MaxTool):
         missing = sorted(user_ids - memberships.keys())
         if missing:
             raise RelationshipAssignmentError(f"User {missing[0]} is not a member of this organization.")
+        membership_level = UserPermissions(user=self._user, team=self._team).current_team.effective_membership_level
+        can_replace_single_holder = (
+            membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+        )
         for name, user_id in assignments.items():
             definition = definitions[name]
             if user_id is None:
+                if not can_replace_single_holder:
+                    raise RelationshipAssignmentError("Only project admins can end relationship assignments.")
                 relationships_logic.end_active(
                     team_id=self._team.id,
                     account=account,
@@ -341,13 +348,19 @@ class UpsertAccountTool(MaxTool):
                     actor=self._user,
                 )
                 continue
-            relationships_logic.assign(
-                team_id=self._team.id,
-                account=account,
-                definition=definition,
-                user=memberships[user_id].user,
-                created_by=self._user,
-            )
+            try:
+                relationships_logic.assign(
+                    team_id=self._team.id,
+                    account=account,
+                    definition=definition,
+                    user=memberships[user_id].user,
+                    created_by=self._user,
+                    allow_single_holder_replacement=can_replace_single_holder,
+                )
+            except relationships_logic.AccountRelationshipReplacementForbidden as error:
+                raise RelationshipAssignmentError(
+                    "Only project admins can replace relationship assignments."
+                ) from error
 
 
 UPSERT_ACCOUNT_NOTEBOOK_TOOL_DESCRIPTION = dedent("""
