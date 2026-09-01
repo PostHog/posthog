@@ -40,8 +40,6 @@ from .serializers import (
     DocSummarySerializer,
     DocUpdateSerializer,
     SpaceHomeSerializer,
-    SpaceKpiCreateSerializer,
-    SpaceKpiSerializer,
 )
 
 _CHANNEL_PARAM = OpenApiParameter(
@@ -298,47 +296,3 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if thread is None:
             raise NotFound(_DOC_NOT_FOUND)
         return Response(DiscussionThreadSerializer(thread).data)
-
-
-class SpaceKpiViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The numbers a space watches, shown on its home view."""
-
-    scope_object = "INTERNAL"
-    serializer_class = SpaceKpiSerializer
-    # The home grid shows every number a space watches; there is nothing to page through.
-    pagination_class = None
-
-    def _actor(self) -> User:
-        return cast(User, self.request.user)
-
-    @extend_schema(parameters=[_CHANNEL_PARAM], responses={200: SpaceKpiSerializer(many=True)})
-    def list(self, request: Request, **kwargs) -> Response:
-        kpis = api.list_kpis(self.team_id, self._actor().pk, request.GET.get("channel"))
-        return Response(SpaceKpiSerializer(kpis, many=True).data)
-
-    @extend_schema(request=SpaceKpiCreateSerializer, responses={201: SpaceKpiSerializer})
-    def create(self, request: Request, **kwargs) -> Response:
-        serializer = SpaceKpiCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        try:
-            kpi = api.create_kpi(
-                contracts.CreateKpiInput(
-                    team_id=self.team_id,
-                    user_id=self._actor().pk,
-                    channel_id=data["channel"],
-                    name=data["name"],
-                    insight_short_id=data["insight_short_id"],
-                )
-            )
-        except api.ChannelNotVisibleError as err:
-            raise ValidationError({"channel": str(err)})
-
-        return Response(SpaceKpiSerializer(kpi).data, status=status.HTTP_201_CREATED)
-
-    @extend_schema(responses={204: None})
-    def destroy(self, request: Request, pk: str, **kwargs) -> Response:
-        if not api.delete_kpi(self.team_id, self._actor().pk, pk):
-            raise NotFound("No number with this id in this space.")
-        return Response(status=status.HTTP_204_NO_CONTENT)

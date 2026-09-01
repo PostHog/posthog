@@ -82302,51 +82302,11 @@ export namespace Schemas {
     }
 
     /**
-     * A number the space watches. The value is read from the insight, not stored here.
-     */
-    export interface SpaceKpi {
-      /** Unique id of the number. */
-      id: string;
-      /** The space (channel) that watches this number. */
-      channel_id: string;
-      /** Label shown above the number. */
-      name: string;
-      /** Short id of the saved insight the value comes from. */
-      insight_short_id: string;
-      /** Order in the space's number grid, lowest first. */
-      position: number;
-      /** The person who added the number. */
-      created_by: DocPerson | null;
-      /** When it was added. */
-      created_at: string;
-    }
-
-    /**
      * Everything the space home view renders in one call.
      */
     export interface SpaceHome {
       /** Docs in this space, in tab order. */
       docs: DocSummary[];
-      /** Numbers this space watches, in grid order. */
-      kpis: SpaceKpi[];
-    }
-
-    /**
-     * What a new number needs.
-     */
-    export interface SpaceKpiCreate {
-      /** The space (channel) that watches this number. */
-      channel: string;
-      /**
-         * Label shown above the number.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * Short id of the saved insight the value comes from.
-         * @maxLength 32
-         */
-      insight_short_id: string;
     }
 
     /**
@@ -92972,13 +92932,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type DocKpisListParams = {
-    /**
-     * Only return rows in this space (channel).
-     */
-    channel?: string;
     };
 
     export type DocsListParams = {

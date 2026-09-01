@@ -1,0 +1,125 @@
+/* The doc body. Prose spacing lives here rather than in Tailwind classes so the
+   editor and the read-only render of the same content stay identical. */
+
+.doc-body {
+  padding: 0.5rem 0 6rem;
+  color: var(--gray-12);
+  line-height: 1.65;
+}
+
+.doc-body > * + * {
+  margin-top: 0.75rem;
+}
+
+.doc-body h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+}
+
+.doc-body h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+}
+
+.doc-body h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+}
+
+.doc-body ul,
+.doc-body ol {
+  padding-left: 1.25rem;
+}
+
+.doc-body ul {
+  list-style: disc;
+}
+
+.doc-body ol {
+  list-style: decimal;
+}
+
+.doc-body ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.doc-body ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.doc-body code {
+  font-family: var(--code-font-family, monospace);
+  font-size: 0.85em;
+  background: var(--gray-3);
+  border-radius: var(--radius-1);
+  padding: 0.1em 0.3em;
+}
+
+.doc-body pre {
+  background: var(--gray-2);
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+
+.doc-body p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--gray-9);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.doc-mention {
+  background: var(--gray-3);
+  border-radius: var(--radius-2);
+  padding: 0.05em 0.3em;
+  white-space: nowrap;
+}
+
+.doc-discussion-anchor {
+  background: color-mix(in srgb, var(--amber-9) 18%, transparent);
+  border-bottom: 1px solid var(--amber-9);
+  cursor: pointer;
+}
+
+.doc-discussion-anchor[data-resolved="true"] {
+  background: transparent;
+  border-bottom-color: var(--gray-7);
+}
+
+/* Another person's caret. The label sits above the line so it never pushes text. */
+.doc-remote-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  border-left: 2px solid;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  pointer-events: none;
+}
+
+.doc-remote-caret-label {
+  position: absolute;
+  top: -1.35em;
+  left: -2px;
+  font-size: 0.65rem;
+  line-height: 1;
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius-1);
+  color: white;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .doc-discussion-anchor {
+    transition: background-color 150ms ease;
+  }
+}

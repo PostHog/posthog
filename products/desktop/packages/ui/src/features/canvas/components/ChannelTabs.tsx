@@ -1,5 +1,5 @@
 import { Button, cn } from "@posthog/quill";
-import { LOOPS_FLAG } from "@posthog/shared";
+import { DOCS_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { CHANNEL_SECTIONS } from "@posthog/ui/features/canvas/channelSections";
 import { ChannelPinnedMenu } from "@posthog/ui/features/canvas/components/ChannelPinnedMenu";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -17,7 +17,11 @@ const TABS = CHANNEL_SECTIONS.map((s) => ({
 export function ChannelTabs({ channelId }: { channelId: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  const tabs = loopsEnabled ? TABS : TABS.filter((tab) => tab.key !== "loops");
+  const docsEnabled = useFeatureFlag(DOCS_FLAG);
+  const hiddenKeys = new Set<string>();
+  if (!loopsEnabled) hiddenKeys.add("loops");
+  if (!docsEnabled) hiddenKeys.add("docs");
+  const tabs = TABS.filter((tab) => !hiddenKeys.has(tab.key));
 
   return (
     <nav className="flex items-center gap-px">

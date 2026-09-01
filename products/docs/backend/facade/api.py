@@ -16,8 +16,8 @@ from django.conf import settings
 from posthog.models.comment import Comment
 from posthog.models.user import User
 
-from ..logic import collab, discussions, documents, kpis
-from ..models import Doc, SpaceKpi
+from ..logic import collab, discussions, documents
+from ..models import Doc
 from . import contracts
 from .enums import CollabSubmitStatus, DocStatus
 
@@ -79,10 +79,7 @@ def reorder_docs(team_id: int, user_id: int | None, channel_id: str | UUID, doc_
 
 def space_home(team_id: int, user_id: int | None, channel_id: str | UUID) -> contracts.SpaceHomeDTO:
     docs = documents.docs_in_channel(team_id, user_id, channel_id).defer("content", "text_content")
-    return contracts.SpaceHomeDTO(
-        docs=[_to_summary(doc) for doc in docs],
-        kpis=[_to_kpi(kpi) for kpi in kpis.kpis_in_channel(team_id, user_id, channel_id)],
-    )
+    return contracts.SpaceHomeDTO(docs=[_to_summary(doc) for doc in docs])
 
 
 # --- Live editing ---
@@ -199,36 +196,6 @@ def set_thread_resolved(
     return _reload_thread(doc, thread_id)
 
 
-# --- Numbers the space watches ---
-
-
-def list_kpis(team_id: int, user_id: int | None, channel_id: str | UUID | None) -> list[contracts.SpaceKpiDTO]:
-    queryset = kpis.visible_kpis(team_id, user_id)
-    if channel_id:
-        queryset = queryset.filter(channel_id=channel_id)
-    return [_to_kpi(kpi) for kpi in queryset.order_by("position", "created_at")]
-
-
-def create_kpi(payload: contracts.CreateKpiInput) -> contracts.SpaceKpiDTO:
-    return _to_kpi(
-        kpis.create_kpi(
-            team_id=payload.team_id,
-            user_id=payload.user_id,
-            channel_id=payload.channel_id,
-            name=payload.name,
-            insight_short_id=payload.insight_short_id,
-        )
-    )
-
-
-def delete_kpi(team_id: int, user_id: int | None, kpi_id: str | UUID) -> bool:
-    kpi = kpis.visible_kpis(team_id, user_id).filter(id=kpi_id).first()
-    if kpi is None:
-        return False
-    kpis.soft_delete_kpi(kpi)
-    return True
-
-
 # --- Mapping ---
 
 
@@ -275,18 +242,6 @@ def _to_doc(doc: Doc) -> contracts.DocDTO:
         created_by=_to_person(doc.created_by),
         created_at=doc.created_at,
         updated_at=doc.updated_at,
-    )
-
-
-def _to_kpi(kpi: SpaceKpi) -> contracts.SpaceKpiDTO:
-    return contracts.SpaceKpiDTO(
-        id=kpi.id,
-        channel_id=kpi.channel_id,
-        name=kpi.name,
-        insight_short_id=kpi.insight_short_id,
-        position=kpi.position,
-        created_by=_to_person(kpi.created_by),
-        created_at=kpi.created_at,
     )
 
 

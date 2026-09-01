@@ -58,33 +58,3 @@ class Doc(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self) -> str:
         return self.title or "Untitled"
-
-
-class SpaceKpi(TeamScopedRootMixin, UUIDModel):
-    """A number the space watches, shown on its home view.
-
-    Holds a reference to a saved insight only. The value and the sparkline are read
-    from the insight API at render time, so nothing here goes stale.
-    """
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="doc_kpis")
-
-    name = models.CharField(max_length=200)
-    insight_short_id = models.CharField(max_length=32)
-    position = models.IntegerField(default=0)
-
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
-    created_at = models.DateTimeField(default=timezone.now)
-    deleted = models.BooleanField(default=False)
-
-    class Meta:
-        db_table = "docs_space_kpi"
-        indexes = [
-            models.Index(fields=["channel", "position"], name="docs_kpi_channel_position"),
-        ]
-
-    def __str__(self) -> str:
-        return self.name

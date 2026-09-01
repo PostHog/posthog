@@ -8,6 +8,19 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `draft` - draft
+ * * `active` - active
+ * * `done` - done
+ */
+export type DocStatusEnumApi = (typeof DocStatusEnumApi)[keyof typeof DocStatusEnumApi]
+
+export const DocStatusEnumApi = {
+    Draft: 'draft',
+    Active: 'active',
+    Done: 'done',
+} as const
+
+/**
  * Who did something, as much of a person as a doc surface needs.
  */
 export interface DocPersonApi {
@@ -22,57 +35,6 @@ export interface DocPersonApi {
     /** Email address. */
     email: string
 }
-
-/**
- * A number the space watches. The value is read from the insight, not stored here.
- */
-export interface SpaceKpiApi {
-    /** Unique id of the number. */
-    id: string
-    /** The space (channel) that watches this number. */
-    channel_id: string
-    /** Label shown above the number. */
-    name: string
-    /** Short id of the saved insight the value comes from. */
-    insight_short_id: string
-    /** Order in the space's number grid, lowest first. */
-    position: number
-    /** The person who added the number. */
-    created_by: DocPersonApi | null
-    /** When it was added. */
-    created_at: string
-}
-
-/**
- * What a new number needs.
- */
-export interface SpaceKpiCreateApi {
-    /** The space (channel) that watches this number. */
-    channel: string
-    /**
-     * Label shown above the number.
-     * @maxLength 200
-     */
-    name: string
-    /**
-     * Short id of the saved insight the value comes from.
-     * @maxLength 32
-     */
-    insight_short_id: string
-}
-
-/**
- * * `draft` - draft
- * * `active` - active
- * * `done` - done
- */
-export type DocStatusEnumApi = (typeof DocStatusEnumApi)[keyof typeof DocStatusEnumApi]
-
-export const DocStatusEnumApi = {
-    Draft: 'draft',
-    Active: 'active',
-    Done: 'done',
-} as const
 
 /**
  * A doc without its body. Used for the tab row and the space home list.
@@ -343,8 +305,6 @@ export interface DiscussionResolveApi {
 export interface SpaceHomeApi {
     /** Docs in this space, in tab order. */
     docs: DocSummaryApi[]
-    /** Numbers this space watches, in grid order. */
-    kpis: SpaceKpiApi[]
 }
 
 /**
@@ -365,13 +325,6 @@ export interface DocsSearchRequestApi {
 export interface DocsSearchResponseApi {
     /** Markdown-formatted documentation results. Each block has a title, URL and excerpt; an empty result set returns guidance to navigate to https://posthog.com/docs. */
     content: string
-}
-
-export type DocKpisListParams = {
-    /**
-     * Only return rows in this space (channel).
-     */
-    channel?: string
 }
 
 export type DocsListParams = {

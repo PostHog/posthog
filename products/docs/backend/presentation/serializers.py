@@ -182,30 +182,7 @@ class DiscussionResolveSerializer(serializers.Serializer):
     resolved = serializers.BooleanField(help_text="True marks the thread handled, false reopens it.")
 
 
-class SpaceKpiSerializer(serializers.Serializer):
-    """A number the space watches. The value is read from the insight, not stored here."""
-
-    id = serializers.UUIDField(help_text="Unique id of the number.")
-    channel_id = serializers.UUIDField(help_text="The space (channel) that watches this number.")
-    name = serializers.CharField(help_text="Label shown above the number.")
-    insight_short_id = serializers.CharField(help_text="Short id of the saved insight the value comes from.")
-    position = serializers.IntegerField(help_text="Order in the space's number grid, lowest first.")
-    created_by = DocPersonSerializer(allow_null=True, help_text="The person who added the number.")
-    created_at = serializers.DateTimeField(help_text="When it was added.")
-
-
-class SpaceKpiCreateSerializer(serializers.Serializer):
-    """What a new number needs."""
-
-    channel = serializers.UUIDField(help_text="The space (channel) that watches this number.")
-    name = serializers.CharField(max_length=200, help_text="Label shown above the number.")
-    insight_short_id = serializers.CharField(
-        max_length=32, help_text="Short id of the saved insight the value comes from."
-    )
-
-
 class SpaceHomeSerializer(serializers.Serializer):
     """Everything the space home view renders in one call."""
 
     docs = DocSummarySerializer(many=True, help_text="Docs in this space, in tab order.")
-    kpis = SpaceKpiSerializer(many=True, help_text="Numbers this space watches, in grid order.")

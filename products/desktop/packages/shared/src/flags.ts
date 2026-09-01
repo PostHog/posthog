@@ -20,6 +20,8 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+/** Gates docs: the per-space Docs tab and its doc routes. */
+export const DOCS_FLAG = "posthog-desktop-docs";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const SAVED_SEARCHES_RAIL_FLAG = "posthog-desktop-saved-searches-rail";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";

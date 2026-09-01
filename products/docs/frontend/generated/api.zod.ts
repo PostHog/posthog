@@ -10,24 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * The numbers a space watches, shown on its home view.
- */
-export const docKpisCreateBodyNameMax = 200
-
-export const docKpisCreateBodyInsightShortIdMax = 32
-
-export const DocKpisCreateBody = /* @__PURE__ */ zod
-    .object({
-        channel: zod.uuid().describe('The space (channel) that watches this number.'),
-        name: zod.string().max(docKpisCreateBodyNameMax).describe('Label shown above the number.'),
-        insight_short_id: zod
-            .string()
-            .max(docKpisCreateBodyInsightShortIdMax)
-            .describe('Short id of the saved insight the value comes from.'),
-    })
-    .describe('What a new number needs.')
-
-/**
  * Docs: collaborative rich-text documents filed in a space.
  *
  * Live editing runs over prosemirror-collab steps on a Redis stream. This API stores the

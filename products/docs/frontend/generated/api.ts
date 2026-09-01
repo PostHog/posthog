@@ -16,7 +16,6 @@ import type {
     DocApi,
     DocCollabSaveApi,
     DocCreateApi,
-    DocKpisListParams,
     DocPresenceApi,
     DocReorderApi,
     DocSummaryApi,
@@ -26,73 +25,7 @@ import type {
     DocsSearchResponseApi,
     PatchedDocUpdateApi,
     SpaceHomeApi,
-    SpaceKpiApi,
-    SpaceKpiCreateApi,
 } from './api.schemas'
-
-export const getDocKpisListUrl = (projectId: string, params?: DocKpisListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/doc_kpis/?${stringifiedParams}`
-        : `/api/projects/${projectId}/doc_kpis/`
-}
-
-/**
- * The numbers a space watches, shown on its home view.
- */
-export const docKpisList = async (
-    projectId: string,
-    params?: DocKpisListParams,
-    options?: RequestInit
-): Promise<SpaceKpiApi[]> => {
-    return apiMutator<SpaceKpiApi[]>(getDocKpisListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDocKpisCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/doc_kpis/`
-}
-
-/**
- * The numbers a space watches, shown on its home view.
- */
-export const docKpisCreate = async (
-    projectId: string,
-    spaceKpiCreateApi: SpaceKpiCreateApi,
-    options?: RequestInit
-): Promise<SpaceKpiApi> => {
-    return apiMutator<SpaceKpiApi>(getDocKpisCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(spaceKpiCreateApi),
-    })
-}
-
-export const getDocKpisDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/doc_kpis/${id}/`
-}
-
-/**
- * The numbers a space watches, shown on its home view.
- */
-export const docKpisDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDocKpisDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 export const getDocsListUrl = (projectId: string, params?: DocsListParams) => {
     const normalizedParams = new URLSearchParams()

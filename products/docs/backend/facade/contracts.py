@@ -52,20 +52,8 @@ class DocDTO:
 
 
 @dataclass(frozen=True)
-class SpaceKpiDTO:
-    id: UUID
-    channel_id: UUID
-    name: str
-    insight_short_id: str
-    position: int
-    created_by: PersonDTO | None
-    created_at: datetime
-
-
-@dataclass(frozen=True)
 class SpaceHomeDTO:
     docs: list[DocSummaryDTO]
-    kpis: list[SpaceKpiDTO]
 
 
 @dataclass(frozen=True)
@@ -133,12 +121,3 @@ class PresenceInput:
     client_id: str
     version: int
     cursor: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class CreateKpiInput:
-    team_id: int
-    user_id: int
-    channel_id: UUID
-    name: str
-    insight_short_id: str
