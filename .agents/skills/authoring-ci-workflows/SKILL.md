@@ -123,6 +123,18 @@ Four rules for the gate body:
 `WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
+### What GitHub does with each conclusion
+
+Rule 3 works because a `skipped` check run satisfies a required context. `Build Docker image` concludes `SKIPPED` on merged PRs [92414](https://github.com/PostHog/posthog/pull/92414) and [92402](https://github.com/PostHog/posthog/pull/92402), and both merged through the Trunk queue, which scores it the same way.
+
+Three cases behave in ways the name does not suggest:
+
+- A required context that **no check run reports** stays pending and blocks. A trigger-level `paths:` filter that silences the whole workflow produces exactly this.
+- A **job-level** `continue-on-error: true` posts a `failure` check run even though dependents read `success` and the run goes green. Use step-level `continue-on-error` plus an explicit verdict step instead.
+- A **matrix that expands to zero cells** fails its dependents on GitHub Actions and posts no check run at all. Guard any `fromJSON` matrix with an `if:` that skips the job when the list is empty.
+
+Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, so a check run from any other app never satisfies one however exactly the name matches. [`/depot-github-runners`](../depot-github-runners/references/depot-ci-check-runs.md) has the measurements, the rulesets query, and how Depot CI differs.
+
 ## Checkout / clone — sparse first, then shallow
 
 This repo is 45k tracked files and 4.6 GiB of packed objects, so **what you materialize costs more than how much history you fetch**.

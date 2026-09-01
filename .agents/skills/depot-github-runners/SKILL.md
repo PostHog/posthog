@@ -7,7 +7,11 @@ description: >
   macOS runners, troubleshooting GitHub Actions runner issues, configuring egress filtering,
   using Depot Cache with GitHub Actions, or running Dagger/Dependabot on Depot runners.
   Also use when the user mentions depot-ubuntu, depot-windows, depot-macos runner labels,
-  or asks about faster/cheaper GitHub Actions runners.
+  or asks about faster/cheaper GitHub Actions runners. Also covers Depot CI, the separate
+  engine that reads .depot/workflows/ and posts its own check runs: use when comparing what
+  Depot CI and GitHub Actions report for a skipped, empty-matrix or continue-on-error job,
+  when working out whether a check run satisfies a required status check or a merge queue,
+  or when reaching for the depot ci CLI.
 ---
 
 # Depot GitHub Actions Runners
@@ -15,6 +19,16 @@ description: >
 Depot provides managed, ephemeral, single-tenant GitHub Actions runners. Drop-in replacement for GitHub-hosted runners — change the `runs-on` label and everything else stays the same.
 
 **Requirement:** Repository must be owned by a GitHub organization (not a personal account).
+
+<!-- PostHog-local section. Keep it when resyncing from upstream; see UPSTREAM.md. -->
+
+## Depot runners are not Depot CI
+
+Depot runners keep GitHub Actions as the engine, so checks still come from the `github-actions` app. Depot CI is a separate engine that reads `.depot/workflows/` and posts its own check runs from the `depot-code-access` app.
+
+Read [references/depot-ci-check-runs.md](references/depot-ci-check-runs.md) before you reason about either engine's check runs. It carries measured results for what each one reports for a skipped, empty-matrix or `continue-on-error` job, how GitHub and the Trunk merge queue score those conclusions against a required status check, and the `depot ci` CLI recipes.
+
+<!-- End PostHog-local section. -->
 
 ## Setup
 
