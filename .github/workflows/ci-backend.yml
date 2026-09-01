@@ -755,7 +755,23 @@ jobs:
                       exit 0
                   fi
                   echo "Waiting for master run $master_run_id to publish the schema cache"
-                  if timeout 1200 gh run watch "$master_run_id" --repo "$GITHUB_REPOSITORY" --exit-status; then
+                  # Poll the runs endpoint instead of `gh run watch`: watch fetches
+                  # check-run annotations, which needs checks:read this job does not grant.
+                  deadline=$((SECONDS + 1200))
+                  status=""
+                  conclusion=""
+                  while ((SECONDS < deadline)); do
+                      if ! run_state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$master_run_id" --jq '"\(.status) \(.conclusion // "")"'); then
+                          echo "::warning::Could not poll the master cache-warming run; building the dump in this run"
+                          exit 0
+                      fi
+                      read -r status conclusion <<<"$run_state"
+                      if [ "$status" = "completed" ]; then
+                          break
+                      fi
+                      sleep 30
+                  done
+                  if [ "$status" = "completed" ] && [ "$conclusion" = "success" ]; then
                       echo "waited=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "::warning::Master cache-warming run did not complete successfully; building the dump in this run"
