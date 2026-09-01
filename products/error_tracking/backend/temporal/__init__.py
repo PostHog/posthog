@@ -4,8 +4,8 @@ from products.error_tracking.backend.temporal.alerts import (
     ErrorTrackingAlertDeliveryWorkflow,
 )
 from products.error_tracking.backend.temporal.lifecycle import (
-    ACTIVITIES as _LIFECYCLE_ONLY_ACTIVITIES,
-    WORKFLOWS as _LIFECYCLE_ONLY_WORKFLOWS,
+    ACTIVITIES as LIFECYCLE_ACTIVITIES,
+    WORKFLOWS as LIFECYCLE_WORKFLOWS,
     ErrorTrackingIssueCreatedWorkflow,
     ErrorTrackingIssueReopenedWorkflow,
     ErrorTrackingIssueSpikingWorkflow,
@@ -37,10 +37,8 @@ from products.error_tracking.backend.temporal.weekly_digest import (
     send_org_digest_activity,
 )
 
-# Alert delivery runs on the lifecycle task queue: it is started by the lifecycle
-# activities and by Django mutations, and the queue's workers are already deployed.
-LIFECYCLE_WORKFLOWS = _LIFECYCLE_ONLY_WORKFLOWS + ALERT_WORKFLOWS
-LIFECYCLE_ACTIVITIES = _LIFECYCLE_ONLY_ACTIVITIES + ALERT_ACTIVITIES
+# Alert delivery has its own task queue (ERROR_TRACKING_ALERTS_TASK_QUEUE): outbound
+# Slack I/O must not share worker slots with the lifecycle fleet's issue-state work.
 
 WORKFLOWS = SYMBOL_SET_WORKFLOWS + SPIKE_EVENT_WORKFLOWS + RECOMMENDATIONS_REFRESH_WORKFLOWS + WEEKLY_DIGEST_WORKFLOWS
 ACTIVITIES = (
@@ -49,6 +47,8 @@ ACTIVITIES = (
 
 __all__ = [
     "ACTIVITIES",
+    "ALERT_ACTIVITIES",
+    "ALERT_WORKFLOWS",
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
