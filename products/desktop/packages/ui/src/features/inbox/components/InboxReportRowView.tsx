@@ -46,10 +46,8 @@ export function InboxReportRowView({
     report.status === "resolved" || report.status === "suppressed";
   const borderClass =
     pr || report.status === "resolved"
-      ? "border-(--gray-6) border-solid hover:border-(--gray-9) focus-visible:border-(--gray-9)"
-      : report.status === "suppressed"
-        ? "border-(--gray-6) border-dotted hover:border-(--gray-9) focus-visible:border-(--gray-9)"
-        : "border-(--accent-7) border-dotted hover:border-(--accent-9) focus-visible:border-(--accent-9)";
+      ? "border-(--gray-6) border-solid hover:border-(--accent-9) focus-visible:border-(--accent-9)"
+      : "border-(--gray-6) border-dotted hover:border-(--accent-9) focus-visible:border-(--accent-9)";
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: The row contains independent PR and restore buttons.
