@@ -307,6 +307,17 @@ class TestSentryTransport:
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_rejects_non_latin1_auth_token(self, mock_session) -> None:
+        # A token with a character outside latin-1 can't be encoded into the Authorization header;
+        # the guard must reject it before any request is dispatched.
+        valid, error = validate_credentials(auth_token="secret-’token", organization_slug="acme")
+
+        assert not valid
+        assert error is not None
+        assert error.startswith("Invalid Sentry auth token")
+        mock_session.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_validate_credentials_401_tells_user_to_reconnect(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _response(None, status_code=401)
 
