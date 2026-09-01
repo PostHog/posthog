@@ -78,18 +78,10 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
             exc = ValidationError(str(exc))
         return super().handle_exception(exc)
 
-    def filtered_by_query_params(
-        self,
-        queryset: QuerySet[Any],
-        query_serializer_class: type[serializers.Serializer],
-        lookups: dict[str, str],
-    ) -> QuerySet[Any]:
-        query_serializer = query_serializer_class(data=self.request.query_params)
-        query_serializer.is_valid(raise_exception=True)
-        validated = query_serializer.validated_data
-        return queryset.filter(
-            **{lookup: value for field, lookup in lookups.items() if (value := validated.get(field))}
-        )
+    def validated_query_params(self, serializer_class: type[serializers.Serializer]) -> dict[str, Any]:
+        query = serializer_class(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        return query.validated_data
 
 
 class ContentAutopilotEvidenceSerializer(serializers.Serializer):
@@ -380,8 +372,7 @@ class ContentAutopilotProposalListSerializer(ContentAutopilotProposalBaseSeriali
 
     @extend_schema_field(serializers.CharField)
     def get_file_path(self, proposal: ContentAutopilotProposal) -> str:
-        file_path = proposal.content_package.get("file_path") if isinstance(proposal.content_package, dict) else None
-        return file_path if isinstance(file_path, str) else ""
+        return proposal.content_package.get("file_path", "")
 
 
 class ContentAutopilotProposalListQuerySerializer(serializers.Serializer):
@@ -447,9 +438,9 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotRun]) -> QuerySet[ContentAutopilotRun]:
         queryset = ContentAutopilotRun.objects.for_team(self.team_id)
         if self.action == "list":
-            queryset = self.filtered_by_query_params(
-                queryset, ContentAutopilotRunListQuerySerializer, {"profile_id": "profile_id"}
-            )
+            filters = self.validated_query_params(ContentAutopilotRunListQuerySerializer)
+            if profile_id := filters.get("profile_id"):
+                queryset = queryset.filter(profile_id=profile_id)
         return queryset.order_by("-created_at")
 
     @validated_request(
@@ -500,11 +491,11 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotProposal]) -> QuerySet[ContentAutopilotProposal]:
         queryset = ContentAutopilotProposal.objects.for_team(self.team_id)
         if self.action == "list":
-            queryset = self.filtered_by_query_params(
-                queryset,
-                ContentAutopilotProposalListQuerySerializer,
-                {"run_id": "run_id", "profile_id": "run__profile_id"},
-            )
+            filters = self.validated_query_params(ContentAutopilotProposalListQuerySerializer)
+            if run_id := filters.get("run_id"):
+                queryset = queryset.filter(run_id=run_id)
+            if profile_id := filters.get("profile_id"):
+                queryset = queryset.filter(run__profile_id=profile_id)
             queryset = queryset.defer("original_markdown", "proposed_markdown")
         return queryset.order_by("-created_at")
 

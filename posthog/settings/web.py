@@ -640,8 +640,7 @@ SPECTACULAR_SETTINGS = {
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
-        # Shared by ContentAutopilotProposal.lifecycle_status and
-        # ContentAutopilotProposalList.lifecycle_status. Named because notebooks
+        # Shared by the proposal detail and list serializers. Named because notebook
         # widgets also expose a "lifecycle_status" with different values.
         "ContentAutopilotProposalStatusEnum": (
             "products.web_analytics.backend.models.content_autopilot.ContentAutopilotProposal.LifecycleStatus"
