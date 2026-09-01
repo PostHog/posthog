@@ -9,7 +9,7 @@ import random
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from django.core.cache import cache
 
@@ -39,6 +39,9 @@ _EGRESS_SOURCE = "engineering_analytics_ownership"
 _EGRESS_ENDPOINT = "/{owner}/{repo}/{ref}/{path}"
 _TIMEOUT_SECONDS = 5.0
 _FETCH_WORKERS = 16
+# A connected repository controls these files, so an unbounded read would put its bytes in a
+# worker's memory and in Redis. An ownership file is a few KB; this repo's whole set is under 25 KB.
+_MAX_FILE_BYTES = 1024 * 1024
 
 # Ownership files change at review speed, so a stale answer stays right, and only the request that
 # finds the cache cold pays for the fetches. A batch writes every key at once, so the jitter spreads
@@ -112,15 +115,19 @@ class GitHubRepoFiles:
         return f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
 
     def _get(self, path: str) -> str:
-        return self._body("GET", path)
+        """The file's text, or ``_ABSENT`` when the repository has no such file."""
+        with self._response("GET", path, stream=True) as response:
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                return _ABSENT
+            return self._capped_text(response, path)
 
     def _head(self, path: str) -> bool:
-        return self._body("HEAD", path) != _ABSENT
+        with self._response("HEAD", path) as response:
+            return response.status_code != HTTPStatus.NOT_FOUND
 
-    def _body(self, method: str, path: str) -> str:
-        """The file's text, or ``_ABSENT`` when the repository has no such file. Any status but 200
-        or 404 raises rather than reading as absent, because a missing ownership file silently
-        reattributes everything under it to an ancestor."""
+    def _response(self, method: str, path: str, **kwargs: Any) -> requests.Response:
+        """Any status but 200 or 404 raises rather than reading as absent, because a missing
+        ownership file silently reattributes everything under it to an ancestor."""
         if not _is_safe_github_repo_path(self.repository):
             # Source config is team-writable, so a crafted value must not steer the URL.
             raise OwnershipUnavailable(f"unsafe repository path: {self.repository!r}")
@@ -133,14 +140,26 @@ class GitHubRepoFiles:
                 endpoint=_EGRESS_ENDPOINT,
                 timeout=_TIMEOUT_SECONDS,
                 session=self._session,
+                **kwargs,
             )
         except Exception as e:
             raise OwnershipUnavailable(f"could not read {path} from {self.repository}: {e}") from e
-        if response.status_code == HTTPStatus.NOT_FOUND:
-            return _ABSENT
-        if response.status_code != HTTPStatus.OK:
+        if response.status_code not in (HTTPStatus.OK, HTTPStatus.NOT_FOUND):
             raise OwnershipUnavailable(f"{self.repository} answered {response.status_code} for {path}")
-        return response.text
+        return response
+
+    def _capped_text(self, response: requests.Response, path: str) -> str:
+        too_large = f"{path} in {self.repository} exceeds the {_MAX_FILE_BYTES}-byte limit"
+        # Content-Length can be absent or wrong, so the streamed read below is the actual ceiling.
+        declared = response.headers.get("Content-Length")
+        if declared is not None and declared.isdigit() and int(declared) > _MAX_FILE_BYTES:
+            raise OwnershipUnavailable(too_large)
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=8192):
+            body.extend(chunk)
+            if len(body) > _MAX_FILE_BYTES:
+                raise OwnershipUnavailable(too_large)
+        return body.decode(response.encoding or "utf-8", errors="replace")
 
 
 @frozen

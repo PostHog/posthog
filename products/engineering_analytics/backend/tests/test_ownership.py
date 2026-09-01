@@ -1,5 +1,5 @@
+from collections.abc import Iterator
 from dataclasses import field
-from types import SimpleNamespace
 
 from unittest.mock import patch
 
@@ -12,6 +12,7 @@ from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.ownership import (
+    _MAX_FILE_BYTES,
     UNPLACED,
     GitHubRepoFiles,
     OwnershipUnavailable,
@@ -138,6 +139,34 @@ class TestGitHubRepoFiles(SimpleTestCase):
             assert GitHubRepoFiles("PostHog/posthog").read("nodejs/owners.yaml") is None
         assert request.call_count == 1
 
+    @parameterized.expand([("declared", True), ("streamed", False)])
+    def test_an_oversized_file_is_refused(self, _name: str, declare_length: bool) -> None:
+        # A connected repository controls these files, so an unbounded read would put its bytes in
+        # a worker's memory and in Redis. Content-Length can lie, so the streamed read is the ceiling.
+        oversized = b"x" * (_MAX_FILE_BYTES + 1)
+        headers = {"Content-Length": str(len(oversized))} if declare_length else {}
+        with patch(
+            "products.engineering_analytics.backend.logic.ownership.github_request",
+            return_value=_response(200, body=oversized, headers=headers),
+        ):
+            with self.assertRaises(OwnershipUnavailable):
+                GitHubRepoFiles("PostHog/posthog").read("owners.yaml")
 
-def _response(status: int) -> SimpleNamespace:
-    return SimpleNamespace(status_code=status, text="")
+
+class _response:
+    encoding = "utf-8"
+
+    def __init__(self, status: int, body: bytes = b"", headers: dict[str, str] | None = None) -> None:
+        self.status_code = status
+        self.headers = headers or {}
+        self._body = body
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]:
+        for start in range(0, len(self._body), chunk_size):
+            yield self._body[start : start + chunk_size]
+
+    def __enter__(self) -> "_response":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
