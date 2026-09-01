@@ -11,6 +11,7 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveySchedule,
@@ -31,6 +32,7 @@ import {
     getRecurringSurveyScheduleInfo,
     getResolvedSurveyDateRange,
     getSurveyAudienceSummaryValue,
+    getSurveyDisplayConditionProperties,
     getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
@@ -1531,6 +1533,69 @@ describe('doesSurveyRepeatOnEveryEvent', () => {
     ])('%s -> %s', (_name, expected, events) => {
         const survey = { conditions: events ? { events } : null } as Pick<Survey, 'conditions'>
         expect(doesSurveyRepeatOnEveryEvent(survey)).toBe(expected)
+    })
+})
+
+describe('getSurveyDisplayConditionProperties', () => {
+    it('aggregates trigger property filters and detects audience OR groups', () => {
+        const survey = {
+            conditions: {
+                url: 'app.posthog.com',
+                urlMatchType: SurveyMatchType.Contains,
+                selector: '.cta',
+                seenSurveyWaitPeriodInDays: 30,
+                deviceTypes: ['Desktop'],
+                linkedFlagVariant: 'test',
+                actions: { values: [{ id: 1, name: 'clicked' }] },
+                events: {
+                    values: [
+                        { name: 'purchase', propertyFilters: { plan: { values: ['pro'], operator: 'exact' } } },
+                        {
+                            name: 'signup',
+                            propertyFilters: {
+                                plan: { values: ['pro'], operator: 'exact' },
+                                country: { values: ['US'], operator: 'exact' },
+                            },
+                        },
+                        { name: 'pageview' },
+                    ],
+                },
+                cancelEvents: { values: [{ name: 'closed' }] },
+            },
+            // Saved surveys expose audience filters through targeting_flag.filters, not the
+            // write-only targeting_flag_filters field, so the fixture uses the API-response shape.
+            targeting_flag: { filters: { groups: [{ properties: [] }, { properties: [] }] } },
+        } as unknown as Survey
+
+        expect(getSurveyDisplayConditionProperties(survey)).toEqual({
+            has_display_url_condition: true,
+            display_url_match_type: SurveyMatchType.Contains,
+            has_display_selector_condition: true,
+            has_display_wait_period: true,
+            has_display_device_type_condition: true,
+            has_display_linked_flag_variant: true,
+            display_actions_count: 1,
+            display_cancel_events_count: 1,
+            display_trigger_property_filters_count: 3,
+            display_trigger_events_with_property_filters_count: 2,
+            display_max_trigger_property_filters_per_event: 2,
+            audience_targeting_group_count: 2,
+            audience_targeting_uses_or_groups: true,
+        })
+    })
+
+    it('reports empty conditions without OR groups', () => {
+        const survey = { conditions: null } as unknown as Survey
+
+        expect(getSurveyDisplayConditionProperties(survey)).toMatchObject({
+            has_display_url_condition: false,
+            display_url_match_type: undefined,
+            display_actions_count: 0,
+            display_trigger_property_filters_count: 0,
+            display_max_trigger_property_filters_per_event: 0,
+            audience_targeting_group_count: 0,
+            audience_targeting_uses_or_groups: false,
+        })
     })
 })
 

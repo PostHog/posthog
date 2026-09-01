@@ -651,6 +651,42 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
+export function getSurveyDisplayConditionProperties(survey: Survey | NewSurvey): Record<string, unknown> {
+    const conditions = survey.conditions
+    const triggerEvents = conditions?.events?.values ?? []
+    const cancelEvents = conditions?.cancelEvents?.values ?? []
+
+    // The trigger UI joins property filters on one event with AND and cannot express OR.
+    // Count the filters per event so the team can measure where OR support would help.
+    const triggerPropertyFilterCounts = triggerEvents.map((event) => Object.keys(event.propertyFilters ?? {}).length)
+    const triggerPropertyFilterTotal = triggerPropertyFilterCounts.reduce((sum, count) => sum + count, 0)
+
+    // Audience targeting uses feature flag release conditions, which support OR groups.
+    // Count the groups to compare audience use of OR against the trigger UI, which lacks it.
+    // Saved surveys expose these filters through targeting_flag.filters, so use the shared
+    // fallback helper instead of the write-only targeting_flag_filters field.
+    const targetingGroups = getSurveyTargetingFilters(survey)?.groups ?? []
+
+    return {
+        has_display_url_condition: !!conditions?.url,
+        display_url_match_type: conditions?.url ? conditions?.urlMatchType : undefined,
+        has_display_selector_condition: !!conditions?.selector,
+        has_display_wait_period:
+            conditions?.seenSurveyWaitPeriodInDays !== undefined && conditions?.seenSurveyWaitPeriodInDays !== null,
+        has_display_device_type_condition: !!conditions?.deviceTypes?.length,
+        has_display_linked_flag_variant: !!conditions?.linkedFlagVariant,
+        display_actions_count: conditions?.actions?.values?.length ?? 0,
+        display_cancel_events_count: cancelEvents.length,
+        display_trigger_property_filters_count: triggerPropertyFilterTotal,
+        display_trigger_events_with_property_filters_count: triggerPropertyFilterCounts.filter((count) => count > 0)
+            .length,
+        display_max_trigger_property_filters_per_event:
+            triggerPropertyFilterCounts.length > 0 ? Math.max(...triggerPropertyFilterCounts) : 0,
+        audience_targeting_group_count: targetingGroups.length,
+        audience_targeting_uses_or_groups: targetingGroups.length > 1,
+    }
+}
+
 export function buildSurveyOptionalBooleanPropertyFilter(
     propertyName: SurveyEventProperties,
     excludedValue: 'true' | 'false'
