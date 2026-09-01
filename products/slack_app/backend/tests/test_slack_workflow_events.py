@@ -4,7 +4,7 @@ from unittest.mock import patch
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.slack_workflow_events import emit_slack_message_event
+from products.slack_app.backend.slack_workflow_events import emit_slack_message_event, emit_slack_reaction_event
 
 # Matches the workspace_integration fixture in conftest.
 SLACK_TEAM_ID = "T12345"
@@ -16,6 +16,15 @@ MESSAGE_EVENT = {
     "user": "U123",
     "text": "database is on fire",
     "ts": "1700000000.000100",
+}
+
+REACTION_EVENT = {
+    "type": "reaction_added",
+    "user": "U123",
+    "reaction": "mag",
+    "item_user": "U-BOT-AUTHOR",
+    "item": {"type": "message", "channel": "C0ALERTS", "ts": "1700000000.000100"},
+    "event_ts": "1700000001.000200",
 }
 
 
@@ -113,3 +122,63 @@ def test_a_kafka_failure_does_not_reach_the_webhook(produce, workspace_integrati
 
     with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_slack_message_event(MESSAGE_EVENT, SLACK_TEAM_ID, event_id="Ev1", is_ext_shared_channel=False)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_setting_gates_the_reaction_emit(produce, workspace_integration, enabled) -> None:
+    with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", enabled):
+        emit_slack_reaction_event(REACTION_EVENT, SLACK_TEAM_ID, event_id="Ev2", is_ext_shared_channel=False)
+
+    assert produce.call_count == (1 if enabled else 0)
+
+
+def test_a_reaction_reads_its_channel_and_message_from_the_item(produce, workspace_integration) -> None:
+    # Slack files both under `item`, unlike a message, which carries them beside `user`. Reading
+    # them from the top level yields a null channel that matches no trigger.
+    with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_slack_reaction_event(REACTION_EVENT, SLACK_TEAM_ID, event_id="Ev2", is_ext_shared_channel=True)
+
+    properties = produce.call_args.args[1].properties
+    assert properties["channel"] == "C0ALERTS"
+    assert properties["item_ts"] == "1700000000.000100"
+    # Who reacted, versus who wrote the message they reacted to.
+    assert properties["user"] == "U123"
+    assert properties["item_user"] == "U-BOT-AUTHOR"
+    assert properties["is_ext_shared_channel"] is True
+    assert properties["slack_event"] == REACTION_EVENT
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("mag", "mag"),
+        # A default skin tone rides along on the event. Storing it whole would make the filter
+        # someone typed miss every teammate whose tone differs.
+        ("+1::skin-tone-3", "+1"),
+    ],
+)
+def test_the_emoji_is_stored_without_its_skin_tone(produce, workspace_integration, raw, expected) -> None:
+    with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_slack_reaction_event(
+            {**REACTION_EVENT, "reaction": raw}, SLACK_TEAM_ID, event_id="Ev2", is_ext_shared_channel=False
+        )
+
+    assert produce.call_args.args[1].properties["reaction"] == expected
+
+
+@pytest.mark.parametrize(
+    "item,emitted",
+    [
+        ({"type": "message", "channel": "C0ALERTS", "ts": "1700000000.000100"}, True),
+        # A file reaction names no message, so there is no thread for a run to answer in.
+        ({"type": "file", "file": "F123"}, False),
+        ({"type": "message", "channel": "C0ALERTS"}, False),
+    ],
+)
+def test_only_a_reaction_on_a_message_is_emitted(produce, workspace_integration, item, emitted) -> None:
+    with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_slack_reaction_event(
+            {**REACTION_EVENT, "item": item}, SLACK_TEAM_ID, event_id="Ev2", is_ext_shared_channel=False
+        )
+
+    assert produce.call_count == (1 if emitted else 0)

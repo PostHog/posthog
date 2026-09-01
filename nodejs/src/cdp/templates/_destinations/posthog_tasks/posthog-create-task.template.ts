@@ -61,6 +61,23 @@ if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_rec
   }
 }
 
+// A reaction names the message it landed on rather than carrying one of its own, so the reacted
+// message is both the thread to answer in and the message to ack. Reacting to a reply threads the
+// answer under that reply's parent, which is where the conversation already is.
+if (inputs.reply_in_slack_thread != false and event.event == '$slack_reaction_added' and not empty(event.properties.channel) and not empty(event.properties.item_ts)) {
+  payload.slack_context := {
+    'integration_id': event.properties.integration_id,
+    'channel': event.properties.channel,
+    'thread_ts': event.properties.item_ts,
+    'message_ts': event.properties.item_ts,
+    // Who reacted, so the run is steered by the person who asked for it rather than by whoever
+    // wrote the message — for an alert posted by another app, that author is a bot.
+    'slack_user_id': event.properties.user ?? '',
+    'slack_team_id': event.properties.slack_team_id ?? '',
+    'is_ext_shared_channel': event.properties.is_ext_shared_channel ?? false
+  }
+}
+
 let response := postHogCreateTask(payload)
 
 if (response.status == 409) {
@@ -142,9 +159,9 @@ return response.body
         },
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other
-            // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
-            // Off, the backend sees no slack_context and ends the run when the agent finishes;
-            // on, the run stays open for its idle window so the thread reply can relay.
+            // triggers, and the hog code above no-ops when the trigger event isn't a Slack message
+            // or reaction. Off, the backend sees no slack_context and ends the run when the agent
+            // finishes; on, the run stays open for its idle window so the thread reply can relay.
             key: 'reply_in_slack_thread',
             type: 'boolean',
             label: 'Reply in the Slack thread',

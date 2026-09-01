@@ -110,6 +110,26 @@ export function buildSampleGlobals(
             },
             timestamp: '2024-01-01T12:00:00Z',
         }
+    } else if (triggerType === 'slack-reaction') {
+        // Property names mirror what the Slack reaction trigger emits (slack_workflow_events.py).
+        // No person: Slack-triggered runs are person-less.
+        sampleGlobals.event = {
+            event: '$slack_reaction_added',
+            distinct_id: 'U0123456789',
+            properties: {
+                integration_id: 1,
+                channel: 'C0123456789',
+                slack_team_id: 'T0123456789',
+                reaction: 'mag',
+                user: 'U0123456789',
+                item_user: 'U0987654321',
+                item_type: 'message',
+                item_ts: '1700000000.000100',
+                is_ext_shared_channel: false,
+                slack_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
     } else if (triggerType === 'github-event') {
         // Property names mirror what the GitHub trigger emits (github_workflow_events.py). No
         // person: GitHub-triggered runs are person-less.
@@ -144,14 +164,16 @@ export function buildSampleGlobals(
     return sampleGlobals
 }
 
-// The AI task step's Slack thread toggle only means something when a Slack message can start
-// the workflow; on other triggers the runtime no-ops it, so hide it rather than explain it.
+// The AI task step's Slack thread toggle only means something when a Slack message or reaction can
+// start the workflow; on other triggers the runtime no-ops it, so hide it rather than explain it.
+const SLACK_THREAD_CAPABLE_TRIGGERS = new Set(['slack-message', 'slack-reaction'])
+
 export function filterInputsSchemaForTrigger<T extends { key: string }>(
     templateId: string,
     triggerType: string | undefined,
     inputsSchema: T[]
 ): T[] {
-    if (templateId === 'template-posthog-create-task' && triggerType !== 'slack-message') {
+    if (templateId === 'template-posthog-create-task' && !SLACK_THREAD_CAPABLE_TRIGGERS.has(triggerType ?? '')) {
         return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
     }
     return inputsSchema

@@ -501,6 +501,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
         },
+        "$slack_reaction_added": {
+            "label": "Slack reaction added",
+            "description": "Fires when someone adds an emoji reaction to a message in a Slack channel PostHog is connected to.",
+        },
         # Descriptions here must stay in step with the matching workflow email metric definitions in
         # products/workflows/frontend/Workflows/workflowMetricsSummaryLogic.ts, since the two surfaces
         # count the same thing.

@@ -313,6 +313,23 @@ describe('CDP Internal Events Consumer', () => {
                 },
             })
 
+        const slackReaction = (teamId: number, properties: Record<string, any> = {}) =>
+            createInternalEvent(teamId, {
+                event: {
+                    timestamp: '2026-08-17T12:00:00.000Z',
+                    uuid: 'aaaaaaaa-bbbb-cccc-dddd-222222222222',
+                    event: '$slack_reaction_added',
+                    distinct_id: 'U123',
+                    properties: {
+                        channel: 'C0ALERTS',
+                        reaction: 'mag',
+                        user: 'U123',
+                        item_ts: '1700000000.000100',
+                        ...properties,
+                    },
+                },
+            })
+
         const githubEvent = (teamId: number, properties: Record<string, any> = {}) =>
             createInternalEvent(teamId, {
                 event: {
@@ -393,6 +410,40 @@ describe('CDP Internal Events Consumer', () => {
             const { invocations } = await processor.processBatch(globals)
 
             expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
+        })
+
+        it.each([
+            ['PostHog added the reaction', 'U0POSTHOGBOT', 0],
+            ['a teammate added the reaction', 'U123', 1],
+        ])('starts a reaction workflow only when it did not react itself: %s', async (_name, user, expected) => {
+            // A reaction-triggered run acknowledges the message it fired on with :eyes: and swaps
+            // that for :hedgehog: when it finishes, so without this guard a workflow watching either
+            // emoji restarts itself on its own acknowledgement, forever.
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                id: team.id,
+                kind: 'slack',
+                config: { bot_user_id: 'U0POSTHOGBOT' },
+            })
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-reaction' }))
+
+            const globals = await processor._parseKafkaBatch([
+                createKafkaMessage(slackReaction(team.id, { user, integration_id: integration.id })),
+            ])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
+        })
+
+        it('should not start a reaction workflow from a slack message', async () => {
+            // The two Slack triggers share a topic and an event shape. Matching on trigger type
+            // alone would fire a reaction workflow on every message in the channel, with no
+            // item_ts for the reply step to thread under.
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-reaction' }))
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(slackMessage(team.id))])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
         })
 
         it('should start a workflow whose trigger is a github event', async () => {

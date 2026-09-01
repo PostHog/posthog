@@ -102,6 +102,14 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
     }),
     z.object({
+        type: z.literal('slack-reaction'),
+        filters: z.object({
+            // Reaction-property filters only, same footing as slack-message: the channel and the
+            // emoji are both properties, so they compose with conditions on who reacted.
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
         type: z.literal('data-warehouse-view'),
         // The materialized view's own name, which is also the name it is queryable by in HogQL.
         table_name: z.string(),
@@ -361,19 +369,20 @@ export const HogFlowSchema = z.object({
 
 export type RowScopedTrigger = Extract<
     HogFlow['trigger'],
-    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'slack-message' | 'github-event' }
+    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'slack-message' | 'slack-reaction' | 'github-event' }
 >
 
 /**
- * A row-scoped trigger produces one run per delivery (a warehouse row, a Slack message, a GitHub
- * event), with the delivery's own properties under `event.properties` and no person attached.
- * Keep in sync with the backend's ROW_SCOPED_TRIGGER_TYPES.
+ * A row-scoped trigger produces one run per delivery (a warehouse row, a Slack message, a Slack
+ * reaction, a GitHub event), with the delivery's own properties under `event.properties` and no
+ * person attached. Keep in sync with the backend's ROW_SCOPED_TRIGGER_TYPES.
  */
 export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowScopedTrigger {
     return (
         trigger?.type === 'data-warehouse-table' ||
         trigger?.type === 'data-warehouse-view' ||
         trigger?.type === 'slack-message' ||
+        trigger?.type === 'slack-reaction' ||
         trigger?.type === 'github-event'
     )
 }
