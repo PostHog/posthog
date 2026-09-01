@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { JSX, useCallback, useEffect, useRef } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
+import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
@@ -23,6 +24,7 @@ import {
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
+import { ReportContextMenu } from '../cards/ReportContextMenu'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
@@ -192,6 +194,9 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  */
 export function ReportsTab(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
+    // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
+    // keeps an in-flight create-PR listener alive past the click that closed the menu.
+    useMountedLogic(inboxTaskKickoffLogic)
     const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
@@ -349,14 +354,18 @@ export function ReportsTab(): JSX.Element {
             ) : (
                 <div className="@container flex flex-col gap-1.5">
                     {rows.map(({ report, sectionKey }) => (
-                        <ReportCard
-                            key={report.id}
-                            report={report}
-                            sectionKey={sectionKey}
-                            onRestore={() =>
-                                reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id)
-                            }
-                        />
+                        <ReportContextMenu key={report.id} report={report} sectionKey={sectionKey}>
+                            <ReportCard
+                                report={report}
+                                sectionKey={sectionKey}
+                                onRestore={() =>
+                                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
+                                        report.id,
+                                        'list_row'
+                                    )
+                                }
+                            />
+                        </ReportContextMenu>
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
                     {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}
