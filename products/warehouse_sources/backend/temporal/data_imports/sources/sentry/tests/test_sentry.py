@@ -15,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    _MAX_RETRY_AFTER_SECONDS,
     SentryPaginator,
+    SentryRateLimitedError,
     SentryResumeConfig,
     SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
     _normalize_api_base_url,
     _normalize_organization_slug,
     _parse_next_link,
+    _raise_on_failed_retry,
     _retention_bounded_start_param,
     _retry_wait_seconds,
     _start_param_for_sentry,
@@ -1338,8 +1341,17 @@ class TestHelpers:
 
         assert _retry_wait_seconds(state) == 4.0
 
+    @parameterized.expand(
+        [
+            # A positive reset delta becomes the wait.
+            ("uses_reset_delta", 9, 9.0),
+            # The reset header is an absolute epoch, so clock skew or a proxy can inflate it into the
+            # far future. Bound it so it cannot park the shared source-iterator thread.
+            ("caps_far_future_reset", 100000, _MAX_RETRY_AFTER_SECONDS),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.datetime")
-    def test_retry_wait_uses_rate_limit_reset_header_for_429(self, mock_datetime) -> None:
+    def test_retry_wait_uses_rate_limit_reset_header_for_429(self, _name, reset_delta, expected, mock_datetime) -> None:
         now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
         mock_datetime.now.return_value = now
 
@@ -1349,10 +1361,65 @@ class TestHelpers:
         state.outcome.failed = False
         state.outcome.result.return_value = Mock(
             status_code=429,
-            headers={"X-Sentry-Rate-Limit-Reset": str(int(now.timestamp()) + 9)},
+            headers={"X-Sentry-Rate-Limit-Reset": str(int(now.timestamp()) + reset_delta)},
         )
 
-        assert _retry_wait_seconds(state) == 9.0
+        assert _retry_wait_seconds(state) == expected
+
+    @parameterized.expand(
+        [
+            # Both headers present: Retry-After wins, matching the shared REST client's ordering for
+            # Sentry, so a custom-iterator endpoint waits the same as every other endpoint.
+            ("prefers_retry_after", {"Retry-After": "12", "X-Sentry-Rate-Limit-Reset": "9999999999"}, 12.0),
+            # A misreported delay is bounded so it cannot park the worker.
+            ("caps_delay", {"Retry-After": "100000"}, _MAX_RETRY_AFTER_SECONDS),
+        ]
+    )
+    def test_retry_wait_from_retry_after_header(self, _name, headers, expected) -> None:
+        state = Mock()
+        state.attempt_number = 1
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = Mock(status_code=429, headers=headers)
+
+        assert _retry_wait_seconds(state) == expected
+
+    def test_retry_wait_uses_retry_after_header_when_reset_absent(self) -> None:
+        # The exponential fallback tops out around 7 seconds across the whole budget, so a longer
+        # wait must come from the header Sentry actually sends when it omits the reset epoch.
+        state = Mock()
+        state.attempt_number = 1
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = Mock(status_code=429, headers={"Retry-After": "42"})
+
+        assert _retry_wait_seconds(state) == 42.0
+
+    def test_exhausted_429_raises_org_safe_retryable_error(self) -> None:
+        # A persistent 429 that outlasts the retry budget must not reach the caller's
+        # raise_for_status(), whose HTTPError URL carries the org slug. The dedicated error keeps
+        # the slug out and is the one the source classifies as retryable rather than unexpected.
+        state = Mock()
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = Mock(status_code=429, headers={})
+
+        with pytest.raises(SentryRateLimitedError) as exc_info:
+            _raise_on_failed_retry(state)
+
+        assert error_message_matches(str(exc_info.value), SentrySource().get_retryable_errors())
+        assert not error_message_matches(str(exc_info.value), SentrySource().get_non_retryable_errors())
+
+    def test_exhausted_5xx_still_returns_response(self) -> None:
+        # 5xx callers depend on raise_for_status() so their per-endpoint skip handlers can run;
+        # only 429 is short-circuited into the retryable error.
+        response = Mock(status_code=503, headers={})
+        state = Mock()
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = response
+
+        assert _raise_on_failed_retry(state) is response
 
 
 class TestSentryRetentionWindow:
