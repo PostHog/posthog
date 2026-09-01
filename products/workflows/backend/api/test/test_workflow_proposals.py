@@ -261,11 +261,14 @@ class TestWorkflowProposals(APIBaseTest):
                 {"metric": "email open rate", "current_value": 0.07, "n": 120},
                 "guardrails",
             ),
+            (
+                "rate under the producer's own key",
+                {"metric": "email open rate", "current_open_rate": "8.65%", "n": 208, "guardrails": []},
+                "current_value",
+            ),
         ]
     )
-    def test_a_rate_without_its_denominator_or_counter_metrics_is_refused(
-        self, _mock_flag, _name: str, evidence: dict, expected: str
-    ):
+    def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: dict, expected: str):
         # The loop's two worst failures are declaring a win off twenty sends and lifting one metric
         # while harming another. Both are refused at the seam rather than left to a producer's prompt.
         flow_id = self._create_active_flow()
