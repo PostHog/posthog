@@ -53,6 +53,21 @@ ACCOUNT_DIRECT_FIELDS = {
 }
 
 
+def account_search_q(query: str) -> Q:
+    """Free-text account search: name and external id substrings, plus the addresses and domains
+    the account is matched on, so an email or a company domain finds the account that owns it."""
+    predicate = Q(name__icontains=query) | Q(external_id__icontains=query)
+    normalized = query.strip().lower()
+    if "@" in normalized:
+        predicate |= Q(_properties__known_emails__contains=[normalized])
+        domain = normalized.rsplit("@", 1)[-1]
+    else:
+        domain = normalized
+    if "." in domain:
+        predicate |= Q(_properties__email_domains__contains=[domain])
+    return predicate
+
+
 def _coerce_datetime_filter_value(value: float | bool | str, *, timezone_info: ZoneInfo) -> datetime:
     if not isinstance(value, str):
         raise InvalidAccountFilter("Date filters require ISO-8601 or relative date values.")
@@ -269,7 +284,7 @@ def apply_account_filters(
         if isinstance(filter_, contracts.AccountTableSearchFilter):
             query = filter_.query.strip()
             if query:
-                queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+                queryset = queryset.filter(account_search_q(query))
         elif isinstance(filter_, contracts.AccountTableTagsFilter):
             if filter_.tag_names:
                 matching_tags = TaggedItem.objects.filter(

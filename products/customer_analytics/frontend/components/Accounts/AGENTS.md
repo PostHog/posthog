@@ -64,6 +64,10 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
 
 `accountsLogic.accountsTableQueryPlan` translates selected columns, filters, custom-property display windows, tile filters, and server-side sort into a typed `AccountsTableQuery`. Unsupported saved columns and filters are omitted instead of switching execution engines. `AccountsTable` reads each keyed `AccountsTableRow` directly through `accountsTableCell`; there is no positional-row compatibility transform.
 
+Search matches the account name and external ID as substrings.
+A query holding an email address also matches accounts that list it under `known_emails`, and a domain (bare, or the domain part of an address) matches accounts that own it under `email_domains` — the same two properties the Meetings tab's matching editor writes.
+`account_search_q` in `backend/logic/account_filters.py` is the single definition, shared by the list query, the account search endpoint, and the agent's entity search.
+
 Ignored accounts (`ignored_at IS NOT NULL`) are excluded from list rows and overview metrics by default. A direct account route sets `includeIgnored` as well as `includeChurned`, so an ignored account still opens by id. `ignored_at` is a selectable account field, but the Accounts UI does not write it.
 
 Overview tiles run as a separate metrics-only `AccountsTableQuery` (`metrics` set and `columns: []`; `null` when there are no tiles or while definitions are loading). Count, sum, average, minimum, maximum, median, scaling, and threshold counts execute in Postgres. The "My accounts" checkbox resolves to the current user's explicit ID before either query is built, so shared URLs remain viewer-independent. Two cell shapes matter:

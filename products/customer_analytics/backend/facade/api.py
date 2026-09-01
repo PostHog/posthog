@@ -103,7 +103,11 @@ from products.customer_analytics.backend.logic import (
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
-from products.customer_analytics.backend.logic.account_filters import InvalidAccountFilter, apply_account_filters
+from products.customer_analytics.backend.logic.account_filters import (
+    InvalidAccountFilter,
+    account_search_q,
+    apply_account_filters,
+)
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
@@ -262,14 +266,15 @@ def search_accounts(
     *,
     include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
-    """Accounts matching `query` by name or external id, access-filtered for the caller.
+    """Accounts matching `query` by name, external id, known email, or email domain,
+    access-filtered for the caller.
 
     Returns `(rows, total_count)` where `total_count` is the pre-limit match count.
     """
     queryset = _accounts_queryset(team_id, user_access_control)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
-    queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+    queryset = queryset.filter(account_search_q(query))
     total_count = queryset.count()
     rows = list(queryset.order_by("name")[:limit].values("id", "name", "external_id"))
     return [_to_account_ref(row) for row in rows], total_count
@@ -3156,7 +3161,7 @@ def list_accounts_for_view(
         queryset = queryset.filter(ignored_at__isnull=True)
 
     if search:
-        queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))
+        queryset = queryset.filter(account_search_q(search))
 
     if tags:
         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
