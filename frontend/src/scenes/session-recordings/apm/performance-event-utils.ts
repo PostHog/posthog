@@ -315,6 +315,13 @@ function hasMeasuredSize(value: any): value is number {
     return typeof value === 'number' && value > 0
 }
 
+function isUnreadableBodyPlaceholder(body: PerformanceEvent['response_body']): boolean {
+    // The SDK writes a diagnostic string into the body when it cannot read the real one,
+    // for example a read timeout or a body over the record limit. Such a string is not a
+    // body, so measuring it would report the diagnostic length as the response size.
+    return typeof body === 'string' && body.startsWith('[SessionReplay] ')
+}
+
 function bytesFrom(item: PerformanceEvent): number | null {
     // The browser reports a literal 0 for a request it cannot measure: cross-origin,
     // opaque, blocked, or served from cache. A 0 here is "unknown", not "no data", so
@@ -333,7 +340,11 @@ function bytesFrom(item: PerformanceEvent): number | null {
         return item.decoded_body_size
     }
 
-    if (item.response_body && typeof item.response_body === 'string') {
+    if (
+        item.response_body &&
+        typeof item.response_body === 'string' &&
+        !isUnreadableBodyPlaceholder(item.response_body)
+    ) {
         const bodySize = new Blob([item.response_body]).size
         const headerSize = new Blob([JSON.stringify(item.response_headers)]).size
         return bodySize + headerSize

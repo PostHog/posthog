@@ -313,6 +313,19 @@ describe('performance-event-utils', () => {
         // a cached request has no transfer size but keeps its decoded body size
         ['cached request reports its decoded size', { transfer_size: 0, decoded_body_size: 5120 }, 5120],
         ['transfer size wins when present', { transfer_size: 3311, decoded_body_size: 3011 }, 3311],
+        // the SDK stores a diagnostic string as the body when it cannot read the real one;
+        // it must not be measured as the response size (a "too large" body would invert to a few bytes)
+        [
+            'diagnostic body is not measured as a size',
+            { transfer_size: 0, response_body: '[SessionReplay] Timeout while trying to read body' },
+            null,
+        ],
+        // a real captured body is still estimated when no measured size is available
+        [
+            'real body falls back to its estimated size',
+            { transfer_size: 0, response_body: 'hello', response_headers: {} },
+            7,
+        ],
     ])('itemSizeInfo bytes: %s', (_name, item, expectedBytes) => {
         const sizeInfo = itemSizeInfo(item as PerformanceEvent)
         expect(sizeInfo.bytes).toEqual(expectedBytes)
