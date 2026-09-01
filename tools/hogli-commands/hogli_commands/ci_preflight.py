@@ -48,6 +48,7 @@ from hogli_commands.build import (
 from hogli_commands.change_detection import changed_files, matches_globs
 from hogli_commands.complexity_lint import PYTHON_SCOPE, TYPESCRIPT_SCOPE
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
+from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
 
@@ -133,6 +134,15 @@ DIFF_CHECKS: list[DiffCheck] = [
         # From complexity_lint.py so preflight and the command can't drift on scope.
         triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
         verify=["hogli", "lint:complexity"],
+        takes_files=True,
+        soft=True,
+    ),
+    DiffCheck(
+        key="size",
+        label="file size (warn >1000 lines)",
+        # From size_lint.py so preflight and the command can't drift on scope.
+        triggers=[*SIZE_SCOPE],
+        verify=["hogli", "lint:size"],
         takes_files=True,
         soft=True,
     ),
