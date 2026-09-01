@@ -212,11 +212,14 @@ tasks:
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition]
       success_criteria: "Resolves the flag by its key ('mcp-analytics') directly — does not guess a numeric id."
 
-    # The lifecycle tasks below act on a flag the benchmark project owns, so an agent-mode
-    # run flips only that flag's state. They score tool selection whether or not
-    # `mcp-eval-lifecycle` exists, because a missing flag must produce a clear answer rather
-    # than a fallback to the generic update tool. Seed it (enabled, not archived) to also
-    # exercise the state change itself.
+    # The lifecycle tasks below all act on one flag key, so an agent-mode run flips only that
+    # flag's state. They score tool selection whether or not `mcp-eval-lifecycle` exists,
+    # because a missing flag must produce a clear answer rather than a fallback to the generic
+    # update tool. Nothing seeds the key today; seed it to also exercise the state change.
+    # One shared key makes the run order-dependent. `flag-unarchive-stays-off` needs the flag
+    # archived, and only `flag-archive-completed` leaves it that way. A second full run also
+    # starts from the targeting the first one wrote. Give each task its own key before relying
+    # on the state-change half of these scores.
     - id: flag-enable-by-key
       category: feature-flags
       intent: 'Turn on the mcp-eval-lifecycle feature flag.'
@@ -258,7 +261,8 @@ tasks:
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key, feature-flag-get-definition]
       success_criteria: >
           Calls feature-flag-unarchive with no filters payload and does not enable it, saying the flag is still turned
-          off. If the flag does not exist, says so rather than reaching for update-feature-flag.
+          off. Finds the archived flag by passing archived=true to feature-flag-get-all; a plain key lookup returning
+          nothing is not grounds for reporting that the flag does not exist.
 
     - id: flag-targeting-edit-uses-update
       category: feature-flags
