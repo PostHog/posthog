@@ -20,7 +20,19 @@ Skip a team on the day it was switched on. Its events from before the allowlist 
 
 ## Running it
 
-Use `/metabase-prod-query` against the ClickHouse database, one region at a time. Save results to a file rather than reading them into a transcript.
+Run the query against the ClickHouse database in production Metabase, one region at a time. Metabase sits behind ALB Cognito OAuth, so a browser session is the shortest path: open Metabase for the region, start a native query, pick the ClickHouse database, and paste the query below.
+
+From a terminal, `hogli metabase:query` does the same thing:
+
+```bash
+hogli metabase:login --region us
+hogli metabase:databases --region us --format json   # database ids change when Metabase metadata is rebuilt
+hogli metabase:query --region us --database-id <id> --file parity.sql --save results.json
+```
+
+An agent running this should invoke the `metabase-prod-query` skill instead, which wraps the same commands.
+
+Results name customer teams, so keep them in a file or in Metabase. Do not paste them into a PR, an issue, or any other public place.
 
 Batch the team list at around 20 teams per query. The query's memory scales with the rows in the batch, not with the number of teams, so one batch containing a high-volume team is what runs it out of memory.
 
