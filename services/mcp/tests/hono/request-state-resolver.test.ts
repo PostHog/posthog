@@ -174,9 +174,9 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it('auto-selects tools mode from the ChatGPT user-agent', async () => {
-        // ChatGPT's clientInfo.name is generic; the surface only shows up in the
-        // User-Agent. Guards the `userAgent: props.clientUserAgent` profile plumbing.
-        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        // ChatGPT is the unlabeled openai-mcp surface. Guards the
+        // `userAgent: props.clientUserAgent` profile plumbing.
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' })
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(false)

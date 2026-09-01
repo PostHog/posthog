@@ -110,17 +110,29 @@ export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as cons
 
 // Clients that keep the full per-tool roster ("tools" mode) instead of the
 // single-exec CLI default.
-// - Cursor self-reports `clientInfo.name` (`cursor-vscode`, `Cursor`); it sends
-//   `content[].text` to the model and renders `structuredContent` in its UI, so
-//   the full roster serves it better than the exec wrapper. Some older Cursor
-//   builds omit `clientInfo.name` and are only identifiable by their
-//   `Cursor/x.y.z (...)` User-Agent, hence the UA fragment too.
-// - ChatGPT connects through OpenAI's shared `openai-mcp` client whose
-//   `clientInfo.name` is generic; the surface only shows up in the User-Agent
-//   parenthetical (`openai-mcp/1.0.0 (ChatGPT)`). Other openai-mcp surfaces
-//   (Codex, Agent Builder, Responses API) stay on the CLI default.
-export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor', 'chatgpt'] as const
-export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor', 'chatgpt'] as const
+// Cursor self-reports `clientInfo.name` (`cursor-vscode`, `Cursor`); it sends
+// `content[].text` to the model and renders `structuredContent` in its UI, so
+// the full roster serves it better than the exec wrapper. Some older Cursor
+// builds omit `clientInfo.name` and are only identifiable by their
+// `Cursor/x.y.z (...)` User-Agent, hence the UA fragment too.
+// ChatGPT is matched separately by `isChatGptClient()` — it needs a prefix +
+// absence check the substring fragments can't express.
+export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor'] as const
+export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor'] as const
+
+// OpenAI's shared MCP client reports `openai-mcp` in both `clientInfo.name` and
+// the `openai-mcp/x.y.z` User-Agent. Only the non-consumer surfaces add a
+// parenthetical label — `openai-mcp (Codex)`, `openai-mcp/1.0.0 (Responses API)`,
+// `(Agent Builder)`. The bare, unlabeled `openai-mcp` is the ChatGPT consumer app,
+// the surface that renders MCP Apps UI. So the signal is the `openai-mcp` prefix
+// with no `(...)` label — a shape the substring fragments above can't express.
+function isBareOpenAiMcpClient(value: string | undefined): boolean {
+    if (!value) {
+        return false
+    }
+    const trimmed = value.trim().toLowerCase()
+    return trimmed.startsWith('openai-mcp') && !trimmed.includes('(')
+}
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
@@ -270,13 +282,21 @@ export class MCPClientProfile {
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
-        // the self-reported `clientInfo.name` and the User-Agent (ChatGPT's
-        // surface only appears in the UA parenthetical); never on the vendor
-        // header, so Anthropic pooled transports can't land in tools mode.
+        // the self-reported `clientInfo.name` and the User-Agent, never on the
+        // vendor header, so Anthropic pooled transports can't land in tools mode.
         return (
             matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS) ||
+            this.isChatGptClient()
         )
+    }
+
+    isChatGptClient(): boolean {
+        // The ChatGPT consumer app is the only OpenAI MCP surface with no
+        // parenthetical label; it renders MCP Apps UI, so it belongs in tools mode
+        // where each tool advertises its own `_meta.ui.resourceUri`. Read from the
+        // client name or the User-Agent, whichever the transport carries.
+        return isBareOpenAiMcpClient(this.clientName) || isBareOpenAiMcpClient(this.userAgent)
     }
 
     isCliModeEnabled(): boolean {
