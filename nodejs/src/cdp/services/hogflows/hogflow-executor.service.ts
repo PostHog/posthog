@@ -186,8 +186,7 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            // isRowScopedTrigger now covers slack-message and github-event too, alongside the two
-            // warehouse types.
+            // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
             if (trigger.type !== 'event' && !isRowScopedTrigger(trigger)) {
                 continue
             }

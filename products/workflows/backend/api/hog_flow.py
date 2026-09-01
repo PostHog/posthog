@@ -135,6 +135,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
+    WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -1163,17 +1164,18 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|github-event, "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, "
             "filters?}. "
-            "slack-message runs once per message posted in a connected Slack channel, and takes only "
-            "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
-            "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
-            "github-event runs once per matching GitHub delivery, and takes only filters: "
-            "{properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, "
-            "bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, "
-            "repository_visibility). repository and event_type are required, each with an exact-match filter; "
-            "without them the trigger runs on every delivery from every connected repository. Runs are "
-            "person-less, so person-dependent steps are rejected. "
+            "internal-event requires filters.events naming one or more allowed event ids, and runs once "
+            "for each matching event on the internal-events stream. Runs are person-less, so "
+            "person-dependent steps are rejected. "
+            "$slack_message_received takes filters: {properties: [<cond>]} over the message properties "
+            "(channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel "
+            "filter; without one it runs on every message in every connected channel. "
+            "$github_event_received takes filters: {properties: [<cond>]} over the delivery properties "
+            "(repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, "
+            "title, body, review_state, branch, repository_visibility), and requires exact-match repository "
+            "and event_type filters; without them it runs on every delivery from every connected repository. "
             "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
@@ -1475,59 +1477,65 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "slack-message":
-                # Everything the trigger selects on — channel, poster, text, thread — is a property
-                # of the Slack message, so there is no config beyond the filters. The event name is
-                # fixed, which is what makes an events/actions entry here meaningless.
+            elif data.get("config", {}).get("type") == "internal-event":
                 filters = data.get("config", {}).get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters.pop("events", None)
-                filters.pop("actions", None)
-                _normalize_slack_channel_filters(filters)
-                if not is_draft and not _has_slack_channel_filter(filters):
+                filters["source"] = "internal-events"
+                # HogFunctionFiltersSerializer below rejects a non-list events with a 400. Guard the
+                # scan so a malformed value (null, a number) reaches that check instead of raising
+                # TypeError here, which would escape DRF and 500 the request.
+                events = filters.get("events")
+                # Starting a workflow needs only hog_flow:write, while the events on this stream
+                # carry data their own products gate behind narrower scopes. Allowlist rather than
+                # blocklist, so a newly emitted internal event is unreachable until someone decides
+                # it is safe to expose.
+                disallowed = sorted(
+                    {
+                        event["id"]
+                        for event in (events if isinstance(events, list) else [])
+                        if isinstance(event, dict)
+                        and isinstance(event.get("id"), str)
+                        and event["id"] not in WORKFLOW_SAFE_INTERNAL_EVENTS
+                    }
+                )
+                if disallowed:
                     raise serializers.ValidationError(
                         {
-                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                            "filters": f"These events cannot trigger a workflow: {', '.join(disallowed)}. "
+                            "They belong to another product, which controls who can read them."
                         }
                     )
-                # Left on the default "events" source: the internal event is event-shaped, so
-                # property filters compile against event.properties.* with no special casing.
-                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                if is_draft:
-                    if serializer.is_valid():
-                        data["config"]["filters"] = serializer.validated_data
-                else:
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "github-event":
-                # Repository, event type and actor are all properties of the delivery rather than
-                # fields of their own, so there is no config beyond the filters - same shape as
-                # slack-message.
-                filters = data.get("config", {}).get("filters", {}) or {}
-                if not isinstance(filters, dict):
-                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters.pop("events", None)
-                filters.pop("actions", None)
-                if not is_draft and not _has_exact_string_filter(filters, "repository"):
-                    raise serializers.ValidationError(
-                        {
-                            "filters": "Pick a repository for this trigger. Without one it runs on every delivery from every repository the GitHub app is installed on."
-                        }
+
+                def _subscribes_to(event_id: str) -> bool:
+                    return isinstance(events, list) and any(
+                        isinstance(event, dict) and event.get("id") == event_id for event in events
                     )
-                if not is_draft and not _has_exact_string_filter(filters, "event_type"):
-                    raise serializers.ValidationError(
-                        {"filters": "Pick at least one event, or the trigger will never fire."}
-                    )
-                # Left on the default "events" source: the internal event is event-shaped, so
-                # property filters compile against event.properties.* with no special casing.
+
+                # Each internal event keeps the scoping invariant its own product needs. Without it
+                # the trigger fires on everything that product emits, for every workspace it reaches.
+                if _subscribes_to("$slack_message_received"):
+                    _normalize_slack_channel_filters(filters)
+                    if not is_draft and not _has_slack_channel_filter(filters):
+                        raise serializers.ValidationError(
+                            {
+                                "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                            }
+                        )
+                if _subscribes_to("$github_event_received"):
+                    if not is_draft and not _has_exact_string_filter(filters, "repository"):
+                        raise serializers.ValidationError(
+                            {
+                                "filters": "Pick a repository for this trigger. Without one it runs on every delivery from every repository the GitHub app is installed on."
+                            }
+                        )
+                    if not is_draft and not _has_exact_string_filter(filters, "event_type"):
+                        raise serializers.ValidationError(
+                            {"filters": "Pick at least one event, or the trigger will never fire."}
+                        )
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                if is_draft:
-                    if serializer.is_valid():
-                        data["config"]["filters"] = serializer.validated_data
-                else:
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
+                serializer.is_valid(raise_exception=True)
+                data["config"]["filters"] = serializer.validated_data
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
