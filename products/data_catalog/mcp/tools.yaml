@@ -284,4 +284,5 @@ tools:
             KPIs, and approved metrics, not infrastructure or OTel metrics (use query-metrics for those). Call this
             before any typed domain tool or raw SQL for a named measure, including revenue, usage, active organizations,
             web sessions, failure rates, support tickets, surveys, or SLOs. Run an approved, non-drifted match with
-            data-catalog-metric-run instead of re-deriving its value.
+            data-catalog-metric-run instead of re-deriving its value. Exact text matches rank ahead of typo-tolerant
+            similar matches. For a similar match, inspect its definition and hogql before adapting it to the request.

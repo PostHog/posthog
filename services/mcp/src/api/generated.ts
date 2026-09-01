@@ -21348,6 +21348,12 @@ export namespace Schemas {
     }
 
     /**
+     * Stored metric definition. Inspect it before adapting a similar metric; for raw SQL metrics, the HogQL is also available in hogql.
+     * @nullable
+     */
+    export type DataCatalogMetricSearchResultDefinition = { [key: string]: unknown } | null;
+
+    /**
      * * `proposed` - proposed
      * * `approved` - approved
      */
@@ -21376,6 +21382,16 @@ export namespace Schemas {
       display_name?: string;
       /** What the metric means and what it serves, in 1-3 short sentences. The load-bearing text. Query mechanics live in the definition; query rationale in reasoning. */
       description: string;
+      /**
+         * Stored metric definition. Inspect it before adapting a similar metric; for raw SQL metrics, the HogQL is also available in hogql.
+         * @nullable
+         */
+      readonly definition: DataCatalogMetricSearchResultDefinition;
+      /**
+         * Raw HogQL for a HogQLQuery metric, or null when the metric uses a structured definition.
+         * @nullable
+         */
+      readonly hogql: string | null;
       /** Persisted lifecycle state. drifted is computed at read time, not stored here.
        *
        * * `proposed` - proposed
@@ -21393,6 +21409,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly definition_kind: string | null;
+      /**
+         * exact for a literal match or exact name lookup; similar for a typo-tolerant trigram fallback.
+         * @nullable
+         */
+      readonly search_match_type: string | null;
     }
 
     export interface DataCatalogRelationshipProposal {
@@ -92343,9 +92364,9 @@ export namespace Schemas {
      */
     name?: string;
     /**
-     * Text to match against a metric's name, display name, or description.
+     * Text to match against a metric's name, display name, or description. Literal matches return first; when none exist, typo-tolerant trigram matches return instead. This does not match synonyms.
      * @minLength 1
-     * @maxLength 255
+     * @maxLength 200
      */
     query?: string;
     };

@@ -414,28 +414,6 @@ const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
     },
 })
 
-const MetricSearchSchema = DataCatalogMetricsSearchListQueryParams
-
-const metricSearch = (): ToolBase<
-    typeof MetricSearchSchema,
-    WithPostHogUrl<Schemas.DataCatalogMetricSearchResult[]>
-> => ({
-    name: 'metric-search',
-    schema: MetricSearchSchema,
-    handler: async (context: Context, params: z.infer<typeof MetricSearchSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataCatalogMetricSearchResult[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/search/`,
-            query: {
-                name: params.name,
-                query: params.query,
-            },
-        })
-        return await withPostHogUrl(context, result, '/')
-    },
-})
-
 const DataCatalogRelationshipAcceptSchema = DataCatalogRelationshipProposalsAcceptCreateParams.omit({
     project_id: true,
 })
@@ -620,6 +598,28 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
     },
 })
 
+const MetricSearchSchema = DataCatalogMetricsSearchListQueryParams
+
+const metricSearch = (): ToolBase<
+    typeof MetricSearchSchema,
+    WithPostHogUrl<Schemas.DataCatalogMetricSearchResult[]>
+> => ({
+    name: 'metric-search',
+    schema: MetricSearchSchema,
+    handler: async (context: Context, params: z.infer<typeof MetricSearchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetricSearchResult[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/search/`,
+            query: {
+                name: params.name,
+                query: params.query,
+            },
+        })
+        return await withPostHogUrl(context, result, '/')
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-certification-certify-prepare': dataCatalogCertificationCertifyPrepare,
     'data-catalog-certification-certify-execute': dataCatalogCertificationCertifyExecute,
@@ -632,10 +632,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
     'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
-    'metric-search': metricSearch,
     'data-catalog-relationship-accept-prepare': dataCatalogRelationshipAcceptPrepare,
     'data-catalog-relationship-accept-execute': dataCatalogRelationshipAcceptExecute,
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,
     'data-catalog-relationship-reject-prepare': dataCatalogRelationshipRejectPrepare,
     'data-catalog-relationship-reject-execute': dataCatalogRelationshipRejectExecute,
+    'metric-search': metricSearch,
 }

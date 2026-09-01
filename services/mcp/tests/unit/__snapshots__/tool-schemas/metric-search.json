@@ -8,8 +8,8 @@
             "type": "string"
         },
         "query": {
-            "description": "Text to match against a metric's name, display name, or description.",
-            "maxLength": 255,
+            "description": "Text to match against a metric's name, display name, or description. Literal matches return first; when none exist, typo-tolerant trigram matches return instead. This does not match synonyms.",
+            "maxLength": 200,
             "minLength": 1,
             "type": "string"
         }

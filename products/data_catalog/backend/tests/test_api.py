@@ -86,6 +86,38 @@ class TestMetricAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [metric["name"] for metric in response.json()] == ["mrr"]
+        assert response.json()[0]["search_match_type"] == "exact"
+
+    def test_search_returns_a_similar_metric_definition_for_adaptation(self) -> None:
+        definition = {"kind": "HogQLQuery", "query": "select count() from events"}
+        self.client.post(
+            self.url,
+            {
+                "name": "monthly_recurring_revenue",
+                "display_name": "Monthly recurring revenue",
+                "description": "Recurring subscription revenue each month",
+                "definition": definition,
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"{self.url}search/?query=monthly+recuring+revenue")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == [
+            {
+                "name": "monthly_recurring_revenue",
+                "display_name": "Monthly recurring revenue",
+                "description": "Recurring subscription revenue each month",
+                "definition": definition,
+                "hogql": "select count() from events",
+                "status": MetricStatus.PROPOSED,
+                "is_drifted": False,
+                "unit": "",
+                "definition_kind": "HogQLQuery",
+                "search_match_type": "similar",
+            }
+        ]
 
     def test_search_is_team_scoped_and_requires_a_search_term(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "Monthly recurring revenue"}, format="json")
