@@ -742,7 +742,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     dedupe_key: 'email',
                 })
 
-                await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
+                const activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
 
                 if (values.scheduleMode === 'now') {
                     await hogFlowsBatchJobsCreate(projectId, broadcastId, {
@@ -763,6 +763,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
                     lemonToast.success('Broadcast scheduled')
                 }
+                // Resuming a draft launches from the broadcast's own URL, so the router push below is a
+                // no-op there. Store the activated broadcast so the scene swaps to the read-only summary
+                // instead of leaving a live send button on a broadcast that already went out.
+                actions.saveBroadcastFinished(activated)
+                actions.loadBatchJobs()
                 actions.launchBroadcastFinished()
                 router.actions.push(urls.broadcast(broadcastId))
             } catch (error: any) {
