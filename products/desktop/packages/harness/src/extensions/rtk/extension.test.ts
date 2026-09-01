@@ -75,40 +75,6 @@ describe("createRtkExtension", () => {
     );
   });
 
-  it("uses a supplied bundled executable", async () => {
-    vi.stubEnv("PATH", "/usr/bin");
-    const exec = vi
-      .fn()
-      .mockResolvedValueOnce(execResult(0, "rtk 0.43.0"))
-      .mockResolvedValueOnce(execResult(0, "rtk git status"));
-    const handlers = new Map<string, ToolCallHandler>();
-    const extension = createRtkExtension({ rtkExecutable: "/bundle/rtk" });
-
-    await extension({
-      exec,
-      on: (event: string, handler: ToolCallHandler) => {
-        handlers.set(event, handler);
-      },
-    } as unknown as ExtensionAPI);
-    const handler = handlers.get("tool_call");
-    if (!handler) {
-      throw new Error("RTK did not register a tool call handler");
-    }
-    await handler(bashCall("git status"), {});
-
-    expect(process.env.PATH).toBe("/bundle:/usr/bin");
-    expect(exec).toHaveBeenCalledWith(
-      "/bundle/rtk",
-      ["--version"],
-      expect.objectContaining({ timeout: 2_000 }),
-    );
-    expect(exec).toHaveBeenCalledWith(
-      "/bundle/rtk",
-      ["rewrite", "git status"],
-      expect.objectContaining({ timeout: 2_000 }),
-    );
-  });
-
   it.each([
     ["has no rewrite", execResult(1)],
     ["returns empty output", execResult(0)],

@@ -79,15 +79,11 @@ describe("DesktopPiRpcClientFactory", () => {
         error: vi.fn(),
       }),
     } as unknown as RootLogger;
-    const bundledResources = {
-      resolve: vi.fn(() => "/app/.vite/build/rtk/rtk"),
-    };
     const factory = new DesktopPiRpcClientFactory(
       auth,
       authProxy,
       mcpServerSource,
       rootLogger,
-      bundledResources,
     );
 
     await expect(
@@ -138,7 +134,6 @@ describe("DesktopPiRpcClientFactory", () => {
         additionalDirectories: ["/tmp/shared"],
         channelMode: true,
       },
-      rtkExecutable: undefined,
       providerOptions: {
         region: "eu",
         baseUrl: "http://127.0.0.1:1234",

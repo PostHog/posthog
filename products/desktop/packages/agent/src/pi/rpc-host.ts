@@ -97,7 +97,6 @@ const runtime = await createHarnessRuntime({
   projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
-  rtkExecutable: bootstrap.rtkExecutable,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
   mcpToolPolicies: bootstrap.mcpToolPolicies,
   requestMcpToolPermission,

@@ -12,10 +12,6 @@ import { rtkTarget } from "./targets.mjs";
 const REWRITE_TIMEOUT_MS = 2_000;
 const MIN_SUPPORTED_RTK_MINOR = 23;
 
-export interface RtkExtensionOptions {
-  rtkExecutable?: string;
-}
-
 export function resolveBundledRtkExecutable(): string | undefined {
   const target = rtkTarget() as string | undefined;
   if (!target) {
@@ -23,9 +19,25 @@ export function resolveBundledRtkExecutable(): string | undefined {
   }
 
   const binary = process.platform === "win32" ? "rtk.exe" : "rtk";
-  const directory = fileURLToPath(new URL(`./bin/${target}/`, import.meta.url));
-  const executable = join(directory, binary);
-  return existsSync(executable) ? executable : undefined;
+  const extensionDirectory = fileURLToPath(
+    new URL(`./bin/${target}/`, import.meta.url),
+  );
+  const runtimeDirectory = fileURLToPath(
+    new URL(`./extensions/rtk/bin/${target}/`, import.meta.url),
+  );
+  const rpcHostDirectory = process.argv[1]
+    ? join(dirname(process.argv[1]), "rtk")
+    : undefined;
+  const executable = [
+    join(extensionDirectory, binary),
+    join(runtimeDirectory, binary),
+    rpcHostDirectory && join(rpcHostDirectory, binary),
+  ].find(
+    (candidate): candidate is string =>
+      typeof candidate === "string" && existsSync(candidate),
+  );
+
+  return executable;
 }
 
 function addRtkToPath(executable: string): void {
@@ -80,16 +92,13 @@ async function rewriteCommand(
   return result.stdout.trim() || null;
 }
 
-export function createRtkExtension(
-  options: RtkExtensionOptions = {},
-): ExtensionFactory {
+export function createRtkExtension(): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
     if (process.env.RTK_DISABLED === "1" || process.env.POSTHOG_RTK === "0") {
       return;
     }
 
-    const executable =
-      options.rtkExecutable ?? resolveBundledRtkExecutable() ?? "rtk";
+    const executable = resolveBundledRtkExecutable() ?? "rtk";
     addRtkToPath(executable);
     const version = await pi.exec(executable, ["--version"], {
       timeout: REWRITE_TIMEOUT_MS,
