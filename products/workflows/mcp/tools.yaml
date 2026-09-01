@@ -75,10 +75,6 @@ tools:
     hog-flows-metrics-totals-retrieve:
         operation: hog_flows_metrics_totals_retrieve
         enabled: false
-    # Deliberately not tools, and not just "not yet". Turning suggestions on for a workflow is the
-    # customer deciding an agent may read it, so it stays a decision someone makes in PostHog. An
-    # agent that could enable it could enrol workflows nobody chose, which is the opposite of what
-    # the opt-in is for. Enabling these needs a product decision, not a scaffold flip.
     hog-flows-optimisation-create:
         operation: hog_flows_optimisation_create
         enabled: false
