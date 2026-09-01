@@ -226,6 +226,11 @@ class Channel(TeamScopedRootMixin):
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
     )
+    auto_archive_after_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
+    )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

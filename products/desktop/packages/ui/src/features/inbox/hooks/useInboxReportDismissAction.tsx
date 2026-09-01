@@ -6,6 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import {
@@ -18,7 +19,10 @@ import { type ReactElement, useCallback, useMemo, useState } from "react";
 const EMPTY_REPORTS: SignalReport[] = [];
 
 /** Archive flow used by every inbox detail screen – one report, one button + dialog. */
-export function useInboxReportDismissAction(report: SignalReport): {
+export function useInboxReportDismissAction(
+  report: SignalReport,
+  surface: InboxReportActionSurface = "detail_pane",
+): {
   actionButton: ReactElement;
   dialog: ReactElement | null;
   /** Open the archive dialog directly — for menu items and keyboard paths. */
@@ -35,7 +39,7 @@ export function useInboxReportDismissAction(report: SignalReport): {
   const bulkActions = useInboxBulkActions(
     reportsForActions,
     open ? report.id : null,
-    "detail_pane",
+    surface,
   );
 
   const isPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
@@ -60,7 +64,7 @@ export function useInboxReportDismissAction(report: SignalReport): {
             variant="outline"
             size="icon-xs"
             className="h-7 w-7"
-            aria-label="Archive this report"
+            aria-label="Archive this report for everyone in the project"
             disabled={isPending}
             onClick={() => setOpen(true)}
           />
@@ -68,7 +72,7 @@ export function useInboxReportDismissAction(report: SignalReport): {
       >
         {isPending ? <Spinner /> : <ArchiveIcon size={12} />}
       </TooltipTrigger>
-      <TooltipContent>Archive</TooltipContent>
+      <TooltipContent>Archive for everyone in this project</TooltipContent>
     </Tooltip>
   );
 
