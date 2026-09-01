@@ -97,7 +97,19 @@ impl MergeEntrance {
         // classify divergently and the insert loser then sees the engine's
         // full-request mismatch; that surfaces as retryable UNAVAILABLE
         // (see MergeOpExecutor::execute) and the retry attaches here.
-        if let Some(row) = self.ops.find(op_id).await? {
+        let mut existing = self.ops.find(op_id).await?;
+        // A claim abort is a disposable record: nothing was destroyed and
+        // no fence installed, so a retry deserves a fresh run rather than
+        // a replay of the contention it met last time. Checked before the
+        // request comparison, because even a drifted or different request
+        // may safely reuse the id once the record is gone.
+        if let Some(row) = &existing {
+            if MergeOpExecutor::is_claim_abort(row) {
+                self.ops.discard_claim_abort(op_id).await?;
+                existing = None;
+            }
+        }
+        if let Some(row) = existing {
             if row.op_type != OP_TYPE_MERGE
                 || row.team_id != request.team_id
                 || !same_merge(row.request.get("original"), &original)
@@ -228,18 +240,19 @@ impl MergeEntrance {
             let results = request
                 .sources
                 .iter()
-                .map(|s| MergeSourceResult {
-                    source_distinct_id: s.source_distinct_id.clone(),
-                    outcome: outcome_enum(
-                        inline_results
-                            .get(&s.source_distinct_id)
-                            .map(String::as_str)
-                            .unwrap_or(OUTCOME_ERROR),
-                    )
-                    .into(),
-                    // This arm runs only when no source reached the saga,
-                    // so nothing was destroyed and there is no id to report.
-                    source_person_id: None,
+                .map(|s| {
+                    let outcome = inline_results
+                        .get(&s.source_distinct_id)
+                        .map(String::as_str)
+                        .unwrap_or(OUTCOME_ERROR);
+                    MergeSourceResult {
+                        source_distinct_id: s.source_distinct_id.clone(),
+                        outcome: outcome_enum(outcome).into(),
+                        // This arm runs only when no source reached the saga,
+                        // so nothing was destroyed and there is no id to report.
+                        source_person_id: None,
+                        settled: outcome_settled(outcome),
+                    }
                 })
                 .collect();
             return Ok(MergePersonsResponse {
@@ -354,6 +367,9 @@ impl MergeEntrance {
         let response = self
             .property_writer
             .update_person_properties(UpdatePersonPropertiesRequest {
+                // The merge event is a person event; its properties are forced,
+                // matching the Postgres backend applying them inside the merge.
+                force_update: true,
                 team_id: request.team_id,
                 person_id: survivor.id,
                 event_name: "$identify".to_string(),
@@ -572,6 +588,13 @@ fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
     }
 }
 
+/// The caller's durability decision, stated by the side that recorded the
+/// verdict: every outcome is final under retry except a claim conflict,
+/// whose op row is not retained, so a retry genuinely re-runs.
+fn outcome_settled(outcome: &str) -> bool {
+    outcome != OUTCOME_SKIPPED_CONFLICT
+}
+
 fn outcome_enum(outcome: &str) -> MergeSourceOutcome {
     match outcome {
         OUTCOME_MERGED => MergeSourceOutcome::Merged,
@@ -675,6 +698,7 @@ fn merge_response(
             MergeSourceResult {
                 source_distinct_id: did.clone(),
                 outcome: outcome_enum(outcome).into(),
+                settled: outcome_settled(outcome),
                 // Only a merged source names a person, because only that
                 // person is permanently gone; every other verdict names one
                 // still live.

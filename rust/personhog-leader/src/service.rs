@@ -1069,6 +1069,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             &set_once_properties,
             &unset_properties,
             &person_properties,
+            req.force_update,
         );
 
         // OR-merge: identification never reverts through this RPC, so
@@ -1101,6 +1102,18 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Fast path: no diffs detected, skip the clone in apply_property_updates
         if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
+            return Ok(Response::new(UpdatePersonPropertiesResponse {
+                person: Some(cached_person_to_proto(&person)),
+                updated: false,
+            }));
+        }
+
+        // Changes confined to the filtered property list are answered
+        // without writing, matching the Postgres store's suppression: the
+        // values are discarded, not stored, so the two backends' rows
+        // agree. A scalar move or a forced event promotes everything.
+        if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
+            counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
                 person: Some(cached_person_to_proto(&person)),
                 updated: false,
@@ -2217,6 +2230,74 @@ mod tests {
     /// The person is seeded deliberately: without it a removed check
     /// would still surface `FailedPrecondition` from the ownership guard
     /// further down, and the test would pass having proved nothing.
+    /// The write path's half of the classification: a lane whose only
+    /// changes sit on the filtered list answers updated=false, bumps no
+    /// version, and produces nothing — the values are discarded, matching
+    /// the Postgres store's suppression. With force set, the same lane
+    /// writes. The produce would hang against the absent test broker, so
+    /// a demotion regression surfaces here as a timeout, not a pass.
+    #[tokio::test]
+    async fn filtered_only_update_answers_without_writing() {
+        let service = make_test_service().await;
+        let (team_id, person_id) = (7, 43);
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            PersonCacheKey { team_id, person_id },
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000008".to_string(),
+                team_id,
+                properties: serde_json::to_vec(
+                    &serde_json::json!({"$current_url": "https://example.com/a"}),
+                )
+                .unwrap(),
+                created_at: 0,
+                version: 3,
+                is_identified: false,
+                is_deleted: false,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        let request = |force: bool| {
+            let mut request = Request::new(UpdatePersonPropertiesRequest {
+                force_update: force,
+                team_id,
+                person_id,
+                event_name: "$pageview".to_string(),
+                set_properties: serde_json::to_vec(
+                    &serde_json::json!({"$current_url": "https://example.com/b"}),
+                )
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            service.update_person_properties(request(false)),
+        )
+        .await
+        .expect("a demoted update must answer without producing")
+        .expect("demoted update answers ok")
+        .into_inner();
+        assert!(!response.updated);
+        assert_eq!(
+            response.person.expect("carries the person").version,
+            3,
+            "a discarded change must not bump the version"
+        );
+    }
+
     #[tokio::test]
     async fn update_refuses_once_authority_is_surrendered() {
         let clock = Arc::new(AuthorityClock::unclaimed());
@@ -2246,6 +2327,7 @@ mod tests {
 
         let request = || {
             let mut request = Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id,
                 person_id,
                 event_name: "$set".to_string(),
@@ -2403,6 +2485,7 @@ mod tests {
         let held = mutex.lock().await;
 
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id,
             person_id,
             event_name: "$set".to_string(),
@@ -2486,6 +2569,7 @@ mod tests {
         assert_eq!(err.code(), Code::FailedPrecondition);
 
         let mut write = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id,
             person_id,
             event_name: "$set".to_string(),

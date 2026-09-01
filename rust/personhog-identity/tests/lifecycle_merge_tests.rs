@@ -1639,6 +1639,79 @@ fn rpc_outcomes(response: &MergePersonsResponse) -> Vec<(String, MergeSourceOutc
 }
 
 #[tokio::test]
+async fn a_conflict_is_not_recorded_and_a_plain_retry_merges_once_released() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h.ctx.insert_person_with_distinct_id("cr-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("cr-source").await;
+
+    // A rival live op holds the source's mark.
+    let rival = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at) VALUES ($1, 'merge', $2, 'claimed', '{}'::jsonb, now() + interval '1 hour')",
+    )
+    .bind(rival)
+    .bind(h.ctx.team_id as i32)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert rival op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+    )
+    .bind(rival)
+    .bind(h.ctx.team_id as i32)
+    .bind(source)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert rival mark");
+
+    let op_id = Uuid::now_v7();
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "cr-target",
+            &["cr-source"],
+            op_id,
+        )))
+        .await
+        .expect("conflict answers, not errors")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("cr-source".to_string(), MergeSourceOutcome::SkippedConflict)]
+    );
+    // The conflict is the one unsettled verdict: a retry may genuinely
+    // succeed, and the caller redelivers rather than acking a loss.
+    assert!(!response.results[0].settled);
+
+    // The rival releases; a retry under the SAME op id must re-run the
+    // merge rather than replaying the recorded contention.
+    sqlx::query("UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1")
+        .bind(rival)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("release rival mark");
+
+    let retry = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "cr-target",
+            &["cr-source"],
+            op_id,
+        )))
+        .await
+        .expect("retry merges")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![("cr-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    assert!(retry.results[0].settled);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn a_saga_survivor_carries_the_folded_last_seen_at() {
     let h = MergeHarness::new().await;
     let service = h.service();

@@ -109,6 +109,7 @@ impl HarnessClient {
     ) -> Result<UpdatePersonPropertiesResponse> {
         self.inner
             .update_person_properties(UpdatePersonPropertiesRequest {
+                force_update: true,
                 team_id,
                 person_id,
                 event_name: "$set".to_string(),
