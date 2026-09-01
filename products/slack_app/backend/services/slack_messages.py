@@ -473,17 +473,23 @@ UNFURL_OPT_OUT_PARAM = "unfurl"
 
 @dataclass(frozen=True)
 class RunFooter:
-    """What a reply can say about the run behind it.
+    """What a reply knows about the run behind it.
 
     Constant for the life of a handler, so it is supplied once at construction rather
     than threaded through every posting method. An empty instance is the "say nothing"
     case, which is what every caller outside the footer rollout gets.
+
+    ``run_id`` and ``task_id`` are what the run *is* rather than what the footer says
+    about it: the thumbs under an answer report against them, and they ride here because
+    a reply that can describe its run is exactly a reply that has one to rate.
     """
 
     task_url: str | None = None
     desktop_url: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    run_id: str | None = None
+    task_id: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -491,6 +497,7 @@ class RunFooter:
         A caller checks it to skip the flag lookups behind a footer that can't appear.
         Spelled out rather than given as ``__bool__`` so that ``footer or RunFooter()``
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
+        The ids are not part of the answer — they say nothing on their own.
         """
         return any((self.task_url, self.desktop_url, self.model))
 
@@ -518,6 +525,8 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             return RunFooter()
         state = parse_run_state(run.state)
         return RunFooter(
+            run_id=str(run.id),
+            task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
             # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
             # desktop app when installed and offers a download when not, so a reader without
@@ -553,8 +562,8 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     return context_block(" · ".join(segments))
 
 
-def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
-    """The fork menu as a standalone block, for replies with no section to hang it on.
+def reply_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
+    """The reply menu as a standalone block, for replies with no section to hang it on.
 
     A streamed answer arrives as markdown chunks and the chart delivery puts the answer
     in the card message, so neither has a `section` whose accessory the menu could be.
@@ -563,36 +572,84 @@ def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
     return {"type": "actions", "elements": [element]}
 
 
-FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
+# The wire value predates the menu carrying anything but the fork, and messages already
+# posted still send it, so it stays as it is.
+REPLY_MENU_ACTION_ID = "slack_app_fork_thread"
+
+# Which entry of the menu was picked. An option posted before this field existed carries
+# no `action` at all, which every reader of the value treats as the fork.
+REPLY_MENU_FORK = "fork"
+REPLY_MENU_FEEDBACK = "feedback"
 
 
-def fork_menu_element(integration_id: int) -> dict[str, Any]:
-    """The overflow menu the footer carries as its accessory.
+# Slack rejects an overflow whose option value runs past this, and it rejects the whole
+# `blocks` payload with it — the message then falls back to plain text and loses its footer
+# too. So an option value carries the least that identifies what was picked: the run, and
+# nothing derivable from it.
+_MENU_OPTION_VALUE_LIMIT = 150
+
+
+def reply_menu_element(
+    integration_id: int,
+    *,
+    include_fork: bool,
+    feedback_run_id: str | None = None,
+) -> dict[str, Any] | None:
+    """The overflow menu the footer carries as its accessory, or `None` when it would be empty.
 
     An overflow renders as a bare "…" with no label, which is as close to invisible as
-    an interactive element gets — the answer above it is what the reader came for. It
-    also has somewhere to put the next destination ("fork to a channel") without
-    growing a second control.
+    an interactive element gets — the answer above it is what the reader came for. It is
+    also where each new thing a reader can do with a reply goes, instead of the reply
+    growing another control.
 
     Returned as a bare element rather than wrapped in an `actions` block so it can be a
     `section` accessory, which is what puts it on the footer's own line. Slack offers no
     inline interactive element, so an accessory — right-aligned beside the text — is as
     close to trailing the footer as Block Kit gets.
 
-    The option value carries the integration so the cross-region interactivity router
-    can tell whose click this is. Everything else the fork needs — the channel, and the
-    thread the reply is sitting in — rides on the `block_actions` payload.
+    Every option value carries the integration so the cross-region interactivity router
+    can tell whose click this is. The rating options carry the run they are about, and
+    only that — the task is read back from the run row, and the channel and thread the
+    reply sits in ride on the `block_actions` payload.
     """
-    return {
-        "type": "overflow",
-        "action_id": FORK_THREAD_ACTION_ID,
-        "options": [
+    options: list[dict[str, Any]] = []
+    if feedback_run_id:
+        target = {
+            "integration_id": integration_id,
+            "action": REPLY_MENU_FEEDBACK,
+            "run_id": feedback_run_id,
+        }
+        options.append(
+            {
+                "text": {"type": "plain_text", "text": "Good response", "emoji": True},
+                "value": _option_value({**target, "sentiment": "positive"}),
+            }
+        )
+        options.append(
+            {
+                "text": {"type": "plain_text", "text": "Bad response", "emoji": True},
+                "value": _option_value({**target, "sentiment": "negative"}),
+            }
+        )
+    if include_fork:
+        options.append(
             {
                 "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                "value": json.dumps({"integration_id": integration_id}),
+                "value": _option_value({"integration_id": integration_id, "action": REPLY_MENU_FORK}),
             }
-        ],
-    }
+        )
+    if not options:
+        return None
+    return {"type": "overflow", "action_id": REPLY_MENU_ACTION_ID, "options": options}
+
+
+def _option_value(payload: dict[str, Any]) -> str:
+    """One option's value, compact enough to survive Slack's cap.
+
+    Compact separators rather than the default spaced ones: the difference is a handful of
+    characters, and the budget is small enough that a handful matters.
+    """
+    return json.dumps(payload, separators=(",", ":"))
 
 
 def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:

@@ -8,18 +8,18 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_turn_feedback_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    fork_menu_actions_block,
-    fork_menu_element,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
     reply_footer_block,
+    reply_menu_actions_block,
+    reply_menu_element,
     slack_message_exists,
     viewer_has_code_access,
 )
@@ -144,6 +144,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self._feedback_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -196,41 +197,50 @@ class SlackThreadHandler:
         configure_url = app_home_url(self._get_integration())
         return reply_footer_block(footer, configure_url)
 
-    def _fork_menu(self) -> dict[str, Any] | None:
-        """The overflow menu for this reply, or `None` outside the rollout.
+    def _reply_menu(self) -> dict[str, Any] | None:
+        """The overflow menu for this reply, or `None` when nothing in it is available.
+
+        Two independent rollouts feed it — forking, and rating the answer — so a
+        workspace can have either without the other. Rating needs a run to report
+        against, which a reply describing no run does not have.
 
         Only ever asked for once a footer exists, which is what keeps a reply with
-        nothing to describe off the integration lookup behind the flag — the same
+        nothing to describe off the integration lookup behind the flags — the same
         bargain `_footer_block` makes.
         """
         integration = self._get_integration()
         # Memoized like the sibling gates: a reply asks for this up to three times, and
-        # the flag is evaluated remotely.
+        # each flag is evaluated remotely.
         if self._fork_flag is None:
             self._fork_flag = is_slack_app_forking_enabled(integration)
-        if not self._fork_flag:
-            return None
-        return fork_menu_element(integration.id)
+        run_id = self.run_footer.run_id
+        if run_id and self._feedback_flag is None:
+            self._feedback_flag = is_slack_app_turn_feedback_enabled(integration)
+        return reply_menu_element(
+            integration.id,
+            include_fork=self._fork_flag,
+            feedback_run_id=run_id if self._feedback_flag else None,
+        )
 
-    def _append_fork_menu(self, ts: str) -> None:
-        """Add the fork menu to a streamed reply, which has no section to hang it on.
+    def _append_reply_menu(self, ts: str) -> None:
+        """Add the reply menu to a streamed reply, which has no section to hang it on.
 
         Its own call on purpose: Slack documents no block-type restriction on a streamed
         `blocks` chunk but does not confirm interactive blocks are allowed either, and
         the answer rides the append before this one — a rejected request must cost the
         menu, never the reply.
         """
-        menu = self._fork_menu()
+        menu = self._reply_menu()
         if not menu:
             return
         try:
             self._get_client().chat_appendStream(
                 channel=self.context.channel,
                 ts=ts,
-                chunks=[{"type": "blocks", "blocks": [fork_menu_actions_block(menu)]}],
+                chunks=[{"type": "blocks", "blocks": [reply_menu_actions_block(menu)]}],
             )
         except Exception as e:
-            logger.warning("slack_app_fork_menu_append_failed", error=str(e))
+            logger.warning("slack_app_reply_menu_append_failed", error=str(e))
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -401,7 +411,7 @@ class SlackThreadHandler:
             except Exception as e:
                 logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
         if footer:
-            self._append_fork_menu(ts)
+            self._append_reply_menu(ts)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -541,9 +551,9 @@ class SlackThreadHandler:
         if not footer:
             return
         blocks = [footer]
-        menu = self._fork_menu()
+        menu = self._reply_menu()
         if menu:
-            blocks.append(fork_menu_actions_block(menu))
+            blocks.append(reply_menu_actions_block(menu))
         try:
             self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
         except Exception as e:
@@ -558,7 +568,9 @@ class SlackThreadHandler:
         ordinary message stays a plain-text post.
         """
         # A section block caps at 3000 characters; over that, dropping the footer costs a
-        # line of provenance, while keeping it would cost the whole message.
+        # line of provenance, while keeping it would cost the whole message. The menu goes
+        # with it: an answer that long can only be posted as plain text, which carries no
+        # blocks at all.
         footer = self._footer_block() if with_footer and len(text) <= _SECTION_TEXT_LIMIT else None
         # No footer means no blocks at all, so an ordinary message stays the plain-text
         # post it has always been. `expand` keeps the answer fully visible: a section
@@ -569,7 +581,7 @@ class SlackThreadHandler:
             # The menu hangs off the answer, not the footer: a `context` block rejects
             # interactive elements, and moving the footer to a `section` to hold one
             # would cost it the muted styling that makes it read as a footer.
-            menu = self._fork_menu()
+            menu = self._reply_menu()
             if menu:
                 answer["accessory"] = menu
             blocks = [answer, footer]

@@ -64,7 +64,7 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
-from products.slack_app.backend.services import inbox_interactivity
+from products.slack_app.backend.services import inbox_interactivity, turn_feedback
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -83,7 +83,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
-from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import REPLY_MENU_ACTION_ID, post_slack_thread_reply
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -4751,7 +4751,11 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
-    fork_menu_integration_id, _ = _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)
+    # The menu's own hint covers every entry it carries; the rating modal it opens has no
+    # action to read, so its id comes from the view instead.
+    menu_integration_id = _extract_action_value_hints(payload, REPLY_MENU_ACTION_ID)[
+        0
+    ] or turn_feedback.extract_turn_feedback_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -4808,12 +4812,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and fork_menu_integration_id:
-        # The fork menu rides on a bot reply anyone in the thread can see, so any
-        # reader may use it. Routing only claims the workspace; who the fork runs as,
-        # and whether they may, is settled in the fork activity.
+    elif slack_team_id and menu_integration_id:
+        # The reply menu rides on a bot reply anyone in the thread can see, so any reader
+        # may use it, and the same goes for the rating modal it opens. Routing only claims
+        # the workspace; who the fork runs as, and whether they may, is settled in the fork
+        # activity, and a rating is matched to its run in the feedback handler.
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=fork_menu_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            id=menu_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -4888,8 +4893,11 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return _handle_repo_picker_options(payload)
 
     if payload_type == "view_submission":
-        if payload.get("view", {}).get("callback_id") == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
+        callback_id = payload.get("view", {}).get("callback_id")
+        if callback_id == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
             return _handle_insight_alert_snooze_modal_submit(payload)
+        if callback_id == turn_feedback.TURN_FEEDBACK_MODAL_CALLBACK_ID:
+            return turn_feedback.handle_turn_feedback_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":
@@ -4900,7 +4908,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
-            if action_id == FORK_THREAD_ACTION_ID:
+            if action_id == REPLY_MENU_ACTION_ID:
+                # One overflow carries everything a reader can do with a reply, so which
+                # entry they picked is what decides the handler. Forking is the default:
+                # an option posted before ratings existed names no action at all.
+                if turn_feedback.selected_feedback_value(payload):
+                    return turn_feedback.handle_turn_feedback_click(payload)
                 return _handle_fork_thread_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
