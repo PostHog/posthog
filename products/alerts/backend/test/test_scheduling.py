@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -126,23 +127,37 @@ class TestValidateAndNormalizeScheduleRestriction:
 class TestNextCalendarCheckTime:
     @parameterized.expand(
         [
-            # Sub-daily intervals advance from the prior next_check_at, preserving per-alert spread
-            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 11, 49, tzinfo=UTC)),
+            # Without an alert_id the sub-daily grid has no shard offset, so it snaps
+            # to the canonical cadence grid (:00 for hourly, :00/:15/... for 15-min).
+            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
             ("real_time_first_check", CalendarInterval.REAL_TIME, None, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
             (
                 "15min_from_prev",
                 CalendarInterval.EVERY_15_MINUTES,
                 PREV_CHECK,
-                datetime(2026, 3, 18, 12, 2, tzinfo=UTC),
+                datetime(2026, 3, 18, 12, 15, tzinfo=UTC),
             ),
-            ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 47, tzinfo=UTC)),
+            ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 13, 0, tzinfo=UTC)),
         ]
     )
-    def test_sub_daily_advances_from_previous(
+    def test_sub_daily_snaps_to_canonical_grid(
         self, _name: str, interval: CalendarInterval, next_check_at: datetime | None, expected: datetime
     ) -> None:
         result = next_calendar_check_time(interval, now=NOW, tz_name="UTC", next_check_at=next_check_at)
         assert result == expected
+
+    def test_hourly_shard_offset_spreads_by_alert_id(self) -> None:
+        # Two hourly alerts whose ids fall in different shard slots must not land on
+        # the same minute — the fix for a fleet of co-scheduled alerts hitting
+        # ClickHouse together. Offset (minutes) = alert_id.int % 60.
+        top_of_hour = next_calendar_check_time(
+            CalendarInterval.HOURLY, now=NOW, tz_name="UTC", next_check_at=PREV_CHECK, alert_id=UUID(int=0)
+        )
+        half_past = next_calendar_check_time(
+            CalendarInterval.HOURLY, now=NOW, tz_name="UTC", next_check_at=PREV_CHECK, alert_id=UUID(int=30)
+        )
+        assert top_of_hour == datetime(2026, 3, 18, 13, 0, tzinfo=UTC)
+        assert half_past == datetime(2026, 3, 18, 12, 30, tzinfo=UTC)
 
     @parameterized.expand(
         [

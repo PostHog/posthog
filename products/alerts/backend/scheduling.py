@@ -17,7 +17,6 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytz
-from dateutil.relativedelta import relativedelta
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 from pytz.tzinfo import BaseTzInfo
 
@@ -108,6 +107,15 @@ class CalendarInterval(StrEnum):
 
 REAL_TIME_CADENCE_MINUTES = 2
 EVERY_15_MINUTES_CADENCE_MINUTES = 15
+HOURLY_CADENCE_MINUTES = 60
+
+# Sub-daily cadences spread deterministically per alert across their cadence grid.
+# Daily/weekly/monthly anchor to calendar instants instead, so they are absent here.
+_SHARDABLE_CADENCE_MINUTES: dict[CalendarInterval, int] = {
+    CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+    CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
+    CalendarInterval.HOURLY: HOURLY_CADENCE_MINUTES,
+}
 
 
 def to_calendar_interval(value: str | None) -> CalendarInterval:
@@ -152,24 +160,28 @@ def next_calendar_check_time(
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
+    alert_id: UUID | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
-    Sub-daily intervals advance from the previous next_check_at (falling back to
-    now) so per-alert spread from creation time is preserved. Daily/weekly/monthly
-    anchor to fixed local instants: 1am tomorrow, 3am next Monday, 4am on the 1st
-    of next month. Hour-only replacement keeps the minute/second spread.
+    Sub-daily intervals snap onto their cadence grid and shift by a deterministic
+    per-alert offset (see `compute_shard_offset_seconds`), so a fleet of same-cadence
+    alerts in one org spreads across cron ticks instead of hitting ClickHouse together.
+    Daily/weekly/monthly anchor to fixed local instants: 1am tomorrow, 3am next Monday,
+    4am on the 1st of next month. Hour-only replacement keeps the minute/second spread.
+
+    `alert_id` is None only for callers that want the raw cadence grid (unit tests);
+    production passes the alert id so the shard offset applies.
     """
+    cadence_minutes = _SHARDABLE_CADENCE_MINUTES.get(interval)
+    if cadence_minutes is not None:
+        shard_offset_seconds = compute_shard_offset_seconds(alert_id, cadence_minutes) if alert_id is not None else 0
+        return advance_next_check_at(next_check_at, cadence_minutes, now, shard_offset_seconds=shard_offset_seconds)
+
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
 
     match interval:
-        case CalendarInterval.REAL_TIME:
-            return (next_check_at or now) + relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
-        case CalendarInterval.EVERY_15_MINUTES:
-            return (next_check_at or now) + relativedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES)
-        case CalendarInterval.HOURLY:
-            return (next_check_at or now) + relativedelta(hours=1)
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(
                 local_now,

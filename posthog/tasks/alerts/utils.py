@@ -111,6 +111,7 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         now=datetime.now(pytz.UTC),
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
+        alert_id=alert.id,
     )
 
 
@@ -118,7 +119,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     """
     Rule by calculation interval
 
-    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
+    sub-daily alerts (real-time, 15-minute, hourly) -> spread across the cadence grid by a per-alert shard offset, so same-cadence alerts in one org don't all run on the same cron tick
     daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
     weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
     monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
