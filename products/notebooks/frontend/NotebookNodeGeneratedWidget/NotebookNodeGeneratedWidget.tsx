@@ -24,7 +24,7 @@ import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
-import { DEFAULT_WIDGET_MODEL, type WidgetModel } from './widgetModels'
+import { DEFAULT_WIDGET_MODEL, isWidgetModel, type WidgetModel } from './widgetModels'
 import { getWidgetName } from './widgetName'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
@@ -62,12 +62,17 @@ function ExpandedWidget({
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const notebookShortId = notebookLogic.props.shortId
+    // Markdown props are cast without runtime validation, so a hand-written or legacy
+    // tag can supply a non-string prompt or an unsupported model. Coerce both here, the
+    // same way the run-button toolbar and the sibling code/height nodes do.
+    const prompt = typeof attributes.prompt === 'string' ? attributes.prompt : ''
+    const model = isWidgetModel(attributes.model) ? attributes.model : DEFAULT_WIDGET_MODEL
     const logicProps = {
         projectId: currentTeamId,
         notebookShortId,
         nodeId: attributes.nodeId,
-        prompt: attributes.prompt ?? '',
-        model: attributes.model ?? DEFAULT_WIDGET_MODEL,
+        prompt,
+        model,
         isEditable,
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
@@ -139,7 +144,7 @@ function ExpandedWidget({
         )
     }
 
-    const initialPrompt = (attributes.prompt ?? '').trim()
+    const initialPrompt = prompt.trim()
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const selectedBuildHash =
@@ -268,7 +273,7 @@ function ExpandedWidget({
                         <WidgetArtifactFrame
                             key={`${selectedBuildHash}-${frameRevision}`}
                             artifactUrl={selectedArtifactUrl}
-                            title={getWidgetName(attributes.prompt ?? '')}
+                            title={getWidgetName(prompt)}
                             allowedFrames={activeFrameNames}
                             onReadFrame={(name, offset, limit, runId, signal) =>
                                 loadWidgetFrame(
@@ -373,13 +378,7 @@ function ExpandedWidget({
                             ) : (
                                 <LemonButton
                                     type="primary"
-                                    onClick={() =>
-                                        generateWidget(
-                                            initialPrompt,
-                                            attributes.model ?? DEFAULT_WIDGET_MODEL,
-                                            'initial'
-                                        )
-                                    }
+                                    onClick={() => generateWidget(initialPrompt, model, 'initial')}
                                     loading={generationRequestLoading}
                                 >
                                     Generate widget
@@ -447,9 +446,7 @@ function ExpandedWidget({
                 {isEditable ? (
                     <LemonButton
                         type="primary"
-                        onClick={() =>
-                            generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
-                        }
+                        onClick={() => generateWidget(initialPrompt, model, 'initial')}
                         loading={generationRequestLoading}
                     >
                         Generate widget
@@ -467,7 +464,7 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     titlePlaceholder: 'Widget',
     Component,
     Settings: NotebookNodeGeneratedWidgetSettings,
-    serializedText: (attributes) => getWidgetName(attributes.prompt ?? ''),
+    serializedText: (attributes) => getWidgetName(typeof attributes.prompt === 'string' ? attributes.prompt : ''),
     heightEstimate: 420,
     minHeight: 180,
     resizeable: true,

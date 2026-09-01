@@ -111,6 +111,31 @@ describe('NotebookNodeGeneratedWidget', () => {
         await waitFor(() => expect(screen.getAllByText('Regenerating widget…')).toHaveLength(1))
     })
 
+    it('renders without crashing when the markdown tag has a non-string prompt or unknown model', async () => {
+        logic.unmount()
+        const notebookWithMalformedTag = {
+            ...cachedNotebook,
+            // A valueless `prompt` attribute parses to boolean true, and the model is an unsupported string.
+            content: buildMarkdownNotebookContent(
+                '<Widget showResults nodeId="globe" prompt model="not-a-real-model" />'
+            ),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(notebookWithMalformedTag)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        expect(await screen.findByText('Regenerating widget…')).toBeTruthy()
+    })
+
     it('shows cancellation errors while initial generation is still running', async () => {
         jest.mocked(notebooksWidgetCancel).mockRejectedValue(new Error('Cancel request failed'))
 
