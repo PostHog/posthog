@@ -1736,10 +1736,7 @@ class SavedHeatmapViewSet(
 
     @extend_schema(
         request=None,
-        responses={
-            200: HeatmapScreenshotResponseSerializer,
-            400: OpenApiResponse(description="Not a server-rendered screenshot heatmap"),
-        },
+        responses={200: HeatmapScreenshotResponseSerializer, 400: OpenApiResponse(description="Not a screenshot")},
         description="Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders "
         "and re-renders at every target width; status returns to 'processing'.",
     )
