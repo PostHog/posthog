@@ -154,6 +154,23 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         assert flag.archived is False
         self._assert_one_pending_zero_applied()
 
+    def test_approving_an_archive_applies_both_state_fields(self, _mock_enabled):
+        # Archiving an enabled flag writes `archived` and `active` together, but only `active`
+        # is what the disable policy gates. The change request has to carry both, or approving
+        # it disables the flag and silently drops the archive the caller asked for.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/archive/", {}, format="json")
+        assert response.status_code == 409
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+
+        assert ChangeRequestService(cr, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.archived is True
+        assert flag.active is False
+
     def test_lifecycle_actions_gate_each_flag_separately(self, _mock_enabled):
         # The gate keys duplicate detection on resource_id, which it derives from the request
         # method: it returns None for POST. A lifecycle action that reported itself as POST

@@ -86,7 +86,9 @@ Both actions **proxy to the Rust flags service** via `get_flags_from_service()` 
 
 `enable`, `disable`, `archive` and `unarchive` are the typed alternative to `PATCH` for the two state fields.
 They take no request body: sending `filters` through them is impossible, so a caller cannot overwrite targeting that it read a moment ago.
-Each one delegates to the matching function in `products/feature_flags/backend/facade/api.py`, which routes the write through `FeatureFlagSerializer` — the same path `PATCH` uses, so the approval gate, the dependency guards, optimistic versioning, cache invalidation and activity logging all still apply.
+Each one delegates to the matching function in `products/feature_flags/backend/facade/api.py`, which routes the write through `FeatureFlagSerializer` — the same path `PATCH` uses, so the approval gate, the dependency guards, cache invalidation and activity logging all still apply.
+The write bumps `version` under a row lock, but the stale-write conflict check does not run: it compares a caller-supplied `version`, and these endpoints take no body.
+They only ever write the two state fields, so there is no stale read to protect.
 All four declare `feature_flag:write`, so object-level access control requires editor.
 They are POST but they update, so each one hands the facade a `FlagLifecycleWriteRequest` that reports the write as a PATCH.
 Two things branch on the method: the serializer runs create-only validation on POST, and the approval gate returns no resource id for POST, which made pending change requests for different flags collide.
@@ -95,6 +97,7 @@ A flag already in the requested state is returned unchanged with no write at all
 
 `archive` matches the UI contract by disabling an enabled flag in the same write, because an archived flag must be disabled.
 `unarchive` leaves the flag disabled; enabling it is a separate call.
+It is the one action that cannot return a 409: every gated action declines a change that sets neither `active` nor `filters`, so an `archived`-only write never opens a change request.
 
 ### `create_static_cohort_for_flag`
 

@@ -3032,19 +3032,23 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-def flag_lifecycle_responses(bad_request: str | None = None) -> dict[int, Any]:
+def flag_lifecycle_responses(bad_request: str | None = None, *, approval_gated: bool = True) -> dict[int, Any]:
     """Response schemas for a flag lifecycle action.
 
     ``bad_request`` is the 400 that action can actually produce. Documenting the union of all
     of them would tell an agent to expect failures its action cannot raise.
+
+    ``approval_gated`` says the same thing about the 409. The gate on
+    ``FeatureFlagSerializer.update`` only carries the enable, disable and update actions, and
+    every one of them declines a change that sets neither ``active`` nor ``filters``. An
+    action whose write is ``archived`` alone therefore never opens a change request.
     """
-    responses: dict[int, Any] = {
-        200: FeatureFlagSerializer,
-        409: OpenApiResponse(
+    responses: dict[int, Any] = {200: FeatureFlagSerializer}
+    if approval_gated:
+        responses[409] = OpenApiResponse(
             response=ErrorResponseSerializer,
             description="An approval policy gates this change. A change request was opened; the flag is unchanged.",
-        ),
-    }
+        )
     if bad_request is not None:
         responses[400] = OpenApiResponse(response=ErrorResponseSerializer, description=bad_request)
     return responses
@@ -3068,24 +3072,23 @@ class FlagLifecycleWriteRequest(ServiceRequest):
     as they do on any other flag write.
     """
 
-    # ServiceRequest declares these from its own narrow defaults (None, {}); the real request's
-    # values are wider, so widen the annotations here rather than casting at each assignment.
-    successful_authenticator: Any
-    headers: Any
-
     def __init__(self, request: request.Request) -> None:
         self._request = request
-        super().__init__(request.user, method="PATCH")
-        self.successful_authenticator = request.successful_authenticator
-        self.path = request.path
-        self.GET = request.GET
-        self.META = request.META
-        self.headers = request.headers
+        # ServiceRequest.__init__ is skipped on purpose. It assigns a narrow default to every
+        # attribute it knows about, and an instance attribute shadows __getattr__, so anything
+        # it sets can no longer reach the real request. Setting only what this shim controls
+        # keeps the rest delegating, including fields ServiceRequest gains later.
+        self.user = request.user
+        self.is_system = False
+        self.method = "PATCH"
+        self.data: dict = {}
+        # Not delegated: a request built without session middleware has no `session`, and
+        # impersonation detection indexes into it.
         self.session = getattr(request, "session", {})
 
     def __getattr__(self, name: str) -> Any:
-        # Reached only for attributes ServiceRequest does not define, so `method` and `data`
-        # always come from this shim rather than the real request.
+        # Reached only for attributes __init__ does not set, so `method` and `data` always
+        # come from this shim rather than the real request.
         if name == "_request":
             raise AttributeError(name)
         return getattr(self._request, name)
@@ -3493,8 +3496,11 @@ class FeatureFlagViewSet(
     # the whole targeting object back (which silently overwrites concurrent edits).
     #
     # Each routes through the flag facade, which writes through FeatureFlagSerializer — the
-    # same path PATCH uses, so the approval gate, the dependency guards, optimistic
-    # versioning, cache invalidation and activity logging all apply.
+    # same path PATCH uses, so the approval gate, the dependency guards, cache invalidation
+    # and activity logging all apply. The write bumps `version` under a row lock, but the
+    # stale-write conflict check does not run: it compares a caller-supplied `version`, and
+    # these endpoints take no body. They only ever write the two state fields, so there is no
+    # stale read to protect.
     #
     # A flag already in the requested state is a successful no-op with no write, so a retry
     # cannot bump the version or log a change that did not happen.
@@ -3504,7 +3510,9 @@ class FeatureFlagViewSet(
     def _lifecycle_response(self, feature_flag: FeatureFlag) -> Response:
         data = self.get_serializer(feature_flag).data
         # `filters` serializes the stored dict, so an encrypted payload would leave here as
-        # ciphertext. Mirrors retrieve().
+        # ciphertext. This applies the same redaction as retrieve(). It does not blank
+        # `evaluation_contexts` the way retrieve() does: this is a write response, and it
+        # matches partial_update.
         if data.get("has_encrypted_payloads", False):
             data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
                 self.request, data["filters"]["payloads"]
@@ -3599,7 +3607,7 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:write"],
         request=None,
-        responses=flag_lifecycle_responses(),
+        responses=flag_lifecycle_responses(approval_gated=False),
     )
     def unarchive(self, request: request.Request, **kwargs) -> Response:
         """
