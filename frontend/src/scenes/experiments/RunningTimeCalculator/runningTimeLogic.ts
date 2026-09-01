@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { NetworkError } from 'lib/api-error'
+import { NetworkError, isTransientServerError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -339,10 +339,16 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 loadAutomaticCalculation: async (input: RunningTimeCalculationInputApi, breakpoint) => {
                     // The input subscription does not re-fire on an unchanged input, so a failure here
                     // leaves the estimate empty for the rest of the page session. Retry a request that
-                    // never reached the server; a real HTTP status would fail the same way again.
+                    // never reached the server or hit a transient gateway (502/503/504), because both
+                    // usually succeed on a second attempt. A 4xx or a plain 500 would fail the same way,
+                    // so it is not retried.
                     const result = await retryWithBackoff(
                         () => experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input),
-                        { maxAttempts: 2, initialDelayMs: 300, shouldRetry: (error) => error instanceof NetworkError }
+                        {
+                            maxAttempts: 2,
+                            initialDelayMs: 300,
+                            shouldRetry: (error) => error instanceof NetworkError || isTransientServerError(error),
+                        }
                     )
                     breakpoint()
                     return result

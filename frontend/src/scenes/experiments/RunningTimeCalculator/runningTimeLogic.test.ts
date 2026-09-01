@@ -2,7 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { NetworkError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
@@ -169,9 +169,15 @@ describe('runningTimeLogic', () => {
             expect(experimentLogicInstance.values.unmodifiedExperiment?.version).toEqual(9)
         })
 
-        it('retries a request that never reached the server, so one blip does not blank the estimate', async () => {
+        // A request that never reached the server and a transient gateway (502/503/504) both usually
+        // succeed on a second attempt, so the calculation retries once. The subscription would not
+        // re-fire on the unchanged input, so without the retry one blip blanks the estimate all visit.
+        it.each([
+            ['a request that never reached the server', new NetworkError('offline')],
+            ['a transient gateway status', new ApiError('Service Unavailable', 503)],
+        ])('retries after %s, so one blip does not blank the estimate', async (_name, transientError) => {
             calculateRunningTimeMock
-                .mockRejectedValueOnce(new NetworkError('offline'))
+                .mockRejectedValueOnce(transientError)
                 .mockResolvedValue({ recommended_sample_size: 2000, recommended_running_time_days: 20 })
             api.update.mockResolvedValue({ ...experiment, version: 4 })
 
