@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -24,8 +25,9 @@ describe('sessionReplaySetupLogic', () => {
     ])('recordings=%s, optIn=%s maps to %s', async (hasRecordings, optIn, expected) => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: optIn } as TeamType)
         jest.spyOn(api.recordings, 'list').mockResolvedValue({
-            results: hasRecordings ? [{ id: '1' }] : [],
-        } as any)
+            results: hasRecordings ? [recordingMetaJson] : [],
+            has_next: false,
+        })
         sessionReplaySetupLogic.mount()
         await expectLogic(sessionReplaySetupLogic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY }).values.status).toBe(expected)
