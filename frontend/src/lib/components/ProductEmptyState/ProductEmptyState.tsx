@@ -5,6 +5,8 @@ import { IconBook, IconGear } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
@@ -63,6 +65,13 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
     const primaryAction = resolvePrimaryAction(config.primaryAction, mode)
+    // Safe to call unconditionally: it answers with a loading reason until the team lands, and
+    // the widest scope is a no-op for actions that declare no restriction.
+    const restrictionReason = useRestrictedArea({
+        scope: primaryAction?.restriction?.scope ?? RestrictionScope.Project,
+        minimumAccessLevel: primaryAction?.restriction?.minimumAccessLevel ?? TeamMembershipLevel.Member,
+    })
+    const primaryActionRestriction = primaryAction?.restriction ? restrictionReason : null
     const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
@@ -72,6 +81,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 primaryAction.onClick?.()
             }}
             className="self-start"
+            disabledReason={primaryActionRestriction}
             data-attr={primaryAction.dataAttr ?? 'product-empty-state-primary-action'}
         >
             {primaryAction.label}
