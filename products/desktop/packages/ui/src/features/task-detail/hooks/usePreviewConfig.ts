@@ -19,15 +19,11 @@ import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
   adapterForModelId,
-  DEEPSEEK_MODEL_FLAG,
   FAST_MODE_FLAG,
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
   getCloudUrlFromRegion,
-  KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
+import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../../auth/store";
@@ -76,11 +72,7 @@ export function usePreviewConfig(
 ): PreviewConfigResult {
   const allHarnessModels = opts?.allHarnessModels ?? false;
   const hostClient = useHostTRPCClient();
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
-  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
-  const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
+  const modelFlags = useModelRolloutFlags();
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const apiHost = useMemo(
@@ -140,15 +132,7 @@ export function usePreviewConfig(
         if (abort.signal.aborted) return;
 
         const options = serverOptions
-          .map((option) =>
-            stripDisabledModelOption(option, {
-              deepseek: deepseekEnabled,
-              glm: glmEnabled,
-              glm53: glm53Enabled,
-              glm53Flash: glm53FlashEnabled,
-              kimi: kimiEnabled,
-            }),
-          )
+          .map((option) => stripDisabledModelOption(option, modelFlags))
           .filter((option) => fastModeFlagEnabled || option.id !== "fast");
 
         const {
@@ -279,11 +263,7 @@ export function usePreviewConfig(
     apiHost,
     hostClient,
     hasHydrated,
-    glmEnabled,
-    glm53Enabled,
-    glm53FlashEnabled,
-    deepseekEnabled,
-    kimiEnabled,
+    modelFlags,
     fastModeFlagEnabled,
   ]);
 
