@@ -73,6 +73,18 @@ export function effectiveModelAccess(input: {
   return usesOwnSubscription ? "own-subscription" : "posthog-gateway";
 }
 
+export function subscriptionModelAccess(
+  subscription: AdapterSubscription,
+  workspaceMode: WorkspaceModeForAccess,
+): ModelAccess {
+  return effectiveModelAccess({
+    flagEnabled: subscription.flagEnabled,
+    subscriptionOn: subscription.subscriptionOn,
+    loginState: subscription.loginState,
+    workspaceMode,
+  });
+}
+
 export function applyModelAccess(
   adapter: Adapter,
   next: ModelAccess,

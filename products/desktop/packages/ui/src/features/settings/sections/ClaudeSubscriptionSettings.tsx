@@ -1,8 +1,10 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
 import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
+import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { registerAdapterSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +37,16 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
   // Track connection state for analytics only. The toggle stays the source
   // of truth for the billing preference; a status observation must not write
   // the setting.
+  useEffect(() => {
+    if (
+      useSettingsPageStore.getState().initialAction ===
+      SUBSCRIPTION_LOGIN_ACTION.claude
+    ) {
+      useSettingsPageStore.getState().consumeInitialAction();
+      setAuthAction("login");
+    }
+  }, []);
+
   const lastKnownLoggedIn = useRef<boolean | null>(null);
   useEffect(() => {
     if (!settled) return;

@@ -30,7 +30,7 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
-  effectiveModelAccess,
+  subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
@@ -414,21 +414,11 @@ export function useTaskCreation({
           );
           const codexModelAccess =
             runtime !== "pi" && adapter === "codex"
-              ? effectiveModelAccess({
-                  flagEnabled: codexSubscription.flagEnabled,
-                  subscriptionOn: codexSubscription.subscriptionOn,
-                  loginState: codexSubscription.loginState,
-                  workspaceMode,
-                })
+              ? subscriptionModelAccess(codexSubscription, workspaceMode)
               : undefined;
           const claudeModelAccess =
             runtime !== "pi" && adapter === "claude"
-              ? effectiveModelAccess({
-                  flagEnabled: claudeSubscription.flagEnabled,
-                  subscriptionOn: claudeSubscription.subscriptionOn,
-                  loginState: claudeSubscription.loginState,
-                  workspaceMode,
-                })
+              ? subscriptionModelAccess(claudeSubscription, workspaceMode)
               : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
@@ -725,6 +715,8 @@ export function useTaskCreation({
       claudeSubscription.flagEnabled,
       claudeSubscription.loginState,
       claudeSubscription.subscriptionOn,
+      claudeSubscription,
+      codexSubscription,
     ],
   );
 

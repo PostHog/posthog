@@ -1,11 +1,13 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
 import {
   applyModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
+import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -75,6 +77,16 @@ export function CodexSubscriptionSettings(): ReactElement | null {
     return () => clearTimeout(timer);
   }, [awaitingLogin]);
   const connecting = login.isPending || launching;
+  useEffect(() => {
+    if (
+      useSettingsPageStore.getState().initialAction ===
+      SUBSCRIPTION_LOGIN_ACTION.codex
+    ) {
+      useSettingsPageStore.getState().consumeInitialAction();
+      login.mutate();
+    }
+  }, [login.mutate]);
+
   const signOut = useMutation({
     ...hostTRPC.agent.codexSubscriptionSignOut.mutationOptions(),
     onSuccess: () => {

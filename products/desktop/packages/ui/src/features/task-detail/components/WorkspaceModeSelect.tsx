@@ -2,7 +2,6 @@ import {
   ArrowsSplit,
   Cloud,
   Cube,
-  Gear,
   Laptop,
   Plus,
   Star,
@@ -99,10 +98,9 @@ export function WorkspaceModeSelect({
   const adapterSubscription = adapter
     ? { codex: codexSubscription, claude: claudeSubscription }[adapter]
     : undefined;
-  const showSubscriptionControls = adapterSubscription?.flagEnabled === true;
   const subscriptionInUseLabel =
     adapter &&
-    showSubscriptionControls &&
+    adapterSubscription?.flagEnabled &&
     adapterSubscription.subscriptionOn &&
     adapterSubscription.loggedIn
       ? SUBSCRIPTION_IN_USE_LABEL[adapter]
@@ -191,25 +189,10 @@ export function WorkspaceModeSelect({
         {localModes.length > 0 && (
           <div className="flex items-center justify-between px-2 py-1">
             <MenuLabel className="p-0">Local</MenuLabel>
-            {showSubscriptionControls && (
-              <div className="flex items-center gap-1.5">
-                {subscriptionInUseLabel && (
-                  <span className="text-[11px] text-muted-foreground">
-                    {subscriptionInUseLabel}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    openSettings("harness");
-                  }}
-                  aria-label="Subscription settings"
-                  className={ICON_BUTTON_CLASS}
-                >
-                  <Gear size={12} />
-                </button>
-              </div>
+            {subscriptionInUseLabel && (
+              <span className="text-[11px] text-muted-foreground">
+                {subscriptionInUseLabel}
+              </span>
             )}
           </div>
         )}

@@ -30,7 +30,10 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
-import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
+import {
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -508,6 +511,14 @@ export function TaskInput({
     adapter === "claude" &&
     workspaceMode !== "cloud" &&
     claudeSubscription.needsConnection;
+
+  const composerModelAccess =
+    runtime === "pi"
+      ? undefined
+      : subscriptionModelAccess(
+          adapter === "codex" ? codexSubscription : claudeSubscription,
+          workspaceMode,
+        );
 
   const {
     repositories: visibleCloudRepositories,
@@ -1580,6 +1591,8 @@ export function TaskInput({
                         onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
+                        modelAccess={composerModelAccess}
+                        showBillingMenu
                       />
                     )
                   }
