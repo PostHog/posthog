@@ -47,12 +47,28 @@ class ParsedEmail:
     body_plain: str
     stripped_text: str
     body_html: str = ""
+    stripped_html: str = ""
     sender_authenticated: bool
     dkim_passed: bool
     dkim_signing_domains: tuple[str, ...]
     capture_address: str
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
+
+    def body_with_matching_html(self, *, prefer_stripped: bool) -> tuple[str, str]:
+        """Return the body text we store paired with the HTML of the same scope.
+
+        Link recovery must never scan a wider HTML than the text it rewrites: the
+        stripped body drops quoted history, so pairing it with the full `body_html`
+        would attach a historical URL to current prose. `stripped_html` covers the
+        same new part; `body_html` is the fallback when no stripped HTML exists (for
+        example Gmail sync, whose text is never quote-stripped).
+        """
+        if prefer_stripped and self.stripped_text:
+            return self.stripped_text, (self.stripped_html or self.body_html)
+        if self.body_plain:
+            return self.body_plain, (self.body_html or self.stripped_html)
+        return self.stripped_text, (self.stripped_html or self.body_html)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -185,11 +201,8 @@ def _upsert_participants(
 
 
 def _message_content(*, thread: EmailThread, email: ParsedEmail) -> str:
-    if thread.message_count > 0:
-        base = email.stripped_text or email.body_plain
-    else:
-        base = email.body_plain or email.stripped_text
-    return recover_links_from_html(base, email.body_html)
+    base, html = email.body_with_matching_html(prefer_stripped=thread.message_count > 0)
+    return recover_links_from_html(base, html)
 
 
 def _update_thread_summary(*, thread: EmailThread, email: ParsedEmail, content: str) -> None:

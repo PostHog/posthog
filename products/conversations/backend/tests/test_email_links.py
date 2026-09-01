@@ -1,6 +1,33 @@
+from datetime import UTC, datetime
+
 from parameterized import parameterized
 
 from products.conversations.backend.services.email_links import recover_links_from_html
+from products.conversations.backend.services.email_thread_ingestion import EmailAddress, ParsedEmail
+
+
+def _email(**overrides: object) -> ParsedEmail:
+    defaults: dict[str, object] = {
+        "message_id": "<m@example.com>",
+        "in_reply_to": None,
+        "references": (),
+        "sent_at": datetime(2026, 1, 1, tzinfo=UTC),
+        "sender": EmailAddress(name="Sender", email="sender@example.com"),
+        "to_recipients": (),
+        "cc_recipients": (),
+        "subject": "Re: forwarding",
+        "body_plain": "",
+        "stripped_text": "",
+        "body_html": "",
+        "stripped_html": "",
+        "sender_authenticated": False,
+        "dkim_passed": False,
+        "dkim_signing_domains": (),
+        "capture_address": "team-abc@mg.posthog.com",
+        "attachments": (),
+    }
+    defaults.update(overrides)
+    return ParsedEmail(**defaults)  # type: ignore[arg-type]
 
 
 class TestRecoverLinksFromHtml:
@@ -54,6 +81,32 @@ class TestRecoverLinksFromHtml:
         html = '<a href="https://host.example/wiki/Foo_(bar)">Read the docs here</a>'
         result = recover_links_from_html(text, html)
         assert result == "[Read the docs here](https://host.example/wiki/Foo_%28bar%29)"
+
+    def test_reply_ignores_links_from_quoted_history(self) -> None:
+        # A reply's stripped text drops the quoted history; the matching HTML must
+        # too, so a label reused in the new prose keeps no historical URL.
+        email = _email(
+            stripped_text="Thanks, click here to finish.",
+            stripped_html='<p>Thanks, <a href="https://host.example/new">click here</a> to finish.</p>',
+            body_plain="Thanks, click here to finish.\nOn Mon you wrote: click here",
+            body_html=(
+                '<p>Thanks, <a href="https://host.example/new">click here</a> to finish.</p>'
+                '<blockquote>On Mon you wrote: <a href="https://old.example/stale">click here</a></blockquote>'
+            ),
+        )
+        base, html = email.body_with_matching_html(prefer_stripped=True)
+        result = recover_links_from_html(base, html)
+        assert result == "Thanks, [click here](https://host.example/new) to finish."
+        assert "old.example" not in result
+
+    def test_new_ticket_uses_full_body_html(self) -> None:
+        email = _email(
+            body_plain="Please confirm.\nAttiva l'inoltro",
+            body_html='<p>Please confirm.</p><a href="https://host.example/activate">Attiva l\'inoltro</a>',
+        )
+        base, html = email.body_with_matching_html(prefer_stripped=False)
+        result = recover_links_from_html(base, html)
+        assert "[Attiva l'inoltro](https://host.example/activate)" in result
 
     def test_links_earliest_occurrence_across_multiple_labels(self) -> None:
         text = "First open the guide then confirm your account"
