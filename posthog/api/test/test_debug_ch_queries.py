@@ -208,6 +208,7 @@ class TestWAPrecomputeHealth(APIBaseTest):
                 [(hour, 750, 250)],  # hourly: lazy, eligible_live
                 [(hour, 12000, 2100, 3)],  # warming: queries, teams, errored
                 [("web_overview_query", 180), ("stats_table_main_query", 70)],
+                [(2, 120), (1589, 60)],  # top_missing_teams
             ]
         )
         with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=lambda *a, **k: next(results)):
@@ -220,6 +221,30 @@ class TestWAPrecomputeHealth(APIBaseTest):
         self.assertEqual(data["hourly"][0]["hit_ratio"], 75.0)
         self.assertEqual(data["warming"][0]["errored"], 3)
         self.assertEqual(data["miss_breakdown"][0], {"query_type": "web_overview_query", "misses": 180})
+        self.assertEqual(data["top_missing_teams"][0], {"team_id": 2, "misses": 120})
+
+    def test_team_filter_narrows_all_sections_and_skips_team_ranking(self) -> None:
+        # A per-team read must inject the tenant filter into every section's SQL
+        # and not spend a fourth fleet-wide scan on the team ranking.
+        self.user.is_staff = True
+        self.user.save()
+
+        executed: list[tuple[str, dict]] = []
+
+        def fake_sync_execute(query: str, params: dict, **_kwargs) -> list:
+            executed.append((query, params))
+            return []
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            resp = self.client.get("/api/debug_ch_queries/wa_precompute_health/?team_id=42")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        self.assertEqual(len(executed), 3)
+        for query, params in executed:
+            self.assertIn("JSONExtractInt(log_comment, 'team_id') = %(team_id)s", query)
+            self.assertEqual(params["team_id"], 42)
+        self.assertEqual(resp.json()["team_id"], 42)
+        self.assertEqual(resp.json()["top_missing_teams"], [])
 
 
 class TestCacheTableStats(SimpleTestCase):

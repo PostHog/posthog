@@ -1165,17 +1165,32 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d; query_log retention bounds it anyway
 
+        # Fleet-wide by default (the warmer is one fleet-level system); a team_id
+        # narrows every section to that tenant's reads.
+        team_id_filter: Optional[int] = None
+        if request.query_params.get("team_id"):
+            try:
+                team_id_filter = int(request.query_params["team_id"])
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError("team_id must be an integer.")
+            if team_id_filter <= 0:
+                raise exceptions.ValidationError("team_id must be a positive integer.")
+
         params: dict = {
             "hours": hours,
             "cluster": CLICKHOUSE_CLUSTER,
             "eligible_live_types": _WA_ELIGIBLE_LIVE_QUERY_TYPES,
             "excluded_workloads": _WA_HIT_RATIO_EXCLUDED_WORKLOADS,
         }
+        team_filter_sql = ""
+        if team_id_filter is not None:
+            team_filter_sql = " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+            params["team_id"] = team_id_filter
 
         # User-facing reads only: exclude background workloads, temporal batch
         # requests, and API-key scripts so the ratio reflects dashboard traffic.
         hourly_rows = sync_execute(
-            """
+            f"""
             SELECT
                 toStartOfHour(event_time) AS hour,
                 countIf(endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')) AS lazy_hits,
@@ -1190,7 +1205,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 AND (
                     endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
                     OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
-                )
+                ){team_filter_sql}
             GROUP BY hour
             ORDER BY hour
             """,
@@ -1199,7 +1214,7 @@ class DebugCHQueries(viewsets.ViewSet):
         )
 
         warming_rows = sync_execute(
-            """
+            f"""
             SELECT
                 toStartOfHour(event_time) AS hour,
                 count() AS queries,
@@ -1210,7 +1225,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
                 AND is_initial_query
                 AND log_comment LIKE '%%webAnalyticsQueryWarming%%'
-                AND JSONExtractString(log_comment, 'trigger') = 'webAnalyticsQueryWarming'
+                AND JSONExtractString(log_comment, 'trigger') = 'webAnalyticsQueryWarming'{team_filter_sql}
             GROUP BY hour
             ORDER BY hour
             """,
@@ -1219,7 +1234,7 @@ class DebugCHQueries(viewsets.ViewSet):
         )
 
         miss_rows = sync_execute(
-            """
+            f"""
             SELECT
                 JSONExtractString(log_comment, 'query_type') AS query_type,
                 count() AS misses
@@ -1230,7 +1245,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
                 AND JSONExtractString(log_comment, 'kind') != 'temporal'
                 AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
-                AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s{team_filter_sql}
             GROUP BY query_type
             ORDER BY misses DESC
             """,
@@ -1238,11 +1253,38 @@ class DebugCHQueries(viewsets.ViewSet):
             settings=_WA_HEALTH_QUERY_SETTINGS,
         )
 
+        # Which tenants eat the most live (missed) reads — the scout's raw material
+        # for enrollment/coverage suggestions. Redundant under a team filter.
+        top_team_rows: list = []
+        if team_id_filter is None:
+            top_team_rows = sync_execute(
+                f"""
+                SELECT
+                    JSONExtractInt(log_comment, 'team_id') AS team_id,
+                    count() AS misses
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE event_time > now() - toIntervalHour(%(hours)s)
+                    AND type = 'QueryFinish'
+                    AND is_initial_query
+                    AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
+                    AND JSONExtractString(log_comment, 'kind') != 'temporal'
+                    AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+                    AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                    AND JSONExtractInt(log_comment, 'team_id') != 0
+                GROUP BY team_id
+                ORDER BY misses DESC
+                LIMIT 25
+                """,
+                params,
+                settings=_WA_HEALTH_QUERY_SETTINGS,
+            )
+
         total_lazy = sum(row[1] for row in hourly_rows)
         total_live = sum(row[2] for row in hourly_rows)
         return Response(
             {
                 "hours": hours,
+                "team_id": team_id_filter,
                 "summary": {
                     "lazy_hits": total_lazy,
                     "eligible_live": total_live,
@@ -1264,6 +1306,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     for hour, queries, teams, errored in warming_rows
                 ],
                 "miss_breakdown": [{"query_type": query_type, "misses": misses} for query_type, misses in miss_rows],
+                "top_missing_teams": [{"team_id": team_id, "misses": misses} for team_id, misses in top_team_rows],
             }
         )
 
