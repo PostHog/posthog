@@ -79,25 +79,23 @@ describe("buildBulkActionEvents", () => {
     expect(events.every((e) => e.dismissal_reason === undefined)).toBe(true);
   });
 
-  it("attaches dismissal reason/note only for dismiss, truncating the note", () => {
-    const longNote = "x".repeat(600);
+  it("attaches only the dismissal category for dismiss", () => {
     const [dismissed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "dismiss",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissalReason: "not_relevant",
     });
     expect(dismissed.dismissal_reason).toBe("not_relevant");
-    expect(dismissed.dismissal_note).toHaveLength(500);
+    expect(dismissed).not.toHaveProperty("dismissal_note");
 
     const [snoozed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "snooze",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissalReason: "not_relevant",
     });
     expect(snoozed.dismissal_reason).toBeUndefined();
-    expect(snoozed.dismissal_note).toBeUndefined();
   });
 });
 

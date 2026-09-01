@@ -71,6 +71,7 @@ interface ReportVerdictBannerProps {
   onEngaged?: () => void;
   /** Analytics and behavior context for actions rendered in this banner. */
   surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 /**
@@ -85,6 +86,7 @@ export function ReportVerdictBanner({
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
+  triageId,
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
@@ -138,7 +140,7 @@ export function ReportVerdictBanner({
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
-  const fireAction = useReportActionTracker(report, surface);
+  const fireAction = useReportActionTracker(report, surface, triageId);
   const openTask = useOpenTask();
   const queryClient = useQueryClient();
   const [prOpen, setPrOpen] = useState(false);
@@ -176,6 +178,8 @@ export function ReportVerdictBanner({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
+    surface,
+    triageId,
     // The dock binds to the new task the moment it exists — and only then does
     // the view advance. A failed create (offline, missing repo/integration/
     // model, API error) never reaches here, so the report and its actions stay
@@ -186,6 +190,8 @@ export function ReportVerdictBanner({
     report,
     channelId: taskChannelId,
     redirectOnSuccess: false,
+    surface,
+    triageId,
     onTaskCreated: handleTaskCreated,
   });
 
@@ -195,7 +201,7 @@ export function ReportVerdictBanner({
   // right there). Running reports keep it out of the banner because the header's
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
-    useInboxReportDismissAction(report, surface);
+    useInboxReportDismissAction(report, surface, triageId);
   const canArchiveHere =
     report.status === "ready" ||
     report.status === "failed" ||
@@ -205,7 +211,6 @@ export function ReportVerdictBanner({
     const trimmed = prFeedback.trim();
     fireAction("create_pr", {
       has_feedback: trimmed.length > 0,
-      ...(trimmed ? { feedback_text: trimmed.slice(0, 500) } : {}),
     });
     setPrFeedback("");
     setPrOpen(false);
