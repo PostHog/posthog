@@ -13,6 +13,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -49,6 +50,15 @@ class AppMetricsTotalsResponse:
 class AppMetricsTotalsResponseSerializer(DataclassSerializer):
     class Meta:
         dataclass = AppMetricsTotalsResponse
+
+
+@frozen
+class MetricSeries:
+    """Which app-metric rows a read covers. Both fields are strings, so naming them keeps a caller
+    from passing the id where the source goes."""
+
+    app_source: str
+    app_source_id: str
 
 
 # Every hog flow metric is mirrored under this app source with the version appended to the flow id,
@@ -480,11 +490,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), team.timezone_info)
         before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), team.timezone_info)
 
-        trends_source, trends_source_id = self._metric_series_for(obj, params.get("version"))
+        series = self._metric_series_for(obj, params.get("version"))
         data = fetch_app_metrics_trends(
             team_id=self.team_id,  # type: ignore
-            app_source=trends_source,
-            app_source_id=trends_source_id,
+            app_source=series.app_source,
+            app_source_id=series.app_source_id,
             # From request params
             instance_id=instance_id,
             interval=params.get("interval", "day"),
@@ -498,7 +508,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
 
-    def _metric_series_for(self, obj, version: int | None) -> tuple[str, str]:
+    def _metric_series_for(self, obj, version: int | None) -> "MetricSeries":
         """Which app-metric series to read: the object's whole history, or one workflow version.
 
         Every hog flow metric is mirrored under `hog_flow_version` with the version appended to the
@@ -506,8 +516,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         hog function metrics that way, so a version there would silently read an empty series.
         """
         if version is not None and self.app_source == "hog_flow":
-            return HOG_FLOW_VERSION_APP_SOURCE, f"{obj.id}/{version}"
-        return self.app_source, str(obj.id)
+            return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
+        return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
 
     @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
@@ -536,11 +546,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], team.timezone_info)
 
-        totals_source, totals_source_id = self._metric_series_for(obj, params.get("version"))
+        series = self._metric_series_for(obj, params.get("version"))
         data = fetch_app_metric_totals(
             team_id=self.team_id,  # type: ignore
-            app_source=totals_source,
-            app_source_id=totals_source_id,
+            app_source=series.app_source,
+            app_source_id=series.app_source_id,
             # From request params
             after=after_date,
             before=before_date,
