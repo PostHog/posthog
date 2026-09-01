@@ -462,7 +462,11 @@ async def _deliver_insight_dashboard_subscription(
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        return await auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
+        return await auto_disable_and_return(
+            subscription,
+            UNSUPPORTED_TARGET_DISABLE_REASON,
+            recipient_results,
+        )
 
     assets_by_id = await database_sync_to_async(
         lambda: {
