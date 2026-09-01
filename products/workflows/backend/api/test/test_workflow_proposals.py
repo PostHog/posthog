@@ -169,6 +169,32 @@ class TestWorkflowProposals(APIBaseTest):
         self._publish(flow_id)
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
 
+    @parameterized.expand([("actions",), ("variables",)])
+    def test_a_suggestion_older_than_the_live_workflow_is_refused_for_whole_list_fields(self, _mock_flag, field: str):
+        # Both fields are whole lists, so a stale copy of either drops whatever was added since —
+        # `variables` reads like a single setting but behaves like `actions`.
+        flow_id = self._create_active_flow()
+        content = (
+            {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]}
+            if field == "actions"
+            else {"variables": [{"key": "greeting", "type": "string", "default": "hi"}]}
+        )
+        proposal = self._propose(flow_id, content=content, source_id=f"stale:{field}")
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+        )
+
+        assert response.status_code == 409, response.json()
+        assert response.json()["code"] == "proposal_out_of_date"
+        assert HogFlow.objects.get(id=flow_id).draft is None
+
     def test_a_suggestion_older_than_the_live_workflow_is_refused(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
