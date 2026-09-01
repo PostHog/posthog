@@ -32,7 +32,7 @@ const NO_FILTERS = {
   sourceProductFilter: [],
   priorityFilter: [],
   searchQuery: "",
-  isDefaultScope: true,
+  scope: "for-you" as const,
 };
 
 describe("buildBulkActionEvents", () => {
@@ -171,7 +171,7 @@ describe("buildInboxViewedProperties", () => {
     ["source product", { sourceProductFilter: ["error_tracking"] }],
     ["priority", { priorityFilter: ["P0"] }],
     ["search", { searchQuery: "  crash  " }],
-    ["non-default scope", { isDefaultScope: false }],
+    ["non-default scope", { scope: "entire-project" as const }],
   ])("flags has_active_filters for a %s filter", (_label, partial) => {
     const props = buildInboxViewedProperties({
       visibleReports: [fakeReport()],
@@ -203,6 +203,7 @@ describe("buildInboxViewedProperties", () => {
 
     expect(props.pulls_tab_count).toBeUndefined();
     expect(props.reports_tab_count).toBeUndefined();
+    expect(props.scope).toBe("for-you");
   });
 });
 

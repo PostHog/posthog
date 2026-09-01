@@ -1103,6 +1103,8 @@ export interface ChannelDTOApi {
     /** @nullable */
     github_integration: number | null
     repositories: string[]
+    /** @nullable */
+    auto_archive_after_days: number | null
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
@@ -1203,6 +1205,13 @@ export interface PatchedChannelUpdateApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+    /**
+     * Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_archive_after_days?: number | null
 }
 
 export interface ChannelDeleteConflictApi {
@@ -4919,6 +4928,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
+    /**
+     * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
+     */
+    hog_flow_id?: string
     /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *

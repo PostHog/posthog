@@ -29,7 +29,11 @@ from posthog.schema import (
 )
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.endpoints.backend.insight_transformers import _transform_trends
+from products.endpoints.backend.insight_transformers import (
+    MaterializedSeriesMismatchError,
+    _transform_trends,
+    transform_materialized_insight_response,
+)
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -321,64 +325,32 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_materialized_lifecycle_has_insight_shape(self):
-        endpoint = create_endpoint_with_version(
-            name="lifecycle_parity",
-            team=self.team,
-            query=LifecycleQuery(
-                series=[EventsNode(event="$pageview")],
-                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
+        original_query = LifecycleQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+        ).model_dump()
 
-        # Step 1: Inline baseline
-        inline_resp = self._run_endpoint(endpoint)
-        assert inline_resp.status_code == status.HTTP_200_OK
-        inline_results = inline_resp.json()["results"]
-        assert len(inline_results) > 0
-        assert isinstance(inline_results[0], dict)
-        for field in LIFECYCLE_REQUIRED_FIELDS:
-            assert field in inline_results[0], f"Inline lifecycle response missing '{field}'"
-
-        # Step 2: Materialize
-        self._materialize_endpoint(endpoint)
-
-        # Step 3: Mock with lifecycle columns in ALPHABETICAL order
-        # (matching real materialized table behavior — Delta/Parquet sorts columns)
+        # Columns arrive in alphabetical order, the way Delta/Parquet sorts a materialized table.
         dates = [date(2026, 1, d) for d in range(1, 11)]
-        flat_response = HogQLQueryResponse(
-            results=[
+        result: dict[str, Any] = {
+            "results": [
                 (dates, "new", [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 (dates, "returning", [0, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
                 (dates, "resurrecting", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                 (dates, "dormant", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
             ],
-            columns=["date", "status", "total"],
-            types=["Array(Date)", "String", "Array(Int64)"],
-            hasMore=False,
-        )
+            "columns": ["date", "status", "total"],
+            "types": ["Array(Date)", "String", "Array(Int64)"],
+        }
 
-        with mock.patch(
-            "products.endpoints.backend.logic.execution.process_query_model",
-            return_value=flat_response,
-        ):
-            mat_resp = self._run_endpoint(endpoint)
+        transform_materialized_insight_response(result, original_query, self.team)
 
-        assert mat_resp.status_code == status.HTTP_200_OK
-        mat_results = mat_resp.json()["results"]
-        assert len(mat_results) > 0
-
-        first = mat_results[0]
-        assert isinstance(first, dict), f"Expected dict, got {type(first).__name__}: {first}"
+        rows = result["results"]
+        assert len(rows) > 0
         for field in LIFECYCLE_REQUIRED_FIELDS:
-            assert field in first, f"Materialized lifecycle response missing '{field}'"
-
-        # Value assertions: verify lifecycle statuses are present
-        statuses = {r["status"] for r in mat_results}
-        assert statuses == {"new", "returning", "resurrecting", "dormant"}, f"Unexpected statuses: {statuses}"
-        # Each status should have 10 data points
-        for r in mat_results:
+            assert field in rows[0], f"Materialized lifecycle response missing '{field}'"
+        assert {r["status"] for r in rows} == {"new", "returning", "resurrecting", "dormant"}
+        for r in rows:
             assert len(r["data"]) == 10, f"Status {r['status']}: expected 10 data points, got {len(r['data'])}"
 
     # =========================================================================
@@ -386,37 +358,14 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_materialized_retention_has_insight_shape(self):
-        endpoint = create_endpoint_with_version(
-            name="retention_parity",
-            team=self.team,
-            query=RetentionQuery(
-                retentionFilter=RetentionFilter(),
-                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-            ).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
+        original_query = RetentionQuery(
+            retentionFilter=RetentionFilter(),
+            dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+        ).model_dump()
 
-        # Step 1: Inline baseline
-        inline_resp = self._run_endpoint(endpoint)
-        assert inline_resp.status_code == status.HTTP_200_OK
-        inline_results = inline_resp.json()["results"]
-        assert len(inline_results) > 0
-        assert isinstance(inline_results[0], dict)
-        for field in RETENTION_REQUIRED_FIELDS:
-            assert field in inline_results[0], f"Inline retention response missing '{field}'"
-        # Retention results have nested "values" with "count" and "label"
-        assert isinstance(inline_results[0]["values"], list)
-        assert "count" in inline_results[0]["values"][0]
-        assert "label" in inline_results[0]["values"][0]
-
-        # Step 2: Materialize
-        self._materialize_endpoint(endpoint)
-
-        # Step 3: Mock with retention columns in ALPHABETICAL order
-        # (matching real materialized table behavior — Delta/Parquet sorts columns)
-        flat_response = HogQLQueryResponse(
-            results=[
+        # Columns arrive in alphabetical order, the way Delta/Parquet sorts a materialized table.
+        result: dict[str, Any] = {
+            "results": [
                 (1, 0, 0),
                 (1, 1, 0),
                 (1, 0, 1),
@@ -424,33 +373,19 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
                 (0, 0, 2),
                 (0, 1, 2),
             ],
-            columns=["count", "intervals_from_base", "start_event_matching_interval"],
-            types=["UInt64", "Int64", "Int64"],
-            hasMore=False,
-        )
+            "columns": ["count", "intervals_from_base", "start_event_matching_interval"],
+            "types": ["UInt64", "Int64", "Int64"],
+        }
 
-        with mock.patch(
-            "products.endpoints.backend.logic.execution.process_query_model",
-            return_value=flat_response,
-        ):
-            mat_resp = self._run_endpoint(endpoint)
+        transform_materialized_insight_response(result, original_query, self.team)
 
-        assert mat_resp.status_code == status.HTTP_200_OK
-        mat_results = mat_resp.json()["results"]
-        assert len(mat_results) > 0
-
-        first = mat_results[0]
-        assert isinstance(first, dict), f"Expected dict, got {type(first).__name__}: {first}"
+        rows = result["results"]
+        assert len(rows) >= 3, f"Expected at least 3 cohorts, got {len(rows)}"
         for field in RETENTION_REQUIRED_FIELDS:
-            assert field in first, f"Materialized retention response missing '{field}'"
-        assert isinstance(first["values"], list), "Retention values should be a list"
-        assert "count" in first["values"][0], "Retention values missing 'count'"
-        assert "label" in first["values"][0], "Retention values missing 'label'"
-
-        # Value assertions: first cohort (interval 0) should have count=1 at base
-        assert first["values"][0]["count"] == 1, f"Expected count=1 at base, got {first['values'][0]['count']}"
-        # Retention creates one cohort per date interval in the range (10 days = 10 cohorts)
-        assert len(mat_results) >= 3, f"Expected at least 3 cohorts, got {len(mat_results)}"
+            assert field in rows[0], f"Materialized retention response missing '{field}'"
+        assert isinstance(rows[0]["values"], list)
+        assert rows[0]["values"][0]["count"] == 1
+        assert "label" in rows[0]["values"][0]
 
     # =========================================================================
     # MULTI-SERIES TRENDS
@@ -667,11 +602,6 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         """Genuine drift — materialized table has a series index the current query
         doesn't define — must still trip the mismatch guard so we re-materialize.
         """
-        from products.endpoints.backend.insight_transformers import (
-            MaterializedSeriesMismatchError,
-            transform_materialized_insight_response,
-        )
-
         endpoint = create_endpoint_with_version(
             name="trends_genuine_drift",
             team=self.team,
