@@ -144,15 +144,19 @@ def test_unparseable_host_key_is_rejected():
     assert "host key" in error.lower()
 
 
-@pytest.mark.parametrize("with_hostname", [False, True])
-def test_get_tunnel_pins_host_key(with_hostname):
+@pytest.mark.parametrize(
+    "hostname",
+    [None, "host.com", "ssh-bastion.example.com", "ssh-jump.corp.net,10.0.0.5"],
+)
+def test_get_tunnel_pins_host_key(hostname):
     # A configured host key must reach the forwarder as `ssh_host_key`, or paramiko silently
-    # trusts whatever key the server presents. Accept both the bare `<type> <base64>` form and a
-    # full known_hosts line (raw `ssh-keyscan` output).
+    # trusts whatever key the server presents. Accept the bare `<type> <base64>` form and a full
+    # known_hosts line (raw `ssh-keyscan` output), including a host field that itself starts with
+    # `ssh-`: the parser must not mistake such a host for the algorithm token.
     server_key = RSAKey.generate(2048)
     line = f"{server_key.get_name()} {server_key.get_base64()}"
-    if with_hostname:
-        line = f"host.com {line}"
+    if hostname:
+        line = f"{hostname} {line}"
 
     tunnel = _password_tunnel(host_key=line)
 

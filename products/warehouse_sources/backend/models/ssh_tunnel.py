@@ -33,10 +33,17 @@ def host_key_from_string(value: str) -> PKey:
     """
     tokens = value.split()
     for index, token in enumerate(tokens):
-        if token.startswith(_SSH_KEY_TYPE_PREFIXES) and index + 1 < len(tokens):
-            key_type = token
+        if not token.startswith(_SSH_KEY_TYPE_PREFIXES) or index + 1 >= len(tokens):
+            continue
+        # A known_hosts host field can itself start with `ssh-`/`ecdsa-` (e.g. a bastion named
+        # `ssh-jump`), so a prefix match is only a candidate. The real algorithm token is the one
+        # whose next field is the base64 key, so skip a candidate whose successor is not base64
+        # and keep scanning instead of failing on the hostname.
+        try:
             key_bytes = base64.b64decode(tokens[index + 1], validate=True)
-            return PKey.from_type_string(key_type, key_bytes)
+        except ValueError:
+            continue
+        return PKey.from_type_string(token, key_bytes)
     raise ValueError("No SSH host key found")
 
 
