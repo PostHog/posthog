@@ -102,7 +102,10 @@ You can create an API key in your [Brevo account settings](https://app.brevo.com
         if validate_brevo_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Brevo API key"
+        return (
+            False,
+            "Your Brevo API key is invalid or expired. Create a new key in your Brevo account settings, then try again.",
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BrevoResumeConfig]:
         return ResumableSourceManager[BrevoResumeConfig](inputs, BrevoResumeConfig)
