@@ -520,20 +520,6 @@ SESSION_SETTLING_SECONDS = SESSION_FORWARD_PAD_MINUTES * 60
 ORG_FEATURE_FLAG_KEY = "web-analytics-precompute-toggle"
 
 
-class FamilyShapeMismatch:
-    """Marker for a gate that declined because the query is not its family's shape.
-
-    A stats-table read consults the paths, frustration and simple-breakdown gates in turn, so two
-    of the three always decline on shape alone. Those declines are routing rather than capability
-    gaps, so `log_eligibility_outcome` logs them but never records one as the read's ineligible
-    reason. Recording one replaces the reason from the gate that owns the shape, which is the only
-    one that explains why the read went live.
-
-    A mixin instead of a base class, because the families raise from two separate
-    `LazyPrecomputeIneligible` hierarchies.
-    """
-
-
 class LazyPrecomputeIneligible(Exception):
     """Base class for reasons a lazy precompute path is not eligible.
 
@@ -729,15 +715,10 @@ def check_common_eligibility(
 
 def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[LazyPrecomputeIneligible]) -> None:
     """Emit the same `*_rejected` / `*_eligible` info log shape used by every
-    lazy path so a single Loki query can attribute all fall-throughs.
-
-    A `FamilyShapeMismatch` is logged like any other rejection but is not recorded as the read's
-    reason, so a gate that could never have served the shape leaves the owning gate's reason alone.
-    """
+    lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
         reason = type(error).__name__
-        if not isinstance(error, FamilyShapeMismatch):
-            set_lazy_precompute_ineligible_reason(reason)
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,

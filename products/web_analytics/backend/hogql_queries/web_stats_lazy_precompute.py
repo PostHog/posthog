@@ -40,12 +40,9 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     handle_stale_served,
+    set_lazy_precompute_ineligible_reason,
     web_ensure_precomputed,
 )
-from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
-    owns_shape as frustration_owns_shape,
-)
-from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import owns_shape as paths_owns_shape
 
 _FAMILY = "web_stats"
 
@@ -201,11 +198,13 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web stats
     table query — the shared web analytics gate plus stats-specific checks."""
     if runner._effective_breakdown() != runner.query.breakdownBy:
-        return False
-    # The paths and frustration gates run before this one and record why they declined. This gate's
-    # own reasons describe the simple-breakdown table's schema, so recording one for a shape another
-    # family owns replaces their reason with a restatement of the query shape.
-    if paths_owns_shape(runner.query) or frustration_owns_shape(runner.query):
+        # First-pageview attribution rewrites the breakdown, and no family precomputes the rewritten
+        # shape. This returns before the shared gate that would otherwise log and record, so do both
+        # here. Left silent, the read reports no reason at all, which is how a read the owning family
+        # admitted but had no data for reports. Recorded as a bare name rather than an exception
+        # because nothing raises it, and the two families' exceptions come from different hierarchies.
+        set_lazy_precompute_ineligible_reason("BreakdownRemapped")
+        logger.info(f"{_FAMILY}_lazy_precompute_rejected", team_id=runner.team.pk, reason="BreakdownRemapped")
         return False
     return _can_use_lazy_precompute_shared(runner, log_prefix="web_stats", extra_check=_check_stats_eligible)
 
