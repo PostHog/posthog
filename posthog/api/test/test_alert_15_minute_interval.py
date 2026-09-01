@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
@@ -101,6 +102,8 @@ class TestAlert15MinuteScheduling:
 
     def test_next_check_time_advances_by_15_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
+        # int % shard_count == 0 → zero shard offset, so the result stays on the canonical grid.
+        alert.id = UUID(int=0)
         alert.calculation_interval = AlertCalculationInterval.EVERY_15_MINUTES
         alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
         alert.team = MagicMock()
