@@ -31,8 +31,6 @@ export function TrendsDefinitionFields({
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
 }): JSX.Element {
-    // A breakdown alert watches every breakdown value, so there is no series to pick. The banner
-    // above explains this; a static readout replaces the dead select users kept clicking.
     if (isBreakdownValid) {
         return (
             <AlertDefinitionRow label="When">
