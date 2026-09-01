@@ -16,11 +16,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-
+from products.product_analytics.backend.hogql_queries.retention.retention_query_runner import RetentionQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window"
+TEST_BUCKET = "test_storage_bucket-products.product_analytics.backend.hogql_queries.retention.data_warehouse_24h_window"
 
 ACTIVITY_TABLE_COLUMNS = {
     "id": "Int64",

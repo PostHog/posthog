@@ -120,7 +120,7 @@ class TestMetricAPI(APIBaseTest):
     def test_invalid_definition_rejected(self) -> None:
         response = self.client.post(
             self.url,
-            {"name": "mrr", "description": "d", "definition": {"kind": "RetentionQuery"}},
+            {"name": "mrr", "description": "d", "definition": {"kind": "EventsQuery"}},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
