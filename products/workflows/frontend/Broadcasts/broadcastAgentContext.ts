@@ -26,6 +26,17 @@ const TOOL_CONTEXT_ITEMS: AttachedContextItem[] = WORKFLOWS_MCP_TOOLS.filter((to
     value: `MCP tool ${tool.name}: ${tool.description}`,
 }))
 
+// create_broadcast is a Max tool rather than an MCP one, so it is not in WORKFLOWS_MCP_TOOLS and has
+// to be named here for the agent to consider it while no broadcast exists yet.
+const CREATE_TOOL_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: GUIDANCE_DISMISS_GROUP,
+    value:
+        'Tool create_broadcast: create a draft broadcast, a one-time or scheduled email send to an ' +
+        'audience of people. It only creates a draft and never sends, schedules, or activates.',
+}
+
 export const BROADCAST_AGENT_HEADLINES: string[] = [
     'How can I help with this broadcast?',
     'What should this email say?',
@@ -64,11 +75,18 @@ const PREAMBLE_BASE =
     'broadcast_email_editor_state item is the current, possibly unsaved email in the editor - prefer it ' +
     'over a fetched definition when reading. '
 
+// The start screen asks the user to describe the send, so on an unsaved broadcast the agent should
+// build one rather than only discuss it. create_broadcast writes a draft and never sends, which is
+// what makes it safe to reach for without a confirmation step.
 const PREAMBLE_UNSAVED =
     PREAMBLE_BASE +
-    'This broadcast has not been saved yet, so there is no flow to patch. Help with subject lines, ' +
-    'copy, and structure in chat; the draft flow is created once the user continues past a wizard step, ' +
-    'after which you can apply edits directly.'
+    'This broadcast has not been saved yet, so there is no flow to patch. When the user describes a ' +
+    'send, call create_broadcast to build the draft, then point them at the returned link to review ' +
+    'the audience, content, and schedule. Audiences accept person properties and static or ' +
+    'property-based cohorts only, never behavioral conditions such as "did event X" - say so instead ' +
+    'of approximating one. create_broadcast never sends, schedules, or activates anything, so the ' +
+    'user always reviews the draft first. Help with subject lines, copy, and structure in chat when ' +
+    'the user is still deciding what to send.'
 
 const PREAMBLE_SAVED =
     PREAMBLE_BASE +
@@ -93,7 +111,7 @@ export function buildBroadcastAgentContext(
             dismissGroup: GUIDANCE_DISMISS_GROUP,
             value: broadcastId ? PREAMBLE_SAVED : PREAMBLE_UNSAVED,
         },
-        ...TOOL_CONTEXT_ITEMS,
+        ...(broadcastId ? TOOL_CONTEXT_ITEMS : [CREATE_TOOL_CONTEXT_ITEM]),
     ]
     if (broadcastId) {
         items.push({
