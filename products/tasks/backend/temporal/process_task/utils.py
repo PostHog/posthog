@@ -273,28 +273,18 @@ def get_provider_for_runtime_adapter(
         return None
 
 
-def apply_runtime_adapter_run_state(
-    state: dict,
+def clamp_initial_permission_mode(
     runtime_adapter: str | None,
-    *,
     initial_permission_mode: str | None,
 ) -> str | None:
-    """Write the run-state keys a runtime adapter implies, returning the permission mode
-    to launch with.
+    """The permission mode this adapter can launch with.
 
-    The agent server derives the provider from the adapter, and Codex defaults to `auto`
-    so a headless run doesn't stall on a prompt. A mode the caller already chose is kept
-    when this adapter's vocabulary offers it; one named in the other runtime's terms —
-    the caller may not know which runtime the stored defaults resolve to — falls to the
-    adapter's baseline rather than failing the run downstream. Shared so the
-    explicitly-pinned and resolved-default paths can't drift on what an adapter implies.
+    A mode the caller already chose is kept when this adapter's vocabulary offers it;
+    one named in the other runtime's terms — the caller may not know which runtime the
+    run resolves to — falls to the adapter's baseline (`auto` for Codex, so a headless
+    run doesn't stall on a prompt; `default` for Claude) rather than failing the run
+    downstream.
     """
-    if not runtime_adapter:
-        return initial_permission_mode
-
-    provider = get_provider_for_runtime_adapter(runtime_adapter)
-    if provider is not None:
-        state["provider"] = provider.value
     if runtime_adapter == RuntimeAdapter.CODEX.value:
         if initial_permission_mode in CODEX_INITIAL_PERMISSION_MODE_CHOICES:
             return initial_permission_mode
@@ -306,6 +296,28 @@ def apply_runtime_adapter_run_state(
     ):
         return "default"
     return initial_permission_mode
+
+
+def apply_runtime_adapter_run_state(
+    state: dict,
+    runtime_adapter: str | None,
+    *,
+    initial_permission_mode: str | None,
+) -> str | None:
+    """Write the run-state keys a runtime adapter implies, returning the permission mode
+    to launch with.
+
+    The agent server derives the provider from the adapter, and the mode is clamped to
+    the adapter's vocabulary (see ``clamp_initial_permission_mode``). Shared so the
+    explicitly-pinned and resolved-default paths can't drift on what an adapter implies.
+    """
+    if not runtime_adapter:
+        return initial_permission_mode
+
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+    if provider is not None:
+        state["provider"] = provider.value
+    return clamp_initial_permission_mode(runtime_adapter, initial_permission_mode)
 
 
 def get_supported_reasoning_efforts(
