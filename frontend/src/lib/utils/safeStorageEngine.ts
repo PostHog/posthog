@@ -12,56 +12,63 @@ import posthog from 'posthog-js'
 // Read and written through the Proxy as real Storage members rather than as keys
 const STORAGE_MEMBERS = new Set(['length', 'clear', 'getItem', 'key', 'removeItem', 'setItem'])
 
-let failureReported = false
-
-// Once per session is enough to tell whether storage is failing in the wild.
-// Without it, degrading silently would also hide the problem from us
-function reportFailureOnce(error: unknown): void {
-    if (failureReported) {
-        return
-    }
-    failureReported = true
-    try {
-        posthog.capture('kea_localstorage_unavailable', { error: String(error) })
-    } catch {
-        // Telemetry must never be the thing that breaks a render
-    }
-}
-
-function createMemoryStorage(): Storage {
-    const values = new Map<string, string>()
-    return {
-        get length(): number {
-            return values.size
-        },
-        clear: (): void => values.clear(),
-        getItem: (key: string): string | null => values.get(key) ?? null,
-        key: (index: number): string | null => Array.from(values.keys())[index] ?? null,
-        removeItem: (key: string): void => void values.delete(key),
-        setItem: (key: string, value: string): void => void values.set(key, String(value)),
+// One report per engine is enough to tell whether storage is failing in the wild.
+// Per engine rather than per module, because the app and the toolbar each build
+// one and a module global would let the first silence the second for the session
+function createFailureReporter(): (error: unknown) => void {
+    let reported = false
+    return (error: unknown): void => {
+        if (reported) {
+            return
+        }
+        reported = true
+        try {
+            posthog.capture('kea_localstorage_unavailable', { error: String(error) })
+        } catch {
+            // Telemetry must never be the thing that breaks a render
+        }
     }
 }
 
 // Arrow functions close over `backing`, so the returned members stay callable
 // without rebinding, and no native call escapes a try/catch
-function createStorageFacade(backing: Storage): Storage {
+function createStorageFacade(backing: Storage | undefined, startupError: unknown): Storage {
+    const reportFailureOnce = createFailureReporter()
+    // A store at quota rejects writes while its reads keep returning the real
+    // values, so a failed write must not condemn the whole store. Failed writes
+    // land here and win on read, which keeps the session consistent while every
+    // untouched key still comes from the backing store
+    const overlay = new Map<string, string>()
+    // A store blocked before the engine was built has no failing call to report,
+    // because the overlay never throws. Report on first use, which also runs
+    // after posthog-js initializes
+    const reportUnavailable = (): void => reportFailureOnce(startupError)
+
     return {
         get length(): number {
             try {
-                return backing.length
+                return backing?.length ?? overlay.size
             } catch (error) {
                 reportFailureOnce(error)
-                return 0
+                return overlay.size
             }
         },
         clear: (): void => {
+            overlay.clear()
             try {
-                backing.clear()
+                backing?.clear()
             } catch (error) {
                 reportFailureOnce(error)
             }
         },
         getItem: (key: string): string | null => {
+            if (overlay.has(key)) {
+                return overlay.get(key) ?? null
+            }
+            if (!backing) {
+                reportUnavailable()
+                return null
+            }
             try {
                 return backing.getItem(key)
             } catch (error) {
@@ -71,73 +78,64 @@ function createStorageFacade(backing: Storage): Storage {
         },
         key: (index: number): string | null => {
             try {
-                return backing.key(index)
+                return backing?.key(index) ?? null
             } catch (error) {
                 reportFailureOnce(error)
                 return null
             }
         },
         removeItem: (key: string): void => {
+            overlay.delete(key)
             try {
-                backing.removeItem(key)
+                backing?.removeItem(key)
             } catch (error) {
                 reportFailureOnce(error)
             }
         },
         setItem: (key: string, value: string): void => {
+            const stored = String(value)
+            if (!backing) {
+                reportUnavailable()
+                overlay.set(key, stored)
+                return
+            }
             try {
-                backing.setItem(key, String(value))
+                backing.setItem(key, stored)
+                // The backing store holds the value now, so the overlay must stop
+                // shadowing it
+                overlay.delete(key)
             } catch (error) {
                 reportFailureOnce(error)
-                // A full or unavailable store means the value is not remembered.
-                // Losing persistence is the intended trade against losing the scene
+                // The value survives this session even though it never reaches disk
+                overlay.set(key, stored)
             }
         },
     }
 }
 
 export function createSafeStorageEngine(backing: Storage | undefined, startupError?: unknown): Storage {
-    const facade = createStorageFacade(backing ?? createMemoryStorage())
-    // A store blocked at startup fails the probe and drops to the memory fallback, which never
-    // throws, so no facade catch can report it. resolveLocalStorage() also runs at module load,
-    // before posthog-js is initialized, so a capture there would be lost. Report on the first
-    // real key access instead - that runs during a logic mount, after posthog-js is up.
-    let startupPending = startupError !== undefined
-    const reportStartupFailureOnce = (): void => {
-        if (startupPending) {
-            startupPending = false
-            reportFailureOnce(startupError)
-        }
-    }
+    const facade = createStorageFacade(backing, startupError)
     return new Proxy(facade, {
-        get: (target, prop) => {
-            if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
-                reportStartupFailureOnce()
-                // Native property access yields undefined for a missing key while
-                // getItem yields null, and kea-localstorage branches on
-                // `typeof engine[path] !== 'undefined'`. Returning null here would
-                // load null over every persisted reducer's coded default
-                return target.getItem(prop) ?? undefined
-            }
-            return Reflect.get(target, prop)
-        },
+        get: (target, prop) =>
+            typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)
+                ? // Native property access yields undefined for a missing key while
+                  // getItem yields null, and kea-localstorage branches on
+                  // `typeof engine[path] !== 'undefined'`. Returning null here would
+                  // load null over every persisted reducer's coded default
+                  (target.getItem(prop) ?? undefined)
+                : Reflect.get(target, prop),
         set: (target, prop, value) => {
             if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
-                reportStartupFailureOnce()
                 target.setItem(prop, String(value))
             }
             return true
         },
-        has: (target, prop) => {
-            if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
-                reportStartupFailureOnce()
-                return target.getItem(prop) !== null
-            }
-            return Reflect.has(target, prop)
-        },
+        has: (target, prop) =>
+            typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)
+                ? target.getItem(prop) !== null
+                : Reflect.has(target, prop),
         deleteProperty: (target, prop) => {
             if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
-                reportStartupFailureOnce()
                 target.removeItem(prop)
             }
             return true
@@ -145,16 +143,19 @@ export function createSafeStorageEngine(backing: Storage | undefined, startupErr
     })
 }
 
-function resolveLocalStorage(): { storage: Storage | undefined; error?: unknown } {
+export function resolveLocalStorage(): { storage: Storage | undefined; error?: unknown } {
     try {
-        const probe = '__safe_storage_probe__'
-        window.localStorage.setItem(probe, probe)
-        window.localStorage.removeItem(probe)
-        return { storage: window.localStorage }
+        const storage = window.localStorage
+        // Reading proves the object is usable. A write probe would reject a store
+        // sitting at quota, whose reads still return every saved value, and each
+        // persisted reducer would then load its default over readable state
+        void storage.length
+        return { storage }
     } catch (error) {
-        // Blocked outright, so fall back to memory and keep persistence working for the rest of
-        // the session. Keep the error so the first key access reports it - a full store, blocked
-        // site data, and Safari private mode all fail here, and those are the common causes
+        // Blocked outright, so every access falls back to the overlay and
+        // persistence still works for the rest of the session. Keep the error so
+        // the first key access reports it - a full store, blocked site data, and
+        // Safari private mode all fail here, and those are the common causes
         return { storage: undefined, error }
     }
 }
