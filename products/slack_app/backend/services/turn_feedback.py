@@ -25,6 +25,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.slack_app.backend.analytics import slack_event_props
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID
 
 logger = structlog.get_logger(__name__)
@@ -94,14 +95,14 @@ def _modal_metadata(payload: dict) -> dict[str, Any]:
     return _parse_action_value(view.get("private_metadata"))
 
 
-def extract_turn_feedback_hints(payload: dict) -> int | None:
-    """The integration id a rating interaction carries, for region-ownership routing.
+def extract_modal_hint(payload: dict) -> int | None:
+    """The integration id the reason modal carries, for region-ownership routing.
 
-    Both halves are covered: a clicked thumb carries it in the button's ``value``, and
-    the reason modal carries it in ``private_metadata``, where there is no action to read.
+    Only the modal needs its own extractor. A clicked thumb carries the id in the
+    button's ``value``, which the router's generic action-value hint already reads; a
+    view submission carries no action at all, so the id rides in ``private_metadata``.
     """
-    value = clicked_feedback_value(payload) or _modal_metadata(payload)
-    integration_id = value.get("integration_id")
+    integration_id = _modal_metadata(payload).get("integration_id")
     return integration_id if isinstance(integration_id, int) else None
 
 
@@ -128,11 +129,17 @@ def _resolve_target(payload: dict, value: dict[str, Any], turn_id: str | None) -
     except (ValueError, AttributeError, TypeError):
         return None
 
-    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind=SLACK_INTEGRATION_KIND,
-        integration_id=slack_team_id,
-    ).first()
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        # The event properties and the capture's groups both read through to the team and
+        # its organization, and Slack gives the click three seconds.
+        .select_related("team__organization")
+        .first()
+    )
     if integration is None:
         return None
 
@@ -189,25 +196,26 @@ def _distinct_id(target: _FeedbackTarget) -> str:
 def _event_context(target: _FeedbackTarget) -> dict[str, Any]:
     """The properties both events share.
 
+    The workspace half comes from ``slack_event_props``, the bundle every Slack app event
+    carries, so a rating can be joined against the rest of them.
+
     ``$ai_session_id`` is the task id because every ``$ai_generation`` of a run carries it
     as ``task_id``, which is the same bargain the desktop client makes. ``$ai_trace_id`` is
     absent until the sandbox exposes per-turn trace ids; adding it here is what will attach
     a rating to the exact generation rather than to the run.
     """
-    integration = target.integration
-    return {
-        "$ai_session_id": target.task_id,
-        "ai_product": AI_PRODUCT,
-        "agent_runtime": "sandbox",
-        "task_id": target.task_id,
-        "task_run_id": target.run_id,
-        "turn_id": target.turn_id,
-        "integration_id": integration.id,
-        "slack_team_id": integration.integration_id,
-        "slack_user_id": target.slack_user_id,
-        "team_id": integration.team_id,
-        "organization_id": str(integration.team.organization_id),
-    }
+    return slack_event_props(
+        target.integration,
+        slack_user_id=target.slack_user_id,
+        **{
+            "$ai_session_id": target.task_id,
+            "ai_product": AI_PRODUCT,
+            "agent_runtime": "sandbox",
+            "task_id": target.task_id,
+            "task_run_id": target.run_id,
+            "turn_id": target.turn_id,
+        },
+    )
 
 
 def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) -> None:
@@ -289,9 +297,11 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
     if target is None:
         return HttpResponse(status=200)
 
-    _capture(target, "$ai_metric", {"$ai_metric_name": "quality", "$ai_metric_value": rating})
+    # The modal goes first. Its trigger expires seconds after the click, while the capture
+    # resolves the clicker's identity against the database on its way out.
     if sentiment == "negative":
         _open_reason_modal(payload, target)
+    _capture(target, "$ai_metric", {"$ai_metric_name": "quality", "$ai_metric_value": rating})
     return HttpResponse(status=200)
 
 

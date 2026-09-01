@@ -53,6 +53,29 @@ def _region_properties() -> dict[str, str]:
     return {"region": get_instance_region() or "dev"}
 
 
+def _workspace_flag_enabled(flag: str, integration: Integration, *, failure_log_key: str) -> bool:
+    """Evaluate one workspace-keyed gate under the settings this module documents.
+
+    The uniformity the docstring above promises is only real if there is one place that
+    spells it out. A gate that needs more than a flag — scopes, say — checks that itself
+    and calls this for the flag half.
+    """
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                flag,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(failure_log_key, integration_id=integration.id)
+        return False
+
+
 def is_slack_app_oauth_enabled(integration: Integration) -> bool:
     """Gate for the Slack user-identity OAuth link feature, covering both backend
     (offering the invite button, accepting the link callback, listing/starting
@@ -66,23 +89,11 @@ def is_slack_app_agent_design_enabled(integration: Integration) -> bool:
     """Gate for the agent-design plan-block streaming surface on Slack task runs.
     Posts through the ``chat:write`` the mention flow already requires, so this is the
     flag alone. Keyed on the Slack workspace + PostHog org."""
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SLACK_APP_AGENT_DESIGN_FLAG,
-                f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
-                person_properties=_region_properties(),
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception(
-            "slack_app_agent_design_feature_flag_check_failed",
-            integration_id=integration.id,
-        )
-        return False
+    return _workspace_flag_enabled(
+        SLACK_APP_AGENT_DESIGN_FLAG,
+        integration,
+        failure_log_key="slack_app_agent_design_feature_flag_check_failed",
+    )
 
 
 def is_slack_app_assistant_enabled(integration: Integration) -> bool:
@@ -100,20 +111,11 @@ def is_slack_app_turn_feedback_enabled(integration: Integration) -> bool:
     reply, and a workspace connected to two projects would otherwise show them on some
     replies and not others.
     """
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SLACK_APP_TURN_FEEDBACK_FLAG,
-                f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
-                person_properties=_region_properties(),
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("slack_app_turn_feedback_feature_flag_check_failed", integration_id=integration.id)
-        return False
+    return _workspace_flag_enabled(
+        SLACK_APP_TURN_FEEDBACK_FLAG,
+        integration,
+        failure_log_key="slack_app_turn_feedback_feature_flag_check_failed",
+    )
 
 
 def is_slack_app_forking_enabled(integration: Integration) -> bool:
@@ -131,17 +133,8 @@ def is_slack_app_forking_enabled(integration: Integration) -> bool:
     """
     if not has_scopes(integration, ASSISTANT_REQUIRED_SCOPES):
         return False
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SLACK_APP_FORKING_FLAG,
-                f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
-                person_properties=_region_properties(),
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("slack_app_forking_feature_flag_check_failed", integration_id=integration.id)
-        return False
+    return _workspace_flag_enabled(
+        SLACK_APP_FORKING_FLAG,
+        integration,
+        failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )

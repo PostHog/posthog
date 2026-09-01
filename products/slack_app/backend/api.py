@@ -4756,10 +4756,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     # Both controls a reply carries, and the modal a thumbs-down opens, claim the same
-    # workspace, so one hint serves all three.
-    reply_control_integration_id = _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)[
-        0
-    ] or turn_feedback.extract_turn_feedback_hints(payload)
+    # workspace, so one hint serves all three. Only the modal needs its own extractor:
+    # a view submission carries no action for the generic one to read.
+    reply_control_integration_id = (
+        _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)[0]
+        or _extract_action_value_hints(payload, TURN_FEEDBACK_ACTION_ID)[0]
+        or turn_feedback.extract_modal_hint(payload)
+    )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
