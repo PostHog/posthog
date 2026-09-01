@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen } from '@testing-library/react'
 
-import { clickAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { clickAtIndex, hoverUntilTooltip, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { renderWithInsights } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
@@ -60,5 +60,13 @@ describe('SqlComboGraph', () => {
         await clickAtIndex(await chartWrapper(), 1, labels.length, 4000)
 
         expect(onPointClick).toHaveBeenCalledWith('metric-0', 1, '2026-01-02')
+    })
+
+    it('shows the inspect hint in the built-in tooltip when click inspection is available', async () => {
+        renderWithInsights({ component: <SqlComboGraph {...props({ onPointClick: jest.fn() })} /> })
+
+        const tooltip = await hoverUntilTooltip(await chartWrapper(), 1, labels.length, 4000)
+
+        expect(tooltip.textContent).toContain('Click to inspect persons')
     })
 })

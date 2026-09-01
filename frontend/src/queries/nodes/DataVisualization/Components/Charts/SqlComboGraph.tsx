@@ -1,14 +1,14 @@
 import clsx from 'clsx'
 import { useCallback } from 'react'
 
-import { DefaultTooltip, TimeSeriesComboChart, type PointClickData, type TooltipContext } from '@posthog/quill-charts'
+import { TimeSeriesComboChart, type PointClickData } from '@posthog/quill-charts'
 
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
-import { SqlLineSeriesMeta, buildComboChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
+import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-combo-chart')
@@ -30,31 +30,6 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
         [onPointClickProp]
     )
 
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext<SqlLineSeriesMeta>) => {
-            if (!model) {
-                return null
-            }
-            const { valueFormatter, labelFormatter, showTotal, totalFormatter } = model.config.tooltip ?? {}
-            return (
-                <DefaultTooltip
-                    {...ctx}
-                    valueFormatter={
-                        valueFormatter ??
-                        ((value, entry) =>
-                            formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings))
-                    }
-                    labelFormatter={labelFormatter}
-                    showTotal={showTotal}
-                    totalFormatter={totalFormatter}
-                    sortedByValue
-                    footer="Click to inspect persons"
-                />
-            )
-        },
-        [model]
-    )
-
     return (
         <div
             className={clsx(
@@ -69,7 +44,6 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
                     labels={model.labels}
                     theme={model.theme}
                     config={model.config}
-                    tooltip={onPointClickProp ? renderTooltip : undefined}
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
                 >
