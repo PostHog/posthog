@@ -1,0 +1,47 @@
+diff --git a/dist/index-C7xcW2m7.js b/dist/index-C7xcW2m7.js
+index e800d29ab4bd72f9cdf9aa17dc2f38dfc63c4a63..520f3037654e4974cb9b94f3889e7a5b5193d604 100644
+--- a/dist/index-C7xcW2m7.js
++++ b/dist/index-C7xcW2m7.js
+@@ -18244,7 +18244,7 @@ class Tx {
+ }
+ class Ax {
+   constructor(t) {
+-    this.actor = t, this.setupKeyboardListeners();
++    this.actor = t, this.destroyControls = this.setupKeyboardListeners();
+   }
+   setupKeyboardListeners() {
+     const t = /* @__PURE__ */ new Set(), r = {
+@@ -18338,8 +18338,11 @@ class Ax {
+       t.has(y) && (t.delete(y), (m = f[y]) == null || m.off(c));
+     };
+     return window.addEventListener("keydown", h), window.addEventListener("keyup", d), () => {
+-      window.removeEventListener("keydown", h), window.removeEventListener("keyup", d);
++      clearInterval(n), n = void 0, window.removeEventListener("keydown", h), window.removeEventListener("keyup", d);
+     };
++  }
++  destroy() {
++    this.destroyControls();
+   }
+ }
+ const iu = [
+@@ -19217,7 +19220,7 @@ class pn extends br {
+   }
+   beforeUnload() {
+     var t;
+-    (t = this.ability) == null || t.destroy(), this.ai.enable(!1), Object.values(this.accessorySprites).forEach((r) => {
++    this.controls.destroy(), (t = this.ability) == null || t.destroy(), this.ai.enable(!1), Object.values(this.accessorySprites).forEach((r) => {
+       this.game.app.stage.removeChild(r);
+     });
+   }
+@@ -19662,7 +19665,10 @@ class sv {
+     this.options = t, this.elements = [], this.totalElapsedTime = 0, this.pointerEventsEnabled = !1, this.isDebugging = !1, this.spritesManager = new bx(t), this.setupDebugListeners();
+   }
+   destroy() {
+-    this.syncPlatformsInterval && clearInterval(this.syncPlatformsInterval), ut.Runner.stop(this.runner), this.app.destroy({
++    this.syncPlatformsInterval && clearInterval(this.syncPlatformsInterval), this.elements.forEach((t) => {
++      var r;
++      (r = t.beforeUnload) == null || r.call(t);
++    }), ut.Runner.stop(this.runner), this.app.destroy({
+       removeView: !0
+     }), this.debugRender && (ut.Render.stop(this.debugRender), ke.World.clear(this.engine.world, !1), ke.Engine.clear(this.engine), this.debugRender.canvas.remove(), this.debugRender.canvas = document.createElement("canvas"), this.debugRender.context = this.debugRender.canvas.getContext("2d"), this.debugRender.textures = {});
+   }

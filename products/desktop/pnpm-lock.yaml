@@ -109,6 +109,9 @@ overrides:
   smol-toml: 1.6.1
 
 patchedDependencies:
+  '@posthog/hedgehog-mode@0.0.53':
+    hash: 8f02616a171a2131f9da0239d756a9c7037a2fe033cbdd9d15d14846bded50ab
+    path: patches/@posthog__hedgehog-mode@0.0.53.patch
   app-builder-lib@26.15.3:
     hash: 4688f96749e3d76cf27bc535d874470bf264610a331db13644df7715d699acf1
     path: patches/app-builder-lib@26.15.3.patch
