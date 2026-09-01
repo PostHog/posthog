@@ -30,6 +30,18 @@
 -- FIRST; then IF NOT EXISTS makes this migration a no-op there. On fresh or
 -- small databases (dev, CI, hobby) the inline build is cheap. Idempotent and
 -- safe to re-run.
+--
+-- Recovery note: the out-of-band prebuild uses CREATE INDEX CONCURRENTLY. If that build
+-- is interrupted, it leaves an INVALID index that holds the name. CREATE INDEX IF NOT
+-- EXISTS matches on name only, so this migration then skips the build and records
+-- success, but PostgreSQL cannot use an INVALID index and still maintains it on every
+-- write. Nothing surfaces that state. Before you trust a prebuilt index, check indisvalid
+-- for each name:
+--   SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('<index_name>');
+-- On `f`, drop it and rebuild concurrently, then re-run migrations:
+--   DROP INDEX CONCURRENTLY <index_name>;
+-- The names are posthog_persondistinctid_team_distinct_covering_idx and
+-- personhog_persondistinctid_tmp_team_distinct_covering_idx.
 
 CREATE INDEX IF NOT EXISTS posthog_persondistinctid_team_distinct_covering_idx
     ON posthog_persondistinctid (team_id, distinct_id) INCLUDE (person_id, is_deleted);
