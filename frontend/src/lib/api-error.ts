@@ -48,6 +48,17 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 const HANDLED_QUERY_FAILURE_STATUSES: ReadonlySet<number> = new Set([512, 513])
 
 /**
+ * Statuses `shouldReportApiFailure` never files whatever the DRF `code`: 401 (a session state, not a
+ * crash), the transient gateway family, and the handled query-failure family. Code-dependent gates
+ * (403 auth gates, approval 409s) are decided separately.
+ */
+const UNREPORTED_STATUSES: ReadonlySet<number> = new Set<number>([
+    401,
+    ...TRANSIENT_GATEWAY_STATUSES,
+    ...HANDLED_QUERY_FAILURE_STATUSES,
+])
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -81,7 +92,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === undefined) {
         return true
     }
-    if (status === 401 || isTransientGatewayStatus(status) || HANDLED_QUERY_FAILURE_STATUSES.has(status)) {
+    if (UNREPORTED_STATUSES.has(status)) {
         return false
     }
     if (isAccessDeniedError(failure)) {
