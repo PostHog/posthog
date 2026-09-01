@@ -164,7 +164,8 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
 - Each slot records: complete or not, event count, byte count. The counts serve the budget in change 24.
-- Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix up to the frontier.
+- Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns one past the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix below the frontier.
+- The frontier is in Kafka's committed-offset representation: the next offset to read, not the last offset processed. The current commit path already commits in this representation (the poll's max offset plus one), so the frontier is commit-ready as returned — no call site adds or subtracts one.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
@@ -186,7 +187,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 5 ships `active`.
 - Charge every delivered offset into its partition ledger during `collect_batch`.
 - When a poll completes, mark all its offsets complete.
-- At each commit, compare the partition's `frontier` — the non-mutating read — with the offset the current path commits. With oldest-first completion, the two must be equal.
+- At each commit, compare the partition's `frontier` — the non-mutating read — with the offset the current path commits. Both are next-to-read offsets, so with oldest-first completion the two must be equal, with no offset arithmetic in the comparison.
 - After the comparison, call `take_frontier` at the same commit point. The ledger drains identically in shadow and active modes. Without this, the shadow ring grows without bound.
 - On a mismatch: increment a counter and log the partition with both offsets. Do not block the commit.
 - On revoke, drop the partition's ledger. This mirrors the commit sentinel's `forget_partitions`.
@@ -209,7 +210,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 **Goal:** The frontier produces the same commits as the old code, and change 4 already proved that.
 
-- Commit each partition's frontier instead of the poll's max offset.
+- Commit each partition's frontier instead of the poll's max offset plus one. Both are next-to-read offsets: with oldest-first completion, the committed value does not change.
 - The ledger calls do not change: both modes already charge, complete, compare, and consume at the same points (change 4). This switchover changes only which value the consumer commits.
 - With oldest-first completion, the output is identical to the old path.
 - The commit sentinel stays on and checks contiguity and monotonicity.
