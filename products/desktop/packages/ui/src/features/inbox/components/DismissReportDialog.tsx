@@ -54,8 +54,8 @@ export function DismissReportDialog({
 
   // Quill's combobox portals its popup to document.body, outside Dialog.Content, so Radix
   // treats clicks on the popup as "outside the dialog". While the picker is open, every
-  // dismiss path below must close only the popup — otherwise selecting a repository slams
-  // the dialog shut and drops the reason and note already entered.
+  // dismiss path below must close only the popup. Otherwise selecting a repository closes
+  // the whole dialog and drops the reason and note already entered.
   const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
 
   useEffect(() => {
