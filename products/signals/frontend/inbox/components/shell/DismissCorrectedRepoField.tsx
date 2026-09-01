@@ -35,18 +35,19 @@ function CorrectedRepoPicker({ integrationId }: { integrationId: number }): JSX.
             info="Optional. The agent uses your correction when picking repositories in the future."
         >
             {({ value, onChange }) => (
-                <div className="flex items-center gap-2">
-                    {/* LemonInputSelect selects the highlighted repository on Enter but lets the event
-                        bubble. Stop it so the surrounding LemonFormDialog does not submit on the same
-                        Enter with a pre-selection form snapshot, archiving the report with no correction. */}
-                    <div
-                        className="flex-1"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.stopPropagation()
-                            }
-                        }}
-                    >
+                // Enter inside this field selects the highlighted repository or activates Clear; both
+                // bubble to the surrounding LemonFormDialog, which submits on any Enter while the form
+                // is valid. Stop Enter at the field boundary so it never submits a stale snapshot —
+                // archiving the report with no correction, or with the one the user was clearing.
+                <div
+                    className="flex items-center gap-2"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.stopPropagation()
+                        }
+                    }}
+                >
+                    <div className="flex-1">
                         <LemonInputSelect
                             mode="single"
                             value={value ? [value] : []}
