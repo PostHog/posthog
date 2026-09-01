@@ -24,6 +24,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    Edge,
     Node,
     NodeType,
 )
@@ -1412,6 +1413,57 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors = response.json()["descendants"]
         self.assertEqual(child_ancestors, [])
+
+    def test_ancestors_identify_warehouse_and_cross_dag_nodes_by_id(self):
+        # An imported warehouse table and a cross-DAG proxy are lineage nodes with no saved_query
+        # FK; the id lives in properties. Both must be returned by id, not by name, so the answer
+        # stays resolvable for a caller. These node shapes mirror resolve_dependency_to_node.
+        dag = DAG.get_or_create_default(self.team)
+        consumer = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="consumer_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        consumer_node = Node.objects.create(team=self.team, saved_query=consumer, dag=dag, type=NodeType.VIEW)
+
+        warehouse_table = DataWarehouseTable.objects.create(
+            team=self.team, name="stripe_charges", format="Parquet", url_pattern="s3://bucket/path"
+        )
+        warehouse_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="stripe_charges",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
+        )
+
+        revenue_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        proxy_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="revenue_view",
+            type=NodeType.TABLE,
+            properties={"origin": "cross_dag_view", "saved_query_id": str(revenue_query.id)},
+        )
+
+        Edge.objects.create(team=self.team, dag=dag, source=warehouse_node, target=consumer_node)
+        Edge.objects.create(team=self.team, dag=dag, source=proxy_node, target=consumer_node)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{consumer.id}/ancestors",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            sorted(response.json()["ancestors"]),
+            sorted([str(warehouse_table.id), str(revenue_query.id)]),
+        )
 
     def test_update_without_query_change_doesnt_call_get_columns(self):
         # First create a saved query

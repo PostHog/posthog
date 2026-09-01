@@ -2006,15 +2006,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return response.Response({"run_history": run_history})
 
 
-def _related_saved_queries(
-    saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None
-) -> set[uuid.UUID | str]:
+def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
     """Walk the data modeling graph from a saved query and identify what it reaches.
 
     A saved query can hold a node in more than one DAG, so the walk starts from each of its
     nodes and unions the results. Edges never cross DAGs, so one team-wide edge load covers
-    every start point. Results identify a query by its id and a source table by its name,
-    which is the shape the lineage endpoints have always returned.
+    every start point. Each reached node is identified the way the lineage endpoints have
+    always identified it: a query by its saved-query id, an imported warehouse table by its
+    `DataWarehouseTable` id, a cross-DAG proxy by the id of the saved query it stands in for,
+    and a PostHog system table by its name. A table node carries the id in its properties
+    (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
     """
     node_ids = {
         str(node_id)
@@ -2032,9 +2033,17 @@ def _related_saved_queries(
         reached |= walk(node_id, max_depth)
     reached -= node_ids
 
-    return {
-        query_id if query_id is not None else name
-        for query_id, name in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
-            "saved_query_id", "name"
-        )
-    }
+    identifiers: set[str] = set()
+    for saved_query_id, name, properties in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
+        "saved_query_id", "name", "properties"
+    ):
+        properties = properties or {}
+        if saved_query_id is not None:
+            identifiers.add(str(saved_query_id))
+        elif properties.get("saved_query_id"):
+            identifiers.add(str(properties["saved_query_id"]))
+        elif properties.get("warehouse_table_id"):
+            identifiers.add(str(properties["warehouse_table_id"]))
+        else:
+            identifiers.add(name)
+    return identifiers
