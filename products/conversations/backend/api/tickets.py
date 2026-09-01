@@ -1306,8 +1306,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         if comment.created_by:
             author_name = (
-                f"{comment.created_by.first_name} {comment.created_by.last_name}".strip()
-                or comment.created_by.email
+                f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
             )
         elif author_type == "AI":
             author_name = "PostHog Assistant"
