@@ -2663,8 +2663,6 @@ describe.each([
         'we do not alias users if distinct id changes but we are already identified, with no anonymous event',
         {},
         async ({ ingester, infra, team, kafkaProducer, token }) => {
-            // This test is similar to the previous one, except it does not include an initial anonymous event.
-
             const anonymousId = 'anonymous_id'
             const initialDistinctId = 'initial_distinct_id'
             const p2DistinctId = 'p2_distinct_id'
@@ -2673,26 +2671,45 @@ describe.each([
             // Play out a sequence of events that should result in two users being
             // identified, with the first to events associated with one user, and
             // the third with another.
+            //
+            // Different distinct ids process concurrently within a batch, so each
+            // event that must observe another distinct id's person goes in a later
+            // batch than that person's create.
+
+            // Batch 1: the second user's anonymous event.
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([new EventBuilder(team, p2DistinctId).withEvent('event 3').build()], token)
+            )
+
+            // Batch 2: both users log in. The first user has no prior anonymous
+            // event. The two $identify events share no distinct id, so they can
+            // run concurrently.
             const events = [
                 new EventBuilder(team, initialDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: anonymousId })
                     .build(),
                 new EventBuilder(team, initialDistinctId).withEvent('event 2').build(),
-                new EventBuilder(team, p2DistinctId).withEvent('event 3').build(),
                 new EventBuilder(team, p2NewDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: p2DistinctId })
                     .build(),
                 new EventBuilder(team, p2NewDistinctId).withEvent('event 4').build(),
-                // Let's also make sure that we do not alias when switching back to initialDistictId
-                new EventBuilder(team, initialDistinctId)
-                    .withEvent('$identify')
-                    .withProperties({ $anon_distinct_id: p2NewDistinctId })
-                    .build(),
             ]
-
             await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+
+            // Batch 3: make sure that we do not alias when switching back to initialDistinctId.
+            await ingester.handleKafkaBatch(
+                createKafkaMessages(
+                    [
+                        new EventBuilder(team, initialDistinctId)
+                            .withEvent('$identify')
+                            .withProperties({ $anon_distinct_id: p2NewDistinctId })
+                            .build(),
+                    ],
+                    token
+                )
+            )
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
@@ -2727,38 +2744,40 @@ describe.each([
     )
 
     testWithTeamIngester(
-        'we do not leave things in inconsistent state if $identify is run concurrently',
+        '$identify refuses to merge an identified person and still marks its own person identified',
         {},
         async ({ ingester, infra, team, kafkaProducer, token }) => {
-            // There are a few places where we have the pattern of:
+            // A person starts unidentified and is marked identified later. The
+            // is_identified flag decides whether $identify may merge, so an
+            // $identify whose anonymous distinct id already belongs to an
+            // identified person must refuse the merge and still mark its own
+            // person as identified.
             //
-            //  1. fetch from postgres
-            //  2. check rows match condition
-            //  3. perform update
-            //
-            // This test is designed to check the specific case where, in
-            // handling we are creating an unidentified user, then updating this
-            // user to have is_identified = true. Since we are using the
-            // is_identified to decide on if we will merge persons, we want to
-            // make sure we guard against this race condition.
+            // The two $identify events go in separate batches. Within one batch,
+            // different distinct ids process concurrently, so the two $identify
+            // events would race for `anonymous_id` and the person count would
+            // depend on which one inserts the mapping first.
 
             const anonymousId = 'anonymous_id'
             const initialDistinctId = 'initial-distinct-id'
             const newDistinctId = 'new-distinct-id'
 
-            const events = [
+            const setupEvents = [
                 new EventBuilder(team, newDistinctId).withEvent('some event').build(),
                 new EventBuilder(team, initialDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: anonymousId })
                     .build(),
+            ]
+            await ingester.handleKafkaBatch(createKafkaMessages(setupEvents, token))
+
+            const identifyEvents = [
                 new EventBuilder(team, newDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: anonymousId })
                     .build(),
             ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+            await ingester.handleKafkaBatch(createKafkaMessages(identifyEvents, token))
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
@@ -3574,15 +3593,24 @@ describe.each([
             const p2DistinctId = 'p2_distinct_id'
             const p2NewDistinctId = 'new_distinct_id'
 
-            // Batch 1: anonymous event, identify, event, second person event, second identify, event
-            const events = [
+            // Batch 1: the anonymous events. They go in their own batch because
+            // different distinct ids process concurrently within a batch, so an
+            // $identify in the same batch could race the create of the person
+            // it must attach to.
+            const anonymousEvents = [
                 new EventBuilder(team, anonymousId).withEvent('event 1').build(),
+                new EventBuilder(team, p2DistinctId).withEvent('event 3').build(),
+            ]
+            await ingester.handleKafkaBatch(createKafkaMessages(anonymousEvents, token))
+
+            // Batch 2: both users log in. The two $identify events share no
+            // distinct id, so they can run concurrently.
+            const events = [
                 new EventBuilder(team, initialDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: anonymousId })
                     .build(),
                 new EventBuilder(team, initialDistinctId).withEvent('event 2').build(),
-                new EventBuilder(team, p2DistinctId).withEvent('event 3').build(),
                 new EventBuilder(team, p2NewDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: p2DistinctId })
@@ -3599,7 +3627,7 @@ describe.each([
                 expect(persons.every((p) => p.is_identified)).toBe(true)
             })
 
-            // Batch 2: try to alias back to initialDistinctId (should fail — both already identified)
+            // Batch 3: try to alias back to initialDistinctId. It must fail because both are already identified.
             await ingester.handleKafkaBatch(
                 createKafkaMessages(
                     [
@@ -3639,28 +3667,44 @@ describe.each([
             const p2DistinctId = 'p2_distinct_id'
             const p2NewDistinctId = 'new_distinct_id'
 
+            // Different distinct ids process concurrently within a batch, so each
+            // event that must observe another distinct id's person goes in a later
+            // batch than that person's create.
+
+            // Batch 1: the second user's anonymous event.
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([new EventBuilder(team, p2DistinctId).withEvent('event 3').build()], token)
+            )
+
+            // Batch 2: both users log in. The first user has no prior anonymous
+            // event. The two $identify events share no distinct id, so they can
+            // run concurrently.
             const events = [
-                // First user: identify (no prior anonymous event)
                 new EventBuilder(team, initialDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: anonymousId })
                     .build(),
                 new EventBuilder(team, initialDistinctId).withEvent('event 2').build(),
-                // Second user
-                new EventBuilder(team, p2DistinctId).withEvent('event 3').build(),
                 new EventBuilder(team, p2NewDistinctId)
                     .withEvent('$identify')
                     .withProperties({ $anon_distinct_id: p2DistinctId })
                     .build(),
                 new EventBuilder(team, p2NewDistinctId).withEvent('event 4').build(),
-                // Try to alias back to initialDistinctId (should fail — both already identified)
-                new EventBuilder(team, initialDistinctId)
-                    .withEvent('$identify')
-                    .withProperties({ $anon_distinct_id: p2NewDistinctId })
-                    .build(),
             ]
-
             await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+
+            // Batch 3: try to alias back to initialDistinctId. It must fail because both are already identified.
+            await ingester.handleKafkaBatch(
+                createKafkaMessages(
+                    [
+                        new EventBuilder(team, initialDistinctId)
+                            .withEvent('$identify')
+                            .withProperties({ $anon_distinct_id: p2NewDistinctId })
+                            .build(),
+                    ],
+                    token
+                )
+            )
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
