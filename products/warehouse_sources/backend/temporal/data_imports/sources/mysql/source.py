@@ -403,6 +403,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "Too many connections",
             "Can't create a new thread",
             "reparent operation in progress",
+            # TiProxy can't reach a TiDB backend — a failover, restart, or momentary network
+            # blip. `_connect_with_transient_retry` already retries it in-process (see
+            # `_is_transient_tiproxy_unavailable` in mysql.py); this entry is the backstop for
+            # the rare case where it exhausts that budget and Temporal's own activity retry
+            # should recover it, rather than surfacing it as error-tracking noise.
+            "TiProxy fails to connect to TiDB",
         }
 
     def reconcile_schema_metadata(
