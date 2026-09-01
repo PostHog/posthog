@@ -12862,6 +12862,7 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         message = state["pending_user_message"]
         self.assertIn("image-spec.yaml", message)
         self.assertIn("run_commands:  # shell commands executed in order at image BUILD time\n  - >-", message)
+        self.assertIn("validate its YAML syntax", message)
         self.assertIn("uv run --no-project --with PyYAML", message)
         self.assertIn("install pytorch and flox", message)
 
