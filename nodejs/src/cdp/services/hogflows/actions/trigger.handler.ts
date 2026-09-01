@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlowAction, SLACK_MESSAGE_RECEIVED_EVENT, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction } from '../hogflow-utils'
@@ -14,13 +14,30 @@ export class TriggerHandler implements ActionHandler {
         action,
         result,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'trigger' }>>): Promise<ActionHandlerResult> {
-        if (action.config.type !== 'event') {
+        const trigger = action.config
+
+        // Test runs accept arbitrary globals, so mirror the eligibility check the internal-events
+        // consumer applies before a real invocation is ever created: a slack-message trigger only
+        // fires on $slack_message_received events.
+        if (trigger.type === 'slack-message' && invocation.state.event?.event !== SLACK_MESSAGE_RECEIVED_EVENT) {
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Slack message triggers only fire for '${SLACK_MESSAGE_RECEIVED_EVENT}' events. A '${invocation.state.event?.event}' event would not trigger this workflow.`,
+            })
+            return { finished: true, skipped: true }
+        }
+
+        // The filter-carrying trigger types, the same set buildHogFlowInvocations evaluates before
+        // creating a real invocation. The remaining types (webhook, manual, schedule, batch,
+        // tracking_pixel) carry no event filters, so they continue unconditionally.
+        if (trigger.type !== 'event' && trigger.type !== 'slack-message' && !isRowScopedTrigger(trigger)) {
             return { nextAction: findContinueAction(invocation) }
         }
 
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
-            filters: action.config.filters,
+            filters: trigger.filters,
             filterGlobals: invocation.filterGlobals,
         })
 

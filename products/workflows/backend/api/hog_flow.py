@@ -3043,7 +3043,13 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
     )
     globals = serializers.DictField(
-        write_only=True, required=False, help_text="Test trigger payload, typically {event, person, groups}."
+        write_only=True,
+        required=False,
+        help_text=(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: "
+            "an event matching the trigger filters for event triggers, or a $slack_message_received event with "
+            "Slack properties (channel, user, text, ts) and no person for slack-message triggers."
+        ),
     )
     mock_async_functions = serializers.BooleanField(
         default=True,

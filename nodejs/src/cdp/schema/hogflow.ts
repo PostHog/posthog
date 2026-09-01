@@ -378,6 +378,11 @@ export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowS
     )
 }
 
+// The internal event every slack-message trigger fires on. Shared by the internal-events
+// consumer's eligibility check and the test-run trigger handler so both match the same events.
+// The Python producer keeps its own copy in products/slack_app/backend/slack_workflow_events.py.
+export const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>

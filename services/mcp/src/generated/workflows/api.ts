@@ -877,7 +877,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe('Test trigger payload, typically {event, person, groups}.'),
+        .describe(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or a $slack_message_received event with Slack properties (channel, user, text, ts) and no person for slack-message triggers."
+        ),
     mock_async_functions: zod
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
