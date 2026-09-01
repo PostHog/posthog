@@ -37,6 +37,17 @@ const multiContents =
     "{arrayMap(x -> ({'id': x.sku ?? x.product_id, 'quantity': x.quantity, 'item_price': x.price}), arrayFilter(x -> (not empty(x.sku) or not empty(x.product_id)) and not empty(x.quantity), event.properties.products ?? []))}"
 const numItems = '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
 
+// Meta's _fbc cookie value, `fb.<subdomainIndex>.<clickTimeMs>.<fbclid>`. Meta rejects a click older
+// than 90 days, the lifetime of the pixel's _fbc cookie, so a candidate outside that window is left
+// out instead of sent. Candidates in order: a value the site stores itself, the $fbc PostHog stamps
+// when it sees the fbclid, and an fbclid on this event, which is a click happening right now.
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
+const fbc = `{arrayFilter(x -> match(x, '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+$') and toUnixTimestampMilli(event.timestamp) - toFloat(splitByString('.', x)[3]) < ${NINETY_DAYS_MS}, [person.properties.fbc ?? '', person.properties.$fbc ?? '', not empty(event.properties.fbclid) ? f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{event.properties.fbclid}' : ''])[1] ?? ''}`
+
+// Meta's _fbp cookie value, `fb.<subdomainIndex>.<creationTimeMs>.<randomNumber>`. It identifies a
+// browser rather than a click, so PostHog cannot derive it and this reads a value the site mints.
+const fbp = "{person.properties.fbp ?? ''}"
+
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'alpha',
@@ -202,7 +213,8 @@ if (res.status >= 400) {
                 em: '{sha256Hex(lower(person.properties.email))}',
                 fn: '{sha256Hex(lower(person.properties.first_name))}',
                 ln: '{sha256Hex(lower(person.properties.last_name))}',
-                fbc: "{match(person.properties.fbclid ?? person.properties.$initial_fbclid ?? '', '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+$') ? person.properties.fbclid ?? person.properties.$initial_fbclid : (match(person.properties.fbclid ?? person.properties.$initial_fbclid ?? '', '^[A-Za-z0-9_-]+$') ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : '')}",
+                fbc,
+                fbp,
                 client_user_agent: '{event.properties.$raw_user_agent}',
             },
             secret: false,
