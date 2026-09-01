@@ -58,6 +58,15 @@ describe('mapToTopN', () => {
             limit: 0,
             expected: {},
         },
+        {
+            label: 'coerces an undefined key instead of throwing on a tie',
+            map: new Map([
+                ['div', 100],
+                [undefined as unknown as string, 100],
+            ]),
+            limit: 10,
+            expected: { div: 100, undefined: 100 },
+        },
     ])('$label', ({ map, limit, expected }) => {
         expect(mapToTopN(map, limit)).toEqual(expected)
     })
