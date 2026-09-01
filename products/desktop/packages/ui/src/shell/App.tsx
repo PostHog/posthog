@@ -254,7 +254,9 @@ function App({ devToolbar }: AppProps) {
     if (!isAuthenticated) {
       return (
         <motion.div key="auth" initial={{ opacity: 1 }} className="h-full">
-          <AuthScreen />
+          <AuthScreen
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.talkToHuman)}
+          />
         </motion.div>
       );
     }
