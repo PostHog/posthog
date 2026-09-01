@@ -126,6 +126,10 @@ def measure_flag_evaluations_parity(
                         FROM {settings.CLICKHOUSE_DATABASE}.events
                         WHERE team_id IN %(teams)s AND toDate(timestamp) = %(day)s
                           AND event = %(event)s
+                          -- Same predicate the fork applies before it writes: an event
+                          -- without a non-empty string $feature_flag never produces a row,
+                          -- so counting it here would read as a false deficit.
+                          AND JSONExtractString(properties, '$feature_flag') != ''
                     )
                     GROUP BY team_id, uuid
                 )

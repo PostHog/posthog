@@ -61,16 +61,24 @@ def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: Clickh
     clean_team, deficit_team, excess_team = 8001, 8002, 8003
 
     def insert_events(client: Client) -> None:
+        flag_props = '{"$feature_flag": "my-flag"}'
         client.execute(
-            """INSERT INTO writable_events (team_id, event, distinct_id, person_id, uuid, timestamp)
+            """INSERT INTO writable_events (team_id, event, distinct_id, person_id, uuid, timestamp, properties)
             VALUES
             """,
             [
-                (clean_team, "$feature_flag_called", "d", person, matched, day),
-                (deficit_team, "$feature_flag_called", "d", person, also_matched, day),
-                (deficit_team, "$feature_flag_called", "d", person, events_only, day),
+                (clean_team, "$feature_flag_called", "d", person, matched, day, flag_props),
+                (deficit_team, "$feature_flag_called", "d", person, also_matched, day, flag_props),
+                (deficit_team, "$feature_flag_called", "d", person, events_only, day, flag_props),
+                # The fork only writes for a non-empty string $feature_flag, so a
+                # $feature_flag_called event without one has no flag_evaluations row by
+                # design and must not read as a deficit. Missing, empty, and non-string
+                # all match the fork's typeof-string check.
+                (deficit_team, "$feature_flag_called", "d", person, UUID(int=6), day, "{}"),
+                (deficit_team, "$feature_flag_called", "d", person, UUID(int=7), day, '{"$feature_flag": ""}'),
+                (deficit_team, "$feature_flag_called", "d", person, UUID(int=8), day, '{"$feature_flag": 5}'),
                 # A different event with a uuid the fork never sees must not read as a deficit.
-                (excess_team, "$pageview", "d", person, UUID(int=5), day),
+                (excess_team, "$pageview", "d", person, UUID(int=5), day, ""),
             ],
         )
 
