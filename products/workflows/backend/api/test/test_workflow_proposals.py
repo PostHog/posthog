@@ -285,6 +285,10 @@ class TestWorkflowProposals(APIBaseTest):
         assert body["after"]["version"] == 2
         assert body["after"]["target"]["n"] == 0
         assert body["after"]["target"]["below_minimum_sample"] is True
+        # Opens and clicks move for different reasons — a subject line gets a message opened, the body
+        # gets it clicked — so a suggestion that lifts one and flattens the other has to be visible.
+        assert body["after"]["click_through"]["metric"] == "click rate"
+        assert body["after"]["click_through"]["n"] == body["after"]["target"]["n"]
         assert [guardrail["metric"] for guardrail in body["after"]["guardrails"]] == [
             "complaint rate",
             "bounce rate",
