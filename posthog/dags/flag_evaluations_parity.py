@@ -42,6 +42,13 @@ class FlagEvaluationsParityConfig(dagster.Config):
             "never silent, because a truncated run otherwise reads as full coverage."
         ),
     )
+    target_day: str | None = pydantic.Field(
+        default=None,
+        description=(
+            "Day to check as YYYY-MM-DD. Defaults to yesterday (UTC). Set it on a manual run to "
+            "re-check the day a past alert named."
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -64,6 +71,11 @@ def _target_day() -> date:
     return (datetime.now(tz=UTC) - timedelta(days=1)).date()
 
 
+def _resolve_target_day(target_day: str | None) -> date:
+    """The day to check: an explicit YYYY-MM-DD override, else yesterday (UTC)."""
+    return date.fromisoformat(target_day) if target_day else _target_day()
+
+
 @dagster.op
 def measure_flag_evaluations_parity(
     context: dagster.OpExecutionContext,
@@ -79,7 +91,7 @@ def measure_flag_evaluations_parity(
     Only comparing the two tables catches that.
     """
 
-    day = _target_day()
+    day = _resolve_target_day(config.target_day)
 
     def run_queries(client: Client) -> ParityResults:
         query_settings = settings_with_log_comment(context)

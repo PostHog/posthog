@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from uuid import UUID
 
@@ -13,6 +13,7 @@ from posthog.dags.flag_evaluations_parity import (
     FlagEvaluationsParityConfig,
     ParityResults,
     TeamParity,
+    _resolve_target_day,
     measure_flag_evaluations_parity,
     parity_alert_lines,
 )
@@ -26,6 +27,11 @@ def _results(checked: list[TeamParity], teams_truncated: int = 0) -> ParityResul
         teams_enabled=len(checked) + teams_truncated,
         teams_truncated=teams_truncated,
     )
+
+
+def test_resolve_target_day_uses_the_override_when_set() -> None:
+    # An operator rerunning to re-check a past alert's date must get that date, not yesterday.
+    assert _resolve_target_day("2026-08-31") == date(2026, 8, 31)
 
 
 class TestParityAlertLines:
