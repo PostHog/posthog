@@ -30,7 +30,7 @@ class QueueFullError(Exception):
     pass
 
 
-@dataclass
+@dataclass(frozen=False)
 class ConversationQueueStore:
     conversation_id: str
     max_messages: int = MAX_QUEUE_MESSAGES
