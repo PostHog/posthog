@@ -164,7 +164,7 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
 
 
-class TestWAPrecomputeHealth(APIBaseTest):
+class TestPrecomputeHealth(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _create_pat(self, scopes: list[str]) -> str:
@@ -184,7 +184,7 @@ class TestWAPrecomputeHealth(APIBaseTest):
         self.client.logout()
 
         resp = self.client.get(
-            "/api/debug_ch_queries/wa_precompute_health/",
+            "/api/debug_ch_queries/precompute_health/",
             headers={"authorization": f"Bearer {token}"},
         )
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
@@ -193,10 +193,17 @@ class TestWAPrecomputeHealth(APIBaseTest):
         self.user.save()
         with patch("posthog.api.debug_ch_queries.sync_execute", return_value=[]):
             resp = self.client.get(
-                "/api/debug_ch_queries/wa_precompute_health/",
+                "/api/debug_ch_queries/precompute_health/",
                 headers={"authorization": f"Bearer {token}"},
             )
-        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+            self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+            # An unregistered product must be rejected before any scan runs.
+            resp = self.client.get(
+                "/api/debug_ch_queries/precompute_health/?product=nonsense",
+                headers={"authorization": f"Bearer {token}"},
+            )
+        self.assertEqual(resp.status_code, 400, resp.content)
 
     def test_assembles_ratio_from_query_log_rows(self) -> None:
         self.user.is_staff = True
@@ -209,10 +216,11 @@ class TestWAPrecomputeHealth(APIBaseTest):
                 [(hour, 12000, 2100, 3)],  # warming: queries, teams, errored
                 [("web_overview_query", 180), ("stats_table_main_query", 70)],
                 [(2, 120), (1589, 60)],  # top_missing_teams
+                [(2, 45210, 3811.5, 4)],  # top_warmed_teams
             ]
         )
         with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=lambda *a, **k: next(results)):
-            resp = self.client.get("/api/debug_ch_queries/wa_precompute_health/?hours=9999")
+            resp = self.client.get("/api/debug_ch_queries/precompute_health/?hours=9999")
 
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
         data = resp.json()
@@ -222,6 +230,11 @@ class TestWAPrecomputeHealth(APIBaseTest):
         self.assertEqual(data["warming"][0]["errored"], 3)
         self.assertEqual(data["miss_breakdown"][0], {"query_type": "web_overview_query", "misses": 180})
         self.assertEqual(data["top_missing_teams"][0], {"team_id": 2, "misses": 120})
+        self.assertEqual(
+            data["top_warmed_teams"][0],
+            {"team_id": 2, "warming_queries": 45210, "warming_seconds": 3811.5, "errored": 4},
+        )
+        self.assertEqual(data["product"], "web_analytics")
 
     def test_team_filter_narrows_all_sections_and_skips_team_ranking(self) -> None:
         # A per-team read must inject the tenant filter into every section's SQL,
@@ -237,7 +250,7 @@ class TestWAPrecomputeHealth(APIBaseTest):
             return []
 
         with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
-            resp = self.client.get("/api/debug_ch_queries/wa_precompute_health/?team_id=42")
+            resp = self.client.get("/api/debug_ch_queries/precompute_health/?team_id=42")
 
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
         self.assertEqual(len(executed), 4)  # hourly, warming, miss_breakdown, query_detail
@@ -246,6 +259,7 @@ class TestWAPrecomputeHealth(APIBaseTest):
             self.assertEqual(params["team_id"], 42)
         self.assertEqual(resp.json()["team_id"], 42)
         self.assertEqual(resp.json()["top_missing_teams"], [])
+        self.assertEqual(resp.json()["top_warmed_teams"], [])
         self.assertEqual(resp.json()["query_detail"], [])
 
 

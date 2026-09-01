@@ -35,8 +35,12 @@ from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
+from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    BACKGROUND_WARMING_TRIGGERS as WEB_ANALYTICS_WARMING_TRIGGERS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,40 +166,49 @@ def _cache_table_stats() -> list[dict]:
     return list(stats.values())
 
 
-# Live (non-precomputed) web analytics read tags whose shapes the lazy precompute
-# path could have served — the denominator of the warmer's hit ratio. Lazy-served
-# reads are matched by their uniform `_lazy_query` tag suffix instead of a list.
-# Not exhaustive forever: when a runner grows a new live strategy tag, add it here
-# or the ratio numerator/denominator undercounts that family's misses.
-_WA_ELIGIBLE_LIVE_QUERY_TYPES = (
-    "web_overview_query",
-    "web_overview_preaggregated_query",
-    "web_overview_no_join_query",
-    "web_overview_session_id_set_query",
-    "stats_table_main_query",
-    "stats_table_path_bounce_query",
-    "stats_table_path_bounce_and_avg_time_query",
-    "stats_table_no_join_path_bounce_query",
-    "stats_table_no_join_path_bounce_and_avg_time_query",
-    "stats_table_session_id_set_path_bounce_query",
-    "stats_table_session_id_set_path_bounce_and_avg_time_query",
-    "stats_table_frustration_metrics_query",
-    "stats_table_entry_bounce_query",
-    "stats_table_preaggregated_query",
-    "stats_table_preaggregated_path_breakdown_query",
-    "stats_table_preaggregated_entry_bounce_query",
-    "web_goals_query",
-    "web_vitals_path_breakdown_query",
-)
+# Products on the shared lazy-precompute framework, keyed by the `product` query
+# param of `precompute_health`. Lazy-served reads share the framework's uniform
+# `_lazy_query` tag suffix; everything product-specific lives here:
+# `warming_triggers` — log_comment trigger values of the product's background
+# warmers (unioned with the framework-shared triggers, single source of truth in
+# the product modules); `eligible_live_query_types` — live (non-precomputed) read
+# tags whose shapes the product's lazy path could have served, the denominator of
+# its hit ratio. When a product grows a new live strategy tag, add it here or the
+# ratio undercounts that family's misses.
+_PRECOMPUTE_PRODUCTS: dict[str, dict[str, tuple[str, ...]]] = {
+    "web_analytics": {
+        "warming_triggers": tuple(sorted(WEB_ANALYTICS_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS)),
+        "eligible_live_query_types": (
+            "web_overview_query",
+            "web_overview_preaggregated_query",
+            "web_overview_no_join_query",
+            "web_overview_session_id_set_query",
+            "stats_table_main_query",
+            "stats_table_path_bounce_query",
+            "stats_table_path_bounce_and_avg_time_query",
+            "stats_table_no_join_path_bounce_query",
+            "stats_table_no_join_path_bounce_and_avg_time_query",
+            "stats_table_session_id_set_path_bounce_query",
+            "stats_table_session_id_set_path_bounce_and_avg_time_query",
+            "stats_table_frustration_metrics_query",
+            "stats_table_entry_bounce_query",
+            "stats_table_preaggregated_query",
+            "stats_table_preaggregated_path_breakdown_query",
+            "stats_table_preaggregated_entry_bounce_query",
+            "web_goals_query",
+            "web_vitals_path_breakdown_query",
+        ),
+    },
+}
 
 # Reads that arrive through these channels are not user-facing dashboard traffic
 # (background warming, batch workflows, API scripts) and would distort the ratio.
-_WA_HIT_RATIO_EXCLUDED_WORKLOADS = ("Workload.OFFLINE", "OFFLINE")
+_PRECOMPUTE_EXCLUDED_WORKLOADS = ("Workload.OFFLINE", "OFFLINE")
 
 # One replica being down must degrade this observability endpoint to
 # partial data, not take it out entirely — the endpoint exists precisely
 # for incidents, which is when replicas tend to be missing.
-_WA_HEALTH_QUERY_SETTINGS = {"skip_unavailable_shards": 1, "max_execution_time": 90}
+_PRECOMPUTE_HEALTH_QUERY_SETTINGS = {"skip_unavailable_shards": 1, "max_execution_time": 90}
 
 
 def _bucket_axis(hours: int) -> tuple[str, str, list[str], dict[str, int]]:
@@ -1148,16 +1161,23 @@ class DebugCHQueries(viewsets.ViewSet):
         return Response({"tables": _cache_table_stats()})
 
     @extend_schema(
-        description="Web analytics lazy-precompute health: hourly hit ratio (lazy-served vs "
-        "eligible live reads), warmer pass activity, and per-family miss breakdown. Staff only.",
+        description="Lazy-precompute health for a product on the shared framework: hourly hit "
+        "ratio (lazy-served vs eligible live reads), warmer activity, per-family miss breakdown, "
+        "and per-team warmed/missing rankings. `product` selects the vocabulary "
+        "(default web_analytics). Staff only.",
         responses={200: dict},
     )
-    @action(detail=False, methods=["GET"], url_path="wa_precompute_health", required_scopes=["query_performance:read"])
-    def wa_precompute_health(self, request):
+    @action(detail=False, methods=["GET"], url_path="precompute_health", required_scopes=["query_performance:read"])
+    def precompute_health(self, request):
         if not request.user.is_staff:
-            raise exceptions.PermissionDenied("Only staff users can view web analytics precompute health.")
+            raise exceptions.PermissionDenied("Only staff users can view precompute health.")
 
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        product = request.query_params.get("product", "web_analytics")
+        if product not in _PRECOMPUTE_PRODUCTS:
+            raise exceptions.ValidationError(f"product must be one of: {', '.join(sorted(_PRECOMPUTE_PRODUCTS))}.")
+        vocabulary = _PRECOMPUTE_PRODUCTS[product]
 
         try:
             hours = int(request.query_params.get("hours", 24))
@@ -1179,8 +1199,9 @@ class DebugCHQueries(viewsets.ViewSet):
         params: dict = {
             "hours": hours,
             "cluster": CLICKHOUSE_CLUSTER,
-            "eligible_live_types": _WA_ELIGIBLE_LIVE_QUERY_TYPES,
-            "excluded_workloads": _WA_HIT_RATIO_EXCLUDED_WORKLOADS,
+            "eligible_live_types": vocabulary["eligible_live_query_types"],
+            "warming_triggers": vocabulary["warming_triggers"],
+            "excluded_workloads": _PRECOMPUTE_EXCLUDED_WORKLOADS,
         }
         team_filter_sql = ""
         if team_id_filter is not None:
@@ -1210,7 +1231,7 @@ class DebugCHQueries(viewsets.ViewSet):
             ORDER BY hour
             """,
             params,
-            settings=_WA_HEALTH_QUERY_SETTINGS,
+            settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
         )
 
         warming_rows = sync_execute(
@@ -1224,13 +1245,13 @@ class DebugCHQueries(viewsets.ViewSet):
             WHERE event_time > now() - toIntervalHour(%(hours)s)
                 AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
                 AND is_initial_query
-                AND log_comment LIKE '%%webAnalyticsQueryWarming%%'
-                AND JSONExtractString(log_comment, 'trigger') = 'webAnalyticsQueryWarming'{team_filter_sql}
+                AND log_comment LIKE '%%"trigger"%%'
+                AND JSONExtractString(log_comment, 'trigger') IN %(warming_triggers)s{team_filter_sql}
             GROUP BY hour
             ORDER BY hour
             """,
             params,
-            settings=_WA_HEALTH_QUERY_SETTINGS,
+            settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
         )
 
         miss_rows = sync_execute(
@@ -1250,7 +1271,7 @@ class DebugCHQueries(viewsets.ViewSet):
             ORDER BY misses DESC
             """,
             params,
-            settings=_WA_HEALTH_QUERY_SETTINGS,
+            settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
         )
 
         # Per-strategy execution detail for one tenant: latency percentiles, volume,
@@ -1284,7 +1305,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 ORDER BY reads DESC
                 """,
                 params,
-                settings=_WA_HEALTH_QUERY_SETTINGS,
+                settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
             )
 
         # Which tenants eat the most live (missed) reads — the scout's raw material
@@ -1310,13 +1331,41 @@ class DebugCHQueries(viewsets.ViewSet):
                 LIMIT 25
                 """,
                 params,
-                settings=_WA_HEALTH_QUERY_SETTINGS,
+                settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
+            )
+
+        # Warming spend per tenant — the cost side of the per-team economics the
+        # miss ranking gives the benefit side of. Redundant under a team filter
+        # (the hourly warming section already carries that tenant's numbers).
+        top_warmed_rows: list = []
+        if team_id_filter is None:
+            top_warmed_rows = sync_execute(
+                f"""
+                SELECT
+                    JSONExtractInt(log_comment, 'team_id') AS team_id,
+                    count() AS warming_queries,
+                    round(sum(query_duration_ms) / 1000, 1) AS warming_seconds,
+                    countIf(exception_code != 0) AS errored
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE event_time > now() - toIntervalHour(%(hours)s)
+                    AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
+                    AND is_initial_query
+                    AND log_comment LIKE '%%"trigger"%%'
+                    AND JSONExtractString(log_comment, 'trigger') IN %(warming_triggers)s
+                    AND JSONExtractInt(log_comment, 'team_id') != 0
+                GROUP BY team_id
+                ORDER BY warming_seconds DESC
+                LIMIT 25
+                """,
+                params,
+                settings=_PRECOMPUTE_HEALTH_QUERY_SETTINGS,
             )
 
         total_lazy = sum(row[1] for row in hourly_rows)
         total_live = sum(row[2] for row in hourly_rows)
         return Response(
             {
+                "product": product,
                 "hours": hours,
                 "team_id": team_id_filter,
                 "summary": {
@@ -1341,6 +1390,15 @@ class DebugCHQueries(viewsets.ViewSet):
                 ],
                 "miss_breakdown": [{"query_type": query_type, "misses": misses} for query_type, misses in miss_rows],
                 "top_missing_teams": [{"team_id": team_id, "misses": misses} for team_id, misses in top_team_rows],
+                "top_warmed_teams": [
+                    {
+                        "team_id": team_id,
+                        "warming_queries": warming_queries,
+                        "warming_seconds": warming_seconds,
+                        "errored": errored,
+                    }
+                    for team_id, warming_queries, warming_seconds, errored in top_warmed_rows
+                ],
                 "query_detail": [
                     {
                         "query_type": query_type,
