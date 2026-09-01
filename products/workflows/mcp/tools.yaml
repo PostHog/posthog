@@ -471,7 +471,7 @@ tools:
         operation: hog_flows_proposals_create
         enabled: true
         scopes:
-            - hog_flow:write
+            - hog_flow_proposal:write
         annotations:
             readOnly: false
             destructive: false

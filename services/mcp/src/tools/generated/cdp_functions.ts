@@ -318,7 +318,6 @@ const cdpFunctionsMetricsRetrieve = (): ToolBase<
                 interval: params.interval,
                 kind: params.kind,
                 name: params.name,
-                version: params.version,
             },
         })
         return result
