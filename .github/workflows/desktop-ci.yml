@@ -94,7 +94,7 @@ jobs:
     tests-pass:
         name: Desktop Tests Pass
         needs: [build, quality, typecheck, test, backend-coupling]
-        if: always()
+        if: ${{ !cancelled() }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:

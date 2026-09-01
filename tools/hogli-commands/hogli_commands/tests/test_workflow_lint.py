@@ -1194,7 +1194,7 @@ class TestCli:
 # The shape these fixtures guard against: a `changes` detector cleared with a bare
 # `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
 # are empty on a cancelled job, so the gate exits 0 green with no tests run.
-def _gate(body: str, condition: str = "always()") -> str:
+def _gate(body: str, condition: str = "${{ !cancelled() }}") -> str:
     return f"""
     name: ci-thing
     on: pull_request
@@ -1349,7 +1349,7 @@ ENV_LOOP_GATE = """
         name: Thing Tests Pass
         needs: [build]
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
           - name: Check outcomes
             env:
@@ -1375,7 +1375,7 @@ CROSS_STEP_ENV_GATE = """
         name: Thing Tests Pass
         needs: [build]
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
           - name: Log outcome
             env:
@@ -1392,7 +1392,7 @@ CROSS_STEP_ENV_GATE = """
 
 
 # A gate whose display name doesn't end in "Pass", so only structural detection finds it.
-def _off_convention_gate(marker: str = "", condition: str = "always()") -> str:
+def _off_convention_gate(marker: str = "", condition: str = "${{ !cancelled() }}") -> str:
     yaml_ = _gate(MIXED_BODY, condition=condition).replace("Thing Tests Pass", "Thing decision")
     if marker:
         yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
@@ -1422,7 +1422,7 @@ class TestRequiredGateCheck:
         "content",
         [
             _gate(SAFE_BODY),
-            _gate(SAFE_BODY, condition="${{ always() }}"),
+            _gate(SAFE_BODY, condition='"!cancelled()"'),
             _gate(HELPER_BODY),
             _gate(LOCAL_ALIAS_HELPER_BODY),
             _gate(COMMENTED_CALL_BODY),
@@ -1431,7 +1431,7 @@ class TestRequiredGateCheck:
         ],
         ids=[
             "inline-allowlist",
-            "wrapped-always",
+            "quoted-bare-not-cancelled",
             "shared-helper",
             "helper-via-local",
             "helper-call-with-trailing-comment",
@@ -1457,14 +1457,14 @@ class TestRequiredGateCheck:
 
     @pytest.mark.parametrize(
         "condition",
-        ["${{ !cancelled() }}", "${{ always() && false }}", "${{ !always() }}"],
-        ids=["cancelled-condition", "conditional-always", "negated-always"],
+        ["always()", "${{ always() }}", "${{ !cancelled() && false }}", "${{ cancelled() }}"],
+        ids=["bare-always", "wrapped-always", "conditional-not-cancelled", "unnegated-cancelled"],
     )
-    def test_flags_gate_that_can_skip_itself(self, tmp_path: Path, condition: str) -> None:
+    def test_flags_gate_condition_other_than_not_cancelled(self, tmp_path: Path, condition: str) -> None:
         _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition=condition))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1
-        assert "always()" in issues[0].message
+        assert "!cancelled()" in issues[0].message
 
     # Every fixture can exit zero for a cancelled dependency despite mentioning
     # the expected statuses or guard shape.
@@ -1500,8 +1500,8 @@ class TestRequiredGateCheck:
         assert "never reaches" in issues[0].message
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
-        # Worker jobs *should* use !cancelled() so they stop when superseded;
-        # only the collate gate is held to always().
+        # Worker jobs share the !cancelled() condition, but they gate nothing,
+        # so WF007 has no dependency-guard demands on them.
         _write(
             tmp_path,
             "ci-thing.yml",
@@ -1525,10 +1525,10 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["changes"]
 
-    def test_finds_off_convention_gate_without_always(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="${{ !cancelled() }}"))
+    def test_finds_off_convention_gate_without_not_cancelled(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="always()"))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
-        assert any("unconditional `if: always()`" in issue.message for issue in issues)
+        assert any("unconditional `if: ${{ !cancelled() }}`" in issue.message for issue in issues)
         assert [issue.message.split("'")[1] for issue in issues if "dependency" in issue.message] == ["changes"]
 
     def test_finds_env_routed_gate_not_named_pass(self, tmp_path: Path) -> None:

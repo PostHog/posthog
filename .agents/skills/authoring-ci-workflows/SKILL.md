@@ -92,18 +92,20 @@ concurrency:
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
 By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally when a step reads `needs.<dep>.result`, because the convention is not universally followed.
 A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
-Gates and the workers they inspect need **opposite** conditions:
+Gates and the workers they inspect share the **same** condition:
 
-| Job     | Condition          | Why                                                                           |
-| ------- | ------------------ | ----------------------------------------------------------------------------- |
-| Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
-| Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+| Job     | Condition                 | Why                                                                                                           |
+| ------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Gate    | `if: ${{ !cancelled() }}` | It emits an explicit verdict on every completed run, and a superseded run records `cancelled`, not `failure`. |
+| Workers | `if: !cancelled()`        | So a superseded run actually stops instead of holding the concurrency slot.                                   |
 
-The gate condition must be exactly `always()`, with optional `${{ }}` wrapping.
-Adding another predicate can skip the required check, so `always() && <condition>` is rejected.
+The gate condition must be exactly `!cancelled()`, with optional `${{ }}` wrapping.
+Adding another predicate can skip the required check on a live run, so `!cancelled() && <condition>` is rejected.
+`always()` is also rejected: it is identical to `!cancelled()` on any run that is not cancelled, but on a superseded run it runs the gate after the cancel and reports `failure`, which inflates every CI failure-rate metric with runs a developer merely pushed over.
 
-`!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
-Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
+Cancellation still fails closed.
+A `!cancelled()` job that never starts records conclusion `cancelled`, never `skipped`, and branch protection passes only `success`/`skipped`/`neutral`, so a cancelled required check cannot merge.
+Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`).
 
 Four rules for the gate body:
 
@@ -120,7 +122,7 @@ Four rules for the gate body:
    Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
    A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
-`WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+`WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
 ## Checkout / clone — sparse first, then shallow

@@ -2496,9 +2496,10 @@ jobs:
         name: '[optional, does not block merge] Django Tests Pass'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        # always() collates skipped/failed matrix jobs; gated on the sampling result so it
-        # doesn't spin up a lone runner when this run was sampled out (or the shadow is off).
-        if: always() && needs.sample.outputs.sampled == 'true'
+        # !cancelled() collates skipped/failed matrix jobs without reporting failure on a
+        # superseded run (mirrors canonical); gated on the sampling result so it doesn't
+        # spin up a lone runner when this run was sampled out (or the shadow is off).
+        if: ${{ !cancelled() && needs.sample.outputs.sampled == 'true' }}
         steps:
             - name: Summarize dependency results
               run: |

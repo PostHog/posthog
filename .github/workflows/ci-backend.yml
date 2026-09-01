@@ -3767,9 +3767,9 @@ jobs:
         runs-on: ubuntu-latest
         # Headroom for downloading every shard's JUnit for the failure rollup.
         timeout-minutes: 8
-        # Intentional always(): this required gate must inspect failed and cancelled
-        # dependencies and fail closed.
-        if: always()
+        # Intentional !cancelled(): the gate inspects failed dependencies and fails
+        # closed on live runs; a superseded run records cancelled, not failure.
+        if: ${{ !cancelled() }}
         steps:
             - name: Summarize dependency results
               run: |
