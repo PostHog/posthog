@@ -163,3 +163,44 @@ class TestBuildOpenAIChatClient:
 
         assert callbacks == []
         mock_callback.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "service_tier,expected",
+        [
+            ("flex", "flex"),
+            (None, None),
+        ],
+    )
+    def test_service_tier_reaches_the_client_in_both_routing_modes(self, service_tier, expected):
+        # Dropping the tier silently doubles the labeling bill, so pin the passthrough.
+        for gateway_url, gateway_key in [(GATEWAY_URL, GATEWAY_KEY), (None, None)]:
+            with (
+                override_settings(DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key),
+                patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False),
+            ):
+                client = build_langchain_chat_client("gpt-5.4", 600.0, service_tier=service_tier)
+                assert client.service_tier == expected
+
+    @pytest.mark.parametrize(
+        "model,expected_tier",
+        [
+            ("gpt-5.4", "flex"),
+            # gpt-4.1 models reject the service_tier field, so a fallback to them must not send it.
+            ("gpt-4.1-mini", None),
+        ],
+    )
+    def test_labeling_llm_requests_flex_only_for_gpt5_models(self, model, expected_tier):
+        from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
+
+        with (
+            override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY),
+        ):
+            client = get_labeling_llm(
+                model,
+                600.0,
+                trace_id="t",
+                session_id="s",
+                properties={},
+                distinct_id="d",
+            )
+            assert client.service_tier == expected_tier

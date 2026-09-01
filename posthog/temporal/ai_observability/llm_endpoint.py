@@ -8,6 +8,7 @@ its ``resolve_ai_gateway_config`` validator and ``ai_gateway_headers`` helper.
 
 import os
 from collections.abc import Mapping
+from typing import Literal
 
 from django.conf import settings
 
@@ -35,6 +36,7 @@ def build_langchain_chat_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    service_tier: Literal["flex"] | None = None,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for the labeling/report agents. Cloud/DEBUG only.
 
@@ -69,12 +71,13 @@ def build_langchain_chat_client(
             # trust_env=False keeps the in-cluster gateway call off the egress proxy.
             http_client=httpx.Client(trust_env=False),
             http_async_client=httpx.AsyncClient(trust_env=False),
+            service_tier=service_tier,
         )
 
     direct_key = os.environ.get("OPENAI_API_KEY")
     if not direct_key:
         raise Exception("OPENAI_API_KEY is not configured")
-    return ChatOpenAI(model=model, api_key=direct_key, timeout=timeout, max_retries=2)
+    return ChatOpenAI(model=model, api_key=direct_key, timeout=timeout, max_retries=2, service_tier=service_tier)
 
 
 def build_langchain_callbacks(

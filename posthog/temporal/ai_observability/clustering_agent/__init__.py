@@ -41,6 +41,9 @@ def get_labeling_llm(
         session_id=session_id,
         properties=properties,
         distinct_id=distinct_id,
+        # Labeling runs as a daily batch, so it tolerates flex-tier queueing for half-price
+        # tokens. Only the gpt-5 family accepts the field; gpt-4.1 rejects the request.
+        service_tier="flex" if model.startswith("gpt-5") else None,
     )
 
 
