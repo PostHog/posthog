@@ -118,6 +118,7 @@ from products.tasks.backend.facade.tasks import (
     reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
@@ -360,6 +361,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="30"),
         sweep_loop_task_retention_task.s(),
         name="sweep loop task retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="15"),
+        sweep_inactive_tasks_task.s(),
+        name="archive inactive tasks",
     )
 
     # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules

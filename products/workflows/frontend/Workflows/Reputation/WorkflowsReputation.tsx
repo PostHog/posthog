@@ -2,12 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type {
     AwsTenantReputationApi,
     AwsTenantReputationHealthEnumApi,
+    EmailSendingAllowanceApi,
     EmailSendingRatesApi,
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
@@ -184,8 +186,60 @@ function TeamRatesCard({
     )
 }
 
+function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
+    const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
+    const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
+    return (
+        <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
+            <div className="flex items-center gap-2">
+                <h3 className="mb-0">Sending allowance</h3>
+                <Tooltip title="Every project shares PostHog's sending infrastructure, so allowances start small and grow with a clean sending record.">
+                    <LemonTag type="muted">
+                        Tier {allowance.tier} of {allowance.max_tier}
+                    </LemonTag>
+                </Tooltip>
+            </div>
+            <p className="text-secondary mt-2 mb-0">
+                Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
+                above the allowance are not dropped, they are sent later.
+            </p>
+            <div className="flex flex-wrap gap-8 mt-3">
+                <div className="min-w-48">
+                    <MetricLabel
+                        label="Emails this hour"
+                        tooltip="Emails your workflows sent in the last hour, against what this tier allows per hour."
+                    />
+                    <div className="text-lg font-semibold">
+                        {humanFriendlyNumber(allowance.emails_sent_last_hour)} of{' '}
+                        {humanFriendlyNumber(allowance.emails_per_hour)}
+                    </div>
+                    <LemonProgress percent={hourlyPercent} className="mt-1" />
+                </div>
+                <div className="min-w-48">
+                    <MetricLabel
+                        label="Emails today"
+                        tooltip="Emails your workflows sent in the last 24 hours, against what this tier allows per day."
+                    />
+                    <div className="text-lg font-semibold">
+                        {humanFriendlyNumber(allowance.emails_sent_last_day)} of{' '}
+                        {humanFriendlyNumber(allowance.emails_per_day)}
+                    </div>
+                    <LemonProgress percent={dailyPercent} className="mt-1" />
+                </div>
+                <div>
+                    <MetricLabel
+                        label="Largest batch audience"
+                        tooltip="The biggest audience this tier allows for a single batch send."
+                    />
+                    <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function WorkflowsReputation(): JSX.Element {
-    const { awsReputation, teamReputation, workflowSnapshots, reputationResponseLoading, search } =
+    const { awsReputation, sendingAllowance, teamReputation, workflowSnapshots, reputationResponseLoading, search } =
         useValues(workflowsReputationLogic)
     const { setSearch } = useActions(workflowsReputationLogic)
 
@@ -202,6 +256,7 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
+            {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation ? (
                 <TeamRatesCard reputation={teamReputation} aws={awsReputation} />
             ) : (

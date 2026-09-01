@@ -394,7 +394,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (!report) {
                     return
                 }
-                // Triage walks Needs a PR, so no report here has an open PR to close.
+                // Triage walks Needs decision, so no report here has an open PR to close.
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
                     hotkeys: true,
