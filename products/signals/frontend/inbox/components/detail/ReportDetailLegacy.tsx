@@ -381,13 +381,6 @@ function InboxDetailFrameLegacy({
                             title="Evidence"
                             collapsible
                             onToggleCollapsed={captureSectionToggle('evidence')}
-                            rightSlot={
-                                <Tooltip title={SIGNALS_TOOLTIP}>
-                                    <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                        {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
-                                    </span>
-                                </Tooltip>
-                            }
                         >
                             {reportSignalsLoading && reportSignals === null ? (
                                 <EvidenceSkeleton count={evidenceCount} />

@@ -292,7 +292,15 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        restriction_level: zod
+            .union([zod.literal(21), zod.literal(37)])
+            .describe(
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
+            .optional()
+            .describe(
+                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()

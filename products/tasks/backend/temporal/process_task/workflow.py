@@ -1731,7 +1731,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "sandbox_started",
             {
                 "run_id": run_id,
+                "task_run_id": run_id,
                 "task_id": self.context.task_id,
+                "team_id": self.context.team_id,
+                "origin_product": self.context.origin_product,
                 "sandbox_id": sandbox_id,
                 "sandbox_url": agent_server_output.sandbox_url,
                 "used_snapshot": sandbox_output.used_snapshot,

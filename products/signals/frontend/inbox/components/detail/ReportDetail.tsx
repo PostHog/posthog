@@ -10,7 +10,7 @@ import {
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -80,10 +80,6 @@ export function ReportDetailBadges({
         </>
     )
 }
-
-/** Shared explainer for the signal count in the meta line and the Evidence section. */
-const SIGNALS_TOOLTIP =
-    'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
@@ -387,16 +383,7 @@ export function InboxDetailFrame({
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={
-                                    <span className="flex items-center gap-1">
-                                        <Tooltip title={SIGNALS_TOOLTIP}>
-                                            <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                                {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
-                                            </span>
-                                        </Tooltip>
-                                        {hideRailButton}
-                                    </span>
-                                }
+                                rightSlot={hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
