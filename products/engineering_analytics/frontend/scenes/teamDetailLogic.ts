@@ -4,9 +4,13 @@ import { loaders } from 'kea-loaders'
 import { ApiConfig } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { engineeringAnalyticsTeamCiActivity, engineeringAnalyticsTeamMergeTrend } from '../generated/api'
+import {
+    engineeringAnalyticsTeamCiActivity,
+    engineeringAnalyticsTeamCiHealth,
+    engineeringAnalyticsTeamMergeTrend,
+} from '../generated/api'
 import type { TeamTestSignalApi } from '../generated/api.schemas'
-import { DEFAULT_TEAMS_WINDOW, TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
+import { DEFAULT_TEAMS_WINDOW, TeamCIHealthRow, TeamsWindow, UNOWNED_TEAM, toTeamCIHealthRow } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -45,6 +49,8 @@ export interface TeamMergeTrendData {
 export interface teamDetailLogicValues {
     activity: TeamActivityData | null
     activityLoading: boolean
+    healthRow: TeamCIHealthRow | null
+    healthRowLoading: boolean
     mergeTrend: TeamMergeTrendData | null
     mergeTrendLoading: boolean
     mergeTrendSeries: {
@@ -71,6 +77,21 @@ export interface teamDetailLogicActions {
         payload?: any
     ) => {
         activity: TeamActivityData
+        payload?: any
+    }
+    loadHealthRow: () => any
+    loadHealthRowFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHealthRowSuccess: (
+        healthRow: TeamCIHealthRow | null,
+        payload?: any
+    ) => {
+        healthRow: TeamCIHealthRow | null
         payload?: any
     }
     loadMergeTrend: () => any
@@ -147,6 +168,22 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                 },
             },
         ],
+        healthRow: [
+            null as TeamCIHealthRow | null,
+            {
+                loadHealthRow: async (): Promise<TeamCIHealthRow | null> => {
+                    // The roster endpoint already computes every per-team rollup this page needs;
+                    // fetching it and picking this team's row beats a second per-team endpoint.
+                    const data = await engineeringAnalyticsTeamCiHealth(projectId(), {
+                        date_from: values.window,
+                        limit: 200,
+                        source_id: props.sourceId ?? undefined,
+                    })
+                    const item = data.items.find((it) => it.owner_team === props.ownerTeam)
+                    return item ? toTeamCIHealthRow(item) : null
+                },
+            },
+        ],
         mergeTrend: [
             null as TeamMergeTrendData | null,
             {
@@ -220,10 +257,12 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
         setWindow: () => {
             actions.loadActivity()
             actions.loadMergeTrend()
+            actions.loadHealthRow()
         },
     })),
     afterMount(({ actions }) => {
         actions.loadActivity()
         actions.loadMergeTrend()
+        actions.loadHealthRow()
     }),
 ])

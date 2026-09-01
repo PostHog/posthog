@@ -15,7 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EntityHeader } from '../components/EntityHeader'
-import { CountWithPrior } from '../components/MetricTile'
+import { CountWithPrior, MetricTile, percentChange } from '../components/MetricTile'
 import { Section } from '../components/Section'
 import { compactHoursLabel } from '../lib/format'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
@@ -31,9 +31,50 @@ export const scene: SceneExport<TeamDetailLogicProps> = {
     }),
 }
 
+function HealthTile({
+    label,
+    tooltip,
+    value,
+    prior,
+    goodWhenDown,
+    vs,
+    loading,
+}: {
+    label: string
+    tooltip: string
+    value: number | null
+    prior: number | null
+    goodWhenDown: boolean
+    vs: string
+    loading: boolean
+}): JSX.Element {
+    return (
+        <MetricTile
+            label={label}
+            tooltip={tooltip}
+            value={value == null ? '—' : humanFriendlyNumber(value)}
+            delta={
+                value != null && prior != null && prior > 0
+                    ? { value: percentChange(value, prior), goodWhenDown, vs: `vs ${vs.toLowerCase()}` }
+                    : undefined
+            }
+            loading={loading}
+        />
+    )
+}
+
 export function EngineeringAnalyticsTeamScene(): JSX.Element {
-    const { activity, activityLoading, mergeTrend, mergeTrendLoading, mergeTrendSeries, window, ownerTeam } =
-        useValues(teamDetailLogic)
+    const {
+        activity,
+        activityLoading,
+        healthRow,
+        healthRowLoading,
+        mergeTrend,
+        mergeTrendLoading,
+        mergeTrendSeries,
+        window,
+        ownerTeam,
+    } = useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
     const { timezone } = useValues(teamLogic)
     const chartTheme = useChartTheme()
@@ -107,6 +148,65 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
                     size="small"
                 />
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+                <HealthTile
+                    label="Tests owned"
+                    tooltip="Test files this team owns per the daily owners.yaml census."
+                    value={healthRow?.testFileCount ?? null}
+                    prior={healthRow?.testFileCountPrior ?? null}
+                    goodWhenDown={false}
+                    vs={labels.prior}
+                    loading={healthRowLoading}
+                />
+                <HealthTile
+                    label="Flaky tests"
+                    tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky."
+                    value={healthRow?.flakyTestCount ?? null}
+                    prior={healthRow?.flakyTestCountPrior ?? null}
+                    goodWhenDown
+                    vs={labels.prior}
+                    loading={healthRowLoading}
+                />
+                <HealthTile
+                    label="Regressions"
+                    tooltip="Owned tests that failed with no recorded recovery and still hit several PRs or master."
+                    value={healthRow?.regressionTestCount ?? null}
+                    prior={healthRow?.regressionTestCountPrior ?? null}
+                    goodWhenDown
+                    vs={labels.prior}
+                    loading={healthRowLoading}
+                />
+                <HealthTile
+                    label="Failed runs"
+                    tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
+                    value={healthRow?.failedRunCount ?? null}
+                    prior={healthRow?.failedRunCountPrior ?? null}
+                    goodWhenDown
+                    vs={labels.prior}
+                    loading={healthRowLoading}
+                />
+                <HealthTile
+                    label="Recoveries"
+                    tooltip="Runs where one commit both failed and passed an owned test. This is what proves a flake."
+                    value={healthRow?.sameCommitRecoveryRunCount ?? null}
+                    prior={healthRow?.sameCommitRecoveryRunCountPrior ?? null}
+                    goodWhenDown
+                    vs={labels.prior}
+                    loading={healthRowLoading}
+                />
+                {!isUnowned && (
+                    <HealthTile
+                        label="PRs merged"
+                        tooltip="PRs merged by this team's members in the window, bots excluded. Attribution comes from the GitHub team membership snapshot."
+                        value={healthRow?.mergedPrCount ?? null}
+                        prior={healthRow?.mergedPrCountPrior ?? null}
+                        goodWhenDown={false}
+                        vs={labels.prior}
+                        loading={healthRowLoading}
+                    />
+                )}
             </div>
 
             {!isUnowned && (
