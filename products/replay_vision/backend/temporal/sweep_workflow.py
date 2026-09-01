@@ -224,11 +224,8 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 "evaluate_due_vision_actions_activity",
                 {"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id},
                 start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=5),
-                    maximum_interval=dt.timedelta(minutes=1),
-                    maximum_attempts=3,
-                ),
+                # No worker registers this activity any more, so retrying only stalls the tick.
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
             for d in due or []:
                 try:

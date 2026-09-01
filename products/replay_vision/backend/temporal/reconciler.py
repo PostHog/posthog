@@ -92,13 +92,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             "drop-stuck-vision-action-run-reaper-2026-09"
         ):
             try:
-                await workflow.execute_activity(
-                    "reap_stuck_vision_action_runs_activity",
-                    start_to_close_timeout=REAPER_OP_TIMEOUT,
-                    schedule_to_close_timeout=REAPER_OP_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=REAPER_MAX_ATTEMPTS),
-                    priority=RECONCILER_ACTIVITY_PRIORITY,
-                )
+                await self._run_reaper("reap_stuck_vision_action_runs_activity")
             except Exception:
                 workflow.logger.exception("replay_vision.reap_stuck_vision_action_runs_failed")
 
@@ -191,7 +185,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     async def _run_reaper(
         self,
-        reaper_activity: Callable[[], Any],
+        reaper_activity: Callable[[], Any] | str,
         *,
         heartbeat_timeout: dt.timedelta | None = None,
         start_to_close_timeout: dt.timedelta = REAPER_OP_TIMEOUT,

@@ -43,7 +43,6 @@ export const scene: SceneExport = {
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
-    const visibleTabs = Object.values(ReplayScannerTab)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -105,9 +104,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
             <ScanDroughtBanner scannerId={scannerId} />
 
             <LemonTabs
-                // The scene logic keeps a `?tab=scouts` URL off this tab when the flag is off. This
-                // covers the other way in: a flag that flips off while the tab is already open.
-                activeKey={visibleTabs.includes(activeTab) ? activeTab : ReplayScannerTab.Overview}
+                activeKey={activeTab}
                 onChange={setActiveTab}
                 data-attr="vision-scanner-tabs"
                 tabs={[
