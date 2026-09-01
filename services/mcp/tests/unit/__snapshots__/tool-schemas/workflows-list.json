@@ -21,6 +21,10 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "optimisation_enabled": {
+            "description": "Only workflows someone turned suggestions on for.",
+            "type": "boolean"
+        },
         "origin_product": {
             "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             "enum": ["loops"],
