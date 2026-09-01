@@ -11,6 +11,7 @@ from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend.series_bands import (
     MAX_WINDOW_START_AGE_DAYS,
+    SeriesBandsWindow,
     SeriesBandsWindowInvalid,
     _band_gate,
     resolve_window,
@@ -168,18 +169,18 @@ class TestResolveWindow(SimpleTestCase):
         return resolve_window(date_from, date_to, week_start_day=week_start_day, now=NOW_FIXED)
 
     def test_exactly_seven_days_is_accepted(self):
-        assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == (
-            dt.datetime(2026, 6, 8, tzinfo=UTC),
-            dt.datetime(2026, 6, 15, tzinfo=UTC),
+        assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == SeriesBandsWindow(
+            start=dt.datetime(2026, 6, 8, tzinfo=UTC),
+            end=dt.datetime(2026, 6, 15, tzinfo=UTC),
         )
 
     def test_oldest_week_preset_resolves_on_the_worst_weekday(self):
         # Last day of the week, so -4wStart sits at its furthest: 28 days plus the
         # weekday offset, the closest any preset comes to the age cap.
         last_day_of_week = dt.datetime(2026, 6, 20, 23, 0, tzinfo=UTC)
-        window_start, window_end = resolve_window("-4wStart", "-3wStart", week_start_day=0, now=last_day_of_week)
-        assert window_end - window_start == dt.timedelta(days=7)
-        assert last_day_of_week - window_start < dt.timedelta(days=MAX_WINDOW_START_AGE_DAYS)
+        window = resolve_window("-4wStart", "-3wStart", week_start_day=0, now=last_day_of_week)
+        assert window.end - window.start == dt.timedelta(days=7)
+        assert last_day_of_week - window.start < dt.timedelta(days=MAX_WINDOW_START_AGE_DAYS)
 
     def test_window_that_collapses_after_snapping_is_rejected(self):
         first_hour_of_week = dt.datetime(2026, 6, 14, 0, 30, tzinfo=UTC)
@@ -187,28 +188,27 @@ class TestResolveWindow(SimpleTestCase):
             resolve_window("wStart", None, week_start_day=0, now=first_hour_of_week)
 
     def test_thirty_days_back_is_accepted(self):
-        window_start, _ = self._resolve("-30d", "-24d")
-        assert window_start == (NOW_FIXED - dt.timedelta(days=30)).replace(minute=0)
+        assert self._resolve("-30d", "-24d").start == (NOW_FIXED - dt.timedelta(days=30)).replace(minute=0)
 
     def test_defaults_to_the_last_seven_days(self):
-        assert self._resolve(None, None) == (
-            NOW_FIXED.replace(minute=0) - dt.timedelta(days=7),
-            NOW_FIXED.replace(minute=0),
+        assert self._resolve(None, None) == SeriesBandsWindow(
+            start=NOW_FIXED.replace(minute=0) - dt.timedelta(days=7),
+            end=NOW_FIXED.replace(minute=0),
         )
 
     def test_week_commencing_bounds_land_on_midnight(self):
-        assert self._resolve("-1wStart", "-1wEnd") == (
-            dt.datetime(2026, 6, 7, tzinfo=UTC),
-            dt.datetime(2026, 6, 13, tzinfo=UTC),
+        assert self._resolve("-1wStart", "-1wEnd") == SeriesBandsWindow(
+            start=dt.datetime(2026, 6, 7, tzinfo=UTC),
+            end=dt.datetime(2026, 6, 13, tzinfo=UTC),
         )
 
     def test_day_offset_keeps_its_time_of_day(self):
-        window_start, window_end = self._resolve("-7d", None)
-        assert window_start == NOW_FIXED.replace(minute=0) - dt.timedelta(days=7)
-        assert window_end == NOW_FIXED.replace(minute=0)
+        window = self._resolve("-7d", None)
+        assert window.start == NOW_FIXED.replace(minute=0) - dt.timedelta(days=7)
+        assert window.end == NOW_FIXED.replace(minute=0)
 
     def test_future_end_is_clamped_to_now(self):
-        assert self._resolve("-7d", "2026-07-01T00:00:00Z")[1] == NOW_FIXED.replace(minute=0)
+        assert self._resolve("-7d", "2026-07-01T00:00:00Z").end == NOW_FIXED.replace(minute=0)
 
     @parameterized.expand(
         [
@@ -217,6 +217,6 @@ class TestResolveWindow(SimpleTestCase):
             ("start_beyond_retention", "-40d", "-34d"),
         ]
     )
-    def test_rejects_invalid_windows(self, _name, date_from, date_to):
+    def test_rejects_invalid_windows(self, _name: str, date_from: str, date_to: str | None) -> None:
         with pytest.raises(SeriesBandsWindowInvalid):
             self._resolve(date_from, date_to)

@@ -388,7 +388,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         interval_minutes: int = int(data["intervalMinutes"])
         date_range: dict[str, Any] = data.get("dateRange") or {}
         try:
-            window_start, window_end = resolve_window(
+            window = resolve_window(
                 date_range.get("date_from"),
                 date_range.get("date_to"),
                 week_start_day=self.team.week_start_day,
@@ -401,7 +401,7 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "logs_series_bands/"
             + hashlib.sha256(
                 f"{self.team.id}/{service_name}/{interval_minutes}/"
-                f"{window_start.isoformat()}/{window_end.isoformat()}".encode()
+                f"{window.start.isoformat()}/{window.end.isoformat()}".encode()
             ).hexdigest()
         )
         cached = cache.get(cache_key)
@@ -412,8 +412,8 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             result = run_series_bands(
                 self.team,
                 service_name,
-                window_start=window_start,
-                window_end=window_end,
+                window_start=window.start,
+                window_end=window.end,
                 interval_minutes=interval_minutes,
             )
         except SeriesBandsFetchTruncated as err:

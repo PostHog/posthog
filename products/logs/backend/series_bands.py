@@ -88,6 +88,12 @@ class SeriesBandsResult:
 
 
 @frozen
+class SeriesBandsWindow:
+    start: dt.datetime
+    end: dt.datetime
+
+
+@frozen
 class _SeriesKey:
     namespace: str
     environment: str
@@ -320,7 +326,7 @@ def resolve_window(
     week_start_day: int | None,
     interval_minutes: int = 60,
     now: dt.datetime | None = None,
-) -> tuple[dt.datetime, dt.datetime]:
+) -> SeriesBandsWindow:
     """Turn a request date range into the snapped window to chart, defaulting to the last WINDOW_DAYS."""
     # Wall clock, never max(time_bucket): prod carries future buckets from
     # device clock skew (ingest clamps at +24h), and the exclusive window_end
@@ -353,7 +359,7 @@ def resolve_window(
             f"{MAX_WINDOW_START_AGE_DAYS} days ago."
         )
 
-    return window_start, window_end
+    return SeriesBandsWindow(start=window_start, end=window_end)
 
 
 def run_series_bands(
