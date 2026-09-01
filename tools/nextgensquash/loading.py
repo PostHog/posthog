@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings  # noqa: E402
+from django.db import migrations  # noqa: E402
 from django.db.migrations.loader import MigrationLoader  # noqa: E402
 
 from common.migration_utils import get_managed_app_names, get_managed_app_paths  # noqa: E402
@@ -60,6 +61,14 @@ class OpInfo:
 
     kind: str
     target: str | None = None
+    # Raw SQL text for RunSQL ops (and RunSQL nested in SeparateDatabaseAndState).
+    # The planner scans it for constraint/index names young migrations reference.
+    sql: str | None = None
+    # Index/constraint names this op declares in Django state (AddIndex,
+    # AddConstraint, or their SeparateDatabaseAndState state_operations). A
+    # state-backed name lands in the squash snapshot, so its raw SQL is never
+    # forwarded to schema_addons.
+    state_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=False)
@@ -73,15 +82,43 @@ class Migration:
     operations: list[OpInfo]
 
 
+def _op_sql_text(op: Any) -> str:
+    """Flatten RunSQL's sql attribute (str, list of str, or (sql, params) pairs) to one string."""
+    sql = op.sql
+    if isinstance(sql, str):
+        return sql
+    if isinstance(sql, (list, tuple)):
+        parts: list[str] = []
+        for s in sql:
+            if isinstance(s, str):
+                parts.append(s)
+            elif isinstance(s, (list, tuple)) and s and isinstance(s[0], str):
+                parts.append(s[0])
+            else:
+                parts.append(str(s))
+        return " ".join(parts)
+    return str(sql)
+
+
+def _op_state_names(op: Any) -> tuple[str, ...]:
+    thing = getattr(op, "index", None) or getattr(op, "constraint", None)
+    name = getattr(thing, "name", None)
+    return (name,) if isinstance(name, str) else ()
+
+
 def _summarize_op(op: Any) -> OpInfo:
     kind = op.__class__.__name__
     if kind == "RunPython":
         target = getattr(op.code, "__name__", None) or repr(op.code)
         return OpInfo(kind=kind, target=target)
-    if kind == "RunSQL":
-        return OpInfo(kind=kind, target=None)
+    if isinstance(op, migrations.RunSQL):
+        return OpInfo(kind=kind, target=None, sql=_op_sql_text(op))
+    if isinstance(op, migrations.SeparateDatabaseAndState):
+        inner = [_op_sql_text(o) for o in op.database_operations if isinstance(o, migrations.RunSQL)]
+        state_names = tuple(n for o in op.state_operations for n in _op_state_names(o))
+        return OpInfo(kind=kind, sql=" ".join(inner) or None, state_names=state_names)
     target = getattr(op, "name", None) or getattr(op, "model_name", None)
-    return OpInfo(kind=kind, target=target if isinstance(target, str) else None)
+    return OpInfo(kind=kind, target=target if isinstance(target, str) else None, state_names=_op_state_names(op))
 
 
 class GitDates:

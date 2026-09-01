@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import functools
 from collections import defaultdict
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ class Squasher:
         self.include_prior_squashes = include_prior_squashes
         self.old, self.young = tree.partition(cutoff, include_prior_squashes=include_prior_squashes)
         self._rebalance_min_young(min_young)
+        self._pull_sql_referenced_young()
         self.migration_graph = self._build_migration_graph()
         self.app_graph = self._build_app_graph()
         self.squashes = self._plan_squashes()
@@ -74,11 +76,7 @@ class Squasher:
         # redirects (seen with the surveys/feature_flags model-move pairs). The
         # date partition itself can never produce such an edge, so the tail
         # rule must not create one either.
-        blocked: set[str] = set()
-        for m in self.old.values():
-            for dep in m.dependencies:
-                if dep.app != m.ref.app and dep.key in self.old:
-                    blocked.add(dep.key)
+        blocked = self._cross_app_depended_keys()
         for app, migs in loading.MigrationTree.group_by_app(self.old).items():
             chain = sorted(migs, key=lambda m: m.ref.name)
             movable = chain[1:]
@@ -96,6 +94,90 @@ class Squasher:
                 del self.old[m.ref.key]
                 self.young[m.ref.key] = m
                 need -= 1
+
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
+    def _cross_app_depended_keys(self) -> set[tuple[str, str]]:
+        """Old migrations that another app's old migration depends on."""
+        out: set[tuple[str, str]] = set()
+        for m in self.old.values():
+            for dep in m.dependencies:
+                if dep.app != m.ref.app and dep.key in self.old:
+                    out.add(dep.key)
+        return out
+
+    # Quoted names may contain spaces ('ADD CONSTRAINT "unique group types for
+    # project"'); capture the full quoted name, or a bare identifier.
+    _SQL_CREATED_NAME_RES = (
+        re.compile(r"ADD\s+CONSTRAINT\s+(?:\"([^\"]+)\"|([a-zA-Z0-9_]+))", re.IGNORECASE),
+        re.compile(
+            r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:\"([^\"]+)\"|([a-zA-Z0-9_]+))",
+            re.IGNORECASE,
+        ),
+    )
+    # Ops whose DDL lives only in database_forwards, referencing a raw-SQL
+    # constraint by name (posthog.migration_helpers probe-first helpers).
+    _SQL_REFERENCING_OP_KINDS = frozenset({"ValidateConstraint", "ValidateForeignKey"})
+
+    def _pull_sql_referenced_young(self) -> None:
+        """Move a folded migration young when a young migration references a
+        constraint or index its raw SQL creates. Emit forwards folded RunSQL
+        DDL into schema_addons, which runs *after* the young chain — a young
+        `ValidateForeignKey` (or RunSQL) naming such an object then fails on a
+        fresh database because the object does not exist yet (seen with
+        ai_observability 0039/0040). Contiguity: everything after the creator
+        in its app moves young with it.
+        """
+        while True:
+            # State-backed names land in the squash snapshot, so the initial
+            # creates them and emit never forwards their SQL — no hazard.
+            state_backed = {n for m in self.old.values() for op in m.operations for n in op.state_names}
+            created: dict[str, loading.Migration] = {}
+            for m in self.old.values():
+                for op in m.operations:
+                    if not op.sql:
+                        continue
+                    for rx in self._SQL_CREATED_NAME_RES:
+                        for quoted, bare in rx.findall(op.sql):
+                            name = quoted or bare
+                            if name not in state_backed:
+                                created[name] = m
+            pull: dict[str, str] = {}  # app -> earliest creator name to move
+            for y in self.young.values():
+                for op in y.operations:
+                    names: set[str] = set()
+                    if op.kind in self._SQL_REFERENCING_OP_KINDS and op.target:
+                        names.add(op.target)
+                    if op.sql:
+                        # Whole-token match: a bare identifier must not match
+                        # inside a longer word or an unrelated name.
+                        names.update(n for n in created if re.search(rf"\b{re.escape(n)}\b", op.sql) is not None)
+                    for name in names & created.keys():
+                        creator = created[name]
+                        app = creator.ref.app
+                        if app not in pull or creator.ref.name < pull[app]:
+                            pull[app] = creator.ref.name
+            if not pull:
+                return
+            blocked = self._cross_app_depended_keys()
+            for app, from_name in pull.items():
+                chain = sorted(loading.MigrationTree.group_by_app(self.old)[app], key=lambda m: m.ref.name)
+                if chain[0].ref.name >= from_name:
+                    raise RuntimeError(
+                        f"young migration references SQL from {app}.{from_name}, but that is the app's "
+                        "root migration and must stay folded — bump the cutoff instead"
+                    )
+                for m in chain:
+                    if m.ref.name < from_name:
+                        continue
+                    is_state_move = any(op.kind == "SeparateDatabaseAndState" for op in m.operations)
+                    if m.replaces or m.ref.key in blocked or is_state_move:
+                        raise RuntimeError(
+                            f"{m.ref} must move young (a young migration references SQL objects from "
+                            f"{app}.{from_name}) but it is pinned folded (prior squash, cross-app old "
+                            "dependent, or state move) — bump the cutoff past it instead"
+                        )
+                    del self.old[m.ref.key]
+                    self.young[m.ref.key] = m
 
     @functools.cached_property
     def latest_old_per_app(self) -> dict[str, str]:

@@ -54,7 +54,6 @@ class Migration(migrations.Migration):
         ("ai_observability", "0036_dataset_item_client_id_and_version_dataset"),
         ("ai_observability", "0037_backfill_dataset_item_version_dataset"),
         ("ai_observability", "0038_make_dataset_item_version_dataset_non_null"),
-        ("ai_observability", "0039_dataset_item_version_ownership_constraints"),
     ]
 
     initial = True
@@ -808,8 +807,7 @@ class Migration(migrations.Migration):
                         condition=models.Q(("client_item_id__isnull", False)),
                         fields=("dataset", "client_item_id"),
                         name="uniq_llma_dataset_item_v2_ext",
-                    ),
-                    models.UniqueConstraint(fields=("id", "dataset", "team"), name="uniq_llma_dataset_item_v2_owner"),
+                    )
                 ],
             },
         ),
@@ -856,7 +854,6 @@ class Migration(migrations.Migration):
                     models.CheckConstraint(
                         condition=models.Q(("revision__gte", 1)), name="llma_dataset_revision_v2_positive"
                     ),
-                    models.UniqueConstraint(fields=("id", "dataset", "team"), name="uniq_llma_dataset_rev_v2_owner"),
                 ],
             },
         ),

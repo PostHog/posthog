@@ -80,14 +80,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql="DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'llma_item_ver_item_owner_fk') THEN\nALTER TABLE llm_analytics_datasetitemversion_v2\n                ADD CONSTRAINT llma_item_ver_item_owner_fk\n                FOREIGN KEY (dataset_item_id, dataset_id, team_id)\n                REFERENCES llm_analytics_datasetitem_v2 (id, dataset_id, team_id)\n                DEFERRABLE INITIALLY DEFERRED NOT VALID;\nEND IF; END $$;",
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
-            sql="DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'llma_item_ver_revision_owner_fk') THEN\nALTER TABLE llm_analytics_datasetitemversion_v2\n                ADD CONSTRAINT llma_item_ver_revision_owner_fk\n                FOREIGN KEY (dataset_revision_id, dataset_id, team_id)\n                REFERENCES llm_analytics_datasetrevision_v2 (id, dataset_id, team_id)\n                DEFERRABLE INITIALLY DEFERRED NOT VALID;\nEND IF; END $$;",
-            reverse_sql="",
-        ),
         posthog.migration_helpers.not_valid_constraint.ValidateConstraint(
             model_name="evaluation",
             name="model_config_only_on_llm_judge",
