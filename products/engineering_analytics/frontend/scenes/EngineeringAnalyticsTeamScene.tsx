@@ -15,7 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EntityHeader } from '../components/EntityHeader'
-import { CountWithPrior, MetricTile, percentChange } from '../components/MetricTile'
+import { MetricTile, percentChange } from '../components/MetricTile'
 import { Section } from '../components/Section'
 import { compactHoursLabel } from '../lib/format'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
@@ -127,12 +127,15 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         {
             title: labels.current,
             key: 'signalCount',
-            width: 160,
+            width: 140,
             align: 'right',
-            tooltip:
-                'Runs where this test failed, errored, or a retry recovered it, with the previous window beside it.',
+            tooltip: 'Runs where this test failed, errored, or a retry recovered it.',
             sorter: (a, b) => a.signalCount - b.signalCount,
-            render: (_, row) => <CountWithPrior current={row.signalCount} prior={row.signalCountPrior} />,
+            render: (_, row) => (
+                <div className="text-right text-sm font-semibold tabular-nums">
+                    {humanFriendlyNumber(row.signalCount)}
+                </div>
+            ),
         },
         {
             title: 'Last seen',
@@ -196,28 +199,10 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     loading={healthRowLoading}
                 />
                 <HealthTile
-                    label="Regressions"
-                    tooltip="Owned tests that failed with no recorded recovery and still hit several PRs or master."
-                    value={healthRow?.regressionTestCount ?? null}
-                    prior={healthRow?.regressionTestCountPrior ?? null}
-                    goodWhenDown
-                    vs={labels.prior}
-                    loading={healthRowLoading}
-                />
-                <HealthTile
                     label="Failed runs"
                     tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
                     value={healthRow?.failedRunCount ?? null}
                     prior={healthRow?.failedRunCountPrior ?? null}
-                    goodWhenDown
-                    vs={labels.prior}
-                    loading={healthRowLoading}
-                />
-                <HealthTile
-                    label="Recoveries"
-                    tooltip="Runs where one commit both failed and passed an owned test. This is what proves a flake."
-                    value={healthRow?.sameCommitRecoveryRunCount ?? null}
-                    prior={healthRow?.sameCommitRecoveryRunCountPrior ?? null}
                     goodWhenDown
                     vs={labels.prior}
                     loading={healthRowLoading}
