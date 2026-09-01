@@ -6,7 +6,6 @@ from django.db import models
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
 from prometheus_client import Counter
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -50,8 +49,6 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
-    # DEPRECATED: value is no longer persisted; use secure_value for hash of value
-    value = deprecate_field(models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True))
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(
         "posthog.Team",
