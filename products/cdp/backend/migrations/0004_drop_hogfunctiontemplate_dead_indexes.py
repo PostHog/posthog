@@ -1,6 +1,6 @@
 from django.db import migrations, models
 
-from posthog.migration_helpers import SafeRemoveIndexConcurrently
+from posthog.migration_helpers import DropIndexConcurrently, SafeRemoveIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -19,9 +19,10 @@ class Migration(migrations.Migration):
             model_name="hogfunctiontemplate",
             name="posthog_hog_created_6a9df3_idx",
         ),
-        # `sha` had db_index=True, which is a field-level index rather than a
-        # Meta index, so the helper cannot express it. Drop both the btree and
-        # its varchar `_like` companion, and take db_index off the state.
+        # `sha` had db_index=True, a field-level index rather than a Meta index,
+        # so the state-aware SafeRemoveIndexConcurrently cannot name it. Drop the
+        # btree and its varchar `_like` companion through the raw-SQL
+        # DropIndexConcurrently helper, and take db_index off the state.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AlterField(
@@ -31,13 +32,15 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                migrations.RunSQL(
-                    sql="DROP INDEX CONCURRENTLY IF EXISTS posthog_hogfunctiontemplate_sha_d0be5888",
-                    reverse_sql=migrations.RunSQL.noop,
+                DropIndexConcurrently(
+                    index_name="posthog_hogfunctiontemplate_sha_d0be5888",
+                    table_name="posthog_hogfunctiontemplate",
+                    columns="(sha)",
                 ),
-                migrations.RunSQL(
-                    sql="DROP INDEX CONCURRENTLY IF EXISTS posthog_hogfunctiontemplate_sha_d0be5888_like",
-                    reverse_sql=migrations.RunSQL.noop,
+                DropIndexConcurrently(
+                    index_name="posthog_hogfunctiontemplate_sha_d0be5888_like",
+                    table_name="posthog_hogfunctiontemplate",
+                    columns="(sha varchar_pattern_ops)",
                 ),
             ],
         ),
