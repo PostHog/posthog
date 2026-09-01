@@ -88040,7 +88040,7 @@ export namespace Schemas {
       content: WorkflowProposalCreateContent;
       /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
       evidence?: WorkflowProposalCreateEvidence;
-      /** Workflow version this was authored against. Defaults to the current live version. */
+      /** Workflow version this was authored against. Required when the proposal changes a whole list (actions, edges, variables), because approve refuses such a proposal once the workflow has moved on and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
       base_version?: number;
       /**
          * The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest.
