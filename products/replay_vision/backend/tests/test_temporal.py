@@ -2354,6 +2354,41 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 
 
 @pytest.mark.asyncio
+async def test_apply_scanner_workflow_classifies_transient_rasterizer_failure() -> None:
+    # A recording-api blip reaches the parent as a BLOCK_LISTING_FAILED whose message carries the errno and pod
+    # address. Marking it a non-retryable RASTERIZATION_FAILED told the user their recording is broken and never
+    # recovered, and persisting the volatile text verbatim minted a fresh error-tracking issue per variant. It must
+    # land as retryable infra_transient with the errno and address dropped for a stable message.
+    new_observation_id = uuid.uuid4()
+    leaf = ApplicationError(
+        "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
+        type="BLOCK_LISTING_FAILED",
+        non_retryable=False,
+    )
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(leaf)),
+    )
+
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await _run_workflow(_build_inputs(session_id="sess-blocklist"), mocks)
+
+    assert exc_info.value.kind is FailureKind.INFRA_TRANSIENT
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    assert mark_observation_ineligible_activity not in called
+    error_reason = mocks.activity_calls[-1][1].error_reason
+    assert error_reason == "infra_transient:rasterizer could not reach a PostHog dependency (BLOCK_LISTING_FAILED)"
+    assert "ECONNREFUSED" not in error_reason
+    assert "10.0.0.5" not in error_reason
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
