@@ -31,7 +31,7 @@ Absolute volumes stay out of this page.
 ## The bound
 
 | Slice of web analytics scene views            | Share of all views | Share of filtered views |
-| ----------------------------------------------- | ------------------ | ----------------------- |
+| --------------------------------------------- | ------------------ | ----------------------- |
 | Carries a filter set                          | 10.6%              | 100%                    |
 | Every filter key maps to a dimensional column | 8.5%               | 80.0%                   |
 | ...and every operator is `exact`              | 7.7%               | 72.8%                   |
@@ -59,7 +59,7 @@ The lazy precompute gate refuses any filter whose type is not `event` or `person
 `products/web_analytics/backend/hogql_queries/web_lazy_precompute_common.py`).
 
 | Reason a filtered view misses lazy precompute      | Share of filtered views |
-| ---------------------------------------------------- | ----------------------- |
+| -------------------------------------------------- | ----------------------- |
 | None. It is eligible today (event and person only) | 65.0%                   |
 | One or more session entry attribution filters      | 29.9%                   |
 | Other session filters (duration, bounce, pathname) | 3.7%                    |
