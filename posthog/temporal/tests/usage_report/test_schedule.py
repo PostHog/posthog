@@ -18,11 +18,21 @@ from datetime import timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.temporal.schedule import create_finalize_usage_reports_schedule, create_run_usage_reports_schedule
+from posthog.temporal.schedule import (
+    create_finalize_experimental_realtime_usage_schedule,
+    create_finalize_usage_reports_schedule,
+    create_gather_experimental_realtime_usage_schedule,
+    create_run_usage_reports_schedule,
+)
 
 SCHEDULE_CASES = [
     (create_run_usage_reports_schedule, "run-usage-reports-schedule", 0),
     (create_finalize_usage_reports_schedule, "finalize-usage-reports-schedule", 1),
+]
+
+EXPERIMENTAL_SCHEDULE_CASES = [
+    (create_gather_experimental_realtime_usage_schedule, "gather-experimental-realtime-usage-schedule", 0),
+    (create_finalize_experimental_realtime_usage_schedule, "finalize-experimental-realtime-usage-schedule", 1),
 ]
 
 
@@ -131,3 +141,27 @@ async def test_finalizer_schedule_retries_until_the_day_is_captured() -> None:
     assert retry_policy.maximum_attempts >= 5
     assert retry_policy.maximum_interval is not None
     assert retry_policy.maximum_interval >= timedelta(hours=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("create_schedule_fn,schedule_id,expected_day_offset", EXPERIMENTAL_SCHEDULE_CASES)
+async def test_experimental_realtime_usage_schedules_are_separate_and_serializable(
+    create_schedule_fn, schedule_id, expected_day_offset
+) -> None:
+    captured: dict = {}
+
+    async def fake_create_schedule(client, created_schedule_id, schedule, trigger_immediately=False):
+        captured["schedule_id"] = created_schedule_id
+        captured["schedule"] = schedule
+
+    with (
+        patch("posthog.temporal.schedule.a_schedule_exists", new=AsyncMock(return_value=False)),
+        patch("posthog.temporal.schedule.a_create_schedule", new=fake_create_schedule),
+    ):
+        await create_schedule_fn(MagicMock())
+
+    schedule = captured["schedule"]
+    assert captured["schedule_id"] == schedule_id
+    assert schedule.action.workflow == "gather-experimental-realtime-usage"
+    assert schedule.action.args == [{"day_offset": expected_day_offset, "organization_ids": None}]
+    assert schedule.policy.overlap.name == "SKIP"

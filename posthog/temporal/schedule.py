@@ -73,6 +73,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule impor
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
+from posthog.temporal.usage_report.experimental_realtime import GatherExperimentalRealtimeUsageInputs
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
@@ -808,6 +809,56 @@ async def create_finalize_usage_reports_schedule(client: Client):
         )
 
 
+async def create_gather_experimental_realtime_usage_schedule(client: Client):
+    schedule_id = "gather-experimental-realtime-usage-schedule"
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "gather-experimental-realtime-usage",
+            GatherExperimentalRealtimeUsageInputs(day_offset=0).model_dump(mode="json"),
+            id=schedule_id,
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule)
+    else:
+        await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)
+
+
+async def create_finalize_experimental_realtime_usage_schedule(client: Client):
+    schedule_id = "finalize-experimental-realtime-usage-schedule"
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "gather-experimental-realtime-usage",
+            GatherExperimentalRealtimeUsageInputs(day_offset=1).model_dump(mode="json"),
+            id=schedule_id,
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=8,
+                initial_interval=timedelta(minutes=5),
+                maximum_interval=timedelta(hours=2),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 02:45 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule)
+    else:
+        await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -954,6 +1005,8 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    schedules.append(create_gather_experimental_realtime_usage_schedule)
+    schedules.append(create_finalize_experimental_realtime_usage_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.
