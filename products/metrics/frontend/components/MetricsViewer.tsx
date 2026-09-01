@@ -94,6 +94,8 @@ export const MetricsViewer = (): JSX.Element => {
         viewerClauses,
         activeClauseIndex,
         formula,
+        queryFingerprint,
+        anomalyFingerprint,
         metricName,
         dateFrom,
         dateTo,
@@ -185,11 +187,13 @@ export const MetricsViewer = (): JSX.Element => {
         errorTrackingDisabledReason,
     ])
 
-    // Refetch the chart whenever any clause or the formula changes — the loader
-    // breakpoint debounces input.
+    // Refetch the chart whenever the effective query changes — the fingerprints are
+    // strings, so edits that don't change the request (a blank just-added row, a
+    // group-by tweak the anomaly body doesn't carry) don't refire the effects.
+    // The loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [viewerClauses, formula, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [queryFingerprint, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Characterize the recent window against the rest, so the chart carries a "vs baseline"
     // badge without the user having to eyeball the shape. The loader suppresses the badge
@@ -200,7 +204,7 @@ export const MetricsViewer = (): JSX.Element => {
         } else {
             clearAnomaly()
         }
-    }, [viewerClauses, formula, dateFrom, dateTo, hasMetricName]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const showFormulaInput = viewerClauses.length > 1 || formula !== ''
 

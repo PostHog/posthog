@@ -170,6 +170,26 @@ describe('metricsSceneLogic', () => {
             expect(logic.values.formula).toEqual('')
         })
 
+        // An invalid clauses param must not fall through to the legacy branch — that
+        // would collapse the multi-series state on screen to one blank clause.
+        it('an invalid clauses param leaves multi-series state untouched', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', {
+                    clauses: JSON.stringify([
+                        { name: 'a', metricName: 'requests_total', aggregation: 'rate' },
+                        { name: 'b', metricName: 'queue_depth', aggregation: 'avg' },
+                    ]),
+                })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { clauses: '{corrupted' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.viewerClauses).toHaveLength(2)
+            expect(logic.values.metricName).toEqual('requests_total')
+        })
+
         // The clauses param is attacker-controlled JSON; any invalid entry must reject the
         // whole param instead of reaching the viewer half-validated.
         it.each([
@@ -273,6 +293,25 @@ describe('metricsSceneLogic', () => {
             expect(router.values.searchParams).not.toHaveProperty('clauses')
             expect(router.values.searchParams).not.toHaveProperty('formula')
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+        })
+
+        // With a blank just-added row focused, the active clause is empty while the chart
+        // still shows the named one — the legacy encoding must serialize the named clause,
+        // or editing the blank row drops the metric from the link.
+        it('keeps the named clause in the URL while a blank added row is focused', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+            }).toFinishAllListeners()
+
+            metricsViewerLogic.actions.addClause()
+            await expectLogic(logic, () => {
+                logic.actions.setAggregation('rate')
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).toMatchObject({
+                metricName: 'requests_total',
+                aggregation: 'increase',
+            })
         })
 
         it('keeps viewer params in the URL when switching tabs', async () => {

@@ -1,29 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconChevronDown, IconEllipsis } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDropdown,
-    LemonInputSelect,
-    LemonMenu,
-    LemonSelect,
-    LemonTag,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
-import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { FilterLogicalOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
+import { MetricsClauseFilterBar } from './MetricsClauseFilterBar'
+import { MetricsGroupByButton } from './MetricsGroupByButton'
 import {
     MAX_CLAUSES,
-    METRIC_FILTER_OPERATOR_ALLOWLIST,
     MetricAggregation,
     MetricsViewerClause,
     RECOMMENDED_AGGREGATION_BY_TYPE,
@@ -80,28 +69,25 @@ export function MetricsClauseRow({
         : undefined
 
     return (
-        // Clicking anywhere in the row focuses it; the dropdown overlays render in
-        // portals, so picks inside them don't re-trigger this with a stale index.
-        <div className="flex flex-wrap items-start gap-2" onClick={select} data-attr="metrics-clause-row">
+        <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
             {showAlias && (
-                <span className="flex items-center h-8">
-                    <Tooltip
-                        title={
-                            isActive
-                                ? 'Samples and related links follow this series'
-                                : 'Click to focus this series. Samples and related links follow it.'
-                        }
+                <Tooltip
+                    title={
+                        isActive
+                            ? 'Samples and related links follow this series'
+                            : 'Click to focus this series. Samples and related links follow it.'
+                    }
+                >
+                    <LemonButton
+                        size="small"
+                        type={isActive ? 'primary' : 'secondary'}
+                        onClick={select}
+                        className="font-mono"
+                        data-attr="metrics-clause-alias"
                     >
-                        <LemonTag
-                            type={isActive ? 'primary' : 'muted'}
-                            className="cursor-pointer font-mono"
-                            onClick={select}
-                            data-attr="metrics-clause-alias"
-                        >
-                            {clause.name}
-                        </LemonTag>
-                    </Tooltip>
-                </span>
+                        {clause.name}
+                    </LemonButton>
+                </Tooltip>
             )}
             <div className="flex flex-col gap-1">
                 <MetricNameFilter
@@ -117,7 +103,7 @@ export function MetricsClauseRow({
                     recommendedAggregation &&
                     clause.aggregation !== recommendedAggregation && (
                         <span className="text-xs text-secondary">
-                            {clause.selectedMetricType} — {recommendedAggregation} recommended
+                            {clause.selectedMetricType}: {recommendedAggregation} recommended
                         </span>
                     )}
             </div>
@@ -186,118 +172,5 @@ export function MetricsClauseRow({
                 />
             </LemonMenu>
         </div>
-    )
-}
-
-// Filter chips + "Add filter" button, mirroring the logs viewer's applied-filters row: picking an
-// attribute opens the chip for value selection, with suggestions fed by the metrics attribute endpoints.
-const MetricsClauseFilterBar = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
-    const { filterGroup } = useValues(universalFiltersLogic)
-    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
-    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
-
-    useOnMountEffect(() => setAllowInitiallyOpen(true))
-
-    return (
-        <div className="flex flex-wrap items-center gap-1">
-            {filterGroup.values.map((filterOrGroup: UniversalFiltersGroupValue, index: number) =>
-                // This UI only ever adds leaf filters, so nested groups can't occur here.
-                isUniversalGroupFilterLike(filterOrGroup) ? null : (
-                    <span
-                        key={index}
-                        title={disabledReason ?? undefined}
-                        className={disabledReason ? 'pointer-events-none opacity-50' : undefined}
-                    >
-                        <UniversalFilters.Value
-                            index={index}
-                            filter={filterOrGroup}
-                            onRemove={disabledReason ? undefined : () => removeGroupValue(index)}
-                            onChange={(value) => {
-                                if (!disabledReason) {
-                                    replaceGroupValue(index, value)
-                                }
-                            }}
-                            initiallyOpen={allowInitiallyOpen && !disabledReason}
-                            operatorAllowlist={METRIC_FILTER_OPERATOR_ALLOWLIST}
-                        />
-                    </span>
-                )
-            )}
-            <UniversalFilters.AddFilterButton
-                size="small"
-                type="secondary"
-                title="Filter"
-                disabledReason={disabledReason}
-            />
-        </div>
-    )
-}
-
-// Group by is a button that opens the attribute multiselect, so the filter bar stays the
-// primary control (mirrors how logs and traces keep grouping as a button, not the main bar).
-const MetricsGroupByButton = ({
-    groupByKeys,
-    onChange,
-    disabledReason,
-}: {
-    groupByKeys: string[]
-    onChange: (groupByKeys: string[]) => void
-    disabledReason: string | null
-}): JSX.Element => {
-    const { attributeKeyOptions, attributeKeyOptionsLoading } = useValues(metricsViewerLogic)
-    const { setGroupBySearch, loadAttributeKeyOptions } = useActions(metricsViewerLogic)
-    const [open, setOpen] = useState<boolean>(false)
-
-    const label =
-        groupByKeys.length === 0
-            ? 'Group by'
-            : groupByKeys.length === 1
-              ? `Group by: ${groupByKeys[0]}`
-              : `Group by: ${groupByKeys.length} attributes`
-
-    return (
-        <LemonDropdown
-            visible={open}
-            closeOnClickInside={false}
-            onClickOutside={() => setOpen(false)}
-            overlay={
-                <div className="p-1 w-[18rem]">
-                    <LemonInputSelect
-                        mode="multiple"
-                        size="small"
-                        allowCustomValues
-                        value={groupByKeys}
-                        onChange={onChange}
-                        options={attributeKeyOptions}
-                        loading={attributeKeyOptionsLoading}
-                        onInputChange={setGroupBySearch}
-                        onFocus={() => loadAttributeKeyOptions({})}
-                        placeholder="Group by attribute…"
-                        data-attr="metrics-viewer-group-by"
-                        disabledReason={disabledReason}
-                        autoFocus
-                    />
-                </div>
-            }
-        >
-            <LemonButton
-                size="small"
-                type="secondary"
-                active={open || groupByKeys.length > 0}
-                sideIcon={<IconChevronDown />}
-                onClick={() => {
-                    setOpen((wasOpen) => !wasOpen)
-                    loadAttributeKeyOptions({})
-                }}
-                disabledReason={disabledReason ?? undefined}
-                data-attr="metrics-viewer-group-by-button"
-                // Attribute keys can be long, so cap the trigger rather than let it push the row wide
-                truncate
-                className="max-w-[16rem]"
-                tooltip={groupByKeys.length > 0 ? groupByKeys.join(', ') : undefined}
-            >
-                {label}
-            </LemonButton>
-        </LemonDropdown>
     )
 }

@@ -19,7 +19,7 @@ import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
 import { buildMetricsChartConfig } from './metricsChartConfig'
 import { MetricsExemplarMarkers, type MetricsExemplar } from './MetricsExemplarMarkers'
-import { formatSeriesName, type MetricsChartSeries, seriesColor, shouldShowClauseAliases } from './metricsSeries'
+import { formatSeriesNames, type MetricsChartSeries, seriesColor } from './metricsSeries'
 
 const AREA_FILL_OPACITY = 0.2
 
@@ -45,14 +45,13 @@ export function MetricsSeriesChart({
     const isArea = display?.type === 'area'
 
     const chartSeries = useMemo<Series[]>(() => {
-        const showClause = shouldShowClauseAliases(series)
+        const names = formatSeriesNames(
+            series.map((s) => ({ labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause })),
+            fallbackName
+        )
         return series.map((s, index) => ({
             key: `${index}`,
-            label: formatSeriesName(
-                { labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause },
-                fallbackName,
-                { showClause }
-            ),
+            label: names[index],
             // A null value is a gap (non-representable aggregate); charted as 0 for now.
             data: s.points.map((p) => p.value ?? 0),
             color: getColorVar(seriesColor(index)),

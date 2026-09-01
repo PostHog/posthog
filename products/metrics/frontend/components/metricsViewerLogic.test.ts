@@ -185,6 +185,27 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.aggregation).toBe('increase')
     })
 
+    // A formula referencing a removed clause's alias can only 400 — a routine remove
+    // must leave the remaining series charted, not an error banner.
+    it('clears the formula when a clause it references is removed', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setFormula('a / b')
+
+        logic.actions.removeClause(1)
+
+        expect(logic.values.formula).toBe('')
+        expect(logic.values.viewerClauses).toHaveLength(1)
+    })
+
+    // Custom aliases from links can contain underscores (the backend tokenizer allows
+    // them); stripping them would mangle a valid formula into an unknown alias.
+    it('keeps underscores in formulas', () => {
+        logic.actions.setFormula('err_total / req_total')
+        expect(logic.values.formula).toBe('err_total / req_total')
+    })
+
     // A formula references clauses by alias, so a duplicate alias after remove/add would
     // silently rebind the formula (or be rejected by the backend as non-unique).
     it('keeps aliases unique when clauses are removed and re-added', () => {
