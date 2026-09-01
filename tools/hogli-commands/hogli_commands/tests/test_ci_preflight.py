@@ -83,7 +83,26 @@ class TestStrictAndFixContracts:
     ) -> None:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
-        assert "run `hogli build:openapi` and commit before pushing" in result.output
+        assert "if you have not run `hogli build:openapi` since changing them, run it and commit" in result.output
+        # Nothing regenerated here, so the advisory must not claim the types are stale.
+        # A branch keeps its source edits in the diff after a regen, so a staleness claim
+        # can never be cleared by running the fix.
+        assert "out of date" not in result.output
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_guidance_only_check_is_not_counted_as_an_advisory(
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--json"])
+        summary = json.loads(result.output)
+        assert "openapi" in summary["triggered"]
+        # A check that runs nothing has found nothing. Counting it puts an advisory on
+        # every push that touches an API file, which spends the weight the footer needs
+        # for the checks that did measure something.
+        assert summary["advisories"] == 0
 
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))

@@ -10,6 +10,7 @@ from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallsAndErrorsQueryRunner,
 )
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
@@ -45,4 +46,5 @@ __all__ = [
     "MCPToolSampleIntentsQueryRunner",
     "MCPToolStatsQueryRunner",
     "MCPToolTopUsersQueryRunner",
+    "MCPMissingCapabilitiesQueryRunner",
 ]

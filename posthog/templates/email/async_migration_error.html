@@ -1,12 +1,10 @@
 {% extends "email/base.html" %}
-
 {% block section %}
-<!-- prettier-ignore -->
-<p>
-   Uh-oh. Async migration {{ migration_key }} experienced an error at {{ time }}. Here's what happened:
-
-    <code>
-        {{ error }}
-    </code>
-</p>
+    <!-- prettier-ignore -->
+    <p>
+        Uh-oh. Async migration {{ migration_key }} experienced an error at {{ time }}. Here's what happened:
+        <code>
+            {{ error }}
+        </code>
+    </p>
 {% endblock %}

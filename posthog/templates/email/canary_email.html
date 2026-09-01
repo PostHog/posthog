@@ -1,13 +1,10 @@
 {% extends "email/base.html" %}
-
 {% block section %}
-<p>
-    Good news!
-    
-    You have properly configured your email notifications for
-    <a href="{{ site_url }}" target="_blank">your PostHog instance</a>.
-    
-    Nothing else to do here, emails will now be sent when
-    applicable.
-</p>
+    <p>
+        Good news!
+        You have properly configured your email notifications for
+        <a href="{{ site_url }}" target="_blank">your PostHog instance</a>.
+        Nothing else to do here, emails will now be sent when
+        applicable.
+    </p>
 {% endblock %} {% block heading %}Email successfully set up!{% endblock %}

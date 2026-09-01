@@ -168,7 +168,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     logs: {
         icon: <IconLive />,
-        iconColor: ['var(--color-product-logs-light)'],
+        iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'],
     },
     tracing: {
         icon: <IconListTree />,

@@ -1074,6 +1074,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsNotifications": {
         "template": "/mcp-analytics/notifications",
         "params": [],
@@ -1166,6 +1171,11 @@
     },
     "organizationBilling": {
         "template": "/organization/billing",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationBillingRealTimeUsage": {
+        "template": "/organization/billing/real-time-usage",
         "params": [],
         "scope": "global"
     },

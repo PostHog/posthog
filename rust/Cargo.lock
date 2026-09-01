@@ -2591,6 +2591,7 @@ dependencies = [
  "hogvm",
  "metrics",
  "petgraph 0.8.3",
+ "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2657,6 +2658,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "proptest",
+ "rand 0.8.5",
  "rdkafka",
  "rustls 0.23.37",
  "serde",
@@ -2900,6 +2902,13 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "common-kafka-consumer"
+version = "0.1.0"
+dependencies = [
+ "rdkafka",
 ]
 
 [[package]]
@@ -6156,6 +6165,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-kafka-consumer",
  "dashmap 6.1.0",
  "envconfig",
  "futures",

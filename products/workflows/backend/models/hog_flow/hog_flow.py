@@ -52,9 +52,17 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "webhook",
         "data-warehouse-table",
         "data-warehouse-view",
-        "slack-message",
+        "internal-event",
     }
 )
+
+# The internal events a workflow may subscribe to. The internal-events stream carries payloads
+# that each owning product gates behind its own scopes — recording content, exception detail,
+# activity detail, alert bodies — while starting a workflow needs only hog_flow:write. An
+# allowlist keeps that gap closed by default, so adding a trigger means answering the
+# authorization question for that event. Pair a new entry with a tile in
+# products/workflows/frontend/Workflows/hogflows/registry/triggers/.
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
@@ -89,7 +97,7 @@ PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
 ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
     "data-warehouse-view",
-    "slack-message",
+    "internal-event",
 }
 
 

@@ -660,6 +660,11 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         columns = [column.strip() for column in select_clause.split(",")]
         assert columns == sorted(columns)
 
+    def test_joins_the_enterprise_table_with_a_left_join(self):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
+        assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
+        assert "FULL OUTER JOIN" not in sql
+
 
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison

@@ -176,7 +176,7 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
                 cast(AccessControlLevel, field._access_control_level),
             )
 
-    return field_access_map
+    return field_access_map  # ty: ignore[invalid-return-type]
 
 
 def resource_to_display_name(resource: APIScopeObject) -> str:
@@ -280,6 +280,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
