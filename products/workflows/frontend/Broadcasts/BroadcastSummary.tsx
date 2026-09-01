@@ -6,6 +6,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -31,11 +32,13 @@ export function BroadcastSummary(): JSX.Element {
     // Email metrics from a batch send are attributed to the batch job, not the flow (see
     // `parentRunId ?? functionId` in the plugin server's email service), so a flow-scoped query
     // returns zeros for every broadcast. Key the logic by the run so it remounts once runs load.
-    const latestBatchJobId = batchJobs[0]?.id
+    const latestBatchJob = batchJobs[0]
+    const latestBatchJobId = latestBatchJob?.id
     const metricsSourceId = latestBatchJobId ?? broadcastId
     const logicKey = `broadcast-${metricsSourceId}`
     // Mounting with force params here pins the metrics query to this run; EmailMetricsSummary
-    // reads the same keyed logic below.
+    // reads the same keyed logic below. The date window follows the run rather than a fixed
+    // lookback, so a send older than 30 days still shows its counts.
     useValues(
         appMetricsLogic({
             logicKey,
@@ -45,7 +48,8 @@ export function BroadcastSummary(): JSX.Element {
                 appSource: 'hog_flow',
                 appSourceId: metricsSourceId ?? undefined,
                 breakdownBy: 'metric_name',
-                dateFrom: '-30d',
+                dateFrom: latestBatchJob ? dayjs(latestBatchJob.created_at).subtract(1, 'hour').toISOString() : '-30d',
+                dateTo: latestBatchJob ? dayjs().add(1, 'hour').toISOString() : undefined,
                 interval: 'day',
             },
         })
