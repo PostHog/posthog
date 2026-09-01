@@ -5,6 +5,7 @@
             "inputs": [
                 "backend/facade/**",
                 "backend/presentation/**",
+                "backend/routes.py",
                 "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**"

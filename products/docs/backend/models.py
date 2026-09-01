@@ -2,34 +2,89 @@
 Django models for docs.
 
 Keep models thin — business logic belongs in logic/.
-Use types from facade/enums.py where applicable.
-Avoid ForeignKeys to models outside this app; if needed,
-disallow reverse relations with related_name='+'.
 """
 
-import uuid
-
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
-from .facade.enums import SplineStatus
+from .facade.enums import DocStatus
 
 
-# Inherits TeamScopedRootMixin so models opt into fail-closed team scoping —
-# queries without team context raise TeamScopeError instead of silently
-# returning every team's rows. See posthog/models/scoping/README.md.
-# Main-DB products (TeamScopedRootMixin): add `team = models.ForeignKey(
-# "posthog.Team", on_delete=models.CASCADE)` to the subclass.
-class SplineReticulator(TeamScopedRootMixin):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255)
-    status = models.CharField(
-        max_length=32,
-        choices=[(s.value, s.value) for s in SplineStatus],
-        default=SplineStatus.PENDING,
+def doc_status_choices() -> list[tuple[str, str]]:
+    return [(status.value, status.value) for status in DocStatus]
+
+
+class Doc(TeamScopedRootMixin, UUIDModel):
+    """A collaborative rich-text document filed in a channel (a "space" in PostHog Desktop).
+
+    ``content`` is a ProseMirror document and ``version`` is the collab version that
+    produced it. Live editing runs through the Redis transport in ``posthog/collab``;
+    this row is the durable copy every client reloads from.
+
+    Blocks inside the content hold references — a task id, a PostHog object kind and id —
+    never the values behind them, so a status change never rewrites the document.
+    """
+
+    # db_constraint=False: a real FK constraint to the hot posthog_team table
+    # takes a parent lock during migration; scoping is enforced app-side.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    # Channels are the tasks product's model; every doc belongs to one space.
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="docs")
+
+    title = models.CharField(max_length=400, blank=True, default="")
+    status = models.CharField(max_length=16, choices=doc_status_choices, default=DocStatus.DRAFT)
+    position = models.IntegerField(default=0)
+
+    content = models.JSONField(null=True, blank=True)
+    # Plain-text mirror of `content`, written on every save so search never parses JSON.
+    text_content = models.TextField(blank=True, null=True)
+    version = models.IntegerField(default=0)
+
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "docs_doc"
+        indexes = [
+            models.Index(fields=["channel", "position"], name="docs_channel_position"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title or "Untitled"
+
+
+class SpaceKpi(TeamScopedRootMixin, UUIDModel):
+    """A number the space watches, shown on its home view.
+
+    Holds a reference to a saved insight only. The value and the sparkline are read
+    from the insight API at render time, so nothing here goes stale.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="doc_kpis")
+
+    name = models.CharField(max_length=200)
+    insight_short_id = models.CharField(max_length=32)
+    position = models.IntegerField(default=0)
+
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    deleted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "docs_space_kpi"
+        indexes = [
+            models.Index(fields=["channel", "position"], name="docs_kpi_channel_position"),
+        ]
 
     def __str__(self) -> str:
         return self.name

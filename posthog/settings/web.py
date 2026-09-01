@@ -44,6 +44,7 @@ PRODUCTS_APPS = [
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
+    "products.docs.backend.apps.DocsConfig",
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
@@ -532,7 +533,6 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "products.dashboards.backend.widget_specs.pydantic_openapi.inject_widget_spec_pydantic_components",
-        "products.docs.backend.apps.DocsConfig",
         "posthog.api.documentation.custom_postprocessing_hook",
         # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
         # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
@@ -659,6 +659,9 @@ SPECTACULAR_SETTINGS = {
         # Keeps agent_platform's approval-request enum on its pre-collision name now
         # that mcp_store also has a "decision" field.
         "DecisionEnum": ["approve", "reject"],
+        # Doc.status, shared by the doc read, summary, and update shapes.
+        # Inline choices from products.docs.backend.facade.enums.DocStatus (labels == values).
+        "DocStatusEnum": ["draft", "active", "done"],
         # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
         "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
         "NotebookSQLV2RefKindEnum": ["hogql", "local"],

@@ -464,9 +464,10 @@ export interface DatasetItemCreateApi {
  * * `limit_reached` - limit_reached
  * * `stale_version` - stale_version
  */
-export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
+export type DatasetConflictResponseCodeEnumApi =
+    (typeof DatasetConflictResponseCodeEnumApi)[keyof typeof DatasetConflictResponseCodeEnumApi]
 
-export const CodeEnumApi = {
+export const DatasetConflictResponseCodeEnumApi = {
     DatasetArchived: 'dataset_archived',
     DatasetNameConflict: 'dataset_name_conflict',
     DatasetItemArchived: 'dataset_item_archived',
@@ -499,7 +500,7 @@ export interface DatasetConflictResponseApi {
      * * `client_item_id_conflict` - client_item_id_conflict
      * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version */
-    code: CodeEnumApi
+    code: DatasetConflictResponseCodeEnumApi
     /** Explanation of how to resolve the conflict. */
     detail: string
     /**

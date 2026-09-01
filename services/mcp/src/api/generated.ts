@@ -17905,28 +17905,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `dataset_archived` - dataset_archived
-     * * `dataset_name_conflict` - dataset_name_conflict
-     * * `dataset_item_archived` - dataset_item_archived
-     * * `dataset_item_active` - dataset_item_active
-     * * `client_item_id_conflict` - client_item_id_conflict
-     * * `limit_reached` - limit_reached
-     * * `stale_version` - stale_version
-     */
-    export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
-
-
-    export const CodeEnum = {
-      DatasetArchived: 'dataset_archived',
-      DatasetNameConflict: 'dataset_name_conflict',
-      DatasetItemArchived: 'dataset_item_archived',
-      DatasetItemActive: 'dataset_item_active',
-      ClientItemIdConflict: 'client_item_id_conflict',
-      LimitReached: 'limit_reached',
-      StaleVersion: 'stale_version',
-    } as const;
-
-    /**
      * * `codex` - codex
      */
     export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
@@ -26883,6 +26861,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `dataset_archived` - dataset_archived
+     * * `dataset_name_conflict` - dataset_name_conflict
+     * * `dataset_item_archived` - dataset_item_archived
+     * * `dataset_item_active` - dataset_item_active
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
+     * * `stale_version` - stale_version
+     */
+    export type DatasetConflictResponseCodeEnum = typeof DatasetConflictResponseCodeEnum[keyof typeof DatasetConflictResponseCodeEnum];
+
+
+    export const DatasetConflictResponseCodeEnum = {
+      DatasetArchived: 'dataset_archived',
+      DatasetNameConflict: 'dataset_name_conflict',
+      DatasetItemArchived: 'dataset_item_archived',
+      DatasetItemActive: 'dataset_item_active',
+      ClientItemIdConflict: 'client_item_id_conflict',
+      LimitReached: 'limit_reached',
+      StaleVersion: 'stale_version',
+    } as const;
+
+    /**
      * * `datasets` - datasets
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions
@@ -26906,7 +26906,7 @@ export namespace Schemas {
        * * `client_item_id_conflict` - client_item_id_conflict
        * * `limit_reached` - limit_reached
        * * `stale_version` - stale_version */
-      code: CodeEnum;
+      code: DatasetConflictResponseCodeEnum;
       /** Explanation of how to resolve the conflict. */
       detail: string;
       /**
@@ -28966,6 +28966,92 @@ export namespace Schemas {
     }
 
     /**
+     * What a new discussion needs.
+     */
+    export interface DiscussionCreate {
+      /** The first message. */
+      content: string;
+      /**
+         * Key the client also writes onto the mark around the selected phrase.
+         * @maxLength 64
+         */
+      anchor_key: string;
+      /**
+         * The selected phrase, quoted in the panel.
+         * @maxLength 280
+         */
+      anchor_text: string;
+    }
+
+    /**
+     * Who did something, as much of a person as a doc surface needs.
+     */
+    export interface DocPerson {
+      /** Numeric id of the person. */
+      id: number;
+      /** Stable id of the person. */
+      uuid: string;
+      /** First name. */
+      first_name: string;
+      /** Last name. */
+      last_name: string;
+      /** Email address. */
+      email: string;
+    }
+
+    /**
+     * One message in a discussion.
+     */
+    export interface DiscussionPost {
+      /** Unique id of the message. */
+      id: string;
+      /** What the person wrote. */
+      content: string;
+      /** The person who wrote it. */
+      created_by: DocPerson | null;
+      /** When it was written. */
+      created_at: string;
+    }
+
+    /**
+     * A reply to an existing discussion.
+     */
+    export interface DiscussionReply {
+      /** What to add to the thread. */
+      content: string;
+    }
+
+    /**
+     * Mark a discussion handled, or bring it back.
+     */
+    export interface DiscussionResolve {
+      /** True marks the thread handled, false reopens it. */
+      resolved: boolean;
+    }
+
+    /**
+     * A discussion anchored to a phrase in the doc, with its replies.
+     */
+    export interface DiscussionThread {
+      /** Unique id of the message. */
+      id: string;
+      /** What the person wrote. */
+      content: string;
+      /** The person who wrote it. */
+      created_by: DocPerson | null;
+      /** When it was written. */
+      created_at: string;
+      /** Key that ties this thread to a mark in the doc body. */
+      anchor_key: string;
+      /** The phrase the thread was started from. */
+      anchor_text: string;
+      /** Whether the thread is marked as handled. */
+      resolved: boolean;
+      /** Replies, oldest first. */
+      replies: DiscussionPost[];
+    }
+
+    /**
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
      * * `analysis_wrong` - Agent's analysis is wrong
@@ -29005,6 +29091,207 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_at: string | null;
+    }
+
+    /**
+     * The doc body as a ProseMirror document.
+     * @nullable
+     */
+    export type DocContent = { [key: string]: unknown } | null;
+
+    /**
+     * * `draft` - draft
+     * * `active` - active
+     * * `done` - done
+     */
+    export type DocStatusEnum = typeof DocStatusEnum[keyof typeof DocStatusEnum];
+
+
+    export const DocStatusEnum = {
+      Draft: 'draft',
+      Active: 'active',
+      Done: 'done',
+    } as const;
+
+    /**
+     * A doc with its body.
+     */
+    export interface Doc {
+      /** Unique id of the doc. */
+      id: string;
+      /** The space (channel) the doc belongs to. */
+      channel_id: string;
+      /** Title of the doc, shown on its tab. */
+      title: string;
+      /** Where the doc is in its life: draft while it is being written, active once the space works from it, done when it is finished.
+       *
+       * * `draft` - draft
+       * * `active` - active
+       * * `done` - done */
+      status: DocStatusEnum;
+      /** Order of the doc in the space's tab row, lowest first. */
+      position: number;
+      /** Collab version of the stored body. Increases by one for every accepted step. */
+      version: number;
+      /** The person who created the doc. */
+      created_by: DocPerson | null;
+      /** When the doc was created. */
+      created_at: string;
+      /** When the doc was last written to. */
+      updated_at: string;
+      /**
+         * The doc body as a ProseMirror document.
+         * @nullable
+         */
+      content: DocContent;
+      /** Plain-text mirror of the body, written on every save. */
+      text_content: string;
+    }
+
+    /**
+     * * `conflict` - conflict
+     * * `stale` - stale
+     */
+    export type DocCollabConflictCodeEnum = typeof DocCollabConflictCodeEnum[keyof typeof DocCollabConflictCodeEnum];
+
+
+    export const DocCollabConflictCodeEnum = {
+      Conflict: 'conflict',
+      Stale: 'stale',
+    } as const;
+
+    /**
+     * The save was rejected because other steps landed first.
+     */
+    export interface DocCollabConflict {
+      /** 'conflict' means the missed steps are included. 'stale' means the client must reload the doc.
+       *
+       * * `conflict` - conflict
+       * * `stale` - stale */
+      code: DocCollabConflictCodeEnum;
+      /** The steps the client missed, in order. */
+      steps?: unknown[];
+      /** Authors of the missed steps, index-aligned with 'steps'. */
+      client_ids?: string[];
+      /** The current collab version of the doc. */
+      version: number;
+    }
+
+    /**
+     * The whole document after the steps are applied.
+     */
+    export type DocCollabSaveContent = { [key: string]: unknown };
+
+    /**
+     * One batch of prosemirror-collab steps, with the document they produce.
+     */
+    export interface DocCollabSave {
+      /**
+         * Id of the editing client, unique per open tab.
+         * @maxLength 64
+         */
+      client_id: string;
+      /** The steps to append, in order. */
+      steps: unknown[];
+      /** The collab version the submitted steps are based on. */
+      version: number;
+      /** The whole document after the steps are applied. */
+      content: DocCollabSaveContent;
+      /** Plain-text mirror of the body. */
+      text_content?: string;
+      /**
+         * Title to store with this save.
+         * @maxLength 400
+         */
+      title?: string;
+      /**
+         * The caller's caret position, broadcast with the steps.
+         * @nullable
+         */
+      cursor_head?: number | null;
+    }
+
+    /**
+     * * `blank` - blank
+     * * `notes` - notes
+     */
+    export type TemplateEnum = typeof TemplateEnum[keyof typeof TemplateEnum];
+
+
+    export const TemplateEnum = {
+      Blank: 'blank',
+      Notes: 'notes',
+    } as const;
+
+    /**
+     * What a new doc needs.
+     */
+    export interface DocCreate {
+      /** The space (channel) the doc belongs to. */
+      channel: string;
+      /**
+         * Title of the doc. Defaults to the template name.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Starting content: 'blank' is an empty page, 'notes' has headings for notes from a call.
+       *
+       * * `blank` - blank
+       * * `notes` - notes */
+      template?: TemplateEnum;
+    }
+
+    /**
+     * A caret ping, broadcast to everyone else in the doc.
+     */
+    export interface DocPresence {
+      /**
+         * Id of the editing client, unique per open tab.
+         * @maxLength 64
+         */
+      client_id: string;
+      /** The collab version the caret position is relative to. */
+      version: number;
+      /** Caret position as {'anchor': int, 'head': int}. */
+      cursor: unknown;
+    }
+
+    /**
+     * The new left-to-right order of a space's tabs.
+     */
+    export interface DocReorder {
+      /** The space (channel) whose docs are being reordered. */
+      channel: string;
+      /** Doc ids in their new order. Ids that are not in this space are ignored. */
+      doc_ids: string[];
+    }
+
+    /**
+     * A doc without its body. Used for the tab row and the space home list.
+     */
+    export interface DocSummary {
+      /** Unique id of the doc. */
+      id: string;
+      /** The space (channel) the doc belongs to. */
+      channel_id: string;
+      /** Title of the doc, shown on its tab. */
+      title: string;
+      /** Where the doc is in its life: draft while it is being written, active once the space works from it, done when it is finished.
+       *
+       * * `draft` - draft
+       * * `active` - active
+       * * `done` - done */
+      status: DocStatusEnum;
+      /** Order of the doc in the space's tab row, lowest first. */
+      position: number;
+      /** Collab version of the stored body. Increases by one for every accepted step. */
+      version: number;
+      /** The person who created the doc. */
+      created_by: DocPerson | null;
+      /** When the doc was created. */
+      created_at: string;
+      /** When the doc was last written to. */
+      updated_at: string;
     }
 
     export interface DocsSearchRequest {
@@ -61325,6 +61612,23 @@ export namespace Schemas {
     }
 
     /**
+     * The parts of a doc a person can change outside the editor.
+     */
+    export interface PatchedDocUpdate {
+      /**
+         * New title for the doc.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Where the doc is in its life: draft while it is being written, active once the space works from it, done when it is finished.
+       *
+       * * `draft` - draft
+       * * `active` - active
+       * * `done` - done */
+      status?: DocStatusEnum;
+    }
+
+    /**
      * Feature flag payload for this early access feature
      */
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
@@ -81998,6 +82302,54 @@ export namespace Schemas {
     }
 
     /**
+     * A number the space watches. The value is read from the insight, not stored here.
+     */
+    export interface SpaceKpi {
+      /** Unique id of the number. */
+      id: string;
+      /** The space (channel) that watches this number. */
+      channel_id: string;
+      /** Label shown above the number. */
+      name: string;
+      /** Short id of the saved insight the value comes from. */
+      insight_short_id: string;
+      /** Order in the space's number grid, lowest first. */
+      position: number;
+      /** The person who added the number. */
+      created_by: DocPerson | null;
+      /** When it was added. */
+      created_at: string;
+    }
+
+    /**
+     * Everything the space home view renders in one call.
+     */
+    export interface SpaceHome {
+      /** Docs in this space, in tab order. */
+      docs: DocSummary[];
+      /** Numbers this space watches, in grid order. */
+      kpis: SpaceKpi[];
+    }
+
+    /**
+     * What a new number needs.
+     */
+    export interface SpaceKpiCreate {
+      /** The space (channel) that watches this number. */
+      channel: string;
+      /**
+         * Label shown above the number.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Short id of the saved insight the value comes from.
+         * @maxLength 32
+         */
+      insight_short_id: string;
+    }
+
+    /**
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -92620,6 +92972,27 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type DocKpisListParams = {
+    /**
+     * Only return rows in this space (channel).
+     */
+    channel?: string;
+    };
+
+    export type DocsListParams = {
+    /**
+     * Only return rows in this space (channel).
+     */
+    channel?: string;
+    };
+
+    export type DocsHomeRetrieveParams = {
+    /**
+     * Only return rows in this space (channel).
+     */
+    channel?: string;
     };
 
     export type EarlyAccessFeatureListParams = {

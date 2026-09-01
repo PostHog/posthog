@@ -17,8 +17,10 @@ from posthog.collab.presence import (
     PRESENCE_MAX_LENGTH as PRESENCE_MAX_LENGTH,
     PRESENCE_STREAM_KEY_PATTERN as PRESENCE_STREAM_KEY_PATTERN,
     PRESENCE_TTL_SECONDS as PRESENCE_TTL_SECONDS,
+    ephemeral_sse_frame as ephemeral_sse_frame,
     presence_sse_frame as presence_sse_frame,
     presence_stream_key as presence_stream_key,
+    publish_ephemeral_event as publish_ephemeral_event,
     publish_presence as publish_presence,
 )
 from posthog.collab.steps import (
