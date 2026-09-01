@@ -476,6 +476,11 @@ tools:
     uploaded-media-create:
         operation: uploaded_media_create
         enabled: false
+    # Deliberately not an agent tool: deleting an image breaks every design already pointing
+    # at its URL, and an agent cannot see which of those a person has already sent.
+    uploaded-media-destroy:
+        operation: uploaded_media_destroy
+        enabled: false
     user-get:
         operation: users_retrieve
         enabled: true

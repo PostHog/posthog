@@ -5186,19 +5186,32 @@ export type UploadedMediaListParams = {
      */
     offset?: number
     /**
-     * The library to list, e.g. `email`.
+     * The library to list.
      */
-    purpose: string
+    purpose: UploadedMediaListPurpose
 }
+
+export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
+
+export const UploadedMediaListPurpose = {
+    Email: 'email',
+} as const
+
+/**
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ */
+export type UploadedMediaCreateBodyPurpose =
+    (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
+
+export const UploadedMediaCreateBodyPurpose = {
+    Email: 'email',
+} as const
 
 export type UploadedMediaCreateBody = {
     /** Image file. Must be under 4MB and a real, decodable image. */
     image: Blob
-    /**
-     * Library to add this image to, e.g. `email`. Omit to upload without joining a library (as dashboard text cards and notebooks do).
-     * @maxLength 100
-     */
-    purpose?: string
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    purpose?: UploadedMediaCreateBodyPurpose
 }
 
 export type UploadedMediaCreate201 = { [key: string]: unknown }

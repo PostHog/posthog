@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
@@ -19,6 +20,18 @@ logger = structlog.get_logger(__name__)
 
 class ObjectStorageUnavailable(Exception):
     pass
+
+
+# Libraries an image can be added to. The column stays free-text so adding a consumer is one
+# line here, but the API accepts nothing outside this set: a typo would otherwise open a
+# second library that nothing lists, and give the caller no sign that it had.
+MEDIA_PURPOSE_EMAIL = "email"
+MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL]
+
+# A pending row older than this is abandoned: the presigned URL it was created for expires in
+# minutes, so nothing can complete it, and nothing else revisits it. Generous because the only
+# cost of waiting is one unlisted row and its staged bytes.
+ABANDONED_UPLOAD_AGE = timedelta(hours=24)
 
 
 class UploadedMedia(UUIDTModel, RootTeamMixin):
@@ -69,11 +82,11 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
 
     @staticmethod
     def build_staging_location(team_id: int, media_id) -> str:
-        """A presigned upload POST is only ever signed for this key, never the permanent
-        one `build_media_location` returns. The signature stays valid until it expires
-        (Django can't revoke it early), so anyone still holding it could rewrite whatever
-        it points at — the permanent key has to be a key nobody outside complete_upload
-        itself ever had permission to write to."""
+        """The only key a presigned upload POST is ever signed for.
+
+        That signature stays valid until it expires, and Django can't revoke it early, so
+        anyone still holding the form can rewrite whatever it points at. Verified bytes
+        therefore move to `build_media_location`, a key no caller was ever signed for."""
         return "/".join(
             [
                 settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,

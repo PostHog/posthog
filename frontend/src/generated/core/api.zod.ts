@@ -1016,20 +1016,18 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *
- *     Uploaded media must have a content type beginning with 'image/' and be less than 4MB. Pass `purpose` to also
- *     add the image to a library (e.g. `email`), making it visible to `GET ?purpose=...`.
+ *     Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+ *     the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+ *     to `GET ?purpose=...`.
  *
  */
-export const uploadedMediaCreateBodyPurposeMax = 100
-
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
     image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
-        .string()
-        .max(uploadedMediaCreateBodyPurposeMax)
+        .enum(['email'])
         .optional()
         .describe(
-            'Library to add this image to, e.g. `email`. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
         ),
 })
 

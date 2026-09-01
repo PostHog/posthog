@@ -2401,8 +2401,9 @@ export const getUploadedMediaCreateUrl = (projectId: string) => {
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *
- *     Uploaded media must have a content type beginning with 'image/' and be less than 4MB. Pass `purpose` to also
- *     add the image to a library (e.g. `email`), making it visible to `GET ?purpose=...`.
+ *     Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+ *     the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+ *     to `GET ?purpose=...`.
  *
  */
 export const uploadedMediaCreate = async (
@@ -2422,6 +2423,20 @@ export const uploadedMediaCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getUploadedMediaDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uploaded_media/${id}/`
+}
+
+/**
+ * Delete an image and the file behind it. The URL stops working straight away, so anything already pointing at it — a sent email, a saved design — shows a broken image from then on.
+ */
+export const uploadedMediaDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUploadedMediaDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

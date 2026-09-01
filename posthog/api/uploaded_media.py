@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import Optional
+from typing import NoReturn, Optional
 from urllib.parse import quote
 
 from django.conf import settings
@@ -21,7 +21,7 @@ from statshog.defaults.django import statsd
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
-from posthog.models.uploaded_media import ObjectStorageUnavailable
+from posthog.models.uploaded_media import MEDIA_PURPOSES, ObjectStorageUnavailable
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -111,12 +111,6 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
         return False
 
 
-# The set of image types a sniff will accept — matches _INLINE_SAFE_CONTENT_TYPES exactly,
-# since accepting a format the download route wouldn't serve inline anyway just produces a
-# stored file that always downloads as an attachment. No SVG: never safe to serve inline
-# (script execution risk), so it's absent from _INLINE_SAFE_CONTENT_TYPES too.
-_SNIFFABLE_IMAGE_CONTENT_TYPES = _INLINE_SAFE_CONTENT_TYPES
-
 # Guards against a decompression bomb: a small, highly-compressed file that decodes to an
 # enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
 _MAX_IMAGE_PIXELS = 50_000_000
@@ -125,9 +119,10 @@ _MAX_IMAGE_PIXELS = 50_000_000
 def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
     """Determine an image's real content type from its bytes — never trust a caller's claim.
 
-    Returns None if the bytes don't decode as one of the image types the library
-    supports, so the caller can reject rather than store or serve a claimed type
-    that doesn't match the actual content.
+    Accepts only what `download` will serve inline: storing a format that always comes back
+    as an attachment gives the caller a URL no image tag can render. Returns None for
+    anything else, so the caller rejects rather than stores a type that misdescribes the
+    bytes.
     """
     if not data:
         return None
@@ -140,7 +135,38 @@ def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
             content_type = Image.MIME.get(image.format or "")
     except Exception:
         return None
-    return content_type if content_type in _SNIFFABLE_IMAGE_CONTENT_TYPES else None
+    return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
+
+
+def _try_delete_object(location: Optional[str]) -> bool:
+    """Delete a staged object, reporting failure instead of raising it.
+
+    Callers reach here having already decided what the response says, so letting
+    `ObjectStorageError` escape would replace that answer with a 500 and hide the real
+    outcome. Returning the result lets a caller keep the row that still points at the
+    object, which is what leaves the sweep something to find.
+    """
+    if not location:
+        return True
+    try:
+        object_storage.delete(location)
+    except ObjectStorageError:
+        logger.warning("uploaded_media.staging_object_delete_failed", location=location, exc_info=True)
+        return False
+    return True
+
+
+def _discard_pending_upload(uploaded_media: UploadedMedia, *, code: str, detail: str) -> NoReturn:
+    """Reject a pending upload and drop the bytes it staged.
+
+    The caller's file is the problem here, so a storage failure must not turn their 400 into
+    a 500. When the delete does fail the row stays pending rather than being removed, so the
+    abandoned-upload sweep retries both together instead of leaving an object nothing
+    references.
+    """
+    if _try_delete_object(uploaded_media.media_location):
+        uploaded_media.delete()
+    raise ValidationError(code=code, detail=detail)
 
 
 @csrf_exempt
@@ -217,11 +243,25 @@ class UploadedMediaSerializer(serializers.ModelSerializer):
 UPLOAD_URL_EXPIRATION_SECONDS = 900
 
 
+def _validate_purpose(value: str) -> None:
+    if value not in MEDIA_PURPOSES:
+        raise serializers.ValidationError(f"Unknown purpose. Valid values: {', '.join(MEDIA_PURPOSES)}.")
+
+
+def _purpose_field(**kwargs) -> serializers.CharField:
+    """A library tag, checked against MEDIA_PURPOSES.
+
+    Not a ChoiceField: a single-value choice set hashes by its values, so `["email"]` here
+    would share one generated enum name with every unrelated `["email"]` field in the schema
+    and rename them. The operations that take a purpose list the valid values in their own
+    schema instead.
+    """
+    return serializers.CharField(max_length=100, validators=[_validate_purpose], **kwargs)
+
+
 class UploadedMediaStartUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=1000, help_text="The file's display name, e.g. 'logo.png'.")
-    purpose = serializers.CharField(
-        max_length=100, help_text="Library to add this image to once uploaded, e.g. 'email'."
-    )
+    purpose = _purpose_field(help_text="Library to add this image to once uploaded, e.g. 'email'.")
 
 
 class UploadedMediaUploadStartedSerializer(serializers.Serializer):
@@ -236,23 +276,19 @@ class UploadedMediaUploadStartedSerializer(serializers.Serializer):
 
 
 class UploadedMediaCreateSerializer(serializers.Serializer):
+    """Validates the multipart body. The OpenAPI shape comes from `create`'s `@extend_schema`
+    instead, so keep the descriptions there — these exist only to satisfy the field rule."""
+
     # allow_empty_file=True: an empty upload isn't a malformed request, just an image that
     # will fail the later sniff — that 400 already exists and carries a clearer message.
-    image = serializers.FileField(
-        allow_empty_file=True, help_text="Image file. Must be under 4MB and a real, decodable image."
-    )
-    purpose = serializers.CharField(
-        required=False,
-        max_length=100,
-        help_text="Library to add this image to, e.g. `email`. Omit to upload without joining a library "
-        "(as dashboard text cards and notebooks do).",
-    )
+    image = serializers.FileField(allow_empty_file=True, help_text="Image file.")
+    purpose = _purpose_field(required=False, help_text="Library to add this image to.")
 
 
 @extend_schema(extensions={"x-product": "core"})
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "uploaded_media"
-    scope_object_write_actions = ["create", "start_upload", "complete_upload"]
+    scope_object_write_actions = ["create", "start_upload", "complete_upload", "destroy"]
     queryset = UploadedMedia.objects.all()
     serializer_class = _FallbackSerializer
     parser_classes = (MultiPartParser, FormParser)
@@ -272,15 +308,25 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="The library to list, e.g. `email`.",
+                enum=MEDIA_PURPOSES,
+                description="The library to list.",
             )
         ],
-        responses={200: UploadedMediaSerializer(many=True), 400: OpenApiResponse(description="Missing `purpose`.")},
+        responses={
+            200: UploadedMediaSerializer(many=True),
+            400: OpenApiResponse(description="Missing or unknown `purpose`."),
+        },
     )
     def list(self, request, *args, **kwargs) -> Response:
         purpose = request.query_params.get("purpose")
         if not purpose:
             raise ValidationError(code="purpose_required", detail="A purpose query parameter is required.")
+        if purpose not in MEDIA_PURPOSES:
+            # An unknown library would otherwise list as empty, which reads as "no images yet"
+            # rather than "that library does not exist".
+            raise ValidationError(
+                code="unknown_purpose", detail=f"Unknown purpose. Valid values: {', '.join(MEDIA_PURPOSES)}."
+            )
         queryset = self.get_queryset().filter(purpose=purpose)
         page = self.paginate_queryset(queryset)
         serializer = UploadedMediaSerializer(page, many=True)
@@ -365,24 +411,18 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError(code="upload_not_found", detail="No file was uploaded to the upload URL.")
 
         if len(content) > FOUR_MEGABYTES:
-            uploaded_media.delete()
-            object_storage.delete(uploaded_media.media_location)
-            raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
+            _discard_pending_upload(
+                uploaded_media, code="file_too_large", detail="Uploaded media must be less than 4MB"
+            )
 
         sniffed_content_type = sniff_image_content_type(content)
         if sniffed_content_type is None:
-            uploaded_media.delete()
-            object_storage.delete(uploaded_media.media_location)
-            raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+            _discard_pending_upload(uploaded_media, code="invalid_image", detail="Uploaded media must be a valid image")
 
-        # The presigned POST stays valid (and thus rewritable) until it expires — moving
-        # the verified bytes to a key it was never signed for is what makes a later reuse
-        # of that form harmless, rather than just re-checking on every future read.
-        #
-        # Order matters for retry safety: copy, then save, then delete the staging object
-        # last. If save() fails, staging still exists and a retry re-reads from it. Deleting
-        # staging before save() commits would mean a save failure leaves the row pointing at
-        # a location that no longer exists, with no way back.
+        # Move the verified bytes off the key the presigned form signed (see
+        # UploadedMedia.build_staging_location). Order is copy, save, delete: if save() fails,
+        # staging still holds the bytes and a retry re-reads them. Deleting staging first
+        # would leave a save failure pointing the row at a location that no longer exists.
         staging_location = uploaded_media.media_location
         permanent_location = UploadedMedia.build_media_location(self.team_id, uploaded_media.pk)
         object_storage.copy(staging_location, permanent_location)
@@ -393,7 +433,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         uploaded_media.pending = False
         uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
 
-        object_storage.delete(staging_location)
+        # The image is live either way, so a failed cleanup must not fail the request — it
+        # leaves a logged staging object that no longer costs the caller anything.
+        _try_delete_object(staging_location)
 
         statsd.incr(
             "uploaded_media.uploaded",
@@ -402,11 +444,30 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(UploadedMediaSerializer(uploaded_media).data)
 
     @extend_schema(
+        description="Delete an image and the file behind it. The URL stops working straight away, so anything "
+        "already pointing at it — a sent email, a saved design — shows a broken image from then on.",
+        responses={
+            204: OpenApiResponse(description="Deleted."),
+            404: OpenApiResponse(description="No matching image for this team."),
+        },
+    )
+    def destroy(self, request, *args, **kwargs) -> Response:
+        uploaded_media = self.get_object()
+        # The file goes first: a storage failure then leaves the row, so the caller sees the
+        # delete fail and can retry. Removing the row first would strand the file with
+        # nothing referencing it, still served to anyone holding the URL.
+        if uploaded_media.media_location:
+            object_storage.delete(uploaded_media.media_location)
+        uploaded_media.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
         description="""
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
 
-    Uploaded media must have a content type beginning with 'image/' and be less than 4MB. Pass `purpose` to also
-    add the image to a library (e.g. `email`), making it visible to `GET ?purpose=...`.
+    Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+    the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+    to `GET ?purpose=...`.
     """,
         # A raw dict, not request=UploadedMediaCreateSerializer: drf-spectacular can't tell a
         # FileField apart from a plain string once a serializer also has to describe the
@@ -423,8 +484,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     },
                     "purpose": {
                         "type": "string",
-                        "maxLength": 100,
-                        "description": "Library to add this image to, e.g. `email`. Omit to upload without "
+                        "enum": MEDIA_PURPOSES,
+                        "description": "Library to add this image to. Omit to upload without "
                         "joining a library (as dashboard text cards and notebooks do).",
                     },
                 },
@@ -439,66 +500,63 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         file = serializer.validated_data["image"]
         purpose = serializer.validated_data.get("purpose") or None
 
+        if file.size > FOUR_MEGABYTES:
+            raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
+
+        # Cheap reject on the claimed type before anything is written. The sniff below is what
+        # actually decides, since a caller can claim whatever it likes.
+        if not file.content_type.startswith("image/"):
+            raise UnsupportedMediaType(file.content_type)
+
         try:
-            if file.size > FOUR_MEGABYTES:
-                raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
-
-            if file.content_type.startswith("image/"):
-                uploaded_media = UploadedMedia.save_content(
-                    team=self.team,
-                    created_by=request.user,
-                    file_name=file.name,
-                    content_type=file.content_type,
-                    content=file.file,
-                )
-                if uploaded_media is None:
-                    raise APIException("Could not save media")
-
-                # to save having to copy the stream so that we can read it to verify the image,
-                # save it to minio anyway and then delete the record if it's not valid
-                if uploaded_media.media_location is None:
-                    raise APIException("Could not read uploaded media")
-                bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
-                sniffed_content_type = sniff_image_content_type(bytes_to_verify)
-                if sniffed_content_type is None:
-                    statsd.incr(
-                        "uploaded_media.image_failed_validation",
-                        tags={"file_name": file.name, "team": self.team_id},
-                    )
-                    # TODO a batch process can delete media with no records in the DB or for deleted teams
-                    uploaded_media.delete()
-                    raise ValidationError(
-                        code="invalid_image",
-                        detail="Uploaded media must be a valid image",
-                    )
-
-                # Store what the bytes really are, never what the caller claimed.
-                uploaded_media.content_type = sniffed_content_type
-                uploaded_media.size_bytes = len(bytes_to_verify) if bytes_to_verify else None
-                uploaded_media.purpose = purpose
-                uploaded_media.save(update_fields=["content_type", "size_bytes", "purpose"])
-
-                headers = self.get_success_headers(uploaded_media.get_absolute_url())
-                statsd.incr(
-                    "uploaded_media.uploaded",
-                    tags={"team_id": self.team.pk, "content_type": sniffed_content_type},
-                )
-                return Response(
-                    {
-                        "id": uploaded_media.id,
-                        "image_location": uploaded_media.get_absolute_url(),
-                        "name": uploaded_media.file_name,
-                    },
-                    status=status.HTTP_201_CREATED,
-                    headers=headers,
-                )
-            else:
-                raise UnsupportedMediaType(file.content_type)
+            uploaded_media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=request.user,
+                file_name=file.name,
+                content_type=file.content_type,
+                content=file.file,
+            )
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required",
                 detail="Object storage must be available to allow media uploads.",
             )
+        if uploaded_media is None:
+            raise APIException("Could not save media")
+
+        # to save having to copy the stream so that we can read it to verify the image,
+        # save it to storage anyway and then delete the record if it's not valid
+        if uploaded_media.media_location is None:
+            raise APIException("Could not read uploaded media")
+        bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
+        sniffed_content_type = sniff_image_content_type(bytes_to_verify)
+        if sniffed_content_type is None:
+            statsd.incr(
+                "uploaded_media.image_failed_validation",
+                tags={"file_name": file.name, "team": self.team_id},
+            )
+            # TODO a batch process can delete media with no records in the DB or for deleted teams
+            uploaded_media.delete()
+            raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+
+        uploaded_media.content_type = sniffed_content_type
+        uploaded_media.size_bytes = len(bytes_to_verify) if bytes_to_verify else None
+        uploaded_media.purpose = purpose
+        uploaded_media.save(update_fields=["content_type", "size_bytes", "purpose"])
+
+        statsd.incr(
+            "uploaded_media.uploaded",
+            tags={"team_id": self.team.pk, "content_type": sniffed_content_type},
+        )
+        return Response(
+            {
+                "id": uploaded_media.id,
+                "image_location": uploaded_media.get_absolute_url(),
+                "name": uploaded_media.file_name,
+            },
+            status=status.HTTP_201_CREATED,
+            headers=self.get_success_headers(uploaded_media.get_absolute_url()),
+        )
 
     def get_success_headers(self, location: str) -> dict:
         try:

@@ -142,14 +142,12 @@ class TestMediaAPI(APIBaseTest):
     def test_accepts_every_format_the_download_route_treats_as_inline_safe(
         self, _name: str, pillow_format: str, expected_content_type: str
     ) -> None:
-        """Any format download() is willing to serve inline must also be accepted on upload —
-        otherwise the sniffer silently narrows what dashboard text cards, notebooks, and org
-        logos can store, even though download() would happily serve it."""
+        # Any format download() serves inline must also be accepted on upload, or the sniffer
+        # silently narrows what text cards, notebooks and org logos can store. Encoding is not
+        # guarded: a Pillow build that drops one of these formats is itself the regression,
+        # because download() would still promise to serve it.
         buffer = io.BytesIO()
-        try:
-            Image.new("RGB", (2, 2), color="red").save(buffer, format=pillow_format)
-        except Exception:
-            self.skipTest(f"Pillow build here can't encode {pillow_format}")
+        Image.new("RGB", (2, 2), color="red").save(buffer, format=pillow_format)
         fake_file = SimpleUploadedFile(
             name=f"logo.{_name}", content=buffer.getvalue(), content_type=expected_content_type
         )
@@ -306,9 +304,26 @@ class TestMediaLibraryAPI(APIBaseTest):
             **kwargs,
         )
 
-    def test_list_requires_purpose_filter(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/")
+    @parameterized.expand(
+        [
+            ("missing", ""),
+            # A typo would otherwise list as empty, reading as "no images yet" rather than
+            # "that library does not exist".
+            ("unknown", "?purpose=emial"),
+        ]
+    )
+    def test_list_rejects_a_purpose_that_names_no_library(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/{query}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_start_upload_rejects_a_purpose_that_names_no_library(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+                {"name": "logo.png", "purpose": "emial"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.count() == 0
 
     def test_list_returns_only_matching_purpose_for_own_team_newest_first(self) -> None:
         first = self._create_media(purpose="email", file_name="first.png")
@@ -335,37 +350,33 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert listed["url"] == f"http://localhost:8010/uploaded_media/{second.id}"
         assert listed["created_at"] is not None
 
-    def test_create_with_purpose_is_listed_with_size_bytes(self) -> None:
+    @parameterized.expand(
+        [
+            ("with_purpose", {"purpose": "email"}, 1),
+            # Existing callers (dashboard text cards, notebooks, toolbar) upload with no
+            # purpose and must stay invisible to any purpose-scoped listing.
+            ("without_purpose", {}, 0),
+        ]
+    )
+    def test_create_joins_the_library_only_when_a_purpose_is_given(
+        self, _name: str, extra_fields: dict, expected_count: int
+    ) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/uploaded_media",
-                    {"image": image, "purpose": "email"},
+                    {"image": image, **extra_fields},
                     format="multipart",
                 )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            media_id = response.json()["id"]
 
             list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
             self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
-            [listed] = list_response.json()["results"]
-            assert listed["id"] == media_id
-            assert listed["size_bytes"] == os.path.getsize(get_path_to("a-small-but-valid.gif"))
-
-    def test_create_without_purpose_stays_out_of_the_library(self) -> None:
-        """Existing callers (dashboard text cards, notebooks, toolbar) upload with no purpose
-        and must keep working exactly as before — invisible to any purpose-scoped listing."""
-        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
-            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/uploaded_media",
-                    {"image": image},
-                    format="multipart",
-                )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-
-            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
-            self.assertEqual(list_response.json()["count"], 0)
+            results = list_response.json()["results"]
+            assert len(results) == expected_count
+            if expected_count:
+                assert results[0]["id"] == response.json()["id"]
+                assert results[0]["size_bytes"] == os.path.getsize(get_path_to("a-small-but-valid.gif"))
 
     def test_create_rejects_an_oversized_purpose_before_writing_anything(self) -> None:
         """purpose is a varchar(100) column. Without validating it up front, an oversized value
@@ -528,23 +539,38 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert response.status_code >= 500
         assert UploadedMedia.objects.get(id=media_id).pending is True
 
-    def test_complete_upload_rejects_non_image_bytes_and_cleans_up(self) -> None:
+    @parameterized.expand(
+        [
+            ("non_image", b"<html>not an image</html>"),
+            ("oversized", b"1" * (FOUR_MEGABYTES + 1)),
+        ]
+    )
+    def test_complete_upload_rejects_bad_bytes_and_cleans_up(self, _name: str, uploaded_bytes: bytes) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
-            object_storage.write(media_location, b"<html>not an image</html>")
+            object_storage.write(media_location, uploaded_bytes)
 
             response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
             assert UploadedMedia.objects.filter(id=media_id).count() == 0
+            assert object_storage.read_bytes(media_location, missing_ok=True) is None
 
-    def test_complete_upload_rejects_an_oversized_object_and_cleans_up(self) -> None:
+    def test_complete_upload_keeps_the_400_when_cleanup_storage_fails(self) -> None:
+        # A failing delete used to escape as a 500, hiding the caller's real mistake. The row
+        # stays pending so the abandoned sweep retries it, rather than being removed and
+        # leaving an object nothing points at.
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
-            object_storage.write(media_location, b"1" * (FOUR_MEGABYTES + 1))
+            object_storage.write(media_location, b"<html>not an image</html>")
 
-            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+            with patch(
+                "posthog.api.uploaded_media.object_storage.delete",
+                side_effect=ObjectStorageError("delete failed"),
+            ):
+                response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        assert UploadedMedia.objects.filter(id=media_id).count() == 0
+        assert UploadedMedia.objects.get(id=media_id).pending is True
 
     def test_complete_upload_stays_retryable_if_the_db_save_fails_after_copying(self) -> None:
         """The staging object must outlive the DB write that points away from it. Deleting it
@@ -605,3 +631,60 @@ class TestMediaLibraryAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {value}"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_delete_removes_the_image_and_stops_serving_it(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                create_response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image, "purpose": "email"},
+                    format="multipart",
+                )
+            media_id = create_response.json()["id"]
+            media_location = UploadedMedia.objects.get(id=media_id).media_location
+            assert media_location is not None
+
+            delete_response = self.client.delete(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/")
+            self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
+            assert UploadedMedia.objects.filter(id=media_id).count() == 0
+            assert object_storage.read_bytes(media_location, missing_ok=True) is None
+
+            self.client.logout()
+            assert self.client.get(f"/uploaded_media/{media_id}").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_keeps_the_row_when_the_file_cannot_be_removed(self) -> None:
+        # Dropping the row first would strand the file: still served to anyone holding the
+        # URL, with nothing left pointing at it to retry from.
+        media = self._create_media(purpose="email")
+
+        with patch("posthog.api.uploaded_media.object_storage.delete", side_effect=ObjectStorageError("delete failed")):
+            response = self.client.delete(f"/api/projects/{self.team.id}/uploaded_media/{media.id}/")
+
+        assert response.status_code >= 500
+        assert UploadedMedia.objects.filter(id=media.id).exists()
+
+    def test_delete_for_another_teams_image_returns_404(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        media = self._create_media(purpose="email")
+        media.team = other_team
+        media.save(update_fields=["team"])
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/uploaded_media/{media.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+        assert UploadedMedia.objects.filter(id=media.id).exists()
+
+    def test_delete_requires_uploaded_media_write_scope(self) -> None:
+        media = self._create_media(purpose="email")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read-only", user=self.user, secure_value=hash_key_value(value), scopes=["uploaded_media:read"]
+        )
+        self.client.logout()
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/uploaded_media/{media.id}/",
+            headers={"Authorization": f"Bearer {value}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        assert UploadedMedia.objects.filter(id=media.id).exists()
