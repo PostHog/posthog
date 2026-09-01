@@ -20,7 +20,7 @@ describe('SubscriptionTimePicker', () => {
 
         render(<SubscriptionTimePicker value="2024-01-01T09:00:00Z" onChange={onChange} />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Delivery time' }))
+        fireEvent.click(screen.getByLabelText('Delivery time'))
 
         expect(screen.queryByText('9:15 AM')).not.toBeInTheDocument()
         fireEvent.click(screen.getByText('9:30 AM'))
