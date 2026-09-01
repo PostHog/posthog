@@ -14,6 +14,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
     estimate_running_time_for_experiment,
+    resolve_minimum_detectable_effect,
     select_sizing_metric,
 )
 
@@ -338,6 +339,20 @@ class TestSelectSizingMetric:
         assert select_sizing_metric(metrics, None) is None
 
 
+class TestResolveMinimumDetectableEffect:
+    @parameterized.expand(
+        [
+            ("saved_wins", 5, 20, 5),
+            ("team_default_when_no_saved", None, 20, 20),
+            ("fallback_when_neither", None, None, 30),
+            ("saved_zero_is_ignored", 0, 20, 20),
+            ("team_zero_is_ignored", None, 0, 30),
+        ]
+    )
+    def test_resolution_chain(self, _name, saved, team_default, expected):
+        assert resolve_minimum_detectable_effect(saved, team_default) == expected
+
+
 class TestEstimateRunningTimeForExperiment:
     NOW = datetime(2026, 8, 27, tzinfo=UTC)
 
@@ -355,28 +370,75 @@ class TestEstimateRunningTimeForExperiment:
             }
         }
 
-    def test_manual_mode_uses_config_not_results(self):
+    def _manual_config(self):
+        return {
+            "minimum_detectable_effect": 50,
+            "exposure_estimate_config": {
+                "conversionRateInputType": "manual",
+                "manualMetricType": "funnel",
+                "manualBaselineValue": 10,
+                "manualExposureRate": 100,
+            },
+        }
+
+    def test_manual_mode_uses_live_exposures_like_detail_page(self):
+        # Manual uses the fixed rate but live exposures, matching the detail page:
+        # target 1152, 300 exposed so far, 100/day -> (1152-300)/100 = 8.52 -> 9.
         estimate = estimate_running_time_for_experiment(
             metrics=[self._funnel_metric()],
             primary_metrics_ordered_uuids=None,
-            running_time_calculation={
-                "minimum_detectable_effect": 50,
-                "exposure_estimate_config": {
-                    "conversionRateInputType": "manual",
-                    "manualMetricType": "funnel",
-                    "manualBaselineValue": 10,
-                    "manualExposureRate": 100,
-                },
-            },
-            start_date=None,
+            running_time_calculation=self._manual_config(),
+            start_date=self.NOW - timedelta(days=4),
+            number_of_variants=2,
+            result_blob=self._funnel_blob(samples=300),
+            now=self.NOW,
+        )
+        assert estimate.target_sample_size == 1152
+        assert estimate.current_exposures == 300
+        assert estimate.remaining_days == 9
+
+    def test_manual_mode_too_little_data_shows_total(self):
+        # <100 exposures -> fall back to total from the fixed rate: 1152/100 = 12.
+        estimate = estimate_running_time_for_experiment(
+            metrics=[self._funnel_metric()],
+            primary_metrics_ordered_uuids=None,
+            running_time_calculation=self._manual_config(),
+            start_date=self.NOW - timedelta(hours=6),
+            number_of_variants=2,
+            result_blob=self._funnel_blob(samples=20),
+            now=self.NOW,
+        )
+        assert estimate.remaining_days == 12
+
+    def test_manual_mode_without_results_shows_total(self):
+        estimate = estimate_running_time_for_experiment(
+            metrics=[self._funnel_metric()],
+            primary_metrics_ordered_uuids=None,
+            running_time_calculation=self._manual_config(),
+            start_date=self.NOW - timedelta(days=4),
             number_of_variants=2,
             result_blob=None,
             now=self.NOW,
         )
-        # funnel p=0.10, mde 50% -> N=1152; at 100/day -> 12 days. No live exposures in manual mode.
-        assert estimate.target_sample_size == 1152
-        assert estimate.remaining_days == 12
         assert estimate.current_exposures is None
+        assert estimate.remaining_days == 12
+
+    def test_manual_mode_target_reached_is_zero(self):
+        blob = {
+            "baseline": {"key": "control", "number_of_samples": 1000, "sum": 100, "step_counts": [1000, 100]},
+            "variant_results": [{"key": "test", "number_of_samples": 1000, "sum": 110}],
+        }
+        estimate = estimate_running_time_for_experiment(
+            metrics=[self._funnel_metric()],
+            primary_metrics_ordered_uuids=None,
+            running_time_calculation=self._manual_config(),
+            start_date=self.NOW - timedelta(days=20),
+            number_of_variants=2,
+            result_blob=blob,  # 2000 exposed > 1152 target
+            now=self.NOW,
+        )
+        assert estimate.current_exposures == 2000
+        assert estimate.remaining_days == 0
 
     def test_automatic_mode_with_enough_data_subtracts_current_exposures(self):
         # 10 days elapsed, 2000 exposures so far -> 200/day. Target 1152, remaining 1152-2000<0 -> complete.
@@ -417,6 +479,34 @@ class TestEstimateRunningTimeForExperiment:
         assert estimate.current_exposures == 40
         # rate = 40 exposures / 0.5 days = 80/day; ceil(1152/80) = 15
         assert estimate.remaining_days == 15
+
+    def test_automatic_mode_without_saved_mde_is_all_null(self):
+        # Guards the reported bug: an experiment with no saved MDE must not silently size to null.
+        # The service is responsible for passing a fallback via mde_override (see resolve_minimum_detectable_effect).
+        estimate = estimate_running_time_for_experiment(
+            metrics=[self._funnel_metric()],
+            primary_metrics_ordered_uuids=None,
+            running_time_calculation={"exposure_estimate_config": {"conversionRateInputType": "automatic"}},
+            start_date=self.NOW - timedelta(days=10),
+            number_of_variants=2,
+            result_blob=self._funnel_blob(samples=1000),
+            now=self.NOW,
+        )
+        assert estimate.target_sample_size is None
+
+    def test_automatic_mode_with_mde_override_when_no_saved_mde(self):
+        estimate = estimate_running_time_for_experiment(
+            metrics=[self._funnel_metric()],
+            primary_metrics_ordered_uuids=None,
+            running_time_calculation={"exposure_estimate_config": {"conversionRateInputType": "automatic"}},
+            start_date=self.NOW - timedelta(days=10),
+            number_of_variants=2,
+            result_blob=self._funnel_blob(samples=1000),
+            now=self.NOW,
+            mde_override=30,
+        )
+        assert estimate.target_sample_size is not None
+        assert estimate.current_exposures == 1000
 
     def test_automatic_mode_without_usable_metric_returns_empty(self):
         estimate = estimate_running_time_for_experiment(

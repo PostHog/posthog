@@ -10,15 +10,20 @@ from datetime import datetime
 
 from django.utils import timezone
 
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
-from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation import (
+    build_timeseries_cold_start_payload,
+    get_latest_recalculation,
+    get_run_results,
+)
 from products.experiments.backend.running_time_calculator import (
     RunningTimeEstimate,
     estimate_running_time_for_experiment,
+    resolve_minimum_detectable_effect,
     select_sizing_metric,
 )
 
@@ -27,32 +32,27 @@ _CACHE_VERSION = "v1"
 CACHE_TTL_SECONDS = 15 * 60
 
 
-def _latest_completed_result_blob(experiment: Experiment, metric: dict) -> dict | None:
-    """Latest completed timeseries result for one metric, under its config fingerprint.
+def _latest_result_blob_for_metric(experiment: Experiment, metric_uuid: str | None) -> dict | None:
+    """The result blob the detail page shows for one metric, or None.
 
-    Mirrors the read in ``build_timeseries_cold_start_payload`` but scoped to a single metric.
+    Mirrors the precedence in the ``metrics_recalculation/latest`` endpoint: the latest terminal
+    recalculation run first, then the timeseries cold-start payload. Reuses the recalculation module
+    so the list reads the exact same source the detail page does.
     """
-    config_fingerprint = compute_metric_fingerprint(
-        metric,
-        experiment.start_date,
-        get_experiment_stats_method(experiment),
-        experiment.exposure_criteria,
-        only_count_matured_users=experiment.only_count_matured_users,
-        excluded_variants=experiment.excluded_variants,
-    )
-    row = (
-        ExperimentMetricResult.objects.filter(
-            experiment=experiment,
-            metric_uuid=metric.get("uuid"),
-            fingerprint=config_fingerprint,
-            status=ExperimentMetricResult.Status.COMPLETED,
-        )
-        .order_by("-query_to")
-        .first()
-    )
-    if row is None:
+    if metric_uuid is None:
         return None
-    return strip_step_sessions(row.result)
+
+    recalc = get_latest_recalculation(experiment)
+    if recalc is not None:
+        results = get_run_results(recalc)
+    else:
+        payload = build_timeseries_cold_start_payload(experiment)
+        results = payload["results"] if payload is not None else []
+
+    for entry in results:
+        if entry.get("metric_uuid") == metric_uuid and entry.get("status") == "completed":
+            return entry.get("result")
+    return None
 
 
 def _number_of_variants(experiment: Experiment) -> int:
@@ -78,23 +78,29 @@ def compute_running_time_estimate(experiment: Experiment, now: datetime | None =
     """
     now = now or timezone.now()
     config = experiment.running_time_calculation or {}
-    exposure_config = config.get("exposure_estimate_config") or {}
-    is_manual = exposure_config.get("conversionRateInputType") == "manual"
 
+    # Both modes use live exposures for remaining time (manual differs only in using a fixed rate), so
+    # read the sizing metric's latest result for either. See estimate_running_time_for_experiment.
     result_blob: dict | None = None
     query_to = None
-    if not is_manual:
-        selected = select_sizing_metric(experiment.metrics, experiment.primary_metrics_ordered_uuids)
-        if selected is not None:
-            metric, _ = selected
-            result_blob = _latest_completed_result_blob(experiment, metric)
-            if result_blob is not None:
-                query_to = result_blob.get("query_to")
+    selected = select_sizing_metric(experiment.metrics, experiment.primary_metrics_ordered_uuids)
+    if selected is not None:
+        metric, _ = selected
+        result_blob = _latest_result_blob_for_metric(experiment, metric.get("uuid"))
+        if result_blob is not None:
+            query_to = result_blob.get("query_to")
 
     cache_key = _cache_key(experiment, query_to)
     cached = get_safe_cache(cache_key)
     if isinstance(cached, RunningTimeEstimate):
         return cached
+
+    # Most experiments never save an MDE; the detail page falls back to the team default, then to 30.
+    # Match that here or every such experiment would size to null.
+    team_config = get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
+    mde = resolve_minimum_detectable_effect(
+        config.get("minimum_detectable_effect"), team_config.default_minimum_detectable_effect
+    )
 
     estimate = estimate_running_time_for_experiment(
         metrics=experiment.metrics,
@@ -104,6 +110,7 @@ def compute_running_time_estimate(experiment: Experiment, now: datetime | None =
         number_of_variants=_number_of_variants(experiment),
         result_blob=result_blob,
         now=now,
+        mde_override=mde,
     )
     safe_cache_set(cache_key, estimate, timeout=CACHE_TTL_SECONDS)
     return estimate

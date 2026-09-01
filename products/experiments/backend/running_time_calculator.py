@@ -23,6 +23,23 @@ VARIANCE_SCALING_FACTOR_SUM = 0.25
 # 4 · 1.96² ≈ 16: critical-value multiplier for 95% confidence / 80% power, two-tailed, two variants.
 SAMPLE_SIZE_Z_FACTOR = 16
 
+# Fallback MDE when neither the experiment nor the team sets one. Mirrors the frontend DEFAULT_MDE.
+DEFAULT_MINIMUM_DETECTABLE_EFFECT = 30
+
+
+def resolve_minimum_detectable_effect(saved_mde: float | None, team_default: float | None) -> float:
+    """Resolve the MDE the same way the frontend does: experiment value, then team default, then 30.
+
+    A zero or missing value at either level falls through to the next, so an experiment with no saved
+    MDE still gets a usable estimate instead of an all-null result.
+    """
+    if saved_mde:
+        return saved_mde
+    if team_default:
+        return team_default
+    return DEFAULT_MINIMUM_DETECTABLE_EFFECT
+
+
 # Manual calculator only supports these types (ratio/retention require full baseline data).
 ManualCalculatorMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg"]
 # Full calculator supports all metric types.
@@ -334,7 +351,7 @@ def estimate_running_time_for_experiment(
         return RunningTimeEstimate(target_sample_size=None, current_exposures=None, remaining_days=None)
 
     if is_manual:
-        return _estimate_manual(exposure_config, mde, number_of_variants)
+        return _estimate_manual(exposure_config, mde, number_of_variants, start_date, result_blob, now)
 
     return _estimate_automatic(
         metrics=metrics,
@@ -347,7 +364,14 @@ def estimate_running_time_for_experiment(
     )
 
 
-def _estimate_manual(exposure_config: dict[str, Any], mde: float, number_of_variants: int) -> RunningTimeEstimate:
+def _estimate_manual(
+    exposure_config: dict[str, Any],
+    mde: float,
+    number_of_variants: int,
+    start_date: datetime | None,
+    result_blob: dict[str, Any] | None,
+    now: datetime,
+) -> RunningTimeEstimate:
     raw_metric_type = exposure_config.get("manualMetricType")
     metric_type: ManualCalculatorMetricType = (
         raw_metric_type if raw_metric_type in ("funnel", "mean_count", "mean_sum_or_avg") else "funnel"
@@ -361,8 +385,12 @@ def _estimate_manual(exposure_config: dict[str, Any], mde: float, number_of_vari
     # Funnel baseline is entered as a percentage; the calculator wants a 0-1 rate.
     resolved_baseline = baseline_value / 100 if metric_type == "funnel" else baseline_value
     target = calculate_recommended_sample_size(metric_type, mde, resolved_baseline, number_of_variants)
-    remaining = calculate_running_time_days(target, exposure_rate)
-    return RunningTimeEstimate(target_sample_size=target, current_exposures=None, remaining_days=remaining)
+
+    # The detail page subtracts live exposures even in manual mode; the only manual-specific input is the
+    # fixed exposure rate. Mirror that so the list agrees with the detail page.
+    current_exposures = current_exposures_from_result_blob(result_blob)
+    remaining = _remaining_days(target, current_exposures, exposure_rate, _days_elapsed(start_date, now))
+    return RunningTimeEstimate(target_sample_size=target, current_exposures=current_exposures, remaining_days=remaining)
 
 
 def _estimate_automatic(
