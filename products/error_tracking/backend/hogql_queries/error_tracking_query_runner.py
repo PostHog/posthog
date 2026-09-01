@@ -15,7 +15,7 @@ from posthog.hogql.database.schema.error_tracking_recent_issue_state import RECE
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
