@@ -208,7 +208,11 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride ? (backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back') : 'Inbox'
+    const backLabel = backOverride
+        ? backOverride.startsWith(urls.inboxTriage())
+            ? 'Triage'
+            : 'Back'
+        : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
     const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
         useValues(inboxReportDetailLogic(logicProps))
