@@ -204,7 +204,8 @@ class TestOrganization(BaseTest):
             get_cached_organization_memberships(self.user)
 
             membership.level = OrganizationMembership.Level.ADMIN
-            membership.save()
+            with self.captureOnCommitCallbacks(execute=True):
+                membership.save()
             updated_membership = get_cached_organization_membership(self.organization.id, self.user)
             assert updated_membership is not None
             assert updated_membership.level == OrganizationMembership.Level.ADMIN
@@ -216,7 +217,8 @@ class TestOrganization(BaseTest):
             assert updated_organization is not None
             assert updated_organization.name == "Updated organization"
 
-            membership.delete()
+            with self.captureOnCommitCallbacks(execute=True):
+                membership.delete()
             assert get_cached_organization_membership(self.organization.id, self.user) is None
             assert get_cached_organization_memberships(self.user) == []
 
@@ -230,7 +232,8 @@ class TestOrganization(BaseTest):
             assert get_cached_organization_membership(self.organization.id, new_user) is None
             assert get_cached_organization_memberships(new_user) == []
 
-            OrganizationMembership.objects.create(organization=self.organization, user=new_user)
+            with self.captureOnCommitCallbacks(execute=True):
+                OrganizationMembership.objects.create(organization=self.organization, user=new_user)
 
             membership = get_cached_organization_membership(self.organization.id, new_user)
             assert membership is not None

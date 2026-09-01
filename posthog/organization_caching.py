@@ -209,10 +209,6 @@ def invalidate_organization_membership_access_cache(organization_id: str | UUID,
         _organization_membership_cache_key(organization_id, user_id),
         _user_organization_memberships_cache_key(user_id),
     )
-    for key in keys:
-        _set_access_cache_value(_access_cache_version_key(key), uuid4().hex)
-    for key in keys:
-        _delete_access_cache_value(key)
 
     def invalidate_after_commit() -> None:
         for key in keys:
