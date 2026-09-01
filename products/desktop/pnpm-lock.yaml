@@ -298,8 +298,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(patch_hash=4dfdf785f5ac51a03f5d6032371cebe89036381acd403621f250a896245647c5)
       posthog-node:
-        specifier: ^5.51.4
-        version: 5.51.4(rxjs@7.8.2)
+        specifier: ^5.51.6
+        version: 5.51.6(rxjs@7.8.2)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6243,9 +6243,6 @@ packages:
     engines: {node: '>=14.14', npm: '>=6'}
     hasBin: true
 
-  '@posthog/core@1.49.1':
-    resolution: {integrity: sha512-jdZh85tG56OXLH881CVwBZyiXCPPaZasfYeWwm9kVUvxC/Rb+lz7wYN9GuqSEmNPJgVnK4v8wS0bCaFc3OmVEA==}
-
   '@posthog/core@1.49.2':
     resolution: {integrity: sha512-AXHDo/4nisUg7OPG1TQNgREK7n+chBQXLQyttp7bDTDsDg2k9lV06TmnpvuNbwJs53q9mP9hjezKEZu4fYadfg==}
 
@@ -6287,9 +6284,6 @@ packages:
     resolution: {integrity: sha512-4ZNhhgnMEdRXP5YlLngHEwaaobrpNhHMT7JY4kZ1uLjGeURRbq7OjWNNg2MGN6iJgR8iIbvbt4Kho1WxflCz6A==}
     peerDependencies:
       rollup: 4.59.0
-
-  '@posthog/types@1.407.0':
-    resolution: {integrity: sha512-7J/aFVi7JWFt/ekGVsMFvkTcADoE9MTNf1N9cpBSMUQ/SPLiBjbg386Fzk5OlgWG/u5OemBy4wlgD7YebqeppQ==}
 
   '@posthog/types@1.407.1':
     resolution: {integrity: sha512-WhbkXPC2rgylXqmxHqv70ffI3k+KxyR6s7DBIfr5NvIqHkxp6v0pk31D/jbz0DNVbzwkLjyll2pxr4FNbJiYzg==}
@@ -13931,8 +13925,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.51.4:
-    resolution: {integrity: sha512-gI6JMBnU3vjDNclUBWonw3y7k8Y0UPIAVO4AQ2zu9eyW+7sY8UQRofx4JIA7IGYLMEbs4gykfogOmXp16+oUdg==}
+  posthog-node@5.51.6:
+    resolution: {integrity: sha512-r+Ge3p0OnOcOWeTnvKZmAtDwECeIoyNTyxBxuZc8wM6RHCQ9j2Xrhogrf39HSq1Y2gIOpWLqIDRmWDcu7xmqcA==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -20980,10 +20974,6 @@ snapshots:
     dependencies:
       detect-libc: 2.1.2
 
-  '@posthog/core@1.49.1':
-    dependencies:
-      '@posthog/types': 1.407.0
-
   '@posthog/core@1.49.2':
     dependencies:
       '@posthog/types': 1.407.1
@@ -21056,8 +21046,6 @@ snapshots:
       '@posthog/plugin-utils': 1.2.0
       magic-string: 0.30.21
       rollup: 4.62.2
-
-  '@posthog/types@1.407.0': {}
 
   '@posthog/types@1.407.1': {}
 
@@ -30074,9 +30062,9 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-node@5.51.4(rxjs@7.8.2):
+  posthog-node@5.51.6(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.49.1
+      '@posthog/core': 1.50.0
     optionalDependencies:
       rxjs: 7.8.2
 

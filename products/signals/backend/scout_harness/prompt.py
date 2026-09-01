@@ -13,6 +13,10 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
+# The project-scan step shared by the interactive "Suggest a scout" chat (`scout_chat.py`) and the
+# headless pre-computed suggestion run (`suggestions.py`), so the two voices never drift.
+SCOUT_PROJECT_SCAN_GUIDANCE = "take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value."
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
