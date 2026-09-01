@@ -31,6 +31,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { urls } from 'scenes/urls'
 
+import type { MetricsDisplayType } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -45,6 +46,7 @@ import { traceUrl } from 'products/tracing/frontend/traceLinks'
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { MetricsChartSettings } from './MetricsChartSettings'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
@@ -62,6 +64,13 @@ import {
     metricsViewerLogic,
     RECOMMENDED_AGGREGATION_BY_TYPE,
 } from './metricsViewerLogic'
+
+// `stat` is in the schema but has no renderer yet, so the picker doesn't offer it.
+const DISPLAY_TYPE_OPTIONS: { value: MetricsDisplayType; label: string }[] = [
+    { value: 'line', label: 'Line' },
+    { value: 'area', label: 'Area' },
+    { value: 'bar', label: 'Bar' },
+]
 
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
@@ -127,13 +136,15 @@ export const MetricsViewer = (): JSX.Element => {
         chartSeries,
         anomalyBadge,
         liveRefresh,
-        queryResultsLoading,
+        queryLoading,
         queryError,
         savedInsightLoading,
         savedInsight,
         isAddToDashboardModalOpen,
         hasMetricName,
         hasResults,
+        displayType,
+        metricsDisplay,
     } = useValues(logic)
     const {
         setMetricName,
@@ -148,6 +159,7 @@ export const MetricsViewer = (): JSX.Element => {
         saveAsInsight,
         addToDashboard,
         closeAddToDashboardModal,
+        setDisplayType,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
     const { traceExemplars, errorSpikes, showErrorSpikes } = useValues(metricsSamplesLogic)
@@ -318,6 +330,15 @@ export const MetricsViewer = (): JSX.Element => {
                             disabledReason={metricsViewerDisabledReason}
                         />
                         <MetricsGroupByButton disabledReason={metricsViewerDisabledReason} />
+                        <LemonSelect
+                            size="small"
+                            value={displayType}
+                            options={DISPLAY_TYPE_OPTIONS}
+                            onChange={setDisplayType}
+                            data-attr="metrics-viewer-display-type"
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <MetricsChartSettings />
                         <MetricsRelatedMenu />
                         {anomalyBadge && <MetricsAnomalyTag anomaly={anomalyBadge} />}
                         <MetricsLogsSourceTag metricName={metricName} />
@@ -391,14 +412,15 @@ export const MetricsViewer = (): JSX.Element => {
                             <MetricsSeriesChart
                                 series={chartSeries}
                                 fallbackName={metricName}
+                                display={metricsDisplay}
                                 exemplars={chartMarkers}
                             />
-                        ) : !queryResultsLoading ? (
+                        ) : !queryLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
                                 No data for this metric in the selected range.
                             </div>
                         ) : null}
-                        {queryResultsLoading && <SpinnerOverlay />}
+                        {queryLoading && <SpinnerOverlay />}
                     </div>
                 </div>
                 {hasMetricName && (

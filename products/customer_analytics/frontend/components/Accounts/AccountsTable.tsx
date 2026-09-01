@@ -16,9 +16,10 @@ import {
 import type { DataColorToken } from 'lib/colors'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -132,10 +133,12 @@ function RelationshipCell({
     record,
     column,
     definition,
+    canUnassign,
 }: {
     record: unknown
     column: string
     definition: AccountRelationshipDefinitionApi
+    canUnassign: boolean
 }): JSX.Element {
     const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
@@ -171,6 +174,7 @@ function RelationshipCell({
             <MemberSelect
                 value={userIds[0] ?? null}
                 defaultLabel="Unassigned"
+                allowNone={canUnassign}
                 onChange={(user) => accountId && updateAccountRole(accountId, column, user)}
             >
                 {(selectedUser) => (
@@ -719,6 +723,10 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 function useContextColumns(): Record<string, QueryContextColumn> {
     const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
+    const relationshipUnassignRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
@@ -745,7 +753,12 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                     renderTitle: () => <SortableColumnHeader column={key} label={relationshipDefinition.name} />,
                     width: COLUMN_WIDTHS.relationship,
                     render: ({ record }) => (
-                        <RelationshipCell record={record} column={key} definition={relationshipDefinition} />
+                        <RelationshipCell
+                            record={record}
+                            column={key}
+                            definition={relationshipDefinition}
+                            canUnassign={!relationshipUnassignRestrictionReason}
+                        />
                     ),
                 }
                 continue
@@ -759,7 +772,13 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             }
         }
         return columns
-    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
+    }, [
+        visibleColumnNames,
+        aliasToDefinition,
+        aliasToRelationshipDefinition,
+        displayByAlias,
+        relationshipUnassignRestrictionReason,
+    ])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {

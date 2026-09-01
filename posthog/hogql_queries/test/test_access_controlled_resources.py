@@ -76,7 +76,15 @@ class TestQueriedAccessControlledResources(BaseTest):
                 "select support_tickets.recent from system.accounts",
                 {"ticket"},
             ),
+            (
+                "account_feature_requests_lazy_join",
+                "select accounts.feature_requests.count from system.accounts as accounts",
+                {"customer_analytics"},
+            ),
             ("account_non_communication_lazy_join", "select meetings.count from system.accounts", set()),
+            # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
+            # rows follow the caller's canvas grants as well as their activity-log access.
+            ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
@@ -157,10 +165,12 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("metric", {"metrics": ["sum(support_tickets.count)"]}),
             ("filter", {"filterExpression": "email_threads.count > 0"}),
             ("order", {"orderBy": ["support_tickets.count"]}),
+            ("feature_requests", {"select": ["feature_requests.count"]}),
         ]
     )
-    def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
-        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"ticket"}
+    def test_accounts_query_lazy_fields_require_access(self, _name, query_kwargs):
+        expected_scope = "customer_analytics" if _name == "feature_requests" else "ticket"
+        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {expected_scope}
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])

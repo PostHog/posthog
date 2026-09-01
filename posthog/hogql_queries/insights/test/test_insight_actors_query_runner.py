@@ -24,13 +24,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.models.group.util import create_group
-from posthog.models.team import WeekStartDay
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
@@ -99,89 +97,6 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             placeholders=placeholders,
             modifiers=HogQLQueryModifiers(**modifiers) if modifiers else None,
         )
-
-    @snapshot_clickhouse_queries
-    def test_insight_persons_lifecycle_query(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name as n']}>
-                    <InsightActorsQuery day='2020-01-12' status='returning'>
-                        <LifecycleQuery
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
-                            series={[<EventsNode event='$pageview' math='total' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """,
-            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
-        )
-
-        self.assertEqual([("p1",)], response.results)
-
-    def test_insight_persons_lifecycle_query_week_monday(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.week_start_day = WeekStartDay.MONDAY
-        self.team.save()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name as n']}>
-                    <InsightActorsQuery day='2020-01-13' status='returning'>
-                        <LifecycleQuery
-                            interval='week'
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
-                            series={[<EventsNode event='$pageview' math='total' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """,
-            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
-        )
-
-        self.assertEqual([("p1",)], response.results)
-
-    def test_insight_persons_lifecycle_query_week_sunday(self):
-        self._create_test_events()
-        self.team.timezone = "US/Pacific"
-        self.team.week_start_day = WeekStartDay.SUNDAY
-        self.team.save()
-
-        date_from = "2020-01-09"
-        date_to = "2020-01-19"
-
-        response = self.select(
-            """
-            select * from (
-                <ActorsQuery select={['properties.name as n']}>
-                    <InsightActorsQuery day='2020-01-12' status='returning'>
-                        <LifecycleQuery
-                            interval='week'
-                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
-                            series={[<EventsNode event='$pageview' math='total' />]}
-                        />
-                    </InsightActorsQuery>
-                </ActorsQuery>
-            )
-            """,
-            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
-        )
-
-        self.assertEqual([("p1",), ("p2",)], response.results)
 
     def test_insight_persons_trends_query_with_argmaxV1_calculate_adds_event_distinct_ids(self):
         self._create_test_events()

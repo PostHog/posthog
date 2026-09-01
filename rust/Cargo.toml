@@ -21,6 +21,7 @@ members = [
   "common/dns",
   "common/health",
   "common/kafka",
+  "common/kafka-consumer",
   "common/liveness",
   "common/lifecycle",
   "common/limiters",

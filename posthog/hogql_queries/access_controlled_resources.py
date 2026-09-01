@@ -44,7 +44,20 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
     }
 )
 
-_ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
+_ACCOUNT_LAZY_FIELD_SCOPES = {
+    "email_threads": "ticket",
+    "support_tickets": "ticket",
+    "feature_requests": "customer_analytics",
+}
+
+# Scopes a system table's rows depend on beyond its own `access_scope`, because its visibility rules
+# read another access-controlled table. `system.activity_logs` limits Canvas rows to the canvases in
+# `system.canvases` (see activity_log_visibility.py), so its rows follow the caller's Canvas grants:
+# without partitioning on `canvas` too, two users with identical activity-log access but different
+# Canvas grants share one cache key, and the narrower one is served the wider one's Canvas rows.
+_TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
+    "system.activity_logs": frozenset({"canvas"}),
+}
 
 
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
@@ -85,9 +98,12 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             ]
         except BaseHogQLError:
             return None
-        account_query_scopes: set[str] = set()
-        if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
-            account_query_scopes.add("ticket")
+        account_query_scopes = {
+            scope
+            for field in fields
+            for segment in field.chain
+            if (scope := _ACCOUNT_LAZY_FIELD_SCOPES.get(str(segment))) is not None
+        }
         return _with_fallback_parents(account_query_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
@@ -105,11 +121,16 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
-        if "system.accounts" in table_names and any(
-            any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain)
-            for field in GetFieldsTraverser(select).fields
-        ):
-            scopes.add("ticket")
+        if "system.accounts" in table_names:
+            scopes |= {
+                scope
+                for field in GetFieldsTraverser(select).fields
+                for segment in field.chain
+                if (scope := _ACCOUNT_LAZY_FIELD_SCOPES.get(str(segment))) is not None
+            }
+
+        for name in table_names:
+            scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.

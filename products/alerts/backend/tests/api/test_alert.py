@@ -761,7 +761,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"] = {"kind": "RetentionQuery", "retentionFilter": {}}
+        insight_without_alert_support["query"] = {"kind": "EventsQuery", "select": ["*"]}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -805,7 +805,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Changing to a kind that cannot carry alerts still cascades.
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+            data={"query": {"kind": "EventsQuery", "select": ["*"]}},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND

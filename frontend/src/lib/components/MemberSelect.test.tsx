@@ -75,6 +75,14 @@ describe('MemberSelect', () => {
         expect(screen.queryByText(MOCK_SECOND_BASIC_USER.first_name)).not.toBeInTheDocument()
     })
 
+    it('does not offer an unassign option when clearing is disabled', async () => {
+        renderSelect({ defaultLabel: 'Unassigned', allowNone: false })
+        await userEvent.click(screen.getByText('Unassigned'))
+
+        await waitFor(() => expect(screen.getByText(MOCK_DEFAULT_BASIC_USER.first_name)).toBeInTheDocument())
+        expect(screen.queryByRole('menuitem', { name: 'Unassigned' })).not.toBeInTheDocument()
+    })
+
     it('calls onChange with the picked user', async () => {
         renderSelect()
         await userEvent.click(screen.getByText('Any user'))

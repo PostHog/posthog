@@ -181,6 +181,7 @@ const setSimpleFilterValue = (
     contextId: HogFunctionConfigurationContextId
 ): CyclotronJobFiltersType => {
     const next: CyclotronJobFiltersType = {
+        source: 'internal-events',
         events: [
             {
                 name: options.find((option) => option.value === value)?.label,

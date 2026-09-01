@@ -77,7 +77,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const staysPutOnRefund = isResolved && report.implementation_pr_merged === true
 
     // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
-    // report leaves Needs a PR / Review and merge and joins Resolved or Dismissed), then return to
+    // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then return to
     // the list.
     const leaveForList = (): void => {
         reportStateChanged()
