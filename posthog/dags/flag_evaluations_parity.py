@@ -8,7 +8,7 @@ from clickhouse_driver import Client
 
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.dags.common import JobOwners, settings_with_log_comment
+from posthog.dags.common import JobOwners, settings_with_log_comment, skip_if_already_running
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TABLE
 
 FLAG_EVALUATIONS_SLACK_CHANNEL = "#alerts-ingestion"
@@ -272,10 +272,16 @@ def flag_evaluations_parity():
     report_flag_evaluations_parity(measure_flag_evaluations_parity())
 
 
-flag_evaluations_parity_schedule = dagster.ScheduleDefinition(
+@dagster.schedule(
     job=flag_evaluations_parity,
     # After the previous UTC day is complete and its merges have settled.
     cron_schedule="0 4 * * *",
     execution_timezone="UTC",
     name="flag_evaluations_parity_schedule",
 )
+@skip_if_already_running
+def flag_evaluations_parity_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
+    # Skip while a previous run is still active so catch-up ticks after an outage do not run
+    # several comparisons at once against the shared events cluster and post duplicate alerts
+    # for the same day.
+    return dagster.RunRequest()
