@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -26,6 +27,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import RecordingsQuery
 
 from posthog.llm.semantic_enrichment import get_team_business_context
+from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -84,6 +86,89 @@ _MAX_FILTER_PAGES = 5
 # Replaces a collapsed ":id" run when building the page regex. Matches one path segment, so the
 # literal segments on both sides of the id stay anchored to the real URL structure.
 _ID_WILDCARD = "[^/]+"
+# The goal-based briefing lists this many of the team's events as general context. A large product
+# has thousands of custom events, so this is a sample, not the catalogue.
+_MAX_BASELINE_EVENTS = 100
+# Events whose names match the goal's own words, added on top of the baseline. Ranking cannot
+# surface a rare-but-relevant event: on a large product "survey sent" is the 591st busiest event,
+# so no baseline length reaches it, while matching the word "survey" finds it at once.
+_MAX_GOAL_MATCHED_EVENTS = 30
+# Goal words shorter than this match too much of the catalogue to be a useful lookup.
+_MIN_GOAL_TERM_CHARS = 4
+# Only the first terms are looked up, so a long goal stays one bounded query.
+_MAX_GOAL_TERMS = 8
+# Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
+# user means, and crowds out the terms that carry the intent.
+_GOAL_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "also",
+        "before",
+        "being",
+        "does",
+        "doing",
+        "done",
+        "during",
+        "each",
+        "every",
+        "find",
+        "from",
+        "have",
+        "having",
+        "into",
+        "just",
+        "know",
+        "like",
+        "look",
+        "made",
+        "make",
+        "many",
+        "more",
+        "most",
+        "onto",
+        "over",
+        "page",
+        "pages",
+        "people",
+        "person",
+        "product",
+        "recording",
+        "recordings",
+        "scanner",
+        "scanners",
+        "session",
+        "sessions",
+        "show",
+        "site",
+        "some",
+        "someone",
+        "than",
+        "that",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "user",
+        "users",
+        "want",
+        "wants",
+        "watch",
+        "watching",
+        "what",
+        "when",
+        "where",
+        "which",
+        "will",
+        "with",
+        "would",
+    }
+)
 
 
 class DraftError(Exception):
@@ -723,6 +808,58 @@ def _build_user_content_v2(
     return "\n".join(lines)
 
 
+def _goal_terms(goal: str) -> list[str]:
+    """The words in a goal worth looking up as event names, longest first.
+
+    Longest first because a specific word ("checkout") is a better lookup than a vague one
+    ("flow"), and only the first few terms are searched.
+    """
+    words = {w for w in re.findall(r"[a-z0-9]+", goal.lower()) if len(w) >= _MIN_GOAL_TERM_CHARS}
+    ranked = sorted(words - _GOAL_STOPWORDS, key=lambda w: (-len(w), w))
+    return ranked[:_MAX_GOAL_TERMS]
+
+
+def _events_for_goal(team: Team, goal: str) -> list[str]:
+    """Custom event names to show the model: a baseline sample, widened by the goal's own words.
+
+    The baseline alone cannot cover a large product. Ranking does not rescue it either, because the
+    event a goal needs is often rare: "survey sent" is the 591st busiest event on a product with
+    2,332 of them, so it sits outside any baseline worth putting in a prompt, while its name matches
+    the word "survey" immediately.
+
+    Matching only widens what the model can see. The model still chooses, and `_grounded` still
+    drops anything it invents, so a term that matches the wrong events costs prompt space rather
+    than correctness.
+    """
+    base_qs = EventDefinition.objects.filter(team_id=team.id, last_seen_at__isnull=False).exclude(name__startswith="$")
+    baseline: list[str] = []
+    try:
+        baseline = list(base_qs.order_by("-last_seen_at").values_list("name", flat=True)[:_MAX_BASELINE_EVENTS])
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.baseline_events_failed", team_id=team.id, exc_info=True)
+
+    terms = _goal_terms(goal)
+    if not terms:
+        return baseline
+
+    matched: list[str] = []
+    try:
+        name_matches = Q()
+        for term in terms:
+            name_matches |= Q(name__icontains=term)
+        matched = list(
+            base_qs.filter(name_matches)
+            .order_by("-last_seen_at")
+            .values_list("name", flat=True)[:_MAX_GOAL_MATCHED_EVENTS]
+        )
+    except Exception:
+        # A failed lookup costs the goal-matched events, not the draft.
+        logger.warning("replay_vision.scanner_draft.goal_events_failed", team_id=team.id, exc_info=True)
+
+    # Matched first: they are the ones the goal actually points at, and the briefing is read in order.
+    return list(dict.fromkeys([*matched, *baseline]))
+
+
 def _page_filter_regex(pathname: str) -> str | None:
     """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
     cannot narrow.
@@ -923,7 +1060,7 @@ def draft_scanner_from_goal_v2(
         # A draft grounded only in events still beats no draft; the filter just cannot name pages.
         logger.warning("replay_vision.scanner_draft.visited_paths_failed", team_id=team.id, exc_info=True)
         pages = ()
-    events = _product_taxonomy(team).events
+    events = _events_for_goal(team, goal)
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context

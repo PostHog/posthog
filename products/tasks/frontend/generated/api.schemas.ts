@@ -2635,6 +2635,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -2756,6 +2761,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3122,6 +3132,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -3440,7 +3455,7 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 64
      */
     source?: string
-    /** Artifact contents encoded according to content_encoding */
+    /** Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead. */
     content: string
     /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
      *
@@ -4458,6 +4473,21 @@ export interface SlackThreadContextThreadApi {
      * @nullable
      */
     mentioning_slack_user_id: string | null
+    /**
+     * Temporal workflow id of the per-conversation mention queue (`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's messages before any run exists. Null when the workspace id cannot be resolved.
+     * @nullable
+     */
+    queue_workflow_id: string | null
+    /**
+     * Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.
+     * @nullable
+     */
+    queue_workflow_url: string | null
+    /**
+     * Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.
+     * @nullable
+     */
+    mapping_admin_url: string | null
 }
 
 /**
@@ -4481,6 +4511,8 @@ export interface SlackThreadContextTaskApi {
     created_at: string
     /** Absolute URL to the task detail page in the PostHog app. */
     url: string
+    /** Absolute URL to the Task row in Django admin. */
+    admin_url: string
 }
 
 /**
@@ -4577,6 +4609,8 @@ export interface SlackThreadContextRunApi {
     log_url: string | null
     /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
     repo_research: SlackThreadContextRepoResearchApi | null
+    /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */
+    admin_url: string
 }
 
 /**

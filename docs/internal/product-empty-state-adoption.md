@@ -55,7 +55,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | on master             |
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
 | Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | on master             |
-| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | in review             |
+| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | on master             |
 | Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | in review             |
 | Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | in review             |
 | Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
@@ -64,6 +64,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
 | Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                   | on master             |
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
+| Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -80,7 +81,6 @@ These are the scenes a new user is most likely to land on before they have data.
 | Product                | Scene                                                       | Shows instead                                                                          |
 | ---------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`      | `SavedInsightsEmptyState`, plus a bespoke `SampleDataState` and `sampleDataStateLogic` |
-| Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`   | `ProductIntroduction`                                                                  |
 | Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction`                                                                  |
 
 ### Tier 2: cheap, or actively misleading today

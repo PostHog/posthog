@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.series_bands import run_series_bands
+from products.logs.backend.series_bands import _band_gate, run_series_bands
 
 UTC = dt.UTC
 # The scan clock sits ahead of real time so the whole 6-week fixture range stays
@@ -57,6 +57,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         series = result.series[0]
         assert (series.namespace, series.environment, series.severity) == ("ns", "prod", "error")
         assert series.baseline_weeks == 5
+        assert series.band_ready_at is None
         assert series.total_count == 25
         assert len(series.buckets) == 7 * 24
 
@@ -87,8 +88,19 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert len(result.series) == 1
         series = result.series[0]
         assert series.baseline_weeks == 1
+        assert series.history_start == WINDOW_START - dt.timedelta(weeks=1)
+        assert series.band_ready_at == WINDOW_END + dt.timedelta(weeks=1)
         assert all(bucket.lower is None and bucket.upper is None for bucket in series.buckets)
         assert series.total_count == 12
+
+    def test_band_ready_at_is_when_the_gate_opens(self):
+        earliest = WINDOW_START - dt.timedelta(weeks=1)
+
+        _, ready_at = _band_gate(WINDOW_START, WINDOW_END, earliest)
+
+        assert ready_at is not None
+        window = WINDOW_END - WINDOW_START
+        assert _band_gate(ready_at - window, ready_at, earliest)[1] is None
 
     def test_missing_baseline_week_drags_floor_to_zero(self):
         service = "svc-gappy"
