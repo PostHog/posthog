@@ -62,6 +62,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SimpleSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
+    is_byte_bounded_extraction_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
@@ -122,17 +125,26 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+# An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
+# streams the table with no dedupe state. Append keeps a row per sync and CDC keeps change
+# history, so either would fan the child out once per duplicate. Webhook qualifies because its
+# drains merge on the primary key — the pipeline maps it to `sync_type = "incremental"`.
+WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.FULL_REFRESH,
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+    }
+)
+
+
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
     """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
     if parent is None:
         return "missing"
     if not parent.should_sync:
         return "disabled"
-    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
-        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
-        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
-        # which streams the table as-is, with no dedupe state — would fan the child out once
-        # per duplicate. New sync types have to opt in here deliberately.
+    if parent.sync_type not in WAREHOUSE_READABLE_PARENT_SYNC_TYPES:
         return "unsupported_sync_type"
     if not parent.initial_sync_complete:
         return "no_initial_sync"
@@ -424,6 +436,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
+            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
+                inputs.team_id, str(source_type)
+            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -461,6 +476,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
+                byte_bounded_extraction=byte_bounded_extraction,
             )
 
             try:
