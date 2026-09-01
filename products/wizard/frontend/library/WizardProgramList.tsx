@@ -2,6 +2,7 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { WizardProgramApi } from '../generated/api.schemas'
+import { WIZARD_LOCAL_RUNS_VISIBLE } from '../wizardRunDisplay'
 
 export function WizardProgramList({
     programs,
@@ -80,6 +81,10 @@ export function WizardProgramList({
                                         <div className="min-w-0 font-semibold">{program.name}</div>
                                         <span className="shrink-0 whitespace-nowrap text-xs font-normal text-muted">
                                             {program.supported_environments
+                                                .filter(
+                                                    (environment) =>
+                                                        WIZARD_LOCAL_RUNS_VISIBLE || environment === 'cloud'
+                                                )
                                                 .map((environment) => (environment === 'cloud' ? 'Cloud' : 'Local'))
                                                 .join(' · ')}
                                         </span>
