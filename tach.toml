@@ -1106,6 +1106,8 @@ expose = [
     "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
+    "backend\\.url_policy\\.check_mcp_url_policy",
+    "backend\\.url_policy\\.trust_environment_proxy",
 ]
 from = [
     "products.mcp_store",
