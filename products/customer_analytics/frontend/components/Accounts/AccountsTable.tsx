@@ -641,7 +641,7 @@ function CustomPropertyCell({
         <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 truncate">{renderedValue}</span>
             {definition.has_workflow_reference && (
-                <Tooltip title="This property is updated by a workflow. The next workflow run will overwrite any value you set manually.">
+                <Tooltip title="A workflow is configured to update this property. If it runs again, it will overwrite any value you set manually.">
                     <IconInfo className="text-warning shrink-0" />
                 </Tooltip>
             )}
