@@ -78,7 +78,7 @@ File a suggestion through `workflows-suggest` when, and only when, all of these 
 - The counter-metrics are not the story. If bounces or complaints are elevated, that is the finding, and it belongs in a report rather than in a copy change.
 - You can state the change as a concrete edit, not advice. "Shorten the subject" is advice. The new subject line is a change.
 
-Send the workflow's full `actions` list with your edit applied — `actions` replaces the whole list, so a partial one is refused. Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), and the counter-metrics with their own denominators. A rate without `n` is refused at create, and rightly.
+Send the workflow's full `actions` list with your edit applied — `actions` replaces the whole list, so a partial one is refused. Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), the click rate over that same denominator, and the counter-metrics with their own denominators. A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that. A rate without `n` is refused at create, and rightly.
 
 Then file one report through the report channel pointing at the workflow, so the suggestion is visible in the inbox as well as on the workflow page. The report is the notification; the suggestion is the thing a person acts on. Never edit the workflow itself, and never approve: there is no tool for it, by design.
 
