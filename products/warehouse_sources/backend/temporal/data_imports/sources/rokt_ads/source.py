@@ -60,17 +60,20 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Pinned to the Query API path so a 400 from the OAuth token endpoint (same host) is not
+            # read as a report error and given credential-wrong copy about tables and the account ID.
+            "400 Client Error: Bad Request for url: https://api.rokt.com/v1/query/": (
+                "Rokt rejected this report request. The reason Rokt gave is in the sync logs. This can happen if "
+                "the account type does not support advertiser campaigns, if the time zone or currency code is not "
+                "recognized, or if the account is not fully configured in One Platform. Check those settings, then "
+                "reconnect."
+            ),
             "401 Client Error: Unauthorized for url": "Rokt rejected these credentials. Please regenerate the app ID and app secret in One Platform and reconnect.",
             "403 Client Error: Forbidden for url": "These Rokt credentials cannot read this account. Please check the account ID and the app's permissions.",
-            # The same request body is sent on every retry, so a 400 from the report endpoint will
-            # never become data. Likely causes: the account type does not support advertiser
-            # campaigns, a time zone or currency code setting is unrecognised, or the account is
-            # not fully configured in One Platform.
-            "400 Client Error: Bad Request for url": (
-                "Rokt rejected the report request as invalid. This can happen if the account type does not support "
-                "advertiser campaigns, if the time zone or currency code setting is unrecognised, or if the account "
-                "is not fully configured in One Platform. Check your account settings, or contact Rokt support."
-            ),
+            # A missing account or report resource never recovers on retry. The client wraps the
+            # HTTPError in a RoktAdsError, so the shared handler's type-based 404 rule can no longer
+            # see it; match the status line the message keeps instead.
+            "404 Client Error: Not Found for url": "Rokt could not find this account. Please check the account ID, then reconnect.",
             # Raised by build_report_body when the account lacks a dimension that sets the row grain.
             # Dropping the dimension would silently collapse rows, so the only safe options are to
             # deselect the table or ask Rokt to enable the dimension — both require user action.
