@@ -28,9 +28,11 @@ def generate_widget_activity(inputs: WidgetGenerationInput) -> None:
         widget_generation_slot,
     )
     from products.notebooks.backend.widgets import (  # noqa: PLC0415 — prevents a Temporal registry import cycle
+        heartbeat_widget_generation_job,
         run_widget_generation_job,
     )
 
+    heartbeat_widget_generation_job(UUID(inputs.job_id), inputs.team_id)
     try:
         with widget_generation_slot(team_id=inputs.team_id, job_id=inputs.job_id):
             run_widget_generation_job(UUID(inputs.job_id), inputs.team_id)
@@ -51,12 +53,22 @@ def mark_widget_generation_failed_activity(inputs: WidgetGenerationInput) -> Non
     fail_widget_generation_job(UUID(inputs.job_id), inputs.team_id)
 
 
+@activity.defn(name="notebook-widget-generate-mark-capacity-failed")
+def mark_widget_generation_capacity_failed_activity(inputs: WidgetGenerationInput) -> None:
+    from products.notebooks.backend.widgets import (  # noqa: PLC0415 — prevents a Temporal registry import cycle
+        fail_widget_generation_capacity_job,
+    )
+
+    fail_widget_generation_capacity_job(UUID(inputs.job_id), inputs.team_id)
+
+
 @workflow.defn(name="notebook-widget-generate")
 class NotebookWidgetGenerationWorkflow(PostHogWorkflow):
     inputs_cls = WidgetGenerationInput
 
     @workflow.run
     async def run(self, inputs: WidgetGenerationInput) -> None:
+        failure_activity = mark_widget_generation_failed_activity
         try:
             for attempt in range(GENERATION_CAPACITY_RETRY_ATTEMPTS):
                 try:
@@ -72,11 +84,13 @@ class NotebookWidgetGenerationWorkflow(PostHogWorkflow):
                         error.cause.type == GENERATION_CAPACITY_ERROR_TYPE
                     )
                     if not capacity_full or attempt == GENERATION_CAPACITY_RETRY_ATTEMPTS - 1:
+                        if capacity_full:
+                            failure_activity = mark_widget_generation_capacity_failed_activity
                         raise
                     await workflow.sleep(timedelta(seconds=30))
         except Exception:
             await workflow.execute_activity(
-                mark_widget_generation_failed_activity,
+                failure_activity,
                 inputs,
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=common.RetryPolicy(maximum_attempts=3),

@@ -18,6 +18,8 @@ def _get_global_limiter() -> RateLimit:
             get_task_name=lambda *args, **kwargs: "notebooks:widget-generation:global",
             get_task_id=lambda *args, **kwargs: kwargs["job_id"],
             ttl=_SLOT_TTL_SECONDS,
+            apply_clickhouse_kill_switch=False,
+            allow_team_bypass=False,
         )
     return __GLOBAL_LIMITER
 

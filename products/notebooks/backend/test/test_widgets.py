@@ -7,7 +7,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -59,12 +61,14 @@ from products.notebooks.backend.widgets import (
     MAX_FRAME_BYTES,
     WidgetError,
     WidgetInputInspection,
+    WidgetRateLimitError,
     WidgetStatus,
     _cancellation_key,
     _extend_prompt_history,
     _materialize_effective_prompt,
     _version_input_contract,
     cancel_widget_generation,
+    fail_widget_generation_capacity_job,
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
@@ -563,7 +567,15 @@ class TestWidgetData(APIBaseTest):
             )
         assert error.exception.code == "frame_not_allowed"
 
-    def test_frame_endpoint_rate_limits_widget_requests_across_paths(self) -> None:
+    @parameterized.expand(
+        [
+            ("enabled", True, 429),
+            ("disabled", False, 404),
+        ]
+    )
+    def test_frame_endpoint_rate_limits_widget_requests_across_paths(
+        self, _name: str, rate_limit_enabled: bool, expected_status: int
+    ) -> None:
         self._run()
         self._mapping()
         url = (
@@ -574,11 +586,14 @@ class TestWidgetData(APIBaseTest):
             f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/other-widget/frames/other-input/"
         )
 
-        with patch.object(WidgetFrameBurstThrottle, "rate", "1/minute"):
+        with (
+            patch.object(WidgetFrameBurstThrottle, "rate", "1/minute"),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=rate_limit_enabled),
+        ):
             assert self.client.get(url).status_code == 200
             response = self.client.get(other_url)
 
-        assert response.status_code == 429
+        assert response.status_code == expected_status
 
     def test_frame_preserves_unsafe_integer_precision(self) -> None:
         unsafe_integer = 2**63 - 1
@@ -776,6 +791,22 @@ class TestWidgetData(APIBaseTest):
         instance.widget.save(update_fields=["current_version"])
         instance.pinned_version = version
         instance.save(update_fields=["pinned_version"])
+        GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt="Make it darker",
+            model="claude-sonnet-4-6",
+            status=GeneratedWidgetGenerationJob.Status.FAILED,
+            phase="failed",
+            error_code="generation_failed",
+            error_detail="The previous improvement failed.",
+            base_version=initial_version,
+            input_contract=initial_version.input_contract,
+            schema_hash="",
+        )
         different_canvas_head = uuid4()
         state = CanvasGenerationState(
             current_source_version_id=different_canvas_head,
@@ -810,6 +841,7 @@ class TestWidgetData(APIBaseTest):
         assert response.json()["lifecycle_status"] == "ready"
         assert response.json()["current_version_id"] == str(version.id)
         assert response.json()["build_hash"] == "b" * 64
+        assert response.json()["error_detail"] is None
         assert response.json()["security_review"]["severity"] == "high"
         assert response.json()["security_review"]["findings"][0]["title"] == "Notebook data may leave the preview"
         assert "versions" not in response.json()
@@ -1019,6 +1051,63 @@ class TestWidgetData(APIBaseTest):
 
         assert error.exception.code == "ai_data_processing_not_approved"
         assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+
+    def test_team_capacity_rejection_does_not_create_a_widget(self) -> None:
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.MAX_ACTIVE_GENERATIONS_PER_TEAM", 0),
+            self.assertRaises(WidgetRateLimitError) as error,
+        ):
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Render a globe",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=uuid4(),
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+            )
+
+        assert error.exception.code == "generation_capacity"
+        assert not GeneratedWidget.objects.for_team(self.team.id).exists()
+        assert not NotebookWidgetInstance.objects.for_team(self.team.id).exists()
+        assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+
+    def test_capacity_exhaustion_records_a_specific_failure(self) -> None:
+        widget = GeneratedWidget.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Render a globe",
+            canvas_id=uuid4(),
+            created_by=self.user,
+        )
+        instance = NotebookWidgetInstance.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            notebook=self.notebook,
+            node_id=self.NODE_ID,
+            widget=widget,
+            created_by=self.user,
+        )
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+
+        fail_widget_generation_capacity_job(job.id, self.team.id)
+
+        job.refresh_from_db()
+        result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.error_code == "generation_capacity_exhausted"
+        assert result.lifecycle_status == "failed"
+        assert result.error_detail == "Widget generation capacity is full. Try again shortly."
 
     def test_generation_identifier_is_idempotent_and_payload_bound(self) -> None:
         generation_id = uuid4()
@@ -1505,7 +1594,20 @@ class TestWidgetData(APIBaseTest):
         assert result.lifecycle_status == "awaiting_generation"
         assert result.error_detail is None
 
-    def test_status_reconciles_an_abandoned_generation(self) -> None:
+    @parameterized.expand(
+        [
+            ("capacity_retry", True, GeneratedWidgetGenerationJob.Status.QUEUED, "generating", False),
+            ("abandoned", False, GeneratedWidgetGenerationJob.Status.FAILED, "failed", True),
+        ]
+    )
+    def test_status_reconciles_queued_generation_by_heartbeat(
+        self,
+        _name: str,
+        has_recent_heartbeat: bool,
+        expected_job_status: str,
+        expected_lifecycle: str,
+        expected_write: bool,
+    ) -> None:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             name="Render a globe",
@@ -1531,15 +1633,19 @@ class TestWidgetData(APIBaseTest):
             schema_hash="",
         )
         GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=job.id).update(
-            created_at=timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1)
+            created_at=timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1),
+            heartbeat_at=timezone.now() if has_recent_heartbeat else None,
         )
 
-        result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
+        with CaptureQueriesContext(connection) as queries:
+            result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
 
         job.refresh_from_db()
-        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
-        assert result.lifecycle_status == "failed"
-        assert result.error_detail == "Generation stopped unexpectedly. Start it again."
+        write_queries = [query["sql"] for query in queries if query["sql"].lstrip().upper().startswith("UPDATE")]
+        assert bool(write_queries) is expected_write
+        assert job.status == expected_job_status
+        assert result.lifecycle_status == expected_lifecycle
+        assert result.error_detail == ("Generation stopped unexpectedly. Start it again." if expected_write else None)
 
     def test_query_restricted_member_cannot_generate(self) -> None:
         self.organization.available_product_features = [

@@ -12,6 +12,7 @@ from products.notebooks.backend.temporal.sql_v2 import (
 from products.notebooks.backend.temporal.widget_generation import (
     NotebookWidgetGenerationWorkflow,
     generate_widget_activity,
+    mark_widget_generation_capacity_failed_activity,
     mark_widget_generation_failed_activity,
 )
 
@@ -29,4 +30,5 @@ ACTIVITIES = [
     mark_frame_materialize_failed_activity,
     generate_widget_activity,
     mark_widget_generation_failed_activity,
+    mark_widget_generation_capacity_failed_activity,
 ]

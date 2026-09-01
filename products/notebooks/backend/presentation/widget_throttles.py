@@ -1,21 +1,11 @@
-from rest_framework.request import Request
-from rest_framework.throttling import UserRateThrottle
-from rest_framework.views import APIView
+from posthog.rate_limit import _UserBucketRateThrottle
 
 
-class _WidgetFrameThrottle(UserRateThrottle):
-    def get_cache_key(self, request: Request, view: APIView) -> str | None:
-        user_id = getattr(request.user, "pk", None)
-        if user_id is None:
-            return None
-        return self.cache_format % {"scope": self.scope, "ident": user_id}
-
-
-class WidgetFrameBurstThrottle(_WidgetFrameThrottle):
+class WidgetFrameBurstThrottle(_UserBucketRateThrottle):
     scope = "notebook_widget_frame_burst"
     rate = "120/minute"
 
 
-class WidgetFrameSustainedThrottle(_WidgetFrameThrottle):
+class WidgetFrameSustainedThrottle(_UserBucketRateThrottle):
     scope = "notebook_widget_frame_sustained"
     rate = "1200/hour"
