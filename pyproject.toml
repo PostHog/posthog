@@ -771,6 +771,7 @@ ignore_imports = [
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
+    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_scout_runs",
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
 ]
 
