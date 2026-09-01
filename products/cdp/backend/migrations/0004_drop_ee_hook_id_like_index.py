@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import DropIndexConcurrently
+
 
 class Migration(migrations.Migration):
     atomic = False
@@ -9,8 +11,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql='DROP INDEX CONCURRENTLY IF EXISTS "ee_hook_id_d4e48550_like"',
-            reverse_sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "ee_hook_id_d4e48550_like" ON "ee_hook" ("id" varchar_pattern_ops)',
+        # No SeparateDatabaseAndState wrapper: Django never recorded this
+        # auto-generated `_like` companion in migration state.
+        DropIndexConcurrently(
+            index_name="ee_hook_id_d4e48550_like",
+            table_name="ee_hook",
+            columns='("id" varchar_pattern_ops)',
         ),
     ]
