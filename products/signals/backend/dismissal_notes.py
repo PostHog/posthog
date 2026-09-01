@@ -313,7 +313,9 @@ def _repository_feedback(reports: Sequence[SignalReport], dismissals: Mapping[st
 def _subject(verb: str, reports: Sequence[SignalReport]) -> str:
     if len(reports) == 1:
         report = reports[0]
-        title = (report.title or "").strip()
+        # One line: the title is untrusted prompt input (the research agent writes it from ticket
+        # and issue text), and a newline would let it pose as a new section of the note.
+        title = " ".join((report.title or "").split())
         title_clause = f' ("{title[:_MAX_TITLE_CHARS]}")' if title else ""
         return f"report `{report.id}`{title_clause} was {verb} in the inbox."
 
