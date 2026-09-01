@@ -194,6 +194,10 @@ pub struct EngineConfig {
     pub attempt_alert_threshold: i32,
 }
 
+/// Rows one GC pass may delete. Sized so a post-backlog sweep finishes in
+/// well under a second rather than holding locks for the whole cleanup.
+const GC_BATCH_LIMIT: i64 = 10_000;
+
 pub struct Engine {
     pool: PgPool,
     config: EngineConfig,
@@ -569,16 +573,7 @@ impl Engine {
         row: &OpRow,
         status: &Status,
     ) -> Result<bool, sqlx::Error> {
-        // The reason becomes a metric label; cap it so a misbehaving
-        // peer cannot mint unbounded label cardinality.
-        let reason = personhog_common::grpc::semantic_refusal_reason(status)
-            .filter(|r| {
-                r.len() <= 64
-                    && r.chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-            })
-            .unwrap_or("unknown")
-            .to_string();
+        let reason = personhog_common::grpc::refusal_reason_label(status).to_string();
         let parked = sqlx::query!(
             r#"
             UPDATE lifecycle_op
@@ -711,13 +706,20 @@ impl Engine {
     /// The retention window exists only for op_id idempotency — the durable
     /// deletion shield is the person tombstone row, not the op row.
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
+        // Bounded per pass: an unbounded delete after a backlog would hold
+        // locks and WAL for the whole sweep; the next pass continues.
         let result = sqlx::query!(
             r#"
             DELETE FROM lifecycle_op
-            WHERE completed_at IS NOT NULL
-              AND completed_at < now() - make_interval(secs => $1)
+            WHERE op_id IN (
+                SELECT op_id FROM lifecycle_op
+                WHERE completed_at IS NOT NULL
+                  AND completed_at < now() - make_interval(secs => $1)
+                LIMIT $2
+            )
             "#,
             retention.as_secs_f64(),
+            GC_BATCH_LIMIT,
         )
         .execute(&self.pool)
         .await?;
