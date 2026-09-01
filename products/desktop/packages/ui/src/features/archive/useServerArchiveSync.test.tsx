@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiClient = vi.hoisted(() => ({
-  getTasksWithStatus: vi.fn(),
+  getTasksPage: vi.fn(),
   setTaskArchived: vi.fn(),
 }));
 const archiveLocally = vi.hoisted(() => vi.fn());
@@ -12,6 +12,12 @@ const refreshArchiveState = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => apiClient,
+}));
+
+vi.mock("@posthog/ui/features/auth/store", () => ({
+  useAuthStateValue: (
+    selector: (state: { currentProjectId: number }) => unknown,
+  ) => selector({ currentProjectId: 42 }),
 }));
 
 vi.mock("@posthog/di/react", () => ({
@@ -40,9 +46,9 @@ function wrapper({ children }: { children: ReactNode }) {
 describe("useServerArchiveSync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    apiClient.getTasksWithStatus.mockResolvedValue({
+    apiClient.getTasksPage.mockResolvedValue({
       tasks: [],
-      isComplete: true,
+      count: 0,
     });
     archiveLocally.mockResolvedValue(undefined);
     refreshArchiveState.mockResolvedValue(undefined);
@@ -50,6 +56,7 @@ describe("useServerArchiveSync", () => {
     useServerArchiveSyncStore.setState({
       syncedTaskIds: [],
       pendingUnarchiveTaskIds: [],
+      archiveImportOffsets: {},
     });
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -132,7 +139,7 @@ describe("useServerArchiveSync", () => {
   });
 
   it("imports a task archived on the server into the local archive", async () => {
-    apiClient.getTasksWithStatus.mockResolvedValue({
+    apiClient.getTasksPage.mockResolvedValue({
       tasks: [
         {
           id: "t1",
@@ -141,7 +148,7 @@ describe("useServerArchiveSync", () => {
           repository: "posthog/example",
         },
       ],
-      isComplete: true,
+      count: 1,
     });
 
     renderHook(() => useServerArchiveSync(), { wrapper });
@@ -155,16 +162,49 @@ describe("useServerArchiveSync", () => {
       }),
     );
     expect(useServerArchiveSyncStore.getState().syncedTaskIds).toContain("t1");
-    expect(apiClient.getTasksWithStatus).toHaveBeenCalledWith(
-      { archived: true, limit: 100 },
-      { fetchAll: true },
-    );
+    expect(apiClient.getTasksPage).toHaveBeenCalledWith({
+      archived: true,
+      limit: 100,
+      offset: 0,
+    });
     expect(refreshArchiveState).toHaveBeenCalledOnce();
+  });
+
+  it("continues a large server archive from its durable offset", async () => {
+    useServerArchiveSyncStore.setState({
+      archiveImportOffsets: { "42": 100 },
+    });
+    apiClient.getTasksPage.mockResolvedValue({
+      tasks: [
+        {
+          id: "t101",
+          title: "Older archived task",
+          created_at: "2026-08-01T10:00:00Z",
+          repository: null,
+        },
+      ],
+      count: 500,
+    });
+
+    const { rerender } = renderHook(() => useServerArchiveSync(), { wrapper });
+
+    await waitFor(() => expect(archiveLocally).toHaveBeenCalledOnce());
+    archivedIds.current = new Set(["t101"]);
+    await act(async () => rerender());
+    expect(apiClient.getTasksPage).toHaveBeenCalledOnce();
+    expect(apiClient.getTasksPage).toHaveBeenCalledWith({
+      archived: true,
+      limit: 100,
+      offset: 100,
+    });
+    expect(useServerArchiveSyncStore.getState().archiveImportOffsets[42]).toBe(
+      101,
+    );
   });
 
   it("does not rearchive a local restore while its server update is pending", async () => {
     apiClient.setTaskArchived.mockRejectedValue(new Error("offline"));
-    apiClient.getTasksWithStatus.mockResolvedValue({
+    apiClient.getTasksPage.mockResolvedValue({
       tasks: [
         {
           id: "t1",
@@ -173,7 +213,7 @@ describe("useServerArchiveSync", () => {
           repository: null,
         },
       ],
-      isComplete: true,
+      count: 1,
     });
     useServerArchiveSyncStore.setState({
       syncedTaskIds: [],
@@ -182,9 +222,7 @@ describe("useServerArchiveSync", () => {
 
     renderHook(() => useServerArchiveSync(), { wrapper });
 
-    await waitFor(() =>
-      expect(apiClient.getTasksWithStatus).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(apiClient.getTasksPage).toHaveBeenCalled());
     expect(archiveLocally).not.toHaveBeenCalled();
     expect(
       useServerArchiveSyncStore.getState().pendingUnarchiveTaskIds,

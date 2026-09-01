@@ -7,12 +7,14 @@ import { useService } from "@posthog/di/react";
 import { useServerArchiveSyncStore } from "@posthog/ui/features/archive/serverArchiveSyncStore";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 const log = logger.scope("server-archive-sync");
+const SERVER_ARCHIVE_IMPORT_LIMIT = 100;
 
 /**
  * A restore that couldn't reach the server. Until the clear lands the session
@@ -34,6 +36,7 @@ export function forgetServerArchive(taskId: string): void {
 /** Keep the local archive and the shared server archive aligned across devices. */
 export function useServerArchiveSync(): void {
   const client = useOptionalAuthenticatedClient();
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
   const archiveClient = useService<ArchiveClient>(ARCHIVE_CLIENT);
   const archivedTaskIds = useArchivedTaskIds();
   const queryClient = useQueryClient();
@@ -49,6 +52,7 @@ export function useServerArchiveSync(): void {
   const archivedRef = useRef(archivedTaskIds);
   const clientRef = useRef(client);
   const archiveClientRef = useRef(archiveClient);
+  const importedProjects = useRef(new Set<number>());
 
   // The drain loop re-reads these between passes. If a trigger lands too late
   // for the running drain to see it, rerunRequested starts another pass.
@@ -123,14 +127,21 @@ export function useServerArchiveSync(): void {
       }
       try {
         const api = clientRef.current;
-        if (api) {
-          const serverArchive = await api.getTasksWithStatus(
-            { archived: true, limit: 100 },
-            { fetchAll: true },
-          );
-          const pendingUnarchiveIds = new Set(
-            useServerArchiveSyncStore.getState().pendingUnarchiveTaskIds,
-          );
+        if (
+          api &&
+          projectId !== null &&
+          !importedProjects.current.has(projectId)
+        ) {
+          importedProjects.current.add(projectId);
+          const store = useServerArchiveSyncStore.getState();
+          const offset = store.archiveImportOffsets[projectId] ?? 0;
+          const serverArchive = await api.getTasksPage({
+            archived: true,
+            limit: SERVER_ARCHIVE_IMPORT_LIMIT,
+            offset,
+          });
+          const pendingUnarchiveIds = new Set(store.pendingUnarchiveTaskIds);
+          let importFailed = false;
           for (const task of serverArchive.tasks) {
             if (pendingUnarchiveIds.has(task.id)) {
               continue;
@@ -149,11 +160,21 @@ export function useServerArchiveSync(): void {
               useServerArchiveSyncStore.getState().markSynced(task.id);
               imported++;
             } catch (error) {
+              importFailed = true;
               log.warn(
                 `Failed to import archived task ${task.id} from the server`,
                 error,
               );
             }
+          }
+          if (!importFailed) {
+            const reachedEnd =
+              serverArchive.tasks.length === 0 ||
+              offset + serverArchive.tasks.length >= serverArchive.count;
+            store.setArchiveImportOffset(
+              projectId,
+              reachedEnd ? 0 : offset + serverArchive.tasks.length,
+            );
           }
         }
       } catch (error) {
@@ -177,5 +198,12 @@ export function useServerArchiveSync(): void {
         setDrainGeneration((value) => value + 1);
       }
     });
-  }, [archivedTaskIds, client, pendingUnarchive, queryClient, drainGeneration]);
+  }, [
+    archivedTaskIds,
+    client,
+    pendingUnarchive,
+    queryClient,
+    drainGeneration,
+    projectId,
+  ]);
 }
