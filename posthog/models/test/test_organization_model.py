@@ -182,57 +182,60 @@ class TestOrganization(BaseTest):
         self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
 
     def test_access_cache_reuses_organization_and_membership_details(self):
-        with self.assertNumQueries(1):
-            membership = get_cached_organization_membership(self.organization.id, self.user)
-        assert membership is not None
-        assert membership.organization == self.organization
-        assert membership.user == self.user
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with self.assertNumQueries(1):
+                membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            assert membership.organization == self.organization
+            assert membership.user == self.user
 
-        with self.assertNumQueries(1):
-            assert get_cached_organization_memberships(self.user)[0].organization == self.organization
+            with self.assertNumQueries(1):
+                assert get_cached_organization_memberships(self.user)[0].organization == self.organization
 
-        with self.assertNumQueries(0):
-            assert get_cached_organization(self.organization.id) == self.organization
-            assert get_cached_organization_membership(self.organization.id, self.user) == membership
-            assert get_cached_organization_memberships(self.user)[0] == membership
+            with self.assertNumQueries(0):
+                assert get_cached_organization(self.organization.id) == self.organization
+                assert get_cached_organization_membership(self.organization.id, self.user) == membership
+                assert get_cached_organization_memberships(self.user)[0] == membership
 
     def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
-        membership = get_cached_organization_membership(self.organization.id, self.user)
-        assert membership is not None
-        get_cached_organization_memberships(self.user)
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert membership is not None
+            get_cached_organization_memberships(self.user)
 
-        membership.level = OrganizationMembership.Level.ADMIN
-        membership.save()
-        updated_membership = get_cached_organization_membership(self.organization.id, self.user)
-        assert updated_membership is not None
-        assert updated_membership.level == OrganizationMembership.Level.ADMIN
-        assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
+            membership.level = OrganizationMembership.Level.ADMIN
+            membership.save()
+            updated_membership = get_cached_organization_membership(self.organization.id, self.user)
+            assert updated_membership is not None
+            assert updated_membership.level == OrganizationMembership.Level.ADMIN
+            assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
 
-        self.organization.name = "Updated organization"
-        self.organization.save()
-        updated_organization = get_cached_organization(self.organization.id)
-        assert updated_organization is not None
-        assert updated_organization.name == "Updated organization"
+            self.organization.name = "Updated organization"
+            self.organization.save()
+            updated_organization = get_cached_organization(self.organization.id)
+            assert updated_organization is not None
+            assert updated_organization.name == "Updated organization"
 
-        membership.delete()
-        assert get_cached_organization_membership(self.organization.id, self.user) is None
-        assert get_cached_organization_memberships(self.user) == []
+            membership.delete()
+            assert get_cached_organization_membership(self.organization.id, self.user) is None
+            assert get_cached_organization_memberships(self.user) == []
 
     def test_access_cache_is_invalidated_when_membership_is_created(self):
-        new_user = User.objects.create_user(
-            email="cache-membership@example.com", password="password", first_name="Cache"
-        )
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            new_user = User.objects.create_user(
+                email="cache-membership@example.com", password="password", first_name="Cache"
+            )
 
-        # Cache both the missing individual membership and the user's empty membership list.
-        assert get_cached_organization_membership(self.organization.id, new_user) is None
-        assert get_cached_organization_memberships(new_user) == []
+            # Cache both the missing individual membership and the user's empty membership list.
+            assert get_cached_organization_membership(self.organization.id, new_user) is None
+            assert get_cached_organization_memberships(new_user) == []
 
-        OrganizationMembership.objects.create(organization=self.organization, user=new_user)
+            OrganizationMembership.objects.create(organization=self.organization, user=new_user)
 
-        membership = get_cached_organization_membership(self.organization.id, new_user)
-        assert membership is not None
-        assert membership.user_id == new_user.id
-        assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]
+            membership = get_cached_organization_membership(self.organization.id, new_user)
+            assert membership is not None
+            assert membership.user_id == new_user.id
+            assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]
 
     @parameterized.expand(
         [

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
 from django.apps import apps
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save
@@ -87,12 +88,18 @@ def _get_versioned_access_cache_value(key: str, version: str | None = None) -> A
 
 
 def get_cached_organization(organization_id: str | UUID) -> Organization | None:
+    organization_model = _organization_model()
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
+        try:
+            return organization_model.objects.get(id=organization_id)
+        except (organization_model.DoesNotExist, ValueError):
+            return None
+
     key = _organization_cache_key(organization_id)
     version = _get_cache_version(key)
     cached = _get_versioned_access_cache_value(key, version)
     if cached == _ORGANIZATION_ACCESS_CACHE_MISS:
         return None
-    organization_model = _organization_model()
     if isinstance(cached, organization_model):
         return cached
 
@@ -128,12 +135,20 @@ def _cache_membership(membership: OrganizationMembership, version: str | None = 
 
 
 def get_cached_organization_membership(organization_id: str | UUID, user: User) -> OrganizationMembership | None:
+    organization_membership_model = _organization_membership_model()
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
+        try:
+            return organization_membership_model.objects.select_related("organization").get(
+                organization_id=organization_id, user_id=user.id
+            )
+        except (organization_membership_model.DoesNotExist, ValueError):
+            return None
+
     key = _organization_membership_cache_key(organization_id, user.id)
     version = _get_cache_version(key)
     cached = _get_versioned_access_cache_value(key, version)
     if cached == _ORGANIZATION_ACCESS_CACHE_MISS:
         return None
-    organization_membership_model = _organization_membership_model()
     if isinstance(cached, organization_membership_model):
         return _prepare_cached_membership(cached, user)
 
@@ -150,13 +165,17 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
 
 
 def get_cached_organization_memberships(user: User) -> list[OrganizationMembership]:
+    organization_membership_model = _organization_membership_model()
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
+        return list(organization_membership_model.objects.filter(user_id=user.id).select_related("organization"))
+
     key = _user_organization_memberships_cache_key(user.id)
     version = _get_cache_version(key)
     cached = _get_versioned_access_cache_value(key, version)
     if isinstance(cached, list):
         return [_prepare_cached_membership(membership, user) for membership in cached]
 
-    memberships = list(_organization_membership_model().objects.filter(user_id=user.id).select_related("organization"))
+    memberships = list(organization_membership_model.objects.filter(user_id=user.id).select_related("organization"))
     for membership in memberships:
         get_cached_organization(membership.organization_id)
         membership._state.fields_cache.pop("organization", None)
@@ -166,12 +185,18 @@ def get_cached_organization_memberships(user: User) -> list[OrganizationMembersh
 
 
 def invalidate_organization_access_cache(organization_id: str | UUID) -> None:
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
+        return
+
     key = _organization_cache_key(organization_id)
     _set_access_cache_value(_access_cache_version_key(key), uuid4().hex)
     _delete_access_cache_value(key)
 
 
 def invalidate_organization_membership_access_cache(organization_id: str | UUID, user_id: int) -> None:
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
+        return
+
     keys = (
         _organization_membership_cache_key(organization_id, user_id),
         _user_organization_memberships_cache_key(user_id),
