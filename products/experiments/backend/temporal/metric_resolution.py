@@ -58,6 +58,23 @@ def iter_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
     return dicts
 
 
+def primary_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
+    """Primary metric definition dicts only: inline primary metrics plus saved metrics linked as primary.
+
+    A saved metric's role is on its M2M link metadata (``metadata["type"]``, defaulting to primary).
+    Callers that must match the detail page's primary-metric selection need saved primaries too, not
+    only ``experiment.metrics``.
+    """
+    dicts: list[dict[str, Any]] = [metric for metric in (experiment.metrics or []) if metric.get("uuid")]
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+        if (link.metadata or {}).get("type", "primary") != "primary":
+            continue
+        saved_query = link.saved_metric.query
+        if saved_query and saved_query.get("uuid"):
+            dicts.append(_merge_saved_metric_breakdowns(saved_query, link.metadata))
+    return dicts
+
+
 def find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict[str, Any] | None:
     """Resolve a metric_uuid to its definition dict, across inline AND saved/shared metrics."""
     return next((metric for metric in iter_metric_dicts(experiment) if metric.get("uuid") == metric_uuid), None)

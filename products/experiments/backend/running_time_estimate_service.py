@@ -26,33 +26,39 @@ from products.experiments.backend.running_time_calculator import (
     resolve_minimum_detectable_effect,
     select_sizing_metric,
 )
+from products.experiments.backend.temporal.metric_resolution import primary_metric_dicts
 
 # Bump when the cached value's shape changes; pickled values would otherwise deserialize stale-shaped.
 _CACHE_VERSION = "v1"
 CACHE_TTL_SECONDS = 15 * 60
 
 
-def _latest_result_blob_for_metric(experiment: Experiment, metric_uuid: str | None) -> dict | None:
-    """The result blob the detail page shows for one metric, or None.
+def _latest_result_blob_for_metric(
+    experiment: Experiment, metric_uuid: str | None
+) -> tuple[dict | None, datetime | None]:
+    """The result blob the detail page shows for one metric and the window it covers, or ``(None, None)``.
 
     Mirrors the precedence in the ``metrics_recalculation/latest`` endpoint: the latest terminal
     recalculation run first, then the timeseries cold-start payload. Reuses the recalculation module
-    so the list reads the exact same source the detail page does.
+    so the list reads the exact same source the detail page does. ``query_to`` is the source row's
+    window, not part of the blob, so the caller can key its cache on a fresher result.
     """
     if metric_uuid is None:
-        return None
+        return None, None
 
     recalc = get_latest_recalculation(experiment)
     if recalc is not None:
         results = get_run_results(recalc)
+        query_to = recalc.query_to
     else:
         payload = build_timeseries_cold_start_payload(experiment)
         results = payload["results"] if payload is not None else []
+        query_to = payload["query_to"] if payload is not None else None
 
     for entry in results:
         if entry.get("metric_uuid") == metric_uuid and entry.get("status") == "completed":
-            return entry.get("result")
-    return None
+            return entry.get("result"), query_to
+    return None, None
 
 
 def _number_of_variants(experiment: Experiment) -> int:
@@ -83,12 +89,12 @@ def compute_running_time_estimate(experiment: Experiment, now: datetime | None =
     # read the sizing metric's latest result for either. See estimate_running_time_for_experiment.
     result_blob: dict | None = None
     query_to = None
-    selected = select_sizing_metric(experiment.metrics, experiment.primary_metrics_ordered_uuids)
+    # Include saved (shared) primary metrics, not only inline ones, so the sizing metric matches the
+    # detail page when a saved metric is the first primary metric.
+    selected = select_sizing_metric(primary_metric_dicts(experiment), experiment.primary_metrics_ordered_uuids)
     if selected is not None:
         metric, _ = selected
-        result_blob = _latest_result_blob_for_metric(experiment, metric.get("uuid"))
-        if result_blob is not None:
-            query_to = result_blob.get("query_to")
+        result_blob, query_to = _latest_result_blob_for_metric(experiment, metric.get("uuid"))
 
     cache_key = _cache_key(experiment, query_to)
     cached = get_safe_cache(cache_key)
