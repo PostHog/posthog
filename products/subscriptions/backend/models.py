@@ -51,6 +51,7 @@ class ImmutableOutcomeObservationAllTeamsManager(models.Manager["OutcomeObservat
 class ProactiveSubscriptionConfig(PulseModel):
     subscription_id = models.IntegerField()
     enabled = models.BooleanField(default=False, db_default=False)
+    public_research_enabled = models.BooleanField(default=True, db_default=True)
     repository = models.CharField(max_length=255, null=True, blank=True)
     create_draft_pr = models.BooleanField(default=False, db_default=False)
     repository_grant = models.ForeignKey(

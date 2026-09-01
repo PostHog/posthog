@@ -22,7 +22,7 @@ const UNCONFIGURED_SUBSCRIPTION = {
         repository: null,
         repository_integration_id: null,
         repository_grant_id: null,
-        public_research_subject_id: null,
+        public_research_enabled: true,
     },
 } as SubscriptionFormType
 
@@ -30,7 +30,7 @@ const AVAILABLE_OPTIONS = {
     proactive_available: true,
     draft_pr_available: true,
     repositories: [],
-    public_research_subjects: [],
+    public_research_available: true,
 } as ProactiveConfigurationOptionsApi
 
 describe('subscriptionFormNavigation', () => {

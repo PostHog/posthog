@@ -44,10 +44,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.pulse import PulseValidationError, get_proactive_config
-from products.subscriptions.backend.facade.testing import (
-    create_public_research_subject_for_test,
-    proactive_config_exists_for_test,
-)
+from products.subscriptions.backend.facade.testing import proactive_config_exists_for_test
 
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -141,7 +138,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                 "repository_integration_id": None,
                 "create_draft_pr": False,
                 "repository_grant_id": None,
-                "public_research_subject_id": None,
+                "public_research_enabled": True,
             },
             "target_type": "email",
             "target_value": "test@posthog.com",
@@ -2641,7 +2638,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not Subscription.objects.filter(team=self.team, title="Weekly AI report").exists()
 
-    def test_create_rejects_unknown_proactive_subject_uuid(self, mock_is_cloud, mock_flag, mock_sync) -> None:
+    def test_create_rejects_legacy_public_research_subject_field(self, mock_is_cloud, mock_flag, mock_sync) -> None:
         self._enable_ai()
         self._mock_temporal(mock_sync)
 
@@ -2654,44 +2651,28 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    def test_create_rejects_public_research_subject_from_another_team(
-        self, mock_is_cloud, mock_flag, mock_sync
-    ) -> None:
+    def test_create_defaults_public_research_on(self, mock_is_cloud, mock_flag, mock_sync) -> None:
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        other_team = Team.objects.create(organization=self.organization, name="Other project")
-        subject_id = create_public_research_subject_for_test(
-            team=other_team,
-            name="Other team release notes",
-            canonical_domain="example.com",
-            reviewed_at=timezone.now(),
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"enabled": True}, send_test_now=False),
         )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["proactive_config"]["public_research_enabled"] is True
+        stored = get_proactive_config(team_id=self.team.id, subscription_id=response.json()["id"])
+        assert stored.public_research_enabled is True
+
+    def test_create_persists_public_research_opt_out(self, mock_is_cloud, mock_flag, mock_sync) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(
-                proactive_config={"enabled": True, "public_research_subject_id": subject_id}, send_test_now=False
-            ),
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-
-    def test_create_persists_an_eligible_reviewed_public_research_subject(
-        self, mock_is_cloud, mock_flag, mock_sync
-    ) -> None:
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        subject_id = create_public_research_subject_for_test(
-            team=self.team,
-            name="Public release notes",
-            canonical_domain="example.com",
-            reviewed_at=timezone.now(),
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(
-                proactive_config={"enabled": True, "public_research_subject_id": subject_id}, send_test_now=False
+                proactive_config={"enabled": True, "public_research_enabled": False}, send_test_now=False
             ),
         )
 
@@ -2702,11 +2683,11 @@ class TestAISubscriptionAPI(APILicensedTest):
             "repository_integration_id": None,
             "create_draft_pr": False,
             "repository_grant_id": None,
-            "public_research_subject_id": str(subject_id),
+            "public_research_enabled": False,
         }
         stored = get_proactive_config(team_id=self.team.id, subscription_id=response.json()["id"])
         assert stored.enabled is True
-        assert stored.public_research_subject_id == subject_id
+        assert stored.public_research_enabled is False
 
     def test_patch_returns_the_persisted_proactive_configuration(self, mock_is_cloud, mock_flag, mock_sync) -> None:
         self._enable_ai()
@@ -2729,8 +2710,30 @@ class TestAISubscriptionAPI(APILicensedTest):
             "repository_integration_id": None,
             "create_draft_pr": False,
             "repository_grant_id": None,
-            "public_research_subject_id": None,
+            "public_research_enabled": True,
         }
+
+    def test_partial_patch_preserves_public_research_opt_out(self, mock_is_cloud, mock_flag, mock_sync) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                proactive_config={"enabled": True, "public_research_enabled": False},
+                send_test_now=False,
+            ),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"proactive_config": {"enabled": False}, "send_test_now": False},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["proactive_config"]["public_research_enabled"] is False
+        stored = get_proactive_config(team_id=self.team.id, subscription_id=created.json()["id"])
+        assert stored.public_research_enabled is False
 
     def test_create_rolls_back_subscription_context_and_config_when_proactive_write_fails(
         self, mock_is_cloud, mock_flag, mock_sync

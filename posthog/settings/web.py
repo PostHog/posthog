@@ -587,6 +587,7 @@ SPECTACULAR_SETTINGS = {
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
         "ConversationStatus": "products.posthog_ai.backend.models.assistant.Conversation.Status",
         "ConversationType": "products.posthog_ai.backend.models.assistant.Conversation.Type",
+        "ConversationTopicEnum": "products.posthog_ai.backend.models.assistant.Conversation.Topic",
         "DetailModeEnum": "products.ai_observability.backend.summarization.models.SummarizationMode",
         "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
@@ -655,6 +656,18 @@ SPECTACULAR_SETTINGS = {
         "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
         "NotebookSQLV2RefKindEnum": ["hogql", "local"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        "PulsePublicResearchTopicEnum": [
+            "product_analytics_market_trends",
+            "product_analytics_competitors",
+            "b2b_saas_benchmarks",
+            "consumer_product_benchmarks",
+            "onboarding_best_practices",
+            "activation_best_practices",
+            "retention_best_practices",
+            "experimentation_best_practices",
+            "analytics_instrumentation_best_practices",
+            "pricing_best_practices",
+        ],
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],

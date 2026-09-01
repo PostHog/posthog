@@ -55,31 +55,34 @@ jest.mock('lib/lemon-ui/LemonInputSelect/LemonInputSelect', () => ({
     ),
 }))
 
-jest.mock('lib/lemon-ui/LemonSelect', () => ({
-    LemonSelect: ({
-        options,
-        onChange,
-        disabledReason,
-    }: {
-        options: { label: string }[]
-        onChange: (value: null) => void
-        disabledReason?: string
-    }) => (
-        <div>
-            {options.map((option) => option.label).join(', ')}
-            <button disabled={!!disabledReason} onClick={() => onChange(null)}>
-                Clear public research
-            </button>
-        </div>
-    ),
-}))
-
 jest.mock('lib/lemon-ui/LemonSkeleton', () => ({
     LemonSkeleton: () => <div>Loading</div>,
 }))
 
 jest.mock('lib/lemon-ui/LemonSwitch', () => ({
-    LemonSwitch: ({ label }: { label: ReactNode }) => <div>{label}</div>,
+    LemonSwitch: ({
+        label,
+        checked,
+        onChange,
+        disabledReason,
+    }: {
+        label: ReactNode
+        checked: boolean
+        onChange: (checked: boolean) => void
+        disabledReason?: string
+    }) => (
+        <label>
+            {label}
+            <input
+                aria-label={typeof label === 'string' ? label : undefined}
+                type="checkbox"
+                checked={checked}
+                disabled={!!disabledReason}
+                onChange={(event) => onChange(event.target.checked)}
+            />
+            {disabledReason}
+        </label>
+    ),
 }))
 
 jest.mock('scenes/urls', () => ({
@@ -103,7 +106,7 @@ describe('ProactiveSubscriptionFields', () => {
             selectProactiveRepository: jest.fn(),
             setDraftPrEnabled: jest.fn(),
             setProactiveEnabled: jest.fn(),
-            setPublicResearchSubject: jest.fn(),
+            setPublicResearchEnabled: jest.fn(),
         })
     })
 
@@ -113,7 +116,7 @@ describe('ProactiveSubscriptionFields', () => {
                 proactive_available: false,
                 draft_pr_available: false,
                 repositories: [],
-                public_research_subjects: [],
+                public_research_available: false,
             },
             proactiveConfigurationOptionsLoading: false,
         })
@@ -127,7 +130,7 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: null,
                     create_draft_pr: false,
                     repository_grant_id: null,
-                    public_research_subject_id: null,
+                    public_research_enabled: true,
                 })}
             />
         )
@@ -141,13 +144,7 @@ describe('ProactiveSubscriptionFields', () => {
                 proactive_available: true,
                 draft_pr_available: true,
                 repositories: [{ repository: 'example/product', repository_integration_id: 17 }],
-                public_research_subjects: [
-                    {
-                        id: '00000000-0000-4000-8000-000000000010',
-                        display_name: 'Example public docs',
-                        canonical_domain: 'example.com',
-                    },
-                ],
+                public_research_available: true,
             },
             proactiveConfigurationOptionsLoading: false,
         })
@@ -161,7 +158,7 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: 17,
                     create_draft_pr: true,
                     repository_grant_id: null,
-                    public_research_subject_id: null,
+                    public_research_enabled: true,
                 })}
             />
         )
@@ -169,7 +166,10 @@ describe('ProactiveSubscriptionFields', () => {
         expect(screen.getByText('Investigate findings and recommend next steps')).toBeInTheDocument()
         expect(screen.getByText('Automatically open one draft pull request')).toBeInTheDocument()
         expect(screen.getByText('example/product')).toBeInTheDocument()
-        expect(screen.getByText(/Example public docs \(example.com\)/)).toBeInTheDocument()
+        expect(screen.getByText('Use public web research')).toBeInTheDocument()
+        expect(
+            screen.getByText(/search and read public webpages when a finding needs more context/i)
+        ).toBeInTheDocument()
         expect(screen.getByText(/never starts an experiment or sends traffic automatically/i)).toBeInTheDocument()
     })
 
@@ -179,7 +179,7 @@ describe('ProactiveSubscriptionFields', () => {
                 proactive_available: true,
                 draft_pr_available: false,
                 repositories: [],
-                public_research_subjects: [],
+                public_research_available: false,
             },
             proactiveConfigurationOptionsLoading: false,
         })
@@ -193,14 +193,14 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: null,
                     create_draft_pr: false,
                     repository_grant_id: null,
-                    public_research_subject_id: null,
+                    public_research_enabled: true,
                 })}
             />
         )
 
         expect(screen.getByText('Automatically open one draft pull request')).toBeInTheDocument()
         expect(screen.getByText('Draft pull request automation is not available for this project.')).toBeInTheDocument()
-        expect(screen.getByText('No approved public research sources')).toBeInTheDocument()
+        expect(screen.getByText('Public web research is not available for this project.')).toBeInTheDocument()
         expect(screen.queryByPlaceholderText('Select a repository')).not.toBeInTheDocument()
     })
 
@@ -210,7 +210,7 @@ describe('ProactiveSubscriptionFields', () => {
                 proactive_available: false,
                 draft_pr_available: false,
                 repositories: [],
-                public_research_subjects: [],
+                public_research_available: false,
             },
             proactiveConfigurationOptionsLoading: false,
         })
@@ -224,7 +224,7 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: null,
                     create_draft_pr: false,
                     repository_grant_id: null,
-                    public_research_subject_id: null,
+                    public_research_enabled: true,
                 })}
             />
         )
@@ -233,21 +233,21 @@ describe('ProactiveSubscriptionFields', () => {
         expect(screen.getByText('Investigate findings and recommend next steps')).toBeInTheDocument()
     })
 
-    it('lets users remove a saved public research source that is no longer available', () => {
-        const setPublicResearchSubject = jest.fn()
+    it('lets users opt out of public web research', () => {
+        const setPublicResearchEnabled = jest.fn()
         mockedUseActions.mockReturnValue({
             loadProactiveConfigurationOptions: jest.fn(),
             selectProactiveRepository: jest.fn(),
             setDraftPrEnabled: jest.fn(),
             setProactiveEnabled: jest.fn(),
-            setPublicResearchSubject,
+            setPublicResearchEnabled,
         })
         mockedUseValues.mockReturnValue({
             proactiveConfigurationOptions: {
                 proactive_available: true,
                 draft_pr_available: false,
                 repositories: [],
-                public_research_subjects: [],
+                public_research_available: true,
             },
             proactiveConfigurationOptionsLoading: false,
         })
@@ -261,16 +261,15 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: null,
                     create_draft_pr: false,
                     repository_grant_id: null,
-                    public_research_subject_id: '00000000-0000-4000-8000-000000000099',
+                    public_research_enabled: true,
                 })}
             />
         )
 
-        expect(screen.getByText(/Previously selected source \(unavailable\)/)).toBeInTheDocument()
-        const clearPublicResearch = screen.getByText('Clear public research').closest('button')
-        expect(clearPublicResearch).not.toBeNull()
-        fireEvent.click(clearPublicResearch!)
-        expect(setPublicResearchSubject).toHaveBeenCalledWith(null)
+        const publicResearch = screen.getByRole('checkbox', { name: /Use public web research/ })
+        expect(publicResearch).toBeChecked()
+        fireEvent.click(publicResearch)
+        expect(setPublicResearchEnabled).toHaveBeenCalledWith(false)
     })
 
     it('shows a retry when proactive configuration options fail to load', () => {
@@ -280,7 +279,7 @@ describe('ProactiveSubscriptionFields', () => {
             selectProactiveRepository: jest.fn(),
             setDraftPrEnabled: jest.fn(),
             setProactiveEnabled: jest.fn(),
-            setPublicResearchSubject: jest.fn(),
+            setPublicResearchEnabled: jest.fn(),
         })
         mockedUseValues.mockReturnValue({
             proactiveConfigurationOptions: null,
@@ -297,7 +296,7 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: null,
                     create_draft_pr: false,
                     repository_grant_id: null,
-                    public_research_subject_id: null,
+                    public_research_enabled: true,
                 })}
             />
         )
@@ -314,7 +313,7 @@ describe('ProactiveSubscriptionFields', () => {
             selectProactiveRepository: jest.fn(),
             setDraftPrEnabled: jest.fn(),
             setProactiveEnabled: jest.fn(),
-            setPublicResearchSubject: jest.fn(),
+            setPublicResearchEnabled: jest.fn(),
         })
         mockedUseValues.mockReturnValue({
             proactiveConfigurationOptions: null,
@@ -331,7 +330,7 @@ describe('ProactiveSubscriptionFields', () => {
                     repository_integration_id: null,
                     create_draft_pr: false,
                     repository_grant_id: null,
-                    public_research_subject_id: null,
+                    public_research_enabled: true,
                 })}
             />
         )
@@ -341,5 +340,7 @@ describe('ProactiveSubscriptionFields', () => {
         expect(retry).toBeDisabled()
         fireEvent.click(retry!)
         expect(loadProactiveConfigurationOptions).not.toHaveBeenCalled()
+        expect(screen.queryByText('Public web research is not available for this project.')).not.toBeInTheDocument()
+        expect(screen.queryByText(/Proactive follow-up is currently unavailable/)).not.toBeInTheDocument()
     })
 })

@@ -10,12 +10,14 @@ from products.subscriptions.backend.facade.contracts import (
     ArtifactLinkDTO,
     OutcomeDecisionDTO,
     OutcomeReadoutHistoryDTO,
+    PublicResearchCitationDTO,
     PulseExperimentDraftInput,
     PulseExperimentMetricRef,
     PulseExperimentVariant,
     PulseRunHistoryDTO,
     RunActionHistoryDTO,
 )
+from products.subscriptions.backend.pulse.research import PUBLIC_RESEARCH_TOPICS
 
 
 class StrictSerializer(serializers.Serializer):
@@ -31,6 +33,11 @@ class ProactiveSubscriptionConfigWriteSerializer(StrictSerializer):
         required=False,
         default=False,
         help_text="Whether future AI report deliveries may run proactive follow-up.",
+    )
+    public_research_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether proactive analysis may search and read public webpages through PostHog's bounded broker.",
     )
     repository = serializers.CharField(
         required=False,
@@ -49,11 +56,6 @@ class ProactiveSubscriptionConfigWriteSerializer(StrictSerializer):
         required=False,
         default=False,
         help_text="Whether Pulse may create one draft pull request on a future delivery.",
-    )
-    public_research_subject_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text="Optional eligible reviewed public research subject. Omit to disable public research.",
     )
 
 
@@ -216,12 +218,6 @@ class RepositoryOptionSerializer(serializers.Serializer):
     )
 
 
-class PublicResearchSubjectOptionSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="Stable identifier of the reviewed public research subject.")
-    display_name = serializers.CharField(help_text="Human-readable name of the reviewed public research subject.")
-    canonical_domain = serializers.CharField(help_text="Canonical public domain covered by this research subject.")
-
-
 @extend_schema_serializer(many=False)
 class ProactiveConfigurationOptionsSerializer(serializers.Serializer):
     proactive_available = serializers.BooleanField(
@@ -230,14 +226,35 @@ class ProactiveConfigurationOptionsSerializer(serializers.Serializer):
     draft_pr_available = serializers.BooleanField(
         help_text="Whether the server currently allows new draft pull request automation."
     )
+    public_research_available = serializers.BooleanField(
+        help_text="Whether the server currently provides bounded public web research."
+    )
     repositories = serializers.ListField(
         child=RepositoryOptionSerializer(),
         help_text="Repositories that the requesting user can currently authorize for a draft pull request.",
     )
-    public_research_subjects = serializers.ListField(
-        child=PublicResearchSubjectOptionSerializer(),
-        help_text="Eligible reviewed public research subjects while public research is enabled.",
+
+
+class PulsePublicResearchRequestSerializer(StrictSerializer):
+    topic = serializers.ChoiceField(
+        choices=PUBLIC_RESEARCH_TOPICS,
+        help_text=(
+            "Server-owned public research topic. PostHog maps this choice to a fixed search query, so private "
+            "workspace content is never sent to the provider."
+        ),
     )
+
+
+class PulsePublicResearchResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PublicResearchCitationDTO
+        extra_kwargs = {
+            "evidence_id": {"help_text": "Server-owned evidence identifier for this retry-safe research call."},
+            "canonical_url": {"help_text": "Validated public HTTP or HTTPS page used for this citation."},
+            "title": {"help_text": "Bounded title from the public page, when available."},
+            "retrieved_at": {"help_text": "When PostHog retrieved this public page."},
+            "excerpt": {"help_text": "Bounded untrusted excerpt from the public page."},
+        }
 
 
 class PulseExperimentVariantSerializer(StrictSerializer):

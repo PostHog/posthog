@@ -5,7 +5,6 @@ import { Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { urls } from 'scenes/urls'
@@ -36,9 +35,10 @@ export function ProactiveSubscriptionFields({
         selectProactiveRepository,
         setDraftPrEnabled,
         setProactiveEnabled,
-        setPublicResearchSubject,
+        setPublicResearchEnabled,
     } = useActions(logic)
     const config = subscription.proactive_config
+    const publicResearchEnabled = config?.public_research_enabled !== false
 
     if (proactiveConfigurationOptionsLoading && !proactiveConfigurationOptions && !config?.enabled) {
         return <LemonSkeleton className="h-20 w-full" />
@@ -62,6 +62,8 @@ export function ProactiveSubscriptionFields({
 
     const proactiveAvailable = proactiveConfigurationOptions?.proactive_available === true
     const draftPrAvailable = proactiveConfigurationOptions?.draft_pr_available === true
+    const publicResearchAvailable = proactiveConfigurationOptions?.public_research_available === true
+    const configurationOptionsResolved = proactiveConfigurationOptions != null
     if (!proactiveAvailable && !config?.enabled) {
         return null
     }
@@ -92,23 +94,6 @@ export function ProactiveSubscriptionFields({
                 ? `${option.repository} (GitHub connection ${option.repository_integration_id})`
                 : option.repository,
     }))
-    const researchSubjects = proactiveConfigurationOptions?.public_research_subjects ?? []
-    const configuredResearchSubjectId = config?.public_research_subject_id ?? null
-    const configuredResearchSubjectAvailable = researchSubjects.some(
-        (subject) => subject.id === configuredResearchSubjectId
-    )
-    const hasUnavailableResearchSubject = !!configuredResearchSubjectId && !configuredResearchSubjectAvailable
-    const researchSubjectOptions = [
-        { value: null, label: 'Do not use public research' },
-        ...researchSubjects.map((subject) => ({
-            value: subject.id,
-            label: `${subject.display_name} (${subject.canonical_domain})`,
-        })),
-        ...(hasUnavailableResearchSubject
-            ? [{ value: configuredResearchSubjectId, label: 'Previously selected source (unavailable)' }]
-            : []),
-    ]
-
     return (
         <div className="flex flex-col gap-3 rounded border bg-surface-primary p-3">
             {proactiveConfigurationOptionsLoadFailed && !proactiveConfigurationOptions ? (
@@ -124,7 +109,7 @@ export function ProactiveSubscriptionFields({
                     Could not load proactive configuration options.
                 </LemonBanner>
             ) : null}
-            {!proactiveAvailable && !proactiveConfigurationOptionsLoadFailed ? (
+            {configurationOptionsResolved && !proactiveAvailable && !proactiveConfigurationOptionsLoadFailed ? (
                 <LemonBanner type="warning">
                     Proactive follow-up is currently unavailable. You can turn off the existing setting, but PostHog
                     cannot run it until it is available again.
@@ -151,11 +136,13 @@ export function ProactiveSubscriptionFields({
 
             {config?.enabled ? (
                 <>
-                    {proactiveAvailable && !draftPrAvailable ? (
-                        <LemonBanner type={config.create_draft_pr ? 'warning' : 'info'}>
-                            {config.create_draft_pr
-                                ? 'Draft pull request automation is currently unavailable. Turn it off to remove the saved setting.'
-                                : 'Draft pull request automation is not available for this project.'}
+                    {configurationOptionsResolved &&
+                    proactiveAvailable &&
+                    !draftPrAvailable &&
+                    config.create_draft_pr ? (
+                        <LemonBanner type="warning">
+                            Draft pull request automation is currently unavailable. Turn it off to remove the saved
+                            setting.
                         </LemonBanner>
                     ) : null}
                     <LemonField name="proactive_config.create_draft_pr">
@@ -165,9 +152,11 @@ export function ProactiveSubscriptionFields({
                             checked={config.create_draft_pr === true}
                             onChange={setDraftPrEnabled}
                             disabledReason={
-                                !draftPrAvailable && !config.create_draft_pr
-                                    ? 'Draft pull request automation is not available for this project.'
-                                    : undefined
+                                !configurationOptionsResolved && !config.create_draft_pr
+                                    ? 'Check availability before turning on draft pull request automation.'
+                                    : !draftPrAvailable && !config.create_draft_pr
+                                      ? 'Draft pull request automation is not available for this project.'
+                                      : undefined
                             }
                             label={
                                 <div className="flex flex-col gap-1 py-1">
@@ -207,7 +196,7 @@ export function ProactiveSubscriptionFields({
                                     }
                                     data-attr="subscription-proactive-repository"
                                 />
-                                {repositorySelectOptions.length === 0 ? (
+                                {configurationOptionsResolved && repositorySelectOptions.length === 0 ? (
                                     <LemonBanner type="info" className="mt-2">
                                         Connect GitHub under{' '}
                                         <Link to={urls.settings('user-personal-integrations')}>
@@ -220,27 +209,32 @@ export function ProactiveSubscriptionFields({
                         </LemonField>
                     ) : null}
 
-                    <LemonField
-                        name="proactive_config.public_research_subject_id"
-                        label="Public research"
-                        help="Optional. PostHog can only research a reviewed public subject from this list."
-                    >
-                        <LemonSelect
-                            value={config.public_research_subject_id ?? null}
-                            onChange={(subjectId) => setPublicResearchSubject(subjectId ?? null)}
-                            options={
-                                researchSubjects.length > 0 || hasUnavailableResearchSubject
-                                    ? researchSubjectOptions
-                                    : [{ value: null, label: 'No approved public research sources' }]
-                            }
+                    {configurationOptionsResolved && !publicResearchAvailable && publicResearchEnabled ? (
+                        <LemonBanner type="warning">Public web research is not available for this project.</LemonBanner>
+                    ) : null}
+                    <LemonField name="proactive_config.public_research_enabled">
+                        <LemonSwitch
+                            bordered
+                            fullWidth
+                            checked={publicResearchEnabled}
+                            onChange={setPublicResearchEnabled}
                             disabledReason={
-                                !proactiveAvailable && !hasUnavailableResearchSubject
-                                    ? 'Public research is currently unavailable.'
-                                    : researchSubjects.length === 0 && !hasUnavailableResearchSubject
-                                      ? 'No reviewed public research sources are available for this project.'
+                                !configurationOptionsResolved && !publicResearchEnabled
+                                    ? 'Check availability before turning on public web research.'
+                                    : !publicResearchAvailable && !publicResearchEnabled
+                                      ? 'Public web research is not available for this project.'
                                       : undefined
                             }
-                            fullWidth
+                            label={
+                                <div className="flex flex-col gap-1 py-1">
+                                    <div className="leading-tight">Use public web research</div>
+                                    <div className="text-xs text-secondary font-normal leading-tight">
+                                        PostHog may search and read public webpages when a finding needs more context.
+                                        Turn this off to keep analysis within your PostHog data.
+                                    </div>
+                                </div>
+                            }
+                            data-attr="subscription-proactive-public-research"
                         />
                     </LemonField>
 

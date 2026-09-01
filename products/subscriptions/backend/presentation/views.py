@@ -28,6 +28,8 @@ from .serializers import (
     PulseExperimentDraftSerializer,
     PulseHistoryQuerySerializer,
     PulseOutcomeReplayResponseSerializer,
+    PulsePublicResearchRequestSerializer,
+    PulsePublicResearchResponseSerializer,
     PulseRunHistorySerializer,
 )
 
@@ -36,6 +38,18 @@ class PulseExperimentDraftConflictResponse(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "The experiment draft request conflicts with its reservation."
     default_code = "pulse_experiment_draft_conflict"
+
+
+class PulsePublicResearchUnavailableResponse(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Public research is temporarily unavailable."
+    default_code = "pulse_public_research_unavailable"
+
+
+class PulsePublicResearchConflictResponse(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Public research has reached its limit or an identical request is still running."
+    default_code = "pulse_public_research_conflict"
 
 
 class PulseHistoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -181,6 +195,62 @@ class PulseExperimentDraftViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise PulseExperimentDraftConflictResponse(str(error)) from error
         response_status = status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
         return Response(PulseExperimentDraftResponseSerializer(instance=result).data, status=response_status)
+
+
+class PulsePublicResearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = [OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "internal_run"
+    scope_object_read_actions = ["create"]
+    scope_object_write_actions: list[str] = []
+    serializer_class = PulsePublicResearchResponseSerializer
+    pagination_class = None
+
+    @validated_request(
+        request_serializer=PulsePublicResearchRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=PulsePublicResearchResponseSerializer),
+            400: OpenApiResponse(description="The public research topic is invalid."),
+            409: OpenApiResponse(description="The research budget is exhausted or an identical request is running."),
+            404: OpenApiResponse(description="Public research is unavailable for this active Pulse task."),
+            503: OpenApiResponse(description="The public research provider is temporarily unavailable."),
+        },
+        description=(
+            "Search and read one bounded public webpage for an active task-bound Pulse analysis. "
+            "Returned content is untrusted reference material."
+        ),
+    )
+    def create(self, request: ValidatedRequest, **kwargs) -> Response:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            raise PermissionDenied("This operation requires a task-bound sandbox token.")
+        access_token = authenticator.access_token
+        application = access_token.application
+        task_id = access_token.sandbox_task_id
+        if (
+            application is None
+            or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS
+            or task_id is None
+            or not pulse_api.has_exact_pulse_analysis_scopes(access_token.scope)
+        ):
+            raise PermissionDenied("This operation requires a task-bound sandbox token.")
+        try:
+            result = pulse_api.research_public_context_for_task(
+                team_id=self.team_id,
+                team=self.team,
+                user=cast(User, request.user),
+                task_id=task_id,
+                topic=request.validated_data["topic"],
+            )
+        except pulse_api.PulsePublicResearchNotFound as error:
+            raise NotFound("Public research is unavailable for this task.") from error
+        except pulse_api.PulsePublicResearchInvalid as error:
+            raise ValidationError({"topic": ["Choose one of the available public research topics."]}) from error
+        except pulse_api.PulseEvidenceConflict as error:
+            raise PulsePublicResearchConflictResponse() from error
+        except pulse_api.PulsePublicResearchUnavailable as error:
+            raise PulsePublicResearchUnavailableResponse() from error
+        return Response(PulsePublicResearchResponseSerializer(instance=result).data, status=status.HTTP_200_OK)
 
 
 class PulseOutcomeReplayViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

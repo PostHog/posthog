@@ -5,6 +5,7 @@ from products.subscriptions.backend.presentation.views import (
     PulseExperimentDraftViewSet,
     PulseHistoryViewSet,
     PulseOutcomeReplayViewSet,
+    PulsePublicResearchViewSet,
     PulseRunActionViewSet,
 )
 
@@ -26,6 +27,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"subscriptions/pulse/experiment-drafts",
         PulseExperimentDraftViewSet,
         "project_subscription_pulse_experiment_drafts",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"subscriptions/pulse/public-research",
+        PulsePublicResearchViewSet,
+        "project_subscription_pulse_public_research",
         ["team_id"],
     )
     routers.projects.register(

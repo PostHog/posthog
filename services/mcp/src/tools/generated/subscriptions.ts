@@ -13,6 +13,7 @@ import {
     SubscriptionsPartialUpdateParams,
     SubscriptionsPulseExperimentDraftsCreateBody,
     SubscriptionsPulseOutcomeReplaysRetrieveParams,
+    SubscriptionsPulsePublicResearchCreateBody,
     SubscriptionsRetrieveParams,
     SubscriptionsTestDeliveryCreateParams,
 } from '@/generated/subscriptions/api'
@@ -75,6 +76,29 @@ const pulseOutcomeReplayGet = (): ToolBase<typeof PulseOutcomeReplayGetSchema, S
         const result = await context.api.request<Schemas.PulseOutcomeReplayResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/pulse/outcome-replays/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const PulsePublicResearchCreateSchema = SubscriptionsPulsePublicResearchCreateBody
+
+const pulsePublicResearchCreate = (): ToolBase<
+    typeof PulsePublicResearchCreateSchema,
+    Schemas.PublicResearchCitationDTO
+> => ({
+    name: 'pulse-public-research-create',
+    schema: PulsePublicResearchCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof PulsePublicResearchCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        const result = await context.api.request<Schemas.PublicResearchCitationDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/pulse/public-research/`,
+            body,
         })
         return result
     },
@@ -397,6 +421,7 @@ const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDel
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-pulse-draft-create': experimentPulseDraftCreate,
     'pulse-outcome-replay-get': pulseOutcomeReplayGet,
+    'pulse-public-research-create': pulsePublicResearchCreate,
     'subscriptions-create': subscriptionsCreate,
     'subscriptions-delete': subscriptionsDelete,
     'subscriptions-deliveries-list': subscriptionsDeliveriesList,

@@ -190,7 +190,7 @@ const AI_REPORT_MIXED_CONTEXT = {
         repository: 'PostHog/posthog',
         repository_integration_id: 17,
         repository_grant_id: '00000000-0000-4000-8000-000000000017',
-        public_research_subject_id: null,
+        public_research_enabled: true,
     },
     contexts: [
         { dashboard_id: 1, dashboard_name: 'Product overview' },
@@ -290,13 +290,7 @@ const meta: Meta<StoryArgs> = {
                         { repository: 'PostHog/posthog', repository_integration_id: 17 },
                         { repository: 'PostHog/posthog-js', repository_integration_id: 17 },
                     ],
-                    public_research_subjects: [
-                        {
-                            id: '00000000-0000-4000-8000-000000000010',
-                            display_name: 'PostHog public documentation',
-                            canonical_domain: 'posthog.com',
-                        },
-                    ],
+                    public_research_available: proactiveAvailable,
                 },
                 '/api/projects/:id/integrations': { results: [mockIntegration] },
                 '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },

@@ -215,11 +215,11 @@ type SubscriptionWritePayload = Omit<Parameters<typeof subscriptionsCreate>[1], 
 
 const DEFAULT_PROACTIVE_CONFIG: ProactiveSubscriptionConfigApi = {
     enabled: false,
+    public_research_enabled: true,
     repository: null,
     repository_integration_id: null,
     create_draft_pr: false,
     repository_grant_id: null,
-    public_research_subject_id: null,
 }
 
 function proactiveConfigForWrite(
@@ -521,8 +521,8 @@ export interface subscriptionLogicActions {
     setProactiveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
-    setPublicResearchSubject: (subjectId: string | null) => {
-        subjectId: string | null
+    setPublicResearchEnabled: (enabled: boolean) => {
+        enabled: boolean
     }
     setSubscriptionEditTab: (tab: SubscriptionEditTab) => {
         tab: SubscriptionEditTab
@@ -616,7 +616,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         selectProactiveRepository: (repository: RepositoryOptionApi | null) => ({ repository }),
         setDraftPrEnabled: (enabled: boolean) => ({ enabled }),
         setProactiveEnabled: (enabled: boolean) => ({ enabled }),
-        setPublicResearchSubject: (subjectId: string | null) => ({ subjectId }),
+        setPublicResearchEnabled: (enabled: boolean) => ({ enabled }),
         setSubscriptionEditTab: (tab: SubscriptionEditTab) => ({ tab }),
         setSubscriptionWizardStep: (step: SubscriptionWizardStep) => ({ step }),
     }),
@@ -1070,6 +1070,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     : {
                           ...DEFAULT_PROACTIVE_CONFIG,
                           repository_grant_id: config.repository_grant_id ?? null,
+                          public_research_enabled: config.public_research_enabled,
                       },
             })
             if (
@@ -1105,10 +1106,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 },
             })
         },
-        setPublicResearchSubject: ({ subjectId }) => {
+        setPublicResearchEnabled: ({ enabled }) => {
             const config = values.subscription.proactive_config ?? DEFAULT_PROACTIVE_CONFIG
             actions.setSubscriptionValues({
-                proactive_config: { ...config, public_research_subject_id: subjectId },
+                proactive_config: { ...config, public_research_enabled: enabled },
             })
         },
         submitSubscriptionFailure: ({ error, errors }) => {

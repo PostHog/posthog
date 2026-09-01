@@ -12,7 +12,6 @@ from products.subscriptions.backend.pulse.dispatch_snapshot import (
     ScheduledPulseEligibilityInput,
     _bounded_setting,
     _eligible_grant,
-    _eligible_public_research_subject,
     build_scheduled_proactive_dispatch_manifest,
     build_scheduled_proactive_dispatch_snapshot,
     build_scheduled_proactive_dispatch_snapshots,
@@ -61,7 +60,7 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
         PULSE_FINALIZATION_MARGIN_SECONDS=MAX_FINALIZATION_MARGIN_SECONDS * 2,
     )
     def test_eligible_snapshot_is_ref_only_bounded_and_retry_stable(self) -> None:
-        config = MagicMock(enabled=True, create_draft_pr=False, repository=None, public_research_subject_id=None)
+        config = MagicMock(enabled=True, create_draft_pr=False, repository=None, public_research_enabled=True)
         with (
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.Team.objects.filter") as teams,
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.User.objects.filter") as users,
@@ -101,7 +100,7 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
         PULSE_MAX_DUE_READOUTS_PER_DELIVERY=2,
     )
     def test_snapshot_persists_the_server_owned_agent_context_window_cap(self) -> None:
-        config = MagicMock(enabled=True, create_draft_pr=False, repository=None, public_research_subject_id=None)
+        config = MagicMock(enabled=True, create_draft_pr=False, repository=None, public_research_enabled=True)
         with (
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.Team.objects.filter") as teams,
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.User.objects.filter") as users,
@@ -139,7 +138,7 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
             enabled=True,
             create_draft_pr=True,
             repository="posthog/posthog",
-            public_research_subject_id=None,
+            public_research_enabled=True,
         )
         second_config = MagicMock(
             id=11,
@@ -148,7 +147,7 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
             enabled=True,
             create_draft_pr=True,
             repository="posthog/posthog",
-            public_research_subject_id=None,
+            public_research_enabled=True,
         )
         first_grant = MagicMock(
             id=20,
@@ -180,9 +179,6 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
         )
         first_config.repository_grant = first_grant
         second_config.repository_grant = second_grant
-        first_config.public_research_subject = None
-        second_config.public_research_subject = None
-
         with (
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.Team.objects.filter") as teams,
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.User.objects.filter") as users,
@@ -329,7 +325,7 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
             create_draft_pr=True,
             repository="PostHog/posthog",
             repository_grant_id=20,
-            public_research_subject_id=None,
+            public_research_enabled=True,
         )
         grant = MagicMock(
             id=20,
@@ -391,29 +387,49 @@ class TestScheduledPulseDispatchSnapshot(SimpleTestCase):
         assert snapshot["repository_grant"]["integration_id"] == 5
         grant_authorized.assert_called_once_with(team_id=1, grant=grant)
 
-    @parameterized.expand(
-        [
-            ("not_eligible", False, MagicMock(), None),
-            ("not_reviewed", True, None, None),
-            ("disabled", True, MagicMock(), MagicMock()),
-        ]
+    @parameterized.expand([("enabled", True, True), ("opted_out", False, False)])
+    @override_settings(
+        PULSE_PROACTIVE_ENABLED=True,
+        PULSE_PUBLIC_RESEARCH_ENABLED=True,
+        FIRECRAWL_API_KEY="test-firecrawl-key",
     )
-    def test_public_research_requires_current_reviewed_eligibility(
-        self, _name: str, eligible: bool, reviewed_at: object, disabled_at: object
+    def test_public_research_follows_the_subscription_opt_out(
+        self, _name: str, public_research_enabled: bool, expected: bool
     ) -> None:
-        config = MagicMock(public_research_subject_id=MagicMock())
-        subject = MagicMock(eligible=eligible, reviewed_at=reviewed_at, disabled_at=disabled_at)
-        query = MagicMock()
-        query.filter.return_value.first.return_value = subject
-        with patch(
-            "products.subscriptions.backend.pulse.dispatch_snapshot.PublicResearchSubject.objects.for_team",
-            return_value=query,
+        config = MagicMock(
+            enabled=True,
+            create_draft_pr=False,
+            repository=None,
+            public_research_enabled=public_research_enabled,
+        )
+        with (
+            patch("products.subscriptions.backend.pulse.dispatch_snapshot.Team.objects.filter") as teams,
+            patch("products.subscriptions.backend.pulse.dispatch_snapshot.User.objects.filter") as users,
+            patch(
+                "products.subscriptions.backend.pulse.dispatch_snapshot.subscription_snapshot_contexts_are_authorized",
+                return_value=True,
+            ),
+            patch(
+                "products.subscriptions.backend.pulse.dispatch_snapshot.ProactiveSubscriptionConfig.objects.for_team"
+            ) as configs,
+            patch(
+                "products.subscriptions.backend.pulse.dispatch_snapshot.object_storage.read_bytes", return_value=None
+            ),
+            patch("products.subscriptions.backend.pulse.dispatch_snapshot.object_storage.write") as write,
         ):
-            assert _eligible_public_research_subject(team_id=1, config=config) is None
+            teams.return_value.first.return_value = MagicMock()
+            users.return_value.first.return_value = MagicMock()
+            configs.return_value.filter.return_value.first.return_value = config
+
+            assert build_scheduled_proactive_dispatch_snapshot(self.input) is not None
+
+        snapshot = json.loads(write.call_args.args[1])
+        assert snapshot["public_research_enabled"] is public_research_enabled
+        assert snapshot["flags"]["allow_public_research"] is expected
 
     @override_settings(PULSE_PROACTIVE_ENABLED=True)
     def test_existing_snapshot_bytes_must_match_the_content_address(self) -> None:
-        config = MagicMock(enabled=True, create_draft_pr=False, repository=None, public_research_subject_id=None)
+        config = MagicMock(enabled=True, create_draft_pr=False, repository=None, public_research_enabled=True)
         with (
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.Team.objects.filter") as teams,
             patch("products.subscriptions.backend.pulse.dispatch_snapshot.User.objects.filter") as users,

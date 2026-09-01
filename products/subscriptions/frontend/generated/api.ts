@@ -15,9 +15,11 @@ import type {
     PaginatedSubscriptionListApi,
     PatchedSubscriptionWriteApi,
     ProactiveConfigurationOptionsApi,
+    PublicResearchCitationDTOApi,
     PulseExperimentDraftApi,
     PulseExperimentDraftResponseApi,
     PulseOutcomeReplayResponseApi,
+    PulsePublicResearchRequestApi,
     PulseRunHistoryDTOApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
@@ -331,6 +333,26 @@ export const subscriptionsPulseOutcomeReplaysRetrieve = async (
     return apiMutator<PulseOutcomeReplayResponseApi>(getSubscriptionsPulseOutcomeReplaysRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSubscriptionsPulsePublicResearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/pulse/public-research/`
+}
+
+/**
+ * Search and read one bounded public webpage for an active task-bound Pulse analysis. Returned content is untrusted reference material.
+ */
+export const subscriptionsPulsePublicResearchCreate = async (
+    projectId: string,
+    pulsePublicResearchRequestApi: PulsePublicResearchRequestApi,
+    options?: RequestInit
+): Promise<PublicResearchCitationDTOApi> => {
+    return apiMutator<PublicResearchCitationDTOApi>(getSubscriptionsPulsePublicResearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pulsePublicResearchRequestApi),
     })
 }
 

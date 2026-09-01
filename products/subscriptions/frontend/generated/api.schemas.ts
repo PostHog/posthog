@@ -85,6 +85,8 @@ export type SubscriptionContextApi = SubscriptionDashboardContextApi | Subscript
 export interface ProactiveSubscriptionConfigApi {
     /** Whether future AI report deliveries may run proactive follow-up. */
     enabled?: boolean
+    /** Whether proactive analysis may search and read public webpages through PostHog's bounded broker. */
+    public_research_enabled?: boolean
     /**
      * Exact repository in owner/repository format. Required before draft pull requests are allowed.
      * @maxLength 255
@@ -99,11 +101,6 @@ export interface ProactiveSubscriptionConfigApi {
     repository_integration_id?: number | null
     /** Whether Pulse may create one draft pull request on a future delivery. */
     create_draft_pr?: boolean
-    /**
-     * Optional eligible reviewed public research subject. Omit to disable public research.
-     * @nullable
-     */
-    public_research_subject_id?: string | null
     /**
      * Server-issued active repository grant for the selected repository. It cannot be chosen by clients.
      * @nullable
@@ -381,6 +378,8 @@ export const SubscriptionWriteApiByweekdayItem = {
 export interface ProactiveSubscriptionConfigWriteApi {
     /** Whether future AI report deliveries may run proactive follow-up. */
     enabled?: boolean
+    /** Whether proactive analysis may search and read public webpages through PostHog's bounded broker. */
+    public_research_enabled?: boolean
     /**
      * Exact repository in owner/repository format. Required before draft pull requests are allowed.
      * @maxLength 255
@@ -395,11 +394,6 @@ export interface ProactiveSubscriptionConfigWriteApi {
     repository_integration_id?: number | null
     /** Whether Pulse may create one draft pull request on a future delivery. */
     create_draft_pr?: boolean
-    /**
-     * Optional eligible reviewed public research subject. Omit to disable public research.
-     * @nullable
-     */
-    public_research_subject_id?: string | null
 }
 
 /**
@@ -866,24 +860,15 @@ export interface RepositoryOptionApi {
     repository_integration_id: number
 }
 
-export interface PublicResearchSubjectOptionApi {
-    /** Stable identifier of the reviewed public research subject. */
-    id: string
-    /** Human-readable name of the reviewed public research subject. */
-    display_name: string
-    /** Canonical public domain covered by this research subject. */
-    canonical_domain: string
-}
-
 export interface ProactiveConfigurationOptionsApi {
     /** Whether proactive subscription configuration is enabled for this server. */
     proactive_available: boolean
     /** Whether the server currently allows new draft pull request automation. */
     draft_pr_available: boolean
+    /** Whether the server currently provides bounded public web research. */
+    public_research_available: boolean
     /** Repositories that the requesting user can currently authorize for a draft pull request. */
     repositories: RepositoryOptionApi[]
-    /** Eligible reviewed public research subjects while public research is enabled. */
-    public_research_subjects: PublicResearchSubjectOptionApi[]
 }
 
 export interface PulseExperimentVariantApi {
@@ -1359,6 +1344,66 @@ export interface PulseOutcomeReplayResponseApi {
     comparison_arguments: PulseOutcomeReplayResponseApiComparisonArguments
     /** Server-validated value selector for the returned measurement result. */
     selector: PulseOutcomeReplayResponseApiSelector
+}
+
+/**
+ * * `product_analytics_market_trends` - product_analytics_market_trends
+ * * `product_analytics_competitors` - product_analytics_competitors
+ * * `b2b_saas_benchmarks` - b2b_saas_benchmarks
+ * * `consumer_product_benchmarks` - consumer_product_benchmarks
+ * * `onboarding_best_practices` - onboarding_best_practices
+ * * `activation_best_practices` - activation_best_practices
+ * * `retention_best_practices` - retention_best_practices
+ * * `experimentation_best_practices` - experimentation_best_practices
+ * * `analytics_instrumentation_best_practices` - analytics_instrumentation_best_practices
+ * * `pricing_best_practices` - pricing_best_practices
+ */
+export type PulsePublicResearchTopicEnumApi =
+    (typeof PulsePublicResearchTopicEnumApi)[keyof typeof PulsePublicResearchTopicEnumApi]
+
+export const PulsePublicResearchTopicEnumApi = {
+    ProductAnalyticsMarketTrends: 'product_analytics_market_trends',
+    ProductAnalyticsCompetitors: 'product_analytics_competitors',
+    B2bSaasBenchmarks: 'b2b_saas_benchmarks',
+    ConsumerProductBenchmarks: 'consumer_product_benchmarks',
+    OnboardingBestPractices: 'onboarding_best_practices',
+    ActivationBestPractices: 'activation_best_practices',
+    RetentionBestPractices: 'retention_best_practices',
+    ExperimentationBestPractices: 'experimentation_best_practices',
+    AnalyticsInstrumentationBestPractices: 'analytics_instrumentation_best_practices',
+    PricingBestPractices: 'pricing_best_practices',
+} as const
+
+export interface PulsePublicResearchRequestApi {
+    /** Server-owned public research topic. PostHog maps this choice to a fixed search query, so private workspace content is never sent to the provider.
+     *
+     * * `product_analytics_market_trends` - product_analytics_market_trends
+     * * `product_analytics_competitors` - product_analytics_competitors
+     * * `b2b_saas_benchmarks` - b2b_saas_benchmarks
+     * * `consumer_product_benchmarks` - consumer_product_benchmarks
+     * * `onboarding_best_practices` - onboarding_best_practices
+     * * `activation_best_practices` - activation_best_practices
+     * * `retention_best_practices` - retention_best_practices
+     * * `experimentation_best_practices` - experimentation_best_practices
+     * * `analytics_instrumentation_best_practices` - analytics_instrumentation_best_practices
+     * * `pricing_best_practices` - pricing_best_practices */
+    topic: PulsePublicResearchTopicEnumApi
+}
+
+export interface PublicResearchCitationDTOApi {
+    /** Server-owned evidence identifier for this retry-safe research call. */
+    evidence_id: string
+    /** Validated public HTTP or HTTPS page used for this citation. */
+    canonical_url: string
+    /**
+     * Bounded title from the public page, when available.
+     * @nullable
+     */
+    title: string | null
+    /** When PostHog retrieved this public page. */
+    retrieved_at: string
+    /** Bounded untrusted excerpt from the public page. */
+    excerpt: string
 }
 
 export type SubscriptionsListParams = {

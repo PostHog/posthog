@@ -1,1 +1,1 @@
-0006_pulse_run_history_and_artifact_publication_indexes
+0007_proactivesubscriptionconfig_public_research_enabled

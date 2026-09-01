@@ -14,21 +14,21 @@ ActionKind = Literal["draft_pr", "experiment_draft", "recommendation", "combined
 @frozen
 class ProactiveConfigInput:
     enabled: bool = False
+    public_research_enabled: bool = True
     repository: str | None = None
     repository_integration_id: int | None = None
     create_draft_pr: bool = False
     repository_grant_id: UUID | None = None
-    public_research_subject_id: UUID | None = None
 
 
 @frozen
 class ProactiveConfigDTO:
     enabled: bool
+    public_research_enabled: bool
     repository: str | None
     repository_integration_id: int | None
     create_draft_pr: bool
     repository_grant_id: UUID | None
-    public_research_subject_id: UUID | None
 
 
 @frozen
@@ -38,18 +38,11 @@ class RepositoryOptionDTO:
 
 
 @frozen
-class PublicResearchSubjectOptionDTO:
-    id: UUID
-    display_name: str
-    canonical_domain: str
-
-
-@frozen
 class ProactiveConfigurationOptionsDTO:
     proactive_available: bool
     draft_pr_available: bool
+    public_research_available: bool
     repositories: list[RepositoryOptionDTO]
-    public_research_subjects: list[PublicResearchSubjectOptionDTO]
 
 
 @frozen
@@ -203,6 +196,8 @@ class EvidenceAuditDTO:
     completed_at: datetime | None
     result_truncated: bool
     error_class: str | None
+    execution_claimed: bool = False
+    execution_lease_started_at: datetime | None = None
 
 
 @frozen

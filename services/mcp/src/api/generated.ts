@@ -18746,10 +18746,10 @@ export namespace Schemas {
      * * `data_warehouse` - Data warehouse
      * * `other` - Other
      */
-    export type TopicEnum = typeof TopicEnum[keyof typeof TopicEnum];
+    export type ConversationTopicEnum = typeof ConversationTopicEnum[keyof typeof ConversationTopicEnum];
 
 
-    export const TopicEnum = {
+    export const ConversationTopicEnum = {
       WebAnalytics: 'web_analytics',
       ProductAnalytics: 'product_analytics',
       SessionReplay: 'session_replay',
@@ -18860,7 +18860,7 @@ export namespace Schemas {
        * * `error_tracking` - Error tracking
        * * `data_warehouse` - Data warehouse
        * * `other` - Other */
-      readonly topic: TopicEnum | null;
+      readonly topic: ConversationTopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -18919,7 +18919,7 @@ export namespace Schemas {
        * * `error_tracking` - Error tracking
        * * `data_warehouse` - Data warehouse
        * * `other` - Other */
-      readonly topic: TopicEnum | null;
+      readonly topic: ConversationTopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -56689,6 +56689,8 @@ export namespace Schemas {
     export interface ProactiveSubscriptionConfig {
       /** Whether future AI report deliveries may run proactive follow-up. */
       enabled?: boolean;
+      /** Whether proactive analysis may search and read public webpages through PostHog's bounded broker. */
+      public_research_enabled?: boolean;
       /**
          * Exact repository in owner/repository format. Required before draft pull requests are allowed.
          * @maxLength 255
@@ -56703,11 +56705,6 @@ export namespace Schemas {
       repository_integration_id?: number | null;
       /** Whether Pulse may create one draft pull request on a future delivery. */
       create_draft_pr?: boolean;
-      /**
-         * Optional eligible reviewed public research subject. Omit to disable public research.
-         * @nullable
-         */
-      public_research_subject_id?: string | null;
       /**
          * Server-issued active repository grant for the selected repository. It cannot be chosen by clients.
          * @nullable
@@ -60149,7 +60146,7 @@ export namespace Schemas {
        * * `error_tracking` - Error tracking
        * * `data_warehouse` - Data warehouse
        * * `other` - Other */
-      readonly topic?: TopicEnum | null;
+      readonly topic?: ConversationTopicEnum | null;
       readonly user?: UserBasic;
       /** @nullable */
       readonly created_at?: string | null;
@@ -65705,6 +65702,8 @@ export namespace Schemas {
     export interface ProactiveSubscriptionConfigWrite {
       /** Whether future AI report deliveries may run proactive follow-up. */
       enabled?: boolean;
+      /** Whether proactive analysis may search and read public webpages through PostHog's bounded broker. */
+      public_research_enabled?: boolean;
       /**
          * Exact repository in owner/repository format. Required before draft pull requests are allowed.
          * @maxLength 255
@@ -65719,11 +65718,6 @@ export namespace Schemas {
       repository_integration_id?: number | null;
       /** Whether Pulse may create one draft pull request on a future delivery. */
       create_draft_pr?: boolean;
-      /**
-         * Optional eligible reviewed public research subject. Omit to disable public research.
-         * @nullable
-         */
-      public_research_subject_id?: string | null;
     }
 
     /**
@@ -68299,24 +68293,15 @@ export namespace Schemas {
       repository_integration_id: number;
     }
 
-    export interface PublicResearchSubjectOption {
-      /** Stable identifier of the reviewed public research subject. */
-      id: string;
-      /** Human-readable name of the reviewed public research subject. */
-      display_name: string;
-      /** Canonical public domain covered by this research subject. */
-      canonical_domain: string;
-    }
-
     export interface ProactiveConfigurationOptions {
       /** Whether proactive subscription configuration is enabled for this server. */
       proactive_available: boolean;
       /** Whether the server currently allows new draft pull request automation. */
       draft_pr_available: boolean;
+      /** Whether the server currently provides bounded public web research. */
+      public_research_available: boolean;
       /** Repositories that the requesting user can currently authorize for a draft pull request. */
       repositories: RepositoryOption[];
-      /** Eligible reviewed public research subjects while public research is enabled. */
-      public_research_subjects: PublicResearchSubjectOption[];
     }
 
     export type ProblemTypeEnum = typeof ProblemTypeEnum[keyof typeof ProblemTypeEnum];
@@ -70122,6 +70107,22 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PublicResearchCitationDTO {
+      /** Server-owned evidence identifier for this retry-safe research call. */
+      evidence_id: string;
+      /** Validated public HTTP or HTTPS page used for this citation. */
+      canonical_url: string;
+      /**
+         * Bounded title from the public page, when available.
+         * @nullable
+         */
+      title: string | null;
+      /** When PostHog retrieved this public page. */
+      retrieved_at: string;
+      /** Bounded untrusted excerpt from the public page. */
+      excerpt: string;
+    }
+
     export interface PublicResearchCitationHistoryDTO {
       evidence_id: string;
       canonical_url: string;
@@ -70553,6 +70554,50 @@ export namespace Schemas {
       comparison_arguments: PulseOutcomeReplayResponseComparisonArguments;
       /** Server-validated value selector for the returned measurement result. */
       selector: PulseOutcomeReplayResponseSelector;
+    }
+
+    /**
+     * * `product_analytics_market_trends` - product_analytics_market_trends
+     * * `product_analytics_competitors` - product_analytics_competitors
+     * * `b2b_saas_benchmarks` - b2b_saas_benchmarks
+     * * `consumer_product_benchmarks` - consumer_product_benchmarks
+     * * `onboarding_best_practices` - onboarding_best_practices
+     * * `activation_best_practices` - activation_best_practices
+     * * `retention_best_practices` - retention_best_practices
+     * * `experimentation_best_practices` - experimentation_best_practices
+     * * `analytics_instrumentation_best_practices` - analytics_instrumentation_best_practices
+     * * `pricing_best_practices` - pricing_best_practices
+     */
+    export type PulsePublicResearchTopicEnum = typeof PulsePublicResearchTopicEnum[keyof typeof PulsePublicResearchTopicEnum];
+
+
+    export const PulsePublicResearchTopicEnum = {
+      ProductAnalyticsMarketTrends: 'product_analytics_market_trends',
+      ProductAnalyticsCompetitors: 'product_analytics_competitors',
+      B2bSaasBenchmarks: 'b2b_saas_benchmarks',
+      ConsumerProductBenchmarks: 'consumer_product_benchmarks',
+      OnboardingBestPractices: 'onboarding_best_practices',
+      ActivationBestPractices: 'activation_best_practices',
+      RetentionBestPractices: 'retention_best_practices',
+      ExperimentationBestPractices: 'experimentation_best_practices',
+      AnalyticsInstrumentationBestPractices: 'analytics_instrumentation_best_practices',
+      PricingBestPractices: 'pricing_best_practices',
+    } as const;
+
+    export interface PulsePublicResearchRequest {
+      /** Server-owned public research topic. PostHog maps this choice to a fixed search query, so private workspace content is never sent to the provider.
+       *
+       * * `product_analytics_market_trends` - product_analytics_market_trends
+       * * `product_analytics_competitors` - product_analytics_competitors
+       * * `b2b_saas_benchmarks` - b2b_saas_benchmarks
+       * * `consumer_product_benchmarks` - consumer_product_benchmarks
+       * * `onboarding_best_practices` - onboarding_best_practices
+       * * `activation_best_practices` - activation_best_practices
+       * * `retention_best_practices` - retention_best_practices
+       * * `experimentation_best_practices` - experimentation_best_practices
+       * * `analytics_instrumentation_best_practices` - analytics_instrumentation_best_practices
+       * * `pricing_best_practices` - pricing_best_practices */
+      topic: PulsePublicResearchTopicEnum;
     }
 
     export interface RunActionHistoryDTO {

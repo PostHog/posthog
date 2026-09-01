@@ -10,7 +10,7 @@ The subscription owner enables proactive follow-up while creating or editing an 
 
 Automatic draft pull requests require an exact repository selected from repositories the current user can push to through their personal GitHub connection. Saving the subscription creates a revocable, versioned grant for that repository. Another editor may disable automatic pull requests, but changing the repository requires their own current authorization.
 
-Public research is optional. Users may select only a reviewed subject supplied by the server. Free-text subjects, organization names, project names, and repository names never become public-research queries.
+Public web research is enabled by default for new proactive configurations. Existing configurations remain off until an owner enables it, preserving their previous consent boundary. The owner can turn it off to keep analysis within PostHog data. The analysis chooses from server-owned topics, which PostHog maps to fixed public queries; model-authored workspace content never reaches Firecrawl.
 
 Enabling proactive follow-up also permits an eligible run to prepare an inert experiment draft. The operation always creates a new inactive flag, leaves experiment dates unset, and sends no traffic.
 
@@ -20,7 +20,7 @@ The `subscription-creation-wizard` experiment splits creation into Report, Actio
 
 Report suggestions describe outcomes such as activation, adoption, conversion, retention, and regressions. They remain editable and use the existing prompt field. When enabled, the first report can run immediately after the subscription is created.
 
-Actions shows unavailable capabilities with their current setup requirement. Public research remains limited to reviewed subjects supplied by the server, and draft pull requests remain limited to authorized repositories.
+Actions shows unavailable capabilities with their current setup requirement. Public web research uses one default-on switch; it does not require source setup. Draft pull requests remain limited to authorized repositories.
 
 Editing uses Content, Actions, Delivery, and Settings tabs under the same experiment. A saved Actions configuration remains visible when the server capability becomes unavailable so the owner can turn it off. All sections share one form and one persistent Save action; hidden validation errors move the user to the affected section.
 
@@ -38,7 +38,9 @@ Pulse sandbox runs use the reserved `pulse_subscription` task origin and the Pos
 
 - The sandbox receives no GitHub token, authenticated remote, or general PostHog write scope.
 - PostHog reads use reviewed, bounded MCP presets. Person data, recordings, secrets, billing, and organization administration are excluded.
-- Public research uses the bounded broker and the selected reviewed subject. Arbitrary network access is not part of the contract.
+- Public research uses a task-bound MCP operation backed by Firecrawl. It is offered only when Firecrawl is configured. The broker accepts only server-owned topics, validates public HTTP(S) targets and redirects, and returns one bounded untrusted excerpt.
+- A run can make at most three research calls. Completed retries reuse stored evidence; concurrent identical requests and exhausted budgets return a controlled conflict without another provider call. Stale claims recover only after the provider deadline has elapsed.
+- The sandbox has no raw web or shell HTTP access. The broker holds the provider credential, enforces the per-run call budget, and records retry-safe evidence.
 - Repository execution happens in a credential-free workspace. Publication happens through the Tasks broker after required repository gates and the public-output scan pass.
 - The broker can create one draft pull request in the granted repository. It cannot merge it, mark it ready, update an existing pull request, or publish to another repository.
 - The experiment operation is create-only. It cannot reuse or activate a feature flag or update an existing experiment.
@@ -56,7 +58,7 @@ The following independent switches take effect only when the master switch is en
 
 - `PULSE_DRAFT_PR_ENABLED` controls brokered draft pull request publication.
 - `PULSE_EXPERIMENT_DRAFT_ENABLED` controls inert experiment creation.
-- `PULSE_PUBLIC_RESEARCH_ENABLED` controls reviewed public research.
+- `PULSE_PUBLIC_RESEARCH_ENABLED` is the server-wide kill switch for public web research. A subscription-level switch provides the owner opt-out.
 
 Limits are controlled by the `PULSE_MAX_*` settings in `posthog/settings/subscriptions.py`. Lower a limit or disable the relevant switch before investigating abnormal volume, cost, or failures. Disabling artifact switches must not stop the scheduled report or recommendation history.
 
@@ -68,7 +70,7 @@ Before enabling the master switch, run a scheduled delivery in a controlled team
 
 1. The report persists before proactive work starts.
 2. The run performs an audited PostHog read through the reviewed preset.
-3. Public research stays within the selected subject, allowed domains, and configured limits.
+3. Public research uses only the task-bound MCP operation and a server-owned topic, stays within configured limits and its total provider deadline, rejects private or non-standard network targets, and honors the subscription opt-out.
 4. The preserved workspace builds and runs every required repository test gate.
 5. The broker creates exactly one draft pull request with no sandbox credential.
 6. The optional experiment is new, inactive, has no dates, and exposes no traffic.

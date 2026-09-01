@@ -82,7 +82,7 @@ function subscription(
             repository: proactiveEnabled ? 'PostHog/posthog' : null,
             repository_integration_id: proactiveEnabled ? 17 : null,
             repository_grant_id: null,
-            public_research_subject_id: null,
+            public_research_enabled: true,
         },
     } as unknown as SubscriptionFormType
 }
@@ -117,7 +117,7 @@ function renderWizard({
                           proactive_available: proactiveAvailable,
                           draft_pr_available: proactiveAvailable,
                           repositories: [],
-                          public_research_subjects: [],
+                          public_research_available: proactiveAvailable,
                       },
                 proactiveConfigurationOptionsLoading: proactiveLoading,
                 proactiveConfigurationOptionsLoadFailed: proactiveFailed,

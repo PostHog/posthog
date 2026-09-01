@@ -146,11 +146,12 @@ def validate_proactive_config_input(
     *,
     resource_type: str,
     repository_authorized: bool,
-    subject: Any | None,
 ) -> dict[str, list[str]]:
     errors: dict[str, list[str]] = {}
     repository = config.repository.strip().lower() if config.repository else None
-    if resource_type != "ai_prompt" and (config.enabled or repository or config.create_draft_pr):
+    if resource_type != "ai_prompt" and (
+        config.enabled or config.public_research_enabled or repository or config.create_draft_pr
+    ):
         errors["enabled"] = ["Proactive follow-up only applies to AI report subscriptions."]
     if config.create_draft_pr:
         if not config.enabled:
@@ -159,11 +160,4 @@ def validate_proactive_config_input(
             errors["repository"] = ["Choose one repository before allowing draft pull requests."]
         if not repository_authorized:
             errors["repository"] = ["This repository is not currently authorized for draft pull requests."]
-    if config.public_research_subject_id is not None and (
-        subject is None
-        or not getattr(subject, "eligible", False)
-        or getattr(subject, "reviewed_at", None) is None
-        or getattr(subject, "disabled_at", None) is not None
-    ):
-        errors["public_research_subject_id"] = ["Choose an eligible reviewed public research subject for this project."]
     return errors

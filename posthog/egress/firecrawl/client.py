@@ -1,15 +1,19 @@
-"""Typed Firecrawl client for bounded scrapes and reviewed-domain metadata search.
+"""Typed Firecrawl client for bounded public-web scrapes and metadata search.
 
-Public research searches only server-reviewed domains without scraping results, then retrieves an
-eligible page through Firecrawl's cache-only scrape mode. Crawl, map, and content-bearing search
-remain outside this client.
+Public research searches without scraping results, then retrieves an eligible page through
+Firecrawl's lockdown scrape mode. Every result must resolve only to public IPs over a standard
+HTTP(S) port. Callers may additionally supply a reviewed-domain allowlist. Crawl, map, and
+content-bearing search remain outside this client.
 """
 
 import json
 import socket
 import ipaddress
-from collections.abc import Mapping, Sequence
-from typing import Literal, cast
+from collections.abc import Callable, Mapping, Sequence
+from queue import Queue
+from threading import Thread
+from time import monotonic
+from typing import Literal, TypeVar, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
@@ -41,6 +45,8 @@ DEFAULT_SCRAPE_TIMEOUT: tuple[float, float] = (5.0, 45.0)
 MAX_FIRECRAWL_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_PUBLIC_TARGET_URL_LENGTH = 2048
 MAX_PUBLIC_SEARCH_RESULTS = 5
+
+T = TypeVar("T")
 
 
 class FirecrawlNotConfigured(Exception):
@@ -111,11 +117,13 @@ def _is_allowed_domain(hostname: str, allowed_domains: Sequence[str]) -> bool:
     return any(hostname == domain or hostname.endswith(f".{domain}") for domain in allowed_domains)
 
 
-def _validate_public_target_url(url: str, *, allowed_domains: Sequence[str]) -> str:
+def _validate_public_target_url(url: str, *, allowed_domains: Sequence[str] | None = None) -> str:
     if len(url) > MAX_PUBLIC_TARGET_URL_LENGTH or any(ord(character) < 32 for character in url):
         raise FirecrawlPublicTargetRejected("Public research URL exceeds its safe boundary")
-    allowed = tuple(_normalized_host(domain) for domain in allowed_domains if domain)
-    if not allowed:
+    allowed = (
+        None if allowed_domains is None else tuple(_normalized_host(domain) for domain in allowed_domains if domain)
+    )
+    if allowed_domains is not None and not allowed:
         raise FirecrawlPublicTargetRejected("Public research has no reviewed result domains")
 
     parsed = urlsplit(url)
@@ -130,7 +138,7 @@ def _validate_public_target_url(url: str, *, allowed_domains: Sequence[str]) -> 
         raise FirecrawlPublicTargetRejected("Public research URL uses a non-standard port")
 
     hostname = _normalized_host(parsed.hostname)
-    if not _is_allowed_domain(hostname, allowed):
+    if allowed is not None and not _is_allowed_domain(hostname, allowed):
         raise FirecrawlPublicTargetRejected("Public research URL is outside reviewed result domains")
 
     try:
@@ -152,6 +160,124 @@ def _validate_public_target_url(url: str, *, allowed_domains: Sequence[str]) -> 
 
 
 def _read_bounded_json_response(
+    response: requests.Response,
+    *,
+    operation: str,
+    failure_type: type[FirecrawlRequestFailed],
+    deadline: float | None = None,
+) -> object:
+    if deadline is None:
+        return _read_bounded_json_response_now(
+            response,
+            operation=operation,
+            failure_type=failure_type,
+        )
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        response.close()
+        raise failure_type(f"{operation} exceeded its total deadline")
+    result_queue: Queue[tuple[bool, object]] = Queue(maxsize=1)
+
+    def read_response() -> None:
+        try:
+            result = _read_bounded_json_response_now(
+                response,
+                operation=operation,
+                failure_type=failure_type,
+            )
+        except Exception as error:
+            result_queue.put((False, error))
+        else:
+            result_queue.put((True, result))
+
+    reader = Thread(target=read_response, name="firecrawl-response-reader", daemon=True)
+    reader.start()
+    reader.join(timeout=remaining)
+    if reader.is_alive():
+        response.close()
+        raise failure_type(f"{operation} exceeded its total deadline")
+    succeeded, result = result_queue.get_nowait()
+    if not succeeded:
+        if isinstance(result, Exception):
+            raise result
+        raise failure_type(f"{operation} could not be read")
+    return result
+
+
+def _run_with_deadline(
+    action: Callable[[], T],
+    *,
+    operation: str,
+    failure_type: type[FirecrawlRequestFailed],
+    deadline: float | None,
+) -> T:
+    if deadline is None:
+        return action()
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise failure_type(f"{operation} exceeded its total deadline")
+    result_queue: Queue[tuple[bool, object]] = Queue(maxsize=1)
+
+    def run_action() -> None:
+        try:
+            result = action()
+        except Exception as error:
+            result_queue.put((False, error))
+        else:
+            result_queue.put((True, result))
+
+    worker = Thread(target=run_action, name="firecrawl-deadline-worker", daemon=True)
+    worker.start()
+    worker.join(timeout=remaining)
+    if worker.is_alive():
+        raise failure_type(f"{operation} exceeded its total deadline")
+    succeeded, result = result_queue.get_nowait()
+    if not succeeded:
+        if isinstance(result, Exception):
+            raise result
+        raise failure_type(f"{operation} failed")
+    return cast(T, result)
+
+
+def _validate_public_target_url_with_deadline(
+    url: str,
+    *,
+    allowed_domains: Sequence[str] | None,
+    operation: str,
+    failure_type: type[FirecrawlRequestFailed],
+    deadline: float | None,
+) -> str:
+    return _run_with_deadline(
+        lambda: _validate_public_target_url(url, allowed_domains=allowed_domains),
+        operation=operation,
+        failure_type=failure_type,
+        deadline=deadline,
+    )
+
+
+def _run_request_with_deadline(
+    action: Callable[[], requests.Response],
+    *,
+    operation: str,
+    failure_type: type[FirecrawlRequestFailed],
+    deadline: float | None,
+) -> requests.Response:
+    def request() -> requests.Response:
+        response = action()
+        if deadline is not None and monotonic() >= deadline:
+            response.close()
+            raise failure_type(f"{operation} exceeded its total deadline")
+        return response
+
+    return _run_with_deadline(
+        request,
+        operation=operation,
+        failure_type=failure_type,
+        deadline=deadline,
+    )
+
+
+def _read_bounded_json_response_now(
     response: requests.Response,
     *,
     operation: str,
@@ -180,6 +306,27 @@ def _read_bounded_json_response(
         response.close()
 
 
+def _timeout_within_deadline(
+    timeout: float | tuple[float, float],
+    *,
+    deadline: float | None,
+    operation: str,
+    failure_type: type[FirecrawlRequestFailed],
+) -> float | tuple[float, float]:
+    if deadline is None:
+        return timeout
+    remaining = deadline - monotonic()
+    if remaining <= 0.01:
+        raise failure_type(f"{operation} exceeded its total deadline")
+    if isinstance(timeout, tuple):
+        connect_timeout, read_timeout = timeout
+    else:
+        connect_timeout = read_timeout = timeout
+    connect_budget = min(connect_timeout, remaining / 2)
+    read_budget = min(read_timeout, remaining - connect_budget)
+    return (connect_budget, read_budget)
+
+
 def scrape(
     url: str,
     *,
@@ -189,6 +336,7 @@ def scrape(
     priority: Priority = Priority.NORMAL,
     timeout: float | tuple[float, float] = DEFAULT_SCRAPE_TIMEOUT,
     lockdown: bool = False,
+    deadline: float | None = None,
 ) -> FirecrawlScrape:
     """Scrape one page through Firecrawl. Costs one credit per call regardless of how many formats
     are requested.
@@ -210,16 +358,27 @@ def scrape(
     if lockdown:
         request_body["lockdown"] = True
     try:
-        response = firecrawl_request(
-            "POST",
-            f"{FIRECRAWL_API_BASE}{SCRAPE_ENDPOINT}",
-            api_key=api_key,
-            source=source,
-            endpoint=SCRAPE_ENDPOINT,
-            priority=priority,
-            timeout=timeout,
-            json=request_body,
-            stream=True,
+        request_timeout = _timeout_within_deadline(
+            timeout,
+            deadline=deadline,
+            operation="Firecrawl scrape",
+            failure_type=FirecrawlScrapeFailed,
+        )
+        response = _run_request_with_deadline(
+            lambda: firecrawl_request(
+                "POST",
+                f"{FIRECRAWL_API_BASE}{SCRAPE_ENDPOINT}",
+                api_key=api_key,
+                source=source,
+                endpoint=SCRAPE_ENDPOINT,
+                priority=priority,
+                timeout=request_timeout,
+                json=request_body,
+                stream=True,
+            ),
+            operation="Firecrawl scrape",
+            failure_type=FirecrawlScrapeFailed,
+            deadline=deadline,
         )
     except requests.RequestException as exc:
         raise FirecrawlScrapeFailed("Firecrawl scrape could not connect") from exc
@@ -228,6 +387,7 @@ def scrape(
         response,
         operation="Firecrawl scrape",
         failure_type=FirecrawlScrapeFailed,
+        deadline=deadline,
     )
 
     payload_mapping = _as_mapping(payload)
@@ -254,12 +414,13 @@ def search_public_web(
     query: str,
     *,
     source: str,
-    allowed_domains: Sequence[str],
+    allowed_domains: Sequence[str] | None = None,
     limit: int = 3,
     priority: Priority = Priority.NORMAL,
     timeout: float | tuple[float, float] = DEFAULT_SCRAPE_TIMEOUT,
+    deadline: float | None = None,
 ) -> tuple[FirecrawlSearchResult, ...]:
-    """Search reviewed public domains without asking Firecrawl to scrape the result pages."""
+    """Search the public web without asking Firecrawl to scrape the result pages."""
     api_key = settings.FIRECRAWL_API_KEY
     if not api_key:
         raise FirecrawlNotConfigured("No FIRECRAWL_API_KEY configured")
@@ -267,26 +428,44 @@ def search_public_web(
         raise FirecrawlPublicTargetRejected("Public research query exceeds its safe boundary")
     if limit < 1 or limit > MAX_PUBLIC_SEARCH_RESULTS:
         raise FirecrawlPublicTargetRejected("Public research result limit exceeds its safe boundary")
-    reviewed_domains = tuple(dict.fromkeys(_normalized_host(domain) for domain in allowed_domains if domain))
-    if not reviewed_domains:
+    reviewed_domains = (
+        None
+        if allowed_domains is None
+        else tuple(dict.fromkeys(_normalized_host(domain) for domain in allowed_domains if domain))
+    )
+    if allowed_domains is not None and not reviewed_domains:
         raise FirecrawlPublicTargetRejected("Public research has no reviewed result domains")
 
+    request_body: dict[str, object] = {
+        "query": query,
+        "limit": limit,
+        "sources": ["web"],
+    }
+    if reviewed_domains is not None:
+        request_body["includeDomains"] = list(reviewed_domains)
+
     try:
-        response = firecrawl_request(
-            "POST",
-            f"{FIRECRAWL_API_BASE}{SEARCH_ENDPOINT}",
-            api_key=api_key,
-            source=source,
-            endpoint=SEARCH_ENDPOINT,
-            priority=priority,
-            timeout=timeout,
-            json={
-                "query": query,
-                "limit": limit,
-                "sources": ["web"],
-                "includeDomains": list(reviewed_domains),
-            },
-            stream=True,
+        request_timeout = _timeout_within_deadline(
+            timeout,
+            deadline=deadline,
+            operation="Firecrawl search",
+            failure_type=FirecrawlSearchFailed,
+        )
+        response = _run_request_with_deadline(
+            lambda: firecrawl_request(
+                "POST",
+                f"{FIRECRAWL_API_BASE}{SEARCH_ENDPOINT}",
+                api_key=api_key,
+                source=source,
+                endpoint=SEARCH_ENDPOINT,
+                priority=priority,
+                timeout=request_timeout,
+                json=request_body,
+                stream=True,
+            ),
+            operation="Firecrawl search",
+            failure_type=FirecrawlSearchFailed,
+            deadline=deadline,
         )
     except requests.RequestException as exc:
         raise FirecrawlSearchFailed("Firecrawl search could not connect") from exc
@@ -294,6 +473,7 @@ def search_public_web(
         response,
         operation="Firecrawl search",
         failure_type=FirecrawlSearchFailed,
+        deadline=deadline,
     )
     payload_mapping = _as_mapping(payload)
     data = (
@@ -312,7 +492,13 @@ def search_public_web(
         if raw_url is None:
             continue
         try:
-            url = _validate_public_target_url(raw_url, allowed_domains=reviewed_domains)
+            url = _validate_public_target_url_with_deadline(
+                raw_url,
+                allowed_domains=reviewed_domains,
+                operation="Firecrawl search",
+                failure_type=FirecrawlSearchFailed,
+                deadline=deadline,
+            )
         except FirecrawlPublicTargetRejected:
             continue
         raw_title = _as_str(item.get("title"))
@@ -327,15 +513,36 @@ def scrape_public_url(
     url: str,
     *,
     source: str,
-    allowed_domains: Sequence[str],
+    allowed_domains: Sequence[str] | None = None,
+    timeout: float | tuple[float, float] = DEFAULT_SCRAPE_TIMEOUT,
+    deadline: float | None = None,
 ) -> FirecrawlScrape:
-    """Scrape one reviewed public URL with DNS, host, and final-redirect validation.
+    """Scrape one public URL with DNS, host, and final-redirect validation.
 
-    The server-owned caller supplies the reviewed domain list. The model never controls
-    either that list or the provider credentials. Firecrawl's final canonical URL is
-    validated again before its content can enter a Pulse evidence record.
+    The model never receives the provider credentials. Firecrawl's final canonical URL is
+    validated again before its content can enter a Pulse evidence record. A caller may add
+    a reviewed-domain allowlist without weakening the public-network boundary.
     """
-    requested_url = _validate_public_target_url(url, allowed_domains=allowed_domains)
-    result = scrape(requested_url, source=source, formats=("markdown",), lockdown=True)
-    _validate_public_target_url(result.url, allowed_domains=allowed_domains)
+    requested_url = _validate_public_target_url_with_deadline(
+        url,
+        allowed_domains=allowed_domains,
+        operation="Firecrawl scrape",
+        failure_type=FirecrawlScrapeFailed,
+        deadline=deadline,
+    )
+    result = scrape(
+        requested_url,
+        source=source,
+        formats=("markdown",),
+        lockdown=True,
+        timeout=timeout,
+        deadline=deadline,
+    )
+    _validate_public_target_url_with_deadline(
+        result.url,
+        allowed_domains=allowed_domains,
+        operation="Firecrawl scrape",
+        failure_type=FirecrawlScrapeFailed,
+        deadline=deadline,
+    )
     return result

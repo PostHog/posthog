@@ -31,9 +31,9 @@ export const ConversationStatusApi = {
  * * `data_warehouse` - Data warehouse
  * * `other` - Other
  */
-export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
+export type ConversationTopicEnumApi = (typeof ConversationTopicEnumApi)[keyof typeof ConversationTopicEnumApi]
 
-export const TopicEnumApi = {
+export const ConversationTopicEnumApi = {
     WebAnalytics: 'web_analytics',
     ProductAnalytics: 'product_analytics',
     SessionReplay: 'session_replay',
@@ -222,7 +222,7 @@ export interface ConversationMinimalApi {
      * * `error_tracking` - Error tracking
      * * `data_warehouse` - Data warehouse
      * * `other` - Other */
-    readonly topic: TopicEnumApi | null
+    readonly topic: ConversationTopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -345,7 +345,7 @@ export interface ConversationApi {
      * * `error_tracking` - Error tracking
      * * `data_warehouse` - Data warehouse
      * * `other` - Other */
-    readonly topic: TopicEnumApi | null
+    readonly topic: ConversationTopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -416,7 +416,7 @@ export interface PatchedConversationApi {
      * * `error_tracking` - Error tracking
      * * `data_warehouse` - Data warehouse
      * * `other` - Other */
-    readonly topic?: TopicEnumApi | null
+    readonly topic?: ConversationTopicEnumApi | null
     readonly user?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null

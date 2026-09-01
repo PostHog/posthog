@@ -2,6 +2,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from io import BytesIO
+from time import monotonic, sleep
 
 from unittest.mock import MagicMock, patch
 
@@ -117,6 +118,48 @@ class TestFirecrawlEgress(SimpleTestCase):
         with _firecrawl_answers(response), self.assertRaisesRegex(FirecrawlScrapeFailed, "response budget"):
             scrape("https://example.com", source="test")
 
+    def test_scrape_stops_reading_when_the_total_deadline_expires(self) -> None:
+        response = _response(200, json.dumps(_SUCCESSFUL_SCRAPE))
+
+        def slow_body(chunk_size: int | None = 1, decode_unicode: bool = False) -> Iterator[bytes]:
+            del chunk_size, decode_unicode
+            sleep(0.1)
+            yield b"{}"
+
+        started_at = monotonic()
+        with (
+            patch("posthog.egress.firecrawl.client.firecrawl_request", return_value=response),
+            patch.object(response, "iter_content", side_effect=slow_body),
+            self.assertRaisesRegex(FirecrawlScrapeFailed, "total deadline"),
+        ):
+            scrape(
+                "https://example.com",
+                source="test",
+                deadline=monotonic() + 0.02,
+            )
+
+        assert monotonic() - started_at < 0.08
+
+    def test_scrape_stops_waiting_for_response_headers_when_the_total_deadline_expires(self) -> None:
+        response = _response(200, json.dumps(_SUCCESSFUL_SCRAPE))
+
+        def slow_request(*_args: object, **_kwargs: object) -> requests.Response:
+            sleep(0.1)
+            return response
+
+        started_at = monotonic()
+        with (
+            patch("posthog.egress.firecrawl.client.firecrawl_request", side_effect=slow_request),
+            self.assertRaisesRegex(FirecrawlScrapeFailed, "total deadline"),
+        ):
+            scrape(
+                "https://example.com",
+                source="test",
+                deadline=monotonic() + 0.02,
+            )
+
+        assert monotonic() - started_at < 0.08
+
     @override_settings(FIRECRAWL_API_KEY="")
     def test_scrape_without_a_configured_key_never_calls_out(self) -> None:
         # Instances run without a key; sending `Bearer ` would spend a request to be told 401.
@@ -163,7 +206,7 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             )
 
     @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
-    def test_public_search_uses_reviewed_domains_without_scraping_results(self) -> None:
+    def test_public_search_accepts_any_public_domain_without_scraping_results(self) -> None:
         response = {
             "success": True,
             "data": {
@@ -186,7 +229,6 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             results = search_public_web(
                 "Example market trends",
                 source="subscriptions_pulse_research",
-                allowed_domains=("example.com",),
                 limit=3,
             )
 
@@ -202,27 +244,25 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             "query": "Example market trends",
             "limit": 3,
             "sources": ["web"],
-            "includeDomains": ["example.com"],
         }
         assert "scrapeOptions" not in request.call_args.kwargs["json"]
         assert request.call_args.kwargs["stream"] is True
 
     @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
-    def test_public_search_discards_results_outside_reviewed_domains(self) -> None:
+    def test_public_search_discards_private_results(self) -> None:
         response = {
             "success": True,
-            "data": {"web": [{"url": "https://unreviewed.example/research", "title": "Unreviewed"}]},
+            "data": {"web": [{"url": "http://127.0.0.1/research", "title": "Private"}]},
         }
         with _firecrawl_answers(_response(200, json.dumps(response))):
             results = search_public_web(
                 "Example market trends",
                 source="subscriptions_pulse_research",
-                allowed_domains=("example.com",),
             )
 
         assert results == ()
 
-    def test_public_scrape_rejects_private_or_unapproved_hosts_before_calling_provider(self) -> None:
+    def test_public_scrape_rejects_private_hosts_before_calling_provider(self) -> None:
         with (
             self.assertRaises(FirecrawlPublicTargetRejected),
             patch("posthog.egress.firecrawl.client.scrape") as scrape_mock,
@@ -230,9 +270,28 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             scrape_public_url(
                 "http://127.0.0.1/latest/meta-data",
                 source="subscriptions_pulse_research",
-                allowed_domains=("example.com",),
             )
 
+        scrape_mock.assert_not_called()
+
+    def test_public_scrape_stops_waiting_for_dns_when_the_total_deadline_expires(self) -> None:
+        def slow_dns(*_args: object, **_kwargs: object) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+            sleep(0.1)
+            return [(2, 1, 6, "", ("93.184.216.34", 443))]
+
+        started_at = monotonic()
+        with (
+            patch("posthog.egress.firecrawl.client.socket.getaddrinfo", side_effect=slow_dns),
+            patch("posthog.egress.firecrawl.client.scrape") as scrape_mock,
+            self.assertRaisesRegex(FirecrawlScrapeFailed, "total deadline"),
+        ):
+            scrape_public_url(
+                "https://example.com/research",
+                source="subscriptions_pulse_research",
+                deadline=monotonic() + 0.02,
+            )
+
+        assert monotonic() - started_at < 0.08
         scrape_mock.assert_not_called()
 
     def test_public_scrape_checks_each_dns_answer_and_the_provider_final_url(self) -> None:
@@ -247,7 +306,7 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             result = scrape_public_url(
                 "https://example.com/market",
                 source="subscriptions_pulse_research",
-                allowed_domains=("example.com",),
+                timeout=(2.0, 10.0),
             )
 
         assert result == provider_result
@@ -256,10 +315,12 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             source="subscriptions_pulse_research",
             formats=("markdown",),
             lockdown=True,
+            timeout=(2.0, 10.0),
+            deadline=None,
         )
 
-    def test_public_scrape_rejects_provider_redirect_outside_reviewed_domains(self) -> None:
-        provider_result = FirecrawlScrape(url="https://other.example/redirect", markdown="Untrusted")
+    def test_public_scrape_rejects_provider_redirect_to_a_private_host(self) -> None:
+        provider_result = FirecrawlScrape(url="http://127.0.0.1/redirect", markdown="Untrusted")
         with (
             patch(
                 "posthog.egress.firecrawl.client.socket.getaddrinfo",
@@ -271,5 +332,4 @@ class TestPublicFirecrawlTargets(SimpleTestCase):
             scrape_public_url(
                 "https://example.com/market",
                 source="subscriptions_pulse_research",
-                allowed_domains=("example.com",),
             )

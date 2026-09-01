@@ -18,6 +18,7 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 36
 export const subscriptionsCreateBodyContextsMax = 3
 
 export const subscriptionsCreateBodyProactiveConfigOneEnabledDefault = false
+export const subscriptionsCreateBodyProactiveConfigOnePublicResearchEnabledDefault = true
 export const subscriptionsCreateBodyProactiveConfigOneRepositoryMax = 255
 
 export const subscriptionsCreateBodyProactiveConfigOneCreateDraftPrDefault = false
@@ -116,6 +117,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsCreateBodyProactiveConfigOneEnabledDefault)
                     .describe('Whether future AI report deliveries may run proactive follow-up.'),
+                public_research_enabled: zod
+                    .boolean()
+                    .default(subscriptionsCreateBodyProactiveConfigOnePublicResearchEnabledDefault)
+                    .describe(
+                        "Whether proactive analysis may search and read public webpages through PostHog's bounded broker."
+                    ),
                 repository: zod
                     .string()
                     .max(subscriptionsCreateBodyProactiveConfigOneRepositoryMax)
@@ -134,10 +141,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsCreateBodyProactiveConfigOneCreateDraftPrDefault)
                     .describe('Whether Pulse may create one draft pull request on a future delivery.'),
-                public_research_subject_id: zod
-                    .uuid()
-                    .nullish()
-                    .describe('Optional eligible reviewed public research subject. Omit to disable public research.'),
             })
             .optional()
             .describe('Optional standing consent and limits for proactive follow-up on future AI report deliveries.'),
@@ -241,6 +244,7 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 36
 export const subscriptionsUpdateBodyContextsMax = 3
 
 export const subscriptionsUpdateBodyProactiveConfigOneEnabledDefault = false
+export const subscriptionsUpdateBodyProactiveConfigOnePublicResearchEnabledDefault = true
 export const subscriptionsUpdateBodyProactiveConfigOneRepositoryMax = 255
 
 export const subscriptionsUpdateBodyProactiveConfigOneCreateDraftPrDefault = false
@@ -339,6 +343,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsUpdateBodyProactiveConfigOneEnabledDefault)
                     .describe('Whether future AI report deliveries may run proactive follow-up.'),
+                public_research_enabled: zod
+                    .boolean()
+                    .default(subscriptionsUpdateBodyProactiveConfigOnePublicResearchEnabledDefault)
+                    .describe(
+                        "Whether proactive analysis may search and read public webpages through PostHog's bounded broker."
+                    ),
                 repository: zod
                     .string()
                     .max(subscriptionsUpdateBodyProactiveConfigOneRepositoryMax)
@@ -357,10 +367,6 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsUpdateBodyProactiveConfigOneCreateDraftPrDefault)
                     .describe('Whether Pulse may create one draft pull request on a future delivery.'),
-                public_research_subject_id: zod
-                    .uuid()
-                    .nullish()
-                    .describe('Optional eligible reviewed public research subject. Omit to disable public research.'),
             })
             .optional()
             .describe('Optional standing consent and limits for proactive follow-up on future AI report deliveries.'),
@@ -464,6 +470,7 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoM
 export const subscriptionsPartialUpdateBodyContextsMax = 3
 
 export const subscriptionsPartialUpdateBodyProactiveConfigOneEnabledDefault = false
+export const subscriptionsPartialUpdateBodyProactiveConfigOnePublicResearchEnabledDefault = true
 export const subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax = 255
 
 export const subscriptionsPartialUpdateBodyProactiveConfigOneCreateDraftPrDefault = false
@@ -562,6 +569,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyProactiveConfigOneEnabledDefault)
                     .describe('Whether future AI report deliveries may run proactive follow-up.'),
+                public_research_enabled: zod
+                    .boolean()
+                    .default(subscriptionsPartialUpdateBodyProactiveConfigOnePublicResearchEnabledDefault)
+                    .describe(
+                        "Whether proactive analysis may search and read public webpages through PostHog's bounded broker."
+                    ),
                 repository: zod
                     .string()
                     .max(subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax)
@@ -580,10 +593,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyProactiveConfigOneCreateDraftPrDefault)
                     .describe('Whether Pulse may create one draft pull request on a future delivery.'),
-                public_research_subject_id: zod
-                    .uuid()
-                    .nullish()
-                    .describe('Optional eligible reviewed public research subject. Omit to disable public research.'),
             })
             .optional()
             .describe('Optional standing consent and limits for proactive follow-up on future AI report deliveries.'),
@@ -796,4 +805,29 @@ export const SubscriptionsPulseExperimentDraftsCreateBody = /* @__PURE__ */ zod.
         .max(subscriptionsPulseExperimentDraftsCreateBodySecondaryMetricsMax)
         .optional()
         .describe('Up to nine existing event or action references used as secondary metrics.'),
+})
+
+/**
+ * Search and read one bounded public webpage for an active task-bound Pulse analysis. Returned content is untrusted reference material.
+ */
+export const SubscriptionsPulsePublicResearchCreateBody = /* @__PURE__ */ zod.object({
+    topic: zod
+        .enum([
+            'product_analytics_market_trends',
+            'product_analytics_competitors',
+            'b2b_saas_benchmarks',
+            'consumer_product_benchmarks',
+            'onboarding_best_practices',
+            'activation_best_practices',
+            'retention_best_practices',
+            'experimentation_best_practices',
+            'analytics_instrumentation_best_practices',
+            'pricing_best_practices',
+        ])
+        .describe(
+            '\* `product_analytics_market_trends` - product_analytics_market_trends\n\* `product_analytics_competitors` - product_analytics_competitors\n\* `b2b_saas_benchmarks` - b2b_saas_benchmarks\n\* `consumer_product_benchmarks` - consumer_product_benchmarks\n\* `onboarding_best_practices` - onboarding_best_practices\n\* `activation_best_practices` - activation_best_practices\n\* `retention_best_practices` - retention_best_practices\n\* `experimentation_best_practices` - experimentation_best_practices\n\* `analytics_instrumentation_best_practices` - analytics_instrumentation_best_practices\n\* `pricing_best_practices` - pricing_best_practices'
+        )
+        .describe(
+            'Server-owned public research topic. PostHog maps this choice to a fixed search query, so private workspace content is never sent to the provider.\n\n\* `product_analytics_market_trends` - product_analytics_market_trends\n\* `product_analytics_competitors` - product_analytics_competitors\n\* `b2b_saas_benchmarks` - b2b_saas_benchmarks\n\* `consumer_product_benchmarks` - consumer_product_benchmarks\n\* `onboarding_best_practices` - onboarding_best_practices\n\* `activation_best_practices` - activation_best_practices\n\* `retention_best_practices` - retention_best_practices\n\* `experimentation_best_practices` - experimentation_best_practices\n\* `analytics_instrumentation_best_practices` - analytics_instrumentation_best_practices\n\* `pricing_best_practices` - pricing_best_practices'
+        ),
 })

@@ -1,59 +1,46 @@
-"""Bounded, server-owned public research primitives for proactive subscriptions."""
+"""Server-owned public research topics for proactive subscriptions."""
 
-from string import Formatter
-from typing import Literal
-from uuid import UUID
-
-from posthog.dataclasses import frozen
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Final, Literal, cast
 
 PublicResearchTopic = Literal[
-    "market_trends",
-    "competitor_landscape",
-    "industry_benchmarks",
-    "product_best_practices",
+    "product_analytics_market_trends",
+    "product_analytics_competitors",
+    "b2b_saas_benchmarks",
+    "consumer_product_benchmarks",
+    "onboarding_best_practices",
+    "activation_best_practices",
+    "retention_best_practices",
+    "experimentation_best_practices",
+    "analytics_instrumentation_best_practices",
+    "pricing_best_practices",
 ]
 
-PUBLIC_RESEARCH_TOPICS = frozenset(
+PUBLIC_RESEARCH_TOPIC_QUERIES: Final[Mapping[PublicResearchTopic, str]] = MappingProxyType(
     {
-        "market_trends",
-        "competitor_landscape",
-        "industry_benchmarks",
-        "product_best_practices",
+        "product_analytics_market_trends": "current product analytics market trends",
+        "product_analytics_competitors": "product analytics competitor landscape",
+        "b2b_saas_benchmarks": "B2B SaaS product adoption benchmarks",
+        "consumer_product_benchmarks": "consumer digital product engagement benchmarks",
+        "onboarding_best_practices": "software product onboarding best practices",
+        "activation_best_practices": "software product activation best practices",
+        "retention_best_practices": "software product retention best practices",
+        "experimentation_best_practices": "product experimentation best practices",
+        "analytics_instrumentation_best_practices": "product analytics instrumentation best practices",
+        "pricing_best_practices": "software product pricing best practices",
     }
 )
-_TEMPLATE_FIELDS = frozenset({"subject_name", "canonical_domain", "topic"})
+PUBLIC_RESEARCH_TOPICS: Final[tuple[PublicResearchTopic, ...]] = tuple(PUBLIC_RESEARCH_TOPIC_QUERIES)
 
 
 class PublicResearchValidationError(ValueError):
     pass
 
 
-@frozen
-class PublicResearchRequest:
-    """The only model-facing research input: a fixed topic and reviewed catalog UUID."""
-
-    topic: PublicResearchTopic
-    public_subject_id: UUID
-
-
-def render_public_research_query(*, topic: str, subject_name: str, canonical_domain: str, template: str) -> str:
-    """Render a reviewed catalog template without accepting any model-authored prose."""
-    if topic not in PUBLIC_RESEARCH_TOPICS:
-        raise PublicResearchValidationError("Public research topic is not reviewed")
-    if not subject_name or not canonical_domain or not template:
-        raise PublicResearchValidationError("Public research catalog record is incomplete")
-    fields = {field_name for _, field_name, _, _ in Formatter().parse(template) if field_name}
-    if fields - _TEMPLATE_FIELDS:
-        raise PublicResearchValidationError("Public research template contains an unapproved field")
+def public_research_query_for_topic(topic: str) -> str:
+    """Resolve one fixed query without sending model-authored text to the provider."""
     try:
-        query = template.format(
-            subject_name=subject_name,
-            canonical_domain=canonical_domain,
-            topic=topic,
-        )
-    except (KeyError, ValueError) as exc:
-        raise PublicResearchValidationError("Public research template is invalid") from exc
-    normalized = " ".join(query.split())
-    if not normalized or len(normalized) > 512:
-        raise PublicResearchValidationError("Public research query is invalid or exceeds its budget")
-    return normalized
+        return PUBLIC_RESEARCH_TOPIC_QUERIES[cast(PublicResearchTopic, topic)]
+    except KeyError as error:
+        raise PublicResearchValidationError("Public research topic is invalid") from error

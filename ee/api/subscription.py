@@ -161,6 +161,11 @@ class ProactiveSubscriptionConfigWriteSerializer(serializers.Serializer):
         default=False,
         help_text="Whether future AI report deliveries may run proactive follow-up.",
     )
+    public_research_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether proactive analysis may search and read public webpages through PostHog's bounded broker.",
+    )
     repository = serializers.CharField(
         required=False,
         allow_null=True,
@@ -178,11 +183,6 @@ class ProactiveSubscriptionConfigWriteSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Whether Pulse may create one draft pull request on a future delivery.",
-    )
-    public_research_subject_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text="Optional eligible reviewed public research subject. Omit to disable public research.",
     )
 
     def to_internal_value(self, data: Mapping[str, Any]) -> dict[str, Any]:
@@ -760,6 +760,19 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             attrs["contexts"] = self._validate_contexts(attrs["contexts"])
         proactive_config = attrs.get("proactive_config")
         if proactive_config is not None:
+            raw_proactive_config = self.initial_data.get("proactive_config")
+            if existing is not None and isinstance(raw_proactive_config, Mapping):
+                persisted_config = asdict(
+                    proactive_pulse.get_proactive_config(
+                        team_id=self.context["team_id"],
+                        subscription_id=existing.id,
+                    )
+                )
+                proactive_config = {
+                    **persisted_config,
+                    **{field: value for field, value in proactive_config.items() if field in raw_proactive_config},
+                }
+                attrs["proactive_config"] = proactive_config
             proactive_input = ProactiveConfigInput(**proactive_config)
             proactive_errors = proactive_pulse.validate_proactive_config(
                 team_id=self.context["team_id"],

@@ -10,7 +10,7 @@ from posthog.models import Team, User
 from posthog.storage import object_storage
 
 from products.exports.backend.facade.api import subscription_snapshot_contexts_are_authorized
-from products.subscriptions.backend.models import ProactiveSubscriptionConfig, PublicResearchSubject, RepositoryGrant
+from products.subscriptions.backend.models import ProactiveSubscriptionConfig, RepositoryGrant
 from products.subscriptions.backend.pulse.repository_grants import (
     repository_grant_authorization_is_live,
     repository_grants_authorizations_are_live,
@@ -54,7 +54,7 @@ def build_scheduled_proactive_dispatch_snapshots(
     configs_by_subscription_id = {
         config.subscription_id: config
         for config in ProactiveSubscriptionConfig.all_teams.filter(subscription_id__in=subscription_ids).select_related(
-            "repository_grant", "public_research_subject"
+            "repository_grant"
         )
     }
     inputs_by_subscription_id = {input.subscription_id: input for input in inputs}
@@ -73,7 +73,6 @@ def build_scheduled_proactive_dispatch_snapshots(
     for input in inputs:
         config = configs_by_subscription_id.get(input.subscription_id)
         grant = config.repository_grant if config is not None else None
-        subject = config.public_research_subject if config is not None else None
         snapshots[input.subscription_id] = build_scheduled_proactive_dispatch_snapshot(
             input,
             team=teams_by_id.get(input.team_id),
@@ -83,8 +82,6 @@ def build_scheduled_proactive_dispatch_snapshots(
             grant=grant,
             grant_preloaded=True,
             grant_authorized=live_authorizations.get(grant.id) if grant is not None else None,
-            subject=subject,
-            subject_preloaded=True,
             contexts_authorized=input.contexts_authorized,
         )
     return snapshots
@@ -212,8 +209,6 @@ def build_scheduled_proactive_dispatch_snapshot(
     grant: RepositoryGrant | None = None,
     grant_preloaded: bool = False,
     grant_authorized: bool | None = None,
-    subject: PublicResearchSubject | None = None,
-    subject_preloaded: bool = False,
     contexts_authorized: bool | None = None,
 ) -> ProactiveDispatchSnapshot | None:
     if not getattr(settings, "PULSE_PROACTIVE_ENABLED", False):
@@ -254,12 +249,6 @@ def build_scheduled_proactive_dispatch_snapshot(
     )
     if config.create_draft_pr and grant is None:
         return None
-    subject = _eligible_public_research_subject(
-        team_id=input.team_id,
-        config=config,
-        subject=subject,
-        preloaded=subject_preloaded,
-    )
     wall_clock_seconds = _bounded_setting(
         "PULSE_WALL_CLOCK_SECONDS",
         DEFAULT_WALL_CLOCK_SECONDS,
@@ -296,28 +285,16 @@ def build_scheduled_proactive_dispatch_snapshot(
         }
         if grant is not None
         else None,
-        "public_research_subject": {
-            "id": str(subject.id),
-            "name": subject.name,
-            "description": subject.description,
-            "canonical_domain": subject.canonical_domain,
-            "allowed_result_domains": subject.allowed_result_domains,
-            "query_templates": subject.query_templates,
-        }
-        if subject is not None
-        else None,
+        "public_research_enabled": config.public_research_enabled,
         "repository_grant_version": str(grant.grant_version) if grant is not None else None,
         "repository_installation_id": grant.repository_installation_id if grant is not None else None,
         "automation_owner_id": grant.automation_owner_id if grant is not None else None,
-        "public_research_subject_id": str(subject.id) if subject is not None else None,
-        "public_research_subject_reviewed_at": subject.reviewed_at.isoformat()
-        if subject is not None and subject.reviewed_at is not None
-        else None,
         "flags": {
             "allow_draft_pr": bool(config.create_draft_pr and getattr(settings, "PULSE_DRAFT_PR_ENABLED", False)),
             "allow_experiment_draft": bool(getattr(settings, "PULSE_EXPERIMENT_DRAFT_ENABLED", False)),
-            "allow_public_research": subject is not None
-            and bool(getattr(settings, "PULSE_PUBLIC_RESEARCH_ENABLED", False)),
+            "allow_public_research": config.public_research_enabled
+            and bool(getattr(settings, "PULSE_PUBLIC_RESEARCH_ENABLED", False))
+            and bool(settings.FIRECRAWL_API_KEY),
             "allow_outcome_readouts": bool(getattr(settings, "PULSE_OUTCOME_READOUT_ENABLED", False)),
         },
         "limits": {
@@ -395,29 +372,6 @@ def _agent_context_window_tokens() -> int:
     if type(value) is not int or value not in SUPPORTED_AGENT_CONTEXT_WINDOW_TOKENS:
         return DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS
     return value
-
-
-def _eligible_public_research_subject(
-    *,
-    team_id: int,
-    config: ProactiveSubscriptionConfig,
-    subject: PublicResearchSubject | None = None,
-    preloaded: bool = False,
-) -> PublicResearchSubject | None:
-    if config.public_research_subject_id is None:
-        return None
-    if subject is None and not preloaded:
-        subject = PublicResearchSubject.objects.for_team(team_id).filter(id=config.public_research_subject_id).first()
-    if (
-        subject is None
-        or subject.team_id != team_id
-        or subject.id != config.public_research_subject_id
-        or not subject.eligible
-        or subject.reviewed_at is None
-        or subject.disabled_at is not None
-    ):
-        return None
-    return subject
 
 
 def _bounded_setting(name: str, default: int, cap: int, *, minimum: int) -> int:

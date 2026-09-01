@@ -83,13 +83,14 @@ describe('subscriptionLogic', () => {
                 },
                 '/api/projects/:team/subscriptions/pulse/configuration-options/': {
                     proactive_available: true,
+                    draft_pr_available: true,
                     repositories: [
                         {
                             repository: 'example/product',
                             repository_integration_id: 17,
                         },
                     ],
-                    public_research_subjects: [],
+                    public_research_available: true,
                 },
             },
             post: {
@@ -761,12 +762,13 @@ describe('subscriptionLogic', () => {
             repository_integration_id: null,
             create_draft_pr: false,
             repository_grant_id: null,
-            public_research_subject_id: null,
+            public_research_enabled: true,
         })
         expect(newLogic.values.proactiveConfigurationOptions).toEqual({
             proactive_available: true,
+            draft_pr_available: true,
             repositories: [{ repository: 'example/product', repository_integration_id: 17 }],
-            public_research_subjects: [],
+            public_research_available: true,
         })
     })
 
@@ -796,7 +798,22 @@ describe('subscriptionLogic', () => {
             repository_integration_id: null,
             create_draft_pr: false,
             repository_grant_id: null,
-            public_research_subject_id: null,
+            public_research_enabled: true,
+        })
+    })
+
+    it('preserves a public research opt-out when proactive follow-up is disabled and re-enabled', async () => {
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.setProactiveEnabled(true)
+        newLogic.actions.setPublicResearchEnabled(false)
+        newLogic.actions.setProactiveEnabled(false)
+        newLogic.actions.setProactiveEnabled(true)
+
+        expect(newLogic.values.subscription.proactive_config).toMatchObject({
+            enabled: true,
+            public_research_enabled: false,
         })
     })
 
@@ -813,7 +830,7 @@ describe('subscriptionLogic', () => {
                 repository: null,
                 repository_integration_id: null,
                 repository_grant_id: null,
-                public_research_subject_id: null,
+                public_research_enabled: true,
             },
         })
 
@@ -849,7 +866,7 @@ describe('subscriptionLogic', () => {
                 repository: 'example/product',
                 repository_integration_id: 17,
                 repository_grant_id: null,
-                public_research_subject_id: '00000000-0000-4000-8000-000000000010',
+                public_research_enabled: false,
             },
         })
 
@@ -861,7 +878,7 @@ describe('subscriptionLogic', () => {
             create_draft_pr: true,
             repository: 'example/product',
             repository_integration_id: 17,
-            public_research_subject_id: '00000000-0000-4000-8000-000000000010',
+            public_research_enabled: false,
         })
     })
 
@@ -1199,7 +1216,7 @@ describe('subscriptionLogic', () => {
             proactive_available: false,
             draft_pr_available: false,
             repositories: [],
-            public_research_subjects: [],
+            public_research_available: false,
         })
         await expectLogic(wizardLogic).toFinishAllListeners()
 
@@ -1220,7 +1237,7 @@ describe('subscriptionLogic', () => {
                 repository: null,
                 repository_integration_id: null,
                 repository_grant_id: null,
-                public_research_subject_id: null,
+                public_research_enabled: true,
             },
         })
         await expectLogic(existingLogic).toFinishAllListeners()
@@ -1237,7 +1254,7 @@ describe('subscriptionLogic', () => {
             proactive_available: true,
             draft_pr_available: true,
             repositories: [],
-            public_research_subjects: [],
+            public_research_available: true,
         })
         wizardLogic.actions.setSubscriptionValues({
             title: 'Activation opportunities',
@@ -1250,7 +1267,7 @@ describe('subscriptionLogic', () => {
                 repository: null,
                 repository_integration_id: null,
                 repository_grant_id: null,
-                public_research_subject_id: null,
+                public_research_enabled: true,
             },
         })
         wizardLogic.actions.setSubscriptionWizardStep('review')

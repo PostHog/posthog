@@ -38,11 +38,7 @@ interface SubscriptionActionsVisibilityInput {
 function hasSavedSubscriptionActions(subscription: SubscriptionFormType): boolean {
     const config = subscription.proactive_config
     return Boolean(
-        config?.enabled ||
-        config?.create_draft_pr ||
-        config?.repository ||
-        config?.repository_integration_id ||
-        config?.public_research_subject_id
+        config?.enabled || config?.create_draft_pr || config?.repository || config?.repository_integration_id
     )
 }
 

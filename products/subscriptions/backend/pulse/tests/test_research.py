@@ -1,43 +1,20 @@
-from uuid import uuid4
-
 from django.test import SimpleTestCase
 
 from products.subscriptions.backend.pulse.research import (
-    PublicResearchRequest,
+    PUBLIC_RESEARCH_TOPIC_QUERIES,
+    PUBLIC_RESEARCH_TOPICS,
     PublicResearchValidationError,
-    render_public_research_query,
+    public_research_query_for_topic,
 )
 
 
 class TestPublicResearchContract(SimpleTestCase):
-    def test_request_has_only_server_catalog_subject_and_reviewed_topic(self) -> None:
-        request = PublicResearchRequest(topic="market_trends", public_subject_id=uuid4())
-
-        assert request.topic == "market_trends"
-        assert request.public_subject_id is not None
-
-    def test_query_uses_only_the_reviewed_template_and_public_catalog_values(self) -> None:
-        query = render_public_research_query(
-            topic="market_trends",
-            subject_name="Example analytics",
-            canonical_domain="example.com",
-            template="{subject_name} {topic} site:{canonical_domain}",
+    def test_every_available_topic_maps_to_a_fixed_query(self) -> None:
+        assert set(PUBLIC_RESEARCH_TOPICS) == set(PUBLIC_RESEARCH_TOPIC_QUERIES)
+        assert public_research_query_for_topic("activation_best_practices") == (
+            "software product activation best practices"
         )
 
-        assert query == "Example analytics market_trends site:example.com"
-
-    def test_query_rejects_unknown_topics_and_non_catalog_template_fields(self) -> None:
+    def test_rejects_model_authored_text_instead_of_forwarding_it(self) -> None:
         with self.assertRaises(PublicResearchValidationError):
-            render_public_research_query(
-                topic="write a report about our private repository",
-                subject_name="Example analytics",
-                canonical_domain="example.com",
-                template="{subject_name} {topic}",
-            )
-        with self.assertRaises(PublicResearchValidationError):
-            render_public_research_query(
-                topic="market_trends",
-                subject_name="Example analytics",
-                canonical_domain="example.com",
-                template="{original_prompt}",
-            )
+            public_research_query_for_topic("Research person@example.com with internal report details")

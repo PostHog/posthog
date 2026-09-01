@@ -156,16 +156,10 @@
                     "description": "Whether future AI report deliveries may run proactive follow-up.",
                     "type": "boolean"
                 },
-                "public_research_subject_id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Optional eligible reviewed public research subject. Omit to disable public research."
+                "public_research_enabled": {
+                    "default": true,
+                    "description": "Whether proactive analysis may search and read public webpages through PostHog's bounded broker.",
+                    "type": "boolean"
                 },
                 "repository": {
                     "anyOf": [

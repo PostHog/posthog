@@ -23,7 +23,9 @@ from .contracts import (
 PulseActionNotFound = pulse.PulseActionNotFound
 PulseEvidenceConflict = pulse.PulseEvidenceConflict
 PulseEvidenceNotFound = pulse.PulseEvidenceNotFound
+PulsePublicResearchInvalid = pulse.PulsePublicResearchInvalid
 PulsePublicResearchUnavailable = pulse.PulsePublicResearchUnavailable
+PulsePublicResearchNotFound = pulse.PulsePublicResearchNotFound
 PulseSubscriptionNotFound = pulse.PulseSubscriptionNotFound
 PulseValidationError = pulse.PulseValidationError
 EvidenceRawContent = pulse.EvidenceRawContent
@@ -88,6 +90,7 @@ def complete_evidence_tool_call(
     tool_call_id: str,
     result: object,
     result_truncated: bool = False,
+    execution_lease_started_at: datetime | None = None,
 ) -> EvidenceAuditDTO:
     return pulse.complete_evidence_tool_call(
         team_id=team_id,
@@ -97,6 +100,7 @@ def complete_evidence_tool_call(
         tool_call_id=tool_call_id,
         result=result,
         result_truncated=result_truncated,
+        execution_lease_started_at=execution_lease_started_at,
     )
 
 
@@ -108,6 +112,7 @@ def fail_evidence_tool_call(
     run_id: UUID,
     tool_call_id: str,
     error_class: str,
+    execution_lease_started_at: datetime | None = None,
 ) -> EvidenceAuditDTO:
     return pulse.fail_evidence_tool_call(
         team_id=team_id,
@@ -116,6 +121,7 @@ def fail_evidence_tool_call(
         run_id=run_id,
         tool_call_id=tool_call_id,
         error_class=error_class,
+        execution_lease_started_at=execution_lease_started_at,
     )
 
 
@@ -133,7 +139,6 @@ def research_public_context(
     team: Team,
     user: User,
     run_id: UUID,
-    public_subject_id: UUID,
     topic: str,
     tool_call_id: str,
     raw_expires_at: datetime,
@@ -143,10 +148,21 @@ def research_public_context(
         team=team,
         user=user,
         run_id=run_id,
-        public_subject_id=public_subject_id,
         topic=topic,
         tool_call_id=tool_call_id,
         raw_expires_at=raw_expires_at,
+    )
+
+
+def research_public_context_for_task(
+    *, team_id: int, team: Team, user: User, task_id: UUID, topic: str
+) -> PublicResearchCitationDTO:
+    return pulse.research_public_context_for_task(
+        team_id=team_id,
+        team=team,
+        user=user,
+        task_id=task_id,
+        topic=topic,
     )
 
 
@@ -188,7 +204,9 @@ __all__ = [
     "PulseActionNotFound",
     "PulseEvidenceConflict",
     "PulseEvidenceNotFound",
+    "PulsePublicResearchInvalid",
     "PulsePublicResearchUnavailable",
+    "PulsePublicResearchNotFound",
     "PulseSubscriptionNotFound",
     "PulseValidationError",
     "PulseExperimentDraftConflict",
@@ -203,6 +221,7 @@ __all__ = [
     "purge_expired_evidence_raw_bodies",
     "read_evidence_raw_body",
     "research_public_context",
+    "research_public_context_for_task",
     "create_pulse_experiment_draft",
     "has_exact_pulse_experiment_draft_scopes",
     "has_exact_pulse_analysis_scopes",

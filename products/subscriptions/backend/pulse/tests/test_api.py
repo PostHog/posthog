@@ -790,7 +790,33 @@ class TestPulsePresentationAccess(subscription_test.TestSubscriptionObjectAccess
         assert options.proactive_available is False
         assert options.draft_pr_available is False
         assert options.repositories == []
-        assert options.public_research_subjects == []
+        assert options.public_research_available is False
+
+    def test_public_research_opt_out_clears_the_legacy_subject_for_older_workers(self) -> None:
+        subscription = self._ai_sub_with_contexts(self.open_insight)
+        subject = PublicResearchSubject.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Legacy subject",
+            canonical_domain="example.com",
+        )
+        ProactiveSubscriptionConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            subscription_id=subscription.id,
+            enabled=True,
+            public_research_enabled=True,
+            public_research_subject=subject,
+        )
+
+        configure_proactive_subscription(
+            team_id=self.team.id,
+            subscription_id=subscription.id,
+            current_user_id=self.user.id,
+            resource_type="ai_prompt",
+            config=ProactiveConfigInput(enabled=True, public_research_enabled=False),
+        )
+
+        stored = ProactiveSubscriptionConfig.objects.for_team(self.team.id).get(subscription_id=subscription.id)
+        assert stored.public_research_subject_id is None
 
     @override_settings(PULSE_PROACTIVE_ENABLED=True, PULSE_DRAFT_PR_ENABLED=False)
     def test_proactive_configuration_options_do_not_offer_draft_pr_when_its_kill_switch_is_off(self) -> None:
@@ -884,19 +910,9 @@ class TestPulsePresentationAccess(subscription_test.TestSubscriptionObjectAccess
         PULSE_PROACTIVE_ENABLED=True,
         PULSE_DRAFT_PR_ENABLED=True,
         PULSE_PUBLIC_RESEARCH_ENABLED=True,
+        FIRECRAWL_API_KEY="test-firecrawl-key",
     )
     def test_proactive_configuration_options_only_expose_safe_authorized_options(self) -> None:
-        eligible = PublicResearchSubject.objects.for_team(self.team.id).create(
-            team=self.team,
-            name="Public release notes",
-            canonical_domain="example.com",
-            reviewed_at=timezone.now(),
-        )
-        PublicResearchSubject.objects.for_team(self.team.id).create(
-            team=self.team,
-            name="Unreviewed subject",
-            canonical_domain="unreviewed.example",
-        )
         authorizations = [
             AuthorizableRepositoryDTO(
                 repository="posthog/posthog",
@@ -917,22 +933,24 @@ class TestPulsePresentationAccess(subscription_test.TestSubscriptionObjectAccess
         assert [(option.repository, option.repository_integration_id) for option in options.repositories] == [
             ("posthog/posthog", 13)
         ]
-        assert [
-            (subject.id, subject.display_name, subject.canonical_domain) for subject in options.public_research_subjects
-        ] == [(eligible.id, "Public release notes", "example.com")]
+        assert options.public_research_available is True
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "proactive_available": True,
             "draft_pr_available": True,
             "repositories": [{"repository": "posthog/posthog", "repository_integration_id": 13}],
-            "public_research_subjects": [
-                {
-                    "id": str(eligible.id),
-                    "display_name": "Public release notes",
-                    "canonical_domain": "example.com",
-                }
-            ],
+            "public_research_available": True,
         }
+
+    @override_settings(
+        PULSE_PROACTIVE_ENABLED=True,
+        PULSE_PUBLIC_RESEARCH_ENABLED=True,
+        FIRECRAWL_API_KEY="",
+    )
+    def test_public_research_is_unavailable_without_a_provider_key(self) -> None:
+        options = get_proactive_configuration_options(team_id=self.team.id, user=self.user)
+
+        assert options.public_research_available is False
 
     def test_history_excludes_storage_references_and_unvalidated_artifact_urls(self) -> None:
         subscription = self._ai_sub_with_contexts(self.open_insight)

@@ -92,6 +92,7 @@ export const PULSE_ANALYSIS_TOOL_MANIFEST_V1 = [
     'query-web-stats',
     'query-web-vitals',
     'pulse-outcome-replay-get',
+    'pulse-public-research-create',
     'read-data-schema',
     'saved-query-column-annotations-list',
     'scheduled-changes-get',

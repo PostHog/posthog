@@ -29,7 +29,7 @@ const DISABLED_PROACTIVE_CONFIG = {
     repository_integration_id: null,
     create_draft_pr: false,
     repository_grant_id: null,
-    public_research_subject_id: null,
+    public_research_enabled: true,
 }
 
 const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [

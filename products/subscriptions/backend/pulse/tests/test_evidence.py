@@ -9,6 +9,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from posthog.egress.firecrawl.client import FirecrawlScrape, FirecrawlSearchFailed, FirecrawlSearchResult
+from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
@@ -16,6 +17,7 @@ from products.subscriptions.backend.facade.pulse import (
     PulseEvidenceConflict,
     PulseEvidenceNotFound,
     PulsePublicResearchUnavailable,
+    _build_activity_config_snapshot,
     begin_evidence_tool_call,
     complete_evidence_tool_call,
     fail_evidence_tool_call,
@@ -33,10 +35,9 @@ from products.subscriptions.backend.pulse.models import (
     EvidenceRawBody,
     EvidenceToolCall,
     ProactiveSubscriptionConfig,
-    PublicResearchSubject,
     PulseRun,
 )
-from products.subscriptions.backend.pulse.temporal.inputs import PulseStartInput
+from products.subscriptions.backend.pulse.temporal.inputs import ProactiveDispatchSnapshot, PulseStartInput
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
@@ -182,8 +183,131 @@ class TestPulseEvidenceFacade(BaseTest):
                     expires_at=expires_at,
                 )
 
-    @override_settings(PULSE_PROACTIVE_ENABLED=True, PULSE_PUBLIC_RESEARCH_ENABLED=True)
-    def test_prepared_run_preserves_dispatch_subject_id_for_research_authorization(self) -> None:
+    def test_stale_public_research_claim_can_be_recovered_after_provider_deadline(self) -> None:
+        arguments = {
+            "topic": "activation_best_practices",
+            "query": "software product activation best practices",
+        }
+        with team_scope(self.team.id, canonical=True):
+            run = self._run()
+            expires_at = timezone.now() + timedelta(days=1)
+            claimed = self._begin(
+                run,
+                call_id="abandoned-research",
+                tool_name="pulse_public_research",
+                arguments=arguments,
+                expires_at=expires_at,
+            )
+            concurrent_retry = self._begin(
+                run,
+                call_id="abandoned-research",
+                tool_name="pulse_public_research",
+                arguments=arguments,
+                expires_at=expires_at,
+            )
+            call = EvidenceToolCall.objects.get(id=claimed.id)
+            call.started_at = timezone.now() - timedelta(seconds=46)
+            call.save(update_fields=["started_at"])
+            recovered = self._begin(
+                run,
+                call_id="abandoned-research",
+                tool_name="pulse_public_research",
+                arguments=arguments,
+                expires_at=expires_at,
+            )
+            with self.assertRaisesRegex(PulseEvidenceConflict, "lease is no longer current"):
+                complete_evidence_tool_call(
+                    team_id=self.team.id,
+                    team=self.team,
+                    user=self.user,
+                    run_id=run.id,
+                    tool_call_id="abandoned-research",
+                    result={"citation": "stale"},
+                    execution_lease_started_at=claimed.execution_lease_started_at,
+                )
+            with self.assertRaisesRegex(PulseEvidenceConflict, "lease is no longer current"):
+                fail_evidence_tool_call(
+                    team_id=self.team.id,
+                    team=self.team,
+                    user=self.user,
+                    run_id=run.id,
+                    tool_call_id="abandoned-research",
+                    error_class="StaleOwnerFailure",
+                    execution_lease_started_at=claimed.execution_lease_started_at,
+                )
+            completed = complete_evidence_tool_call(
+                team_id=self.team.id,
+                team=self.team,
+                user=self.user,
+                run_id=run.id,
+                tool_call_id="abandoned-research",
+                result={"citation": "current"},
+                execution_lease_started_at=recovered.execution_lease_started_at,
+            )
+
+        assert claimed.execution_claimed is True
+        assert concurrent_retry.execution_claimed is False
+        assert recovered.execution_claimed is True
+        assert recovered.execution_lease_started_at != claimed.execution_lease_started_at
+        assert completed.completed_at is not None
+
+    def test_legacy_v1_dispatch_snapshot_keeps_the_run_but_disables_unrestricted_research(self) -> None:
+        subscription = create_subscription(team=self.team, created_by=self.user, prompt="Find an improvement.")
+        input = PulseStartInput(
+            team_id=self.team.id,
+            subscription_id=subscription.id,
+            delivery_id=uuid4(),
+            report_snapshot_ref="reports/legacy-research",
+            proactive_snapshot=ProactiveDispatchSnapshot(
+                version=1,
+                enabled=True,
+                config_snapshot_ref="subscriptions/pulse/dispatch-snapshots/v1/legacy.json",
+                wall_clock_budget_seconds=3600,
+                finalization_margin_seconds=300,
+            ),
+        )
+        legacy_subject_id = str(uuid4())
+        dispatch = {
+            "version": 1,
+            "prompt": "Find an improvement.",
+            "contexts": [],
+            "repository": None,
+            "repository_grant_id": None,
+            "repository_grant": None,
+            "public_research_subject_id": legacy_subject_id,
+            "public_research_subject": {"id": legacy_subject_id},
+            "flags": {"allow_public_research": True},
+            "limits": {},
+        }
+
+        with patch(
+            "products.subscriptions.backend.facade.pulse.normalize_goal_with_model",
+            return_value=GoalNormalizationResult(
+                goal_statement="Find an improvement.",
+                decision_constraints=[],
+                prompt_version="v1",
+                model_version=None,
+                valid=True,
+            ),
+        ):
+            snapshot = _build_activity_config_snapshot(
+                input=input,
+                dispatch=dispatch,
+                team=self.team,
+                actor=self.user,
+            )
+
+        assert snapshot["public_research_enabled"] is False
+        flags = snapshot["flags"]
+        assert isinstance(flags, dict)
+        assert flags["allow_public_research"] is False
+
+    @override_settings(
+        PULSE_PROACTIVE_ENABLED=True,
+        PULSE_PUBLIC_RESEARCH_ENABLED=True,
+        FIRECRAWL_API_KEY="test-firecrawl-key",
+    )
+    def test_prepared_run_preserves_public_research_consent_for_authorization(self) -> None:
         stored_snapshots: dict[str, bytes] = {}
 
         def read_snapshot(key: str, **_kwargs: object) -> bytes | None:
@@ -194,20 +318,11 @@ class TestPulseEvidenceFacade(BaseTest):
 
         with team_scope(self.team.id, canonical=True):
             subscription = create_subscription(team=self.team, created_by=self.user, prompt="Find an improvement.")
-            subject = PublicResearchSubject.objects.create(
-                team=self.team,
-                name="Example analytics",
-                canonical_domain="example.com",
-                allowed_result_domains=["research.example.com"],
-                query_templates={"market_trends": "{subject_name} {topic}"},
-                reviewed_at=timezone.now(),
-                reviewed_by_id=self.user.id,
-            )
             ProactiveSubscriptionConfig.objects.create(
                 team=self.team,
                 subscription_id=subscription.id,
                 enabled=True,
-                public_research_subject=subject,
+                public_research_enabled=True,
             )
             eligibility = ScheduledPulseEligibilityInput(
                 team_id=self.team.id,
@@ -249,7 +364,8 @@ class TestPulseEvidenceFacade(BaseTest):
 
             assert prepared is not None
             run = PulseRun.objects.for_team(self.team.id).get(id=prepared.pulse_run_id)
-            assert run.config_snapshot["public_research_subject_id"] == str(subject.id)
+            assert run.config_snapshot["public_research_enabled"] is True
+            assert run.config_snapshot["flags"]["allow_public_research"] is True
 
             search_result = FirecrawlSearchResult(
                 url="https://research.example.com/market",
@@ -276,8 +392,7 @@ class TestPulseEvidenceFacade(BaseTest):
                     team=self.team,
                     user=self.user,
                     run_id=run.id,
-                    public_subject_id=subject.id,
-                    topic="market_trends",
+                    topic="product_analytics_market_trends",
                     tool_call_id="prepared-research",
                     raw_expires_at=timezone.now() + timedelta(days=1),
                 )
@@ -354,20 +469,11 @@ class TestPulseEvidenceFacade(BaseTest):
     @override_settings(PULSE_PUBLIC_RESEARCH_ENABLED=True)
     def test_public_research_is_evidenced_and_retries_without_another_provider_call(self) -> None:
         with team_scope(self.team.id, canonical=True):
-            subject = PublicResearchSubject.objects.create(
-                team=self.team,
-                name="Example analytics",
-                canonical_domain="example.com",
-                allowed_result_domains=["research.example.com"],
-                query_templates={"market_trends": "{subject_name} {topic}"},
-                reviewed_at=timezone.now(),
-                reviewed_by_id=self.user.id,
-            )
             run = self._run()
             run.config_snapshot = {
                 "actor_id": self.user.id,
                 "contexts": [],
-                "public_research_subject_id": str(subject.id),
+                "public_research_enabled": True,
                 "flags": {"allow_public_research": True},
             }
             run.save(update_fields=["config_snapshot"])
@@ -397,8 +503,7 @@ class TestPulseEvidenceFacade(BaseTest):
                     team=self.team,
                     user=self.user,
                     run_id=run.id,
-                    public_subject_id=subject.id,
-                    topic="market_trends",
+                    topic="product_analytics_market_trends",
                     tool_call_id="research-1",
                     raw_expires_at=expires_at,
                 )
@@ -407,8 +512,7 @@ class TestPulseEvidenceFacade(BaseTest):
                     team=self.team,
                     user=self.user,
                     run_id=run.id,
-                    public_subject_id=subject.id,
-                    topic="market_trends",
+                    topic="product_analytics_market_trends",
                     tool_call_id="research-1",
                     raw_expires_at=expires_at,
                 )
@@ -427,22 +531,52 @@ class TestPulseEvidenceFacade(BaseTest):
         scrape.assert_called_once()
 
     @override_settings(PULSE_PUBLIC_RESEARCH_ENABLED=True)
-    def test_public_research_records_a_redacted_provider_failure_once(self) -> None:
+    def test_public_research_uses_the_search_description_when_scraping_is_shed(self) -> None:
         with team_scope(self.team.id, canonical=True):
-            subject = PublicResearchSubject.objects.create(
-                team=self.team,
-                name="Example analytics",
-                canonical_domain="example.com",
-                allowed_result_domains=[],
-                query_templates={"market_trends": "{subject_name} {topic}"},
-                reviewed_at=timezone.now(),
-                reviewed_by_id=self.user.id,
-            )
             run = self._run()
             run.config_snapshot = {
                 "actor_id": self.user.id,
                 "contexts": [],
-                "public_research_subject_id": str(subject.id),
+                "public_research_enabled": True,
+                "flags": {"allow_public_research": True},
+            }
+            run.save(update_fields=["config_snapshot"])
+            search_result = FirecrawlSearchResult(
+                url="https://research.example.com/market",
+                title="Market research",
+                description="A bounded public search summary",
+            )
+            with (
+                patch(
+                    "products.subscriptions.backend.facade.pulse.search_public_web",
+                    return_value=(search_result,),
+                ),
+                patch(
+                    "products.subscriptions.backend.facade.pulse.scrape_public_url",
+                    side_effect=FirecrawlEgressBudgetExhausted,
+                ),
+            ):
+                citation = research_public_context(
+                    team_id=self.team.id,
+                    team=self.team,
+                    user=self.user,
+                    run_id=run.id,
+                    topic="product_analytics_market_trends",
+                    tool_call_id="research-scrape-shed",
+                    raw_expires_at=timezone.now() + timedelta(days=1),
+                )
+
+        assert citation.canonical_url == search_result.url
+        assert citation.excerpt == "A bounded public search summary"
+
+    @override_settings(PULSE_PUBLIC_RESEARCH_ENABLED=True)
+    def test_public_research_records_a_redacted_provider_failure_once(self) -> None:
+        with team_scope(self.team.id, canonical=True):
+            run = self._run()
+            run.config_snapshot = {
+                "actor_id": self.user.id,
+                "contexts": [],
+                "public_research_enabled": True,
                 "flags": {"allow_public_research": True},
             }
             run.save(update_fields=["config_snapshot"])
@@ -458,8 +592,7 @@ class TestPulseEvidenceFacade(BaseTest):
                             team=self.team,
                             user=self.user,
                             run_id=run.id,
-                            public_subject_id=subject.id,
-                            topic="market_trends",
+                            topic="product_analytics_market_trends",
                             tool_call_id="research-failure",
                             raw_expires_at=expires_at,
                         )
