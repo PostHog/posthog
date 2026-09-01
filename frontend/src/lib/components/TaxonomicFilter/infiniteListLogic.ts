@@ -1639,9 +1639,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (!isSuggested) {
                     return []
                 }
-                const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const recentPrefix = !searchQuery
+                    ? (contextFilteredRecentItems || []).filter((item) => !isHiddenDefinition(item)).slice(0, 3)
+                    : []
                 const pinnedPrefix = !searchQuery
-                    ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                    ? withoutPinnedDuplicatesOfRecents(
+                          (contextFilteredPinnedItems || []).filter((item) => !isHiddenDefinition(item)),
+                          recentPrefix
+                      ).slice(0, 3)
                     : []
 
                 const dedupeKeys = new Set<string>()
@@ -1760,12 +1765,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 }
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
-                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const recentPrefix =
+                    isSuggested && !searchQuery
+                        ? (contextFilteredRecentItems || []).filter((item) => !isHiddenDefinition(item)).slice(0, 3)
+                        : []
                 // An item that is both recent and pinned shows once, under the section that
                 // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
                 const pinnedPrefix =
                     isSuggested && !searchQuery
-                        ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                        ? withoutPinnedDuplicatesOfRecents(
+                              (contextFilteredPinnedItems || []).filter((item) => !isHiddenDefinition(item)),
+                              recentPrefix
+                          ).slice(0, 3)
                         : []
                 const pinnedMatches = withoutPinnedDuplicatesOfRecents(suggestedPinnedMatches, suggestedRecentMatches)
                 const topMatches = isSuggested ? dedupedTopMatches : []
