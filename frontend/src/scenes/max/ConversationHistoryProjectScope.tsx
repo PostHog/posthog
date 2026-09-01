@@ -32,6 +32,7 @@ export function ConversationHistoryProjectScope({
                 sideIcon={<IconChevronDown />}
                 onClick={() => openProjectSwitcher()}
                 tooltip="Chats are saved per project. Switch project to see chats from another one."
+                aria-label={`Chats in ${currentTeam.name}. Switch project`}
                 data-attr="max-conversation-history-project-switch"
             >
                 {currentTeam.name}
