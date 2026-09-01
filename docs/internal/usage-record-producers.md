@@ -226,6 +226,9 @@ SELECT producer_id, usage_key, sum(quantity), count()
 FROM billing_usage_records GROUP BY 1, 2 ORDER BY 1, 2
 ```
 
+Set `BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS` to a comma-separated list of organization UUIDs
+before querying `billing_usage_records` through HogQL. The table stays hidden for every other organization.
+
 ## What is not reported yet
 
 All current collectors mirror usage into usage-ingestion. Existing billing still reads the nightly usage report.

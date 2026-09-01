@@ -1721,7 +1721,8 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_quality_enabled=data_quality_enabled,
-            is_billing_usage_records_enabled=team.pk in settings.BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS,
+            is_billing_usage_records_enabled=team.organization_id
+            in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
