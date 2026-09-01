@@ -40429,6 +40429,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `desktop` - desktop
+     * * `mobile` - mobile
+     */
+    export type FormFactorEnum = typeof FormFactorEnum[keyof typeof FormFactorEnum];
+
+
+    export const FormFactorEnum = {
+      Desktop: 'desktop',
+      Mobile: 'mobile',
+    } as const;
+
+    /**
      * * `allowed` - allowed
      * * `blocked` - blocked
      * * `unknown` - unknown
