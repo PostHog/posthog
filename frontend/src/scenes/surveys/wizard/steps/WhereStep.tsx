@@ -100,11 +100,14 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
     })()
 
     useEffect(() => {
+        // A failed load stays at `error` and is not retried here — retrying loops on a persistent
+        // failure and repeats the toast. The user retries from the error toast.
         if (
             targetingMode === 'specific' &&
             urlMatchMode !== SurveyMatchType.Regex &&
             urlOptions?.status !== 'loading' &&
-            urlOptions?.status !== 'loaded'
+            urlOptions?.status !== 'loaded' &&
+            urlOptions?.status !== 'error'
         ) {
             loadPropertyValues({
                 endpoint: undefined,
