@@ -108,6 +108,7 @@ export function AlertDefinitionSection({
                 alertSeries={trends.alertSeries}
                 formulaNodes={trends.formulaNodes}
                 isBreakdownValid={trends.isBreakdownValid}
+                alertMode={alertMode}
             />
         )
     } else if (isFunnelAlert) {

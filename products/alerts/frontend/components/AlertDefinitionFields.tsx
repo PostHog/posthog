@@ -26,15 +26,19 @@ export function TrendsDefinitionFields({
     alertSeries,
     formulaNodes,
     isBreakdownValid,
+    alertMode,
 }: {
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
+    alertMode: 'detector' | 'threshold'
 }): JSX.Element {
     if (isBreakdownValid) {
         return (
             <AlertDefinitionRow label="When">
-                <span className="font-medium">Any breakdown value</span>
+                <span className="font-medium">
+                    {alertMode === 'detector' ? 'Any breakdown value (up to 25)' : 'Any breakdown value'}
+                </span>
             </AlertDefinitionRow>
         )
     }
