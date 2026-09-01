@@ -12,9 +12,16 @@ function session(
     taskId: `task-${overrides.taskRunId}`,
     taskTitle: `Title ${overrides.taskRunId}`,
     isPromptPending: true,
+    isCompacting: false,
+    pendingPermissions: new Map(),
+    messageQueue: [],
     startedAt: 0,
     ...overrides,
   };
+}
+
+function queued(): WorkingSessionFields["messageQueue"] {
+  return [{ id: "q1", content: "and run the tests", queuedAt: 0 }];
 }
 
 describe("workingSessions", () => {
@@ -32,6 +39,47 @@ describe("workingSessions", () => {
     {
       name: "excludes a cloud session even while its prompt is in flight",
       sessions: [session({ taskRunId: "a", isCloud: true })],
+      expectedTaskRunIds: [],
+    },
+    {
+      name: "includes a session whose turn ended with messages still queued",
+      sessions: [
+        session({
+          taskRunId: "a",
+          isPromptPending: false,
+          messageQueue: queued(),
+        }),
+      ],
+      expectedTaskRunIds: ["a"],
+    },
+    {
+      name: "includes a compacting session",
+      sessions: [
+        session({ taskRunId: "a", isPromptPending: false, isCompacting: true }),
+      ],
+      expectedTaskRunIds: ["a"],
+    },
+    {
+      name: "includes a session waiting on a permission answer",
+      sessions: [
+        session({
+          taskRunId: "a",
+          isPromptPending: false,
+          pendingPermissions: new Map([["tool-1", {} as never]]),
+        }),
+      ],
+      expectedTaskRunIds: ["a"],
+    },
+    {
+      name: "excludes a cloud session with messages still queued",
+      sessions: [
+        session({
+          taskRunId: "a",
+          isPromptPending: false,
+          isCloud: true,
+          messageQueue: queued(),
+        }),
+      ],
       expectedTaskRunIds: [],
     },
     {

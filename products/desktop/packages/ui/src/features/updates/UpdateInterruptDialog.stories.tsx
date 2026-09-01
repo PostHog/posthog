@@ -12,6 +12,7 @@ function workingSession(taskId: string, taskTitle: string): AgentSession {
     taskTitle,
     status: "connected",
     isPromptPending: true,
+    isCompacting: false,
     pendingPermissions: new Map(),
     messageQueue: [],
     optimisticItems: [],
@@ -32,6 +33,13 @@ function SeededDialog({ sessions }: { sessions: AgentSession[] }) {
   }, [sessions]);
   return <UpdateInterruptDialog />;
 }
+
+// A task carries its raw prompt as a title until one is generated, which is the
+// same window this dialog catches.
+const RAW_PROMPT =
+  "The signup form accepts an email the backend later rejects, so people land " +
+  "on a blank screen with no way back. Reproduce it, find where the two " +
+  "validations disagree, and make them agree.";
 
 const meta: Meta<typeof SeededDialog> = {
   title: "Updates/UpdateInterruptDialog",
@@ -54,5 +62,21 @@ export const ThreeTasks: Story = {
       workingSession("t2", "Refactor billing webhooks"),
       workingSession("t3", "Write release notes for 0.23"),
     ],
+  },
+};
+
+// The two unbounded spots, on a window short enough to clip: one raw prompt
+// inline in the description, and a full list of them.
+export const OneRawPromptTitle: Story = {
+  args: {
+    sessions: [workingSession("t1", RAW_PROMPT)],
+  },
+};
+
+export const ManyLongTitles: Story = {
+  args: {
+    sessions: Array.from({ length: 10 }, (_, index) =>
+      workingSession(`t${index}`, `${RAW_PROMPT} (${index + 1})`),
+    ),
   },
 };

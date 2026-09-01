@@ -12,12 +12,30 @@ export type WorkingSessionFields = Pick<
   | "taskRunId"
   | "taskTitle"
   | "isPromptPending"
+  | "isCompacting"
+  | "pendingPermissions"
+  | "messageQueue"
   | "isCloud"
   | "startedAt"
 >;
 
 /**
- * Local sessions with an agent turn in flight — the work a host restart would
+ * The same busy states `isSessionIdle` names in sessionEviction. A queued
+ * message lives only in memory, and the turn-end drain runs a tick after
+ * `isPromptPending` clears, so watching that flag alone lets a restart land in
+ * the gap and quit with the user's queued prompts still unsent.
+ */
+function hasWorkInFlight(session: WorkingSessionFields): boolean {
+  return (
+    session.isPromptPending ||
+    session.isCompacting ||
+    session.pendingPermissions.size > 0 ||
+    session.messageQueue.length > 0
+  );
+}
+
+/**
+ * Local sessions with agent work in flight — the work a host restart would
  * kill. Cloud runs keep executing server-side through a restart, so they are
  * excluded.
  */
@@ -25,7 +43,7 @@ export function listWorkingLocalSessions(
   sessions: Record<string, WorkingSessionFields>,
 ): WorkingLocalSession[] {
   return Object.values(sessions)
-    .filter((session) => session.isPromptPending && !session.isCloud)
+    .filter((session) => hasWorkInFlight(session) && !session.isCloud)
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((session) => ({
       taskId: session.taskId,

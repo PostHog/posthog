@@ -29,7 +29,12 @@ function TaskLink({
       to="/tasks/$taskId"
       params={{ taskId: task.taskId }}
       onClick={onNavigate}
-      className="text-accent-11 underline hover:text-accent-12"
+      title={task.taskTitle}
+      // A task keeps its raw prompt as a title until one is generated, which is
+      // exactly the state this dialog catches — so ellipsize to one line rather
+      // than let a pasted prompt push the footer out of the height-capped
+      // AlertDialog.
+      className="inline-block max-w-full truncate align-bottom text-accent-11 underline hover:text-accent-12"
     >
       {task.taskTitle}
     </Link>
@@ -102,7 +107,7 @@ export function UpdateInterruptDialog() {
             )}
           </AlertDialogDescription>
           {working.length > 1 ? (
-            <ul className="mt-1 flex list-disc flex-col gap-1.5 pl-4">
+            <ul className="mt-1 flex max-h-[40vh] list-disc flex-col gap-1.5 overflow-y-auto pl-4">
               {working.map((task) => (
                 <li key={task.taskRunId}>
                   <TaskLink task={task} onNavigate={clear} />

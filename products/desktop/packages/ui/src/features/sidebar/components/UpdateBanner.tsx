@@ -24,9 +24,11 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
   );
   const requestInstall = () => requestInstallUpdate(() => void installUpdate());
   const openModal = useUpdateModalStore((state) => state.open);
-  const canDismiss = useSettingsStore(
-    (state) => state.dismissibleUpdateBanners,
-  );
+  // An armed restart has no other status line and no other way back to the
+  // dialog that cancels it, so the banner stays put until it fires.
+  const canDismiss =
+    useSettingsStore((state) => state.dismissibleUpdateBanners) &&
+    !waitingForAgents;
   const dismissedVersion = useUpdateBannerStore(
     (state) => state.dismissedVersion,
   );
