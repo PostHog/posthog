@@ -1342,7 +1342,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/import_data_sync.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/repartition_table.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/sync_new_schemas.py
-1 products/warehouse_sources_queue/backend/core/batch_consumer.py
 1 products/web_analytics/backend/hogql_queries/bot_definitions.py
 1 products/web_analytics/backend/hogql_queries/test/test_page_reports_avg_time.py
 1 products/web_analytics/backend/hogql_queries/test/test_web_stats_table.py

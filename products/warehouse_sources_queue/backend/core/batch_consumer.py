@@ -118,7 +118,7 @@ class PermanentBatchApplyError(Exception):
     permanent error only delays the terminal state and burns sink throughput."""
 
 
-@dataclass
+@dataclass(frozen=False)  # mutable: tests reach into `consumer._config` to tweak knobs mid-run
 class BatchConsumerConfig:
     """Tuning knobs for the batch consumer."""
 

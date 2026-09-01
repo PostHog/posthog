@@ -94,6 +94,10 @@ def ensure_queue_tables(conn: psycopg.Connection[Any]) -> None:
         )
     """)
     conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sbs_batch_id_desc_state_idx
+            ON {STATUS_TABLE} (batch_id, created_at DESC, id DESC, job_state)
+    """)
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
             id BIGSERIAL PRIMARY KEY,
             team_id BIGINT NOT NULL,
