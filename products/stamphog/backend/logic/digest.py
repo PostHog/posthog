@@ -563,9 +563,10 @@ def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list
 def _grazed(pr: PullRequest, audience: PullRequestAudience | None) -> bool:
     """True when this merge only swept the audience's team up, so the team is not told about it.
 
-    An audience carrying no owned files is never a graze: a repo-declared audience asked for every
-    merge in its repository, and a row from an engine too old to record file counts says nothing
-    either way. Both keep the merge and leave the judgment to the model, as before.
+    The test is the owned file count, never the path sample, which is capped and can be empty on a
+    row an older engine wrote. An audience whose count is zero is therefore never a graze: a
+    repo-declared audience asked for every merge in its repository, and a row carrying no count
+    says nothing either way. Both keep the merge and leave the judgment to the model.
     """
     return audience is not None and audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
 
