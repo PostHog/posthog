@@ -77,7 +77,13 @@ def advance_next_check_at(
             intervals_to_skip = int(elapsed // interval.total_seconds()) + 1
             next_at += interval * intervals_to_skip
 
-    snapped = _floor_to_cadence_grid(next_at, check_interval_minutes) + timedelta(seconds=shard_offset_seconds)
+    # Floor `next_at` net of the offset, then re-add it, so a null or off-grid
+    # input snaps onto the earliest shifted-grid slot. Flooring `next_at` itself
+    # and then adding the offset would push the result up to almost another full
+    # cadence past `now`, which reopens the coverage gap this scheduling is meant
+    # to close. Offset 0 leaves the plain cadence grid unchanged.
+    offset = timedelta(seconds=shard_offset_seconds)
+    snapped = _floor_to_cadence_grid(next_at - offset, check_interval_minutes) + offset
     if snapped <= now:
         snapped += interval
     return snapped
