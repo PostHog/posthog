@@ -14,7 +14,7 @@ An **Account** is a customer organization. The list is a Postgres-backed table o
 
 ## Architecture
 
-The scene renders `AccountsTabContent`, which binds **two** keyed `dataNodeLogic` instances: `ACCOUNTS_TABLE_DATA_NODE_KEY` runs the row-loading `AccountsTableQuery`, and `ACCOUNTS_METRICS_DATA_NODE_KEY` runs a separate metrics-only `AccountsTableQuery` for overview tiles. Both execute against Postgres. The table and overview read their own keyed loading state, so a slow overview aggregation does not replace table rows with a loading skeleton.
+The scene renders `AccountsTabContent`, which binds **two** keyed `dataNodeLogic` instances: `ACCOUNTS_TABLE_DATA_NODE_KEY` runs the row-loading `AccountsTableQuery`, and `ACCOUNTS_METRICS_DATA_NODE_KEY` runs a separate metrics-only `AccountsTableQuery` for overview tiles. Both execute against Postgres through `/api/projects/:team_id/accounts_table_query/`, not the generic query API. The table and overview read their own keyed loading state, so a slow overview aggregation does not replace table rows with a loading skeleton.
 
 ```text
 AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, accountsLogic.accountsQuerySource)  [list rows]
@@ -265,6 +265,7 @@ The tool is registered for the page regardless of agent mode. The Customer analy
 
 - `products/customer_analytics/backend/models` — the `Account` model (`external_id` = group key).
 - `products/customer_analytics/backend/hogql_queries/accounts_query_runner.py` — the legacy generic Accounts query runner used by consumers outside the Accounts list.
+- `products/customer_analytics/backend/presentation/views/accounts_table_query.py` — the API endpoint for `AccountsTableQuery`. It prevents other query kinds from using the Customer Analytics route.
 - `products/customer_analytics/backend/hogql_queries/accounts_table_query_runner.py` — the Postgres-only `AccountsTableQuery` runner. It returns keyed rows and applies typed list filters, sorting, and overview metrics.
 - `products/customer_analytics/backend/max_tools/` — `OpenAccountTool` and other account Max tools.
 - `ee/hogai/core/agent_modes/presets/customer_analytics.py` — the Customer analytics agent mode (gated by the `customer-analytics-csp` flag).
