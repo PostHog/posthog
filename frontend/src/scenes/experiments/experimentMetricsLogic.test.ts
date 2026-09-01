@@ -853,6 +853,55 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
+
+        it('fires the queued rerun when the current run reaches terminal', async () => {
+            const createMock = jest.fn(() => [201, pendingRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        inProgressRecalculation,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            // Flush the afterMount → 404 → cold-run trigger → poll(create) chain before queuing.
+            await jest.advanceTimersByTimeAsync(0)
+
+            // A config change arrives while the cold run is active: it queues instead of posting.
+            logic.actions.triggerRecalculation('metric_config_change')
+            expect(logic.values.queuedRerun).toBe('metric_config_change')
+
+            // Now let the active run reach terminal; the retrieve mock always answers 'in_progress', so
+            // repoint it to 'completed' for the tick that follows.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+
+            await expectLogic(logic, async () => {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }).toDispatchActions([
+                (a) => a.type === logic.actionTypes.setQueuedRerun && a.payload.trigger === null,
+                (a) =>
+                    a.type === logic.actionTypes.triggerRecalculation && a.payload.trigger === 'metric_config_change',
+            ])
+
+            expect(logic.values.queuedRerun).toBeNull()
+            // The rerun fired as a fresh run (not re-queued), since the prior run was terminal by then.
+            await jest.advanceTimersByTimeAsync(0)
+            expect(createMock).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('liveRowsProgress', () => {

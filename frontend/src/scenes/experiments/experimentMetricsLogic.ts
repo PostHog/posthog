@@ -933,6 +933,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         `${recalculation.failed_metrics} of ${recalculation.total_metrics} metrics failed to load`
                     )
                 }
+
+                const queued = values.queuedRerun
+                if (queued) {
+                    // A config change arrived during this run. Clear the queue first so the fresh run's
+                    // own queuing (if the user keeps editing) starts clean, then fire the coalesced rerun.
+                    actions.setQueuedRerun(null)
+                    actions.triggerRecalculation(queued)
+                }
             },
         }
     }),
