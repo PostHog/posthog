@@ -98,10 +98,10 @@ describe('CustomPropertiesConfig', () => {
             throw new Error('Unexpected logic')
         })
 
-        const { getAllByText, queryByRole } = render(<CustomPropertiesConfig />)
+        const { getAllByText, queryByText } = render(<CustomPropertiesConfig />)
 
         expect(getAllByText('Workflow')).toHaveLength(2)
-        expect(queryByRole('link', { name: /workflow/i })).not.toBeInTheDocument()
+        expect(queryByText('Visible workflow')).not.toBeInTheDocument()
     })
 
     it('opens a confirmation dialog before deleting a custom property', () => {
