@@ -24,7 +24,7 @@ import type {
 
 import {
     formatWidgetElapsed,
-    getWidgetDataDependencyNodeIds,
+    getWidgetDataDependencies,
     getWidgetWorkingStatus,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
@@ -95,8 +95,49 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksWidgetStatus).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe')
+        expect(notebooksWidgetStatus).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            expect.objectContaining({ signal: expect.anything() })
+        )
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+    })
+
+    it('times out a status request instead of leaving the widget loading forever', async () => {
+        jest.useFakeTimers()
+        jest.mocked(notebooksWidgetStatus).mockImplementation(
+            (_projectId, _shortId, _nodeId, options) =>
+                new Promise((_resolve, reject) => {
+                    options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true })
+                })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+
+        await jest.advanceTimersByTimeAsync(30_000)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.statusLoadError).toBe('The widget request timed out.')
+        expect(logic.values.statusLoading).toBe(false)
+    })
+
+    it('aborts outstanding widget requests when the node unmounts', async () => {
+        let requestSignal: AbortSignal | undefined
+        jest.mocked(notebooksWidgetStatus).mockImplementation(
+            (_projectId, _shortId, _nodeId, options) =>
+                new Promise((_resolve, reject) => {
+                    requestSignal = options?.signal ?? undefined
+                    requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true })
+                })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+
+        logic.unmount()
+        await Promise.resolve()
+
+        expect(requestSignal?.aborted).toBe(true)
     })
 
     it.each(['../other-widget', 'folder/widget', 'widget?status', 'widget#status'])(
@@ -111,7 +152,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         }
     )
 
-    it('loads version history when the widget has generated versions', async () => {
+    it('loads version history when requested', async () => {
         const version: WidgetVersionApi = {
             id: '00000000-0000-0000-0000-000000000002',
             parent_version_id: null,
@@ -144,11 +185,18 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        expect(notebooksWidgetVersions).not.toHaveBeenCalled()
 
-        expect(notebooksWidgetVersions).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
-            offset: 0,
-            limit: 25,
-        })
+        logic.actions.loadVersions(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetVersions).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            { offset: 0, limit: 25 },
+            expect.objectContaining({ signal: expect.anything() })
+        )
         expect(logic.values.versions).toEqual([version])
         expect(logic.values.versionsCount).toBe(1)
         expect(logic.values.versionsLoading).toBe(false)
@@ -202,7 +250,10 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             .mockResolvedValueOnce({ results: [currentVersion], count: 1, next_offset: null })
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['statusReceived', 'loadVersions'])
+        await expectLogic(logic).toDispatchActions(['statusReceived'])
+
+        expect(notebooksWidgetVersions).not.toHaveBeenCalled()
+        logic.actions.loadVersions(true)
 
         logic.actions.statusReceived(readyStatus)
         resolveInitialRequest({ results: [initialVersion], count: 1, next_offset: null })
@@ -246,6 +297,35 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.dataRefreshInFlight).toBe(false)
     })
 
+    it('reloads the preview when a newer status request supersedes the refresh', async () => {
+        let resolveRefresh: (status: WidgetStatusApi) => void = () => undefined
+        jest.mocked(notebooksWidgetStatus)
+            .mockResolvedValueOnce(
+                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' })
+            )
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveRefresh = resolve
+                    })
+            )
+            .mockResolvedValueOnce(
+                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-current.html' })
+            )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.refreshData()
+        logic.actions.loadStatus()
+        resolveRefresh(status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-current.html')
+        expect(logic.values.frameRevision).toBe(1)
+        expect(logic.values.dataRefreshInFlight).toBe(false)
+    })
+
     it('reloads the preview when a status poll fails while widget data cells are running', async () => {
         jest.mocked(notebooksWidgetStatus)
             .mockResolvedValueOnce(
@@ -270,6 +350,22 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
         expect(logic.values.frameRevision).toBe(1)
         expect(logic.values.dataRefreshInFlight).toBe(false)
+    })
+
+    it('keeps a widget-specific error when a connected data cell fails', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.dataRefreshStarted()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.abortChain('source-cell')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dataRefreshInFlight).toBe(false)
+        expect(logic.values.runtimeError).toContain('source-cell')
+        expect(logic.values.runtimeError).toContain('run the widget data cells again')
     })
 
     it('refreshes a selected historical version before reloading the frame', async () => {
@@ -307,15 +403,20 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadVersions(true)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectVersion(historicalVersion.id)
 
         logic.actions.refreshData()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksWidgetVersions).toHaveBeenLastCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
-            offset: 0,
-            limit: 25,
-        })
+        expect(notebooksWidgetVersions).toHaveBeenLastCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            { offset: 0, limit: 25 },
+            expect.objectContaining({ signal: expect.anything() })
+        )
         expect(logic.values.selectedVersion?.artifact_url).toBe('https://example.com/widget-new.html')
         expect(logic.values.frameRevision).toBe(1)
     })
@@ -353,6 +454,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         })
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadVersions(true)
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.statusReceived(
@@ -419,6 +522,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        logic.actions.loadVersions(true)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.statusReceived(
             status({
                 lifecycle_status: 'failed',
@@ -478,7 +583,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                 generation_id: expect.any(String),
                 model: 'claude-sonnet-4-6',
                 generation_operation: 'initial',
-            })
+            }),
+            expect.objectContaining({ signal: expect.anything() })
         )
         expect(logic.values.status?.active_job?.status).toBe('queued')
         expect(logic.values.generationRequestLoading).toBe(false)
@@ -547,7 +653,34 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             ],
         }
 
-        expect(getWidgetDataDependencyNodeIds(content, ['locations_df'])).toEqual(['source', 'transform'])
+        expect(getWidgetDataDependencies(content, ['locations_df'])).toEqual({
+            missingFrameNames: [],
+            nodeIds: ['source', 'transform'],
+        })
+    })
+
+    it('does not run a partial data chain when a widget frame has no matching cell', async () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId: 'source', returnVariable: 'available_df', code: 'select 1' },
+                },
+            ],
+        }
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', frame_names: ['available_df', 'missing_df'], has_versions: true })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.runDataDependencies()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.runtimeError).toContain('notebook data that is no longer available')
+        expect(logic.values.dataRefreshInFlight).toBe(false)
     })
 
     it('loads the selected version source and queues an improvement from it', async () => {
@@ -555,6 +688,28 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
             status({ lifecycle_status: 'ready', current_version_id: versionId, has_versions: true })
         )
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [
+                {
+                    id: versionId,
+                    parent_version_id: null,
+                    version: 1,
+                    version_operation: 'initial',
+                    prompt_delta: 'Render a globe',
+                    effective_prompt: 'Render a globe',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-26T12:00:00Z',
+                    build_status: 'ready',
+                    artifact_url: null,
+                    frame_names: [],
+                    is_current: true,
+                    security_review: null,
+                    build_hash: null,
+                },
+            ],
+            count: 1,
+            next_offset: null,
+        })
         jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         jest.mocked(notebooksWidgetGenerate).mockResolvedValue(status({ lifecycle_status: 'generating' }))
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -564,9 +719,13 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.openSourceModal()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
-            version_id: versionId,
-        })
+        expect(notebooksWidgetSource).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            { version_id: versionId },
+            expect.objectContaining({ signal: expect.anything() })
+        )
         expect(logic.values.source).toBe('export default function Widget() {}')
         expect(logic.values.sourceModalOpen).toBe(true)
 
@@ -581,9 +740,30 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             expect.objectContaining({
                 prompt: 'Use a darker background',
                 generation_operation: 'improve',
-            })
+            }),
+            expect.objectContaining({ signal: expect.anything() })
         )
         expect(logic.values.sourceModalOpen).toBe(false)
+    })
+
+    it('waits for immutable version metadata before improving source', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000009'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', current_version_id: versionId, has_versions: true })
+        )
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openSourceModal()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSourceChangePrompt('Use a darker background')
+        logic.actions.improveSource()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sourceImprovementDisabledReason).toBe('Loading the widget version.')
+        expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
     })
 
     it('does not improve a historical version as though it were current', async () => {
@@ -719,7 +899,26 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.isWorking).toBe(true)
     })
 
-    it('recovers a restored version when its response is lost', async () => {
+    it('does not mistake a concurrent version change for a recovered generation', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        jest.mocked(notebooksWidgetGenerate).mockRejectedValue(
+            new ApiError('Another generation won the race.', 409, undefined, {
+                detail: 'Another generation won the race.',
+            })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+        expect(logic.values.generationError).toBe('Another generation won the race.')
+        expect(logic.values.isWorking).toBe(false)
+    })
+
+    it('refreshes status without claiming a restore succeeded when its response is lost', async () => {
         const currentVersionId = '00000000-0000-0000-0000-000000000010'
         const historicalVersionId = '00000000-0000-0000-0000-000000000009'
         const restoredVersionId = '00000000-0000-0000-0000-000000000011'
@@ -750,6 +949,41 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.status?.current_version_id).toBe(restoredVersionId)
         expect(logic.values.selectedVersionId).toBe(restoredVersionId)
         expect(logic.values.restoreInFlight).toBe(false)
+        expect(logic.values.generationError).toBe('Connection closed')
+    })
+
+    it("does not mistake another editor's version for a recovered restore", async () => {
+        const currentVersionId = '00000000-0000-0000-0000-000000000010'
+        const historicalVersionId = '00000000-0000-0000-0000-000000000009'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'ready',
+                current_version_id: currentVersionId,
+                has_versions: true,
+            })
+        )
+        jest.mocked(notebooksWidgetRevert).mockRejectedValue(
+            new ApiError('The current version changed.', 409, undefined, {
+                detail: 'The current version changed.',
+            })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.selectVersion(historicalVersionId)
+        logic.actions.restoreSelectedVersion()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+        expect(logic.values.status?.current_version_id).toBe(currentVersionId)
+        expect(logic.values.selectedVersionId).toBe(historicalVersionId)
+        expect(logic.values.generationError).toBe('The current version changed.')
+        expect(logic.values.restoreInFlight).toBe(false)
+
+        logic.actions.statusReceived(
+            status({ lifecycle_status: 'ready', current_version_id: currentVersionId, has_versions: true })
+        )
         expect(logic.values.generationError).toBeNull()
     })
 
@@ -774,9 +1008,13 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.cancelGeneration()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksWidgetCancel).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
-            generation_id: active.active_job?.id,
-        })
+        expect(notebooksWidgetCancel).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            { generation_id: active.active_job?.id },
+            expect.objectContaining({ signal: expect.anything() })
+        )
     })
 
     it('does not cancel generation from a read-only widget', async () => {

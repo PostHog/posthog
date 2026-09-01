@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -15,7 +15,9 @@ import {
     formatWidgetElapsed,
     type NotebookNodeGeneratedWidgetLogicProps,
     notebookNodeGeneratedWidgetLogic,
+    notebookNodeGeneratedWidgetSettingsLogic,
 } from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { DEFAULT_WIDGET_MODEL, DEFAULT_WIDGET_PROMPT, WIDGET_MODEL_OPTIONS } from './widgetModels'
 
@@ -41,14 +43,12 @@ export function NotebookNodeGeneratedWidgetSettings({
         },
         getContent: () => notebookLogic.values.content ?? null,
     }
+    useMountedLogic(notebookNodeGeneratedWidgetSettingsLogic(logicProps))
     const logic = notebookNodeGeneratedWidgetLogic(logicProps)
     const {
         cancellationInFlight,
         elapsedSeconds,
-        generationDraftModel,
-        generationDraftPrompt,
         generationError,
-        generationModalOperation,
         generationRequestLoading,
         isWorking,
         dataRefreshInFlight,
@@ -65,7 +65,7 @@ export function NotebookNodeGeneratedWidgetSettings({
     } = useValues(logic)
     const {
         cancelGeneration,
-        closeGenerationModal,
+        clearGenerationError,
         generateWidget,
         loadMoreVersions,
         loadVersions,
@@ -74,30 +74,15 @@ export function NotebookNodeGeneratedWidgetSettings({
         refreshData,
         restoreSelectedVersion,
         selectVersion,
-        setGenerationDraftModel,
-        setGenerationDraftPrompt,
     } = useActions(logic)
     const promptId = `widget-prompt-${attributes.nodeId}`
     const modelId = `widget-model-${attributes.nodeId}`
     const versionId = `widget-version-${attributes.nodeId}`
-    const modalPromptId = `widget-change-prompt-${attributes.nodeId}`
-    const modalModelId = `widget-change-model-${attributes.nodeId}`
     const hasVersions = Boolean(status?.has_versions)
     const isCurrentVersion = selectedVersionId === status?.current_version_id
     const initialPrompt = attributes.prompt ?? ''
-    const modalTitle = generationModalOperation === 'improve' ? 'Improve widget' : 'Regenerate widget'
-    const modalDescription =
-        generationModalOperation === 'improve'
-            ? 'Describe one change. The generator will use the current widget as a starting point and create a new version.'
-            : 'Edit the complete instructions below. This creates a new version from scratch and keeps existing versions.'
     const visibleGenerationError =
         generationError || (!isWorking && !generationRequestLoading ? status?.error_detail : null)
-    const submitGenerationDraft = (prompt: string): void => {
-        if (!generationModalOperation || !prompt.trim() || generationRequestLoading || isWorking) {
-            return
-        }
-        generateWidget(prompt, generationDraftModel, generationModalOperation)
-    }
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -117,8 +102,8 @@ export function NotebookNodeGeneratedWidgetSettings({
                         />
                     </div>
                     <div className="text-xs text-muted">
-                        Run the SQL and Python cells you want to use before generating. Their results are available
-                        automatically.
+                        Run every SQL and Python cell before generating. The widget can use their latest completed
+                        results automatically.
                     </div>
                     <div>
                         <LemonLabel htmlFor={modelId}>Model</LemonLabel>
@@ -227,10 +212,19 @@ export function NotebookNodeGeneratedWidgetSettings({
                         ) : null}
                         {isCurrentVersion && isEditable ? (
                             <>
-                                <LemonButton type="primary" onClick={() => openGenerationModal('improve')}>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => openGenerationModal('improve')}
+                                    disabledReason={!selectedVersion ? 'Loading the widget version.' : undefined}
+                                >
                                     Improve…
                                 </LemonButton>
-                                <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
+                                <LemonButton
+                                    onClick={() => openGenerationModal('regenerate')}
+                                    disabledReason={!selectedVersion ? 'Loading the widget version.' : undefined}
+                                >
+                                    Regenerate…
+                                </LemonButton>
                                 <LemonButton onClick={openSourceModal} data-attr="notebook-widget-view-source">
                                     View source
                                 </LemonButton>
@@ -244,7 +238,12 @@ export function NotebookNodeGeneratedWidgetSettings({
                             </>
                         ) : null}
                         {!isCurrentVersion && isEditable ? (
-                            <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
+                            <LemonButton
+                                onClick={() => openGenerationModal('regenerate')}
+                                disabledReason={!selectedVersion ? 'Loading the widget version.' : undefined}
+                            >
+                                Regenerate…
+                            </LemonButton>
                         ) : null}
                     </>
                 ) : (
@@ -260,61 +259,13 @@ export function NotebookNodeGeneratedWidgetSettings({
                     </LemonButton>
                 )}
             </div>
-            {visibleGenerationError ? <LemonBanner type="error">{visibleGenerationError}</LemonBanner> : null}
+            {visibleGenerationError ? (
+                <LemonBanner type="error" onClose={generationError ? clearGenerationError : undefined}>
+                    {visibleGenerationError}
+                </LemonBanner>
+            ) : null}
 
-            <LemonModal
-                isOpen={generationModalOperation !== null}
-                onClose={closeGenerationModal}
-                title={modalTitle}
-                description={modalDescription}
-                width={640}
-                footer={
-                    <>
-                        <LemonButton onClick={closeGenerationModal}>Cancel</LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => submitGenerationDraft(generationDraftPrompt)}
-                            disabledReason={!generationDraftPrompt.trim() ? 'Add instructions first' : undefined}
-                            loading={generationRequestLoading}
-                        >
-                            {generationModalOperation === 'improve' ? 'Improve' : 'Regenerate'}
-                        </LemonButton>
-                    </>
-                }
-            >
-                <div className="flex flex-col gap-4">
-                    <div>
-                        <LemonLabel htmlFor={modalPromptId}>
-                            {generationModalOperation === 'improve' ? 'Change to make' : 'Full instructions'}
-                        </LemonLabel>
-                        <LemonTextArea
-                            id={modalPromptId}
-                            value={generationDraftPrompt}
-                            onChange={setGenerationDraftPrompt}
-                            onPressCmdEnter={submitGenerationDraft}
-                            minRows={6}
-                            autoFocus
-                            className="mt-1 ph-no-capture"
-                            placeholder={
-                                generationModalOperation === 'improve'
-                                    ? 'For example, make the colors lighter and increase the label contrast.'
-                                    : 'Describe the complete widget.'
-                            }
-                        />
-                    </div>
-                    <div>
-                        <LemonLabel htmlFor={modalModelId}>Model</LemonLabel>
-                        <LemonSelect
-                            id={modalModelId}
-                            value={generationDraftModel}
-                            options={WIDGET_MODEL_OPTIONS}
-                            onChange={setGenerationDraftModel}
-                            fullWidth
-                            className="mt-1"
-                        />
-                    </div>
-                </div>
-            </LemonModal>
+            <NotebookWidgetGenerationModal logicProps={logicProps} />
             <NotebookWidgetSourceModal {...logicProps} />
         </div>
     )

@@ -8,6 +8,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { UnsupportedNodePlaceholder } from 'scenes/notebooks/Nodes/sharedNodeSupport'
 import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -18,6 +19,7 @@ import {
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookNodeGeneratedWidgetSettings } from './NotebookNodeGeneratedWidgetSettings'
+import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
@@ -40,9 +42,13 @@ function EmptyState({ children }: { children: ReactNode }): JSX.Element {
 
 function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidgetAttributes>): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
+    const { expanded, notebookLogic } = useValues(nodeLogic)
+    const { isShared } = useValues(notebookLogic)
 
-    return expanded ? <ExpandedWidget attributes={attributes} /> : null
+    if (!expanded) {
+        return null
+    }
+    return isShared ? <UnsupportedNodePlaceholder /> : <ExpandedWidget attributes={attributes} />
 }
 
 function ExpandedWidget({
@@ -76,6 +82,7 @@ function ExpandedWidget({
     const { sessionBuildHashes, trustByUser } = useValues(trustLogic)
     const {
         artifactUnavailable,
+        artifactLoading,
         activeFrameNames,
         cancellationInFlight,
         dataRefreshInFlight,
@@ -99,6 +106,7 @@ function ExpandedWidget({
         artifactAvailable,
         artifactUnavailable: markArtifactUnavailable,
         cancelGeneration,
+        clearGenerationError,
         generateWidget,
         loadStatus,
         loadVersions,
@@ -164,14 +172,20 @@ function ExpandedWidget({
     )
     if (artifactUnavailable && selectedArtifactUrl) {
         return (
-            <EmptyState>
-                <div className="flex flex-col items-center gap-3">
-                    <div>This widget's preview didn't load.</div>
-                    <LemonButton onClick={refreshData} loading={dataRefreshInFlight}>
-                        Reload preview
-                    </LemonButton>
-                </div>
-            </EmptyState>
+            <>
+                <EmptyState>
+                    <div className="flex flex-col items-center gap-3">
+                        <div>This widget's preview didn't load.</div>
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton onClick={refreshData} loading={dataRefreshInFlight}>
+                                Reload preview
+                            </LemonButton>
+                            <LemonButton onClick={openSourceModal}>View source</LemonButton>
+                        </div>
+                    </div>
+                </EmptyState>
+                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+            </>
         )
     }
 
@@ -207,7 +221,11 @@ function ExpandedWidget({
                     ) : null}
                     {generationError ||
                     (!generationRequestLoading && status?.lifecycle_status === 'failed' && status.error_detail) ? (
-                        <LemonBanner type="error" className="m-2">
+                        <LemonBanner
+                            type="error"
+                            className="m-2"
+                            onClose={generationError ? clearGenerationError : undefined}
+                        >
                             {generationError || status?.error_detail}
                         </LemonBanner>
                     ) : null}
@@ -236,7 +254,17 @@ function ExpandedWidget({
                             {runtimeError}
                         </LemonBanner>
                     ) : null}
-                    <div className="min-h-0 flex-1">
+                    <div className="relative min-h-0 flex-1" aria-busy={artifactLoading}>
+                        {artifactLoading ? (
+                            <div
+                                className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-primary text-secondary"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <Spinner />
+                                Loading widget…
+                            </div>
+                        ) : null}
                         <WidgetArtifactFrame
                             key={`${selectedBuildHash}-${frameRevision}`}
                             artifactUrl={selectedArtifactUrl}
@@ -298,7 +326,11 @@ function ExpandedWidget({
                             </span>
                         </div>
                     ) : null}
-                    {generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
+                    {generationError ? (
+                        <LemonBanner type="error" onClose={clearGenerationError}>
+                            {generationError}
+                        </LemonBanner>
+                    ) : null}
                     {statusLoadError ? (
                         <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadStatus }}>
                             The widget status couldn't be refreshed. The last confirmed generation state is shown.
@@ -327,39 +359,56 @@ function ExpandedWidget({
 
     if (status?.lifecycle_status === 'failed' || generationError) {
         return (
-            <EmptyState>
-                <div className="flex flex-col items-center gap-3">
-                    <div>{status?.error_detail || generationError || 'The widget could not be generated.'}</div>
-                    {isEditable ? (
-                        status?.has_versions ? (
-                            <LemonButton type="primary" onClick={() => openGenerationModal('regenerate')}>
-                                Regenerate…
-                            </LemonButton>
+            <>
+                <EmptyState>
+                    <div className="flex flex-col items-center gap-3">
+                        <div>{status?.error_detail || generationError || 'The widget could not be generated.'}</div>
+                        {isEditable ? (
+                            status?.has_versions ? (
+                                <LemonButton type="primary" onClick={() => openGenerationModal('regenerate')}>
+                                    Regenerate…
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() =>
+                                        generateWidget(
+                                            initialPrompt,
+                                            attributes.model ?? DEFAULT_WIDGET_MODEL,
+                                            'initial'
+                                        )
+                                    }
+                                    loading={generationRequestLoading}
+                                >
+                                    Generate widget
+                                </LemonButton>
+                            )
                         ) : (
-                            <LemonButton
-                                type="primary"
-                                onClick={() =>
-                                    generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
-                                }
-                                loading={generationRequestLoading}
-                            >
-                                Generate widget
-                            </LemonButton>
-                        )
-                    ) : null}
-                </div>
-            </EmptyState>
+                            <div className="text-sm text-muted">
+                                Ask an editor to {status?.has_versions ? 'regenerate' : 'generate'} this widget.
+                            </div>
+                        )}
+                    </div>
+                </EmptyState>
+                {!componentPanelState?.showEditPanel ? <NotebookWidgetGenerationModal logicProps={logicProps} /> : null}
+            </>
         )
     }
 
     if (status?.has_versions && versionsError && !versionsLoading && !selectedVersion) {
         return (
-            <EmptyState>
-                <div className="flex flex-col items-center gap-3">
-                    <div>We couldn't load this widget version.</div>
-                    <LemonButton onClick={() => loadVersions(true)}>Retry</LemonButton>
-                </div>
-            </EmptyState>
+            <>
+                <EmptyState>
+                    <div className="flex flex-col items-center gap-3">
+                        <div>We couldn't load this widget version.</div>
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton onClick={() => loadVersions(true)}>Retry</LemonButton>
+                            <LemonButton onClick={openSourceModal}>View source</LemonButton>
+                        </div>
+                    </div>
+                </EmptyState>
+                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+            </>
         )
     }
     if (status?.has_versions && versionsLoading) {
@@ -372,13 +421,21 @@ function ExpandedWidget({
             </EmptyState>
         )
     }
-    if (selectedVersion) {
+    if (status?.has_versions) {
         return (
-            <EmptyState>
-                {isEditable
-                    ? "This version's preview is no longer available. Its prompt and source remain in version history."
-                    : "This version's preview is no longer available."}
-            </EmptyState>
+            <>
+                <EmptyState>
+                    <div className="flex flex-col items-center gap-3">
+                        <div>
+                            {isEditable
+                                ? "This version's preview is no longer available. Its prompt and source remain in version history."
+                                : "This version's preview is no longer available. Ask an editor to restore or regenerate it."}
+                        </div>
+                        <LemonButton onClick={openSourceModal}>View source</LemonButton>
+                    </div>
+                </EmptyState>
+                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+            </>
         )
     }
     return (
@@ -395,7 +452,9 @@ function ExpandedWidget({
                     >
                         Generate widget
                     </LemonButton>
-                ) : null}
+                ) : (
+                    <div className="text-sm text-muted">Ask an editor to generate this widget.</div>
+                )}
             </div>
         </EmptyState>
     )

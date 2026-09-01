@@ -12,7 +12,7 @@ export type NotebookWidgetTrustControlsProps = {
 }
 
 const SEVERITY_LABELS: Record<WidgetSecurityReviewApi['severity'], string> = {
-    none: 'No issues found',
+    none: 'No potential issues flagged',
     low: 'Low',
     medium: 'Medium',
     high: 'High',
@@ -40,10 +40,10 @@ export function NotebookWidgetTrustControls({
     const shortBuildHash = buildHash ? buildHash.slice(0, 12) : null
     const reviewTag = securityReview ? (
         <LemonTag type={severityTagType(securityReview.severity)}>
-            Security review: {SEVERITY_LABELS[securityReview.severity]}
+            Automated review: {SEVERITY_LABELS[securityReview.severity]}
         </LemonTag>
     ) : (
-        <LemonTag type="muted">Not reviewed</LemonTag>
+        <LemonTag type="muted">Automated review unavailable</LemonTag>
     )
 
     if (variant === 'toolbar') {
@@ -81,7 +81,7 @@ export function NotebookWidgetTrustControls({
                     {hasFindings
                         ? securityReview.summary
                         : reviewPassed
-                          ? 'The automated security review found no issues. View the source before running this generated widget.'
+                          ? 'The automated review flagged no potential issues, but automated reviews can miss issues. View the source before running this generated widget.'
                           : 'This version was generated before automated reviews were available. View its source before deciding whether to run it.'}
                 </div>
                 {hasFindings ? (

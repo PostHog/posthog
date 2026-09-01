@@ -13,6 +13,21 @@ import { DEFAULT_WIDGET_MODEL, isWidgetModel } from './widgetModels'
 export function NotebookGeneratedWidgetRunButton({ node }: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { canEditNotebook, isShared } = useValues(mountedNotebookLogic)
+
+    if (isShared || !canEditNotebook) {
+        return null
+    }
+
+    return <EditableNotebookGeneratedWidgetRunButton node={node} />
+}
+
+function EditableNotebookGeneratedWidgetRunButton({
+    node,
+}: {
+    node: NotebookComponentToolbarProps['node']
+}): JSX.Element {
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { canEditNotebook } = useValues(mountedNotebookLogic)
     const { currentTeamId } = useValues(teamLogic)
     const nodeId = typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : node.id
     const model =
@@ -36,10 +51,6 @@ export function NotebookGeneratedWidgetRunButton({ node }: NotebookComponentTool
     })
     const { dataRefreshInFlight, runDataDependenciesDisabledReason } = useValues(logic)
     const { runDataDependencies } = useActions(logic)
-
-    if (isShared || !canEditNotebook) {
-        return null
-    }
 
     return (
         <LemonButton

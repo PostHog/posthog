@@ -56,6 +56,7 @@ const cachedNotebook = {
     last_modified_at: '2026-08-27T12:00:00Z',
     last_modified_by: null,
 } as unknown as NotebookType
+const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook' }
 
 describe('NotebookNodeGeneratedWidget', () => {
     let logic: ReturnType<typeof notebookLogic.build>
@@ -63,6 +64,7 @@ describe('NotebookNodeGeneratedWidget', () => {
     beforeEach(async () => {
         initKeaTests()
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as never)
+        jest.spyOn(api.notebooks, 'get').mockResolvedValue(cachedNotebook)
         jest.mocked(notebooksWidgetStatus).mockResolvedValue({
             lifecycle_status: 'generating',
             error_detail: null,
@@ -85,7 +87,7 @@ describe('NotebookNodeGeneratedWidget', () => {
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
 
-        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
+        logic = notebookLogic(logicProps)
         logic.mount()
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
@@ -99,8 +101,6 @@ describe('NotebookNodeGeneratedWidget', () => {
     })
 
     it('shows generation progress only in filters when filters and results are open', async () => {
-        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
-
         render(
             <BindLogic logic={notebookLogic} props={logicProps}>
                 <MarkdownNotebookV2 />
@@ -113,7 +113,6 @@ describe('NotebookNodeGeneratedWidget', () => {
 
     it('shows cancellation errors while initial generation is still running', async () => {
         jest.mocked(notebooksWidgetCancel).mockRejectedValue(new Error('Cancel request failed'))
-        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
 
         render(
             <BindLogic logic={notebookLogic} props={logicProps}>
@@ -166,8 +165,6 @@ describe('NotebookNodeGeneratedWidget', () => {
         jest.mocked(notebooksWidgetSource).mockResolvedValue({
             source: 'export default function Widget() {}',
         })
-        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
-
         render(
             <BindLogic logic={notebookLogic} props={logicProps}>
                 <MarkdownNotebookV2 />
@@ -189,14 +186,25 @@ describe('NotebookNodeGeneratedWidget', () => {
         })
         jest.mocked(notebooksWidgetStatus).mockClear()
         fireEvent.click(actionButtons[3])
-        await waitFor(() => expect(notebooksWidgetStatus).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe'))
+        await waitFor(() =>
+            expect(notebooksWidgetStatus).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                SHORT_ID,
+                'globe',
+                expect.objectContaining({ signal: expect.anything() })
+            )
+        )
 
         fireEvent.click(actionButtons[2])
 
         await waitFor(() =>
-            expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe', {
-                version_id: versionId,
-            })
+            expect(notebooksWidgetSource).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                SHORT_ID,
+                'globe',
+                { version_id: versionId },
+                expect.objectContaining({ signal: expect.anything() })
+            )
         )
         expect(screen.getByText('Widget source')).toBeTruthy()
         expect(screen.getByText('What would you like to change?')).toBeTruthy()
@@ -255,8 +263,6 @@ describe('NotebookNodeGeneratedWidget', () => {
             count: 1,
             next_offset: null,
         })
-        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
-
         const { container } = render(
             <BindLogic logic={notebookLogic} props={logicProps}>
                 <MarkdownNotebookV2 />
@@ -325,8 +331,6 @@ describe('NotebookNodeGeneratedWidget', () => {
             count: 1,
             next_offset: null,
         })
-        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
-
         const { container } = render(
             <BindLogic logic={notebookLogic} props={logicProps}>
                 <MarkdownNotebookV2 />
@@ -335,11 +339,147 @@ describe('NotebookNodeGeneratedWidget', () => {
 
         await screen.findByText('Review this widget before running it')
         expect(container.querySelector('iframe')).toBeNull()
-        expect(screen.getByText('Security review: No issues found')).toBeTruthy()
+        expect(screen.getByText('Automated review: No potential issues flagged')).toBeTruthy()
 
         fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
 
         await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
         expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull()
+    })
+
+    it('opens regeneration from a failed preview when the filters are closed', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000011'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'failed',
+            error_detail: 'The widget build failed.',
+            artifact_url: null,
+            frame_names: [],
+            current_version_id: versionId,
+            widget_id: '00000000-0000-0000-0000-000000000012',
+            instance_id: '00000000-0000-0000-0000-000000000013',
+            has_versions: true,
+            active_job: null,
+            security_review: null,
+            build_hash: null,
+        })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [
+                {
+                    id: versionId,
+                    parent_version_id: null,
+                    version: 1,
+                    version_operation: 'initial',
+                    prompt_delta: 'Render a globe',
+                    effective_prompt: 'Render a globe',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-31T10:00:00Z',
+                    build_status: 'failed',
+                    artifact_url: null,
+                    frame_names: [],
+                    is_current: true,
+                    security_review: null,
+                    build_hash: null,
+                },
+            ],
+            count: 1,
+            next_offset: null,
+        })
+        logic.unmount()
+        const notebookWithoutFilters = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(
+                '<Widget showResults nodeId="globe" prompt="Render a globe" model="claude-sonnet-4-6" />'
+            ),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(notebookWithoutFilters)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        fireEvent.click(await screen.findByText('Regenerate…'))
+
+        expect(await screen.findByText('Regenerate widget')).toBeTruthy()
+        expect(screen.getByDisplayValue('Render a globe')).toBeTruthy()
+    })
+
+    it('keeps source available when the selected version has no preview', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000014'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'ready',
+            error_detail: null,
+            artifact_url: null,
+            frame_names: [],
+            current_version_id: versionId,
+            widget_id: '00000000-0000-0000-0000-000000000015',
+            instance_id: '00000000-0000-0000-0000-000000000016',
+            has_versions: true,
+            active_job: null,
+            security_review: null,
+            build_hash: null,
+        })
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({
+            source: 'export default function Widget() {}',
+        })
+        logic.unmount()
+        const notebookWithoutFilters = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(
+                '<Widget showResults nodeId="globe" prompt="Render a globe" model="claude-sonnet-4-6" />'
+            ),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(notebookWithoutFilters)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        expect(await screen.findByText(/preview is no longer available/)).toBeTruthy()
+        fireEvent.click(screen.getByText('View source'))
+
+        await waitFor(() =>
+            expect(notebooksWidgetSource).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                SHORT_ID,
+                'globe',
+                { version_id: versionId },
+                expect.objectContaining({ signal: expect.anything() })
+            )
+        )
+        expect(screen.getByText('Widget source')).toBeTruthy()
+    })
+
+    it('does not load generated widgets in publicly shared notebooks', async () => {
+        logic.unmount()
+        jest.mocked(notebooksWidgetStatus).mockClear()
+        const sharedLogicProps: NotebookLogicProps = { ...logicProps, cachedNotebook }
+        logic = notebookLogic(sharedLogicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        const statusCallCount = jest.mocked(notebooksWidgetStatus).mock.calls.length
+
+        render(
+            <BindLogic logic={notebookLogic} props={sharedLogicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        expect(await screen.findByText('Node cannot be rendered')).toBeTruthy()
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(statusCallCount)
     })
 })

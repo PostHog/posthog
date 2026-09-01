@@ -24,7 +24,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 Generated widget source is arbitrary React and JavaScript. It is not a restricted widget schema, and PostHog does not claim to make it safe by parsing an AST, matching source text, or blocking selected syntax. JavaScript can construct equivalent behavior dynamically, so source-shape validation would create a false security boundary while breaking legitimate widgets.
 
-Generation and execution use two separate checks:
+The generated-code trust flow works as follows:
 
 1. Existing static validation rejects unsupported imports, direct network APIs, dynamic imports, inline scripts, and undeclared dataframe reads.
 2. A fast model reviews the validated source as untrusted input. It looks for concrete exfiltration, deception, dynamic execution, browser access, side effects, and resource-abuse risks that static checks cannot reliably identify.
@@ -35,7 +35,7 @@ Generation and execution use two separate checks:
 7. Legacy versions without a persisted review also stop before execution.
 8. Canvas records a SHA-256 over the complete frozen artifact manifest. A rebuilt or changed artifact has a different hash and requires a new execution decision when gated.
 
-Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. An anonymous viewer can run an exact build for the current browser session. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
+Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
 
 There is intentionally no “trust widgets by this author” option. An author is not the sole authority over a collaborative notebook node: another editor can change its instructions, regenerate it, restore a version, or otherwise replace the artifact after the original author created it. Binding trust to an immutable build is stable; binding it to a mutable ownership label is not.
 

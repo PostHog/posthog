@@ -80,6 +80,7 @@ export interface notebookNodeStalenessLogicValues {
     nodeRunStatuses: Record<string, NotebookNodeRunTerminalStatus>
     staleCount: number
     staleNodeIds: Record<string, NotebookStaleReason>
+    widgetDataChainCompletedNodeIds: string[]
     widgetDataChainNodeIds: string[]
 }
 
@@ -141,6 +142,9 @@ export interface notebookNodeStalenessLogicActions {
         nodeId: string
     }
     setWidgetDataChainNodeIds: (nodeIds: string[]) => {
+        nodeIds: string[]
+    }
+    setWidgetDataChainCompletedNodeIds: (nodeIds: string[]) => {
         nodeIds: string[]
     }
     unregisterChainNode: (nodeId: string) => {
@@ -215,6 +219,7 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
         setLastRun: (nodeId: string, downstreamNodeIds: string[]) => ({ nodeId, downstreamNodeIds }),
         abortChain: (reason: string | null) => ({ reason }),
         setWidgetDataChainNodeIds: (nodeIds: string[]) => ({ nodeIds }),
+        setWidgetDataChainCompletedNodeIds: (nodeIds: string[]) => ({ nodeIds }),
         widgetDataChainFinished: (nodeIds: string[]) => ({ nodeIds }),
         // Called by every V2 node logic on mount/unmount so the chain only ever dispatches
         // to a cell whose logic is mounted and listening.
@@ -311,6 +316,15 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 widgetDataChainFinished: () => [],
             },
         ],
+        widgetDataChainCompletedNodeIds: [
+            [] as string[],
+            {
+                setWidgetDataChainCompletedNodeIds: (_, { nodeIds }) => nodeIds,
+                setWidgetDataChainNodeIds: () => [],
+                abortChain: () => [],
+                widgetDataChainFinished: () => [],
+            },
+        ],
     }),
     selectors({
         staleCount: [
@@ -342,6 +356,12 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 actions.abortChain(nodeId)
                 return
             }
+            const completedWidgetNodeIds = values.widgetDataChainNodeIds.length
+                ? Array.from(new Set([...values.widgetDataChainCompletedNodeIds, nodeId]))
+                : []
+            if (completedWidgetNodeIds.length) {
+                actions.setWidgetDataChainCompletedNodeIds(completedWidgetNodeIds)
+            }
             // Rebuild the queue from the live stale set instead of shifting the snapshot:
             // cells marked stale while the chain ran (including by this very run) join in,
             // and cells deleted or unmounted while queued drop out rather than receiving a
@@ -360,7 +380,19 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             if (queue.length) {
                 actions.dispatchChainRun(queue[0])
             } else if (values.widgetDataChainNodeIds.length) {
-                actions.widgetDataChainFinished(values.widgetDataChainNodeIds)
+                const availableNodeIds = new Set(graph?.nodes.map((node) => node.nodeId) ?? [])
+                const completedNodeIds = new Set(completedWidgetNodeIds)
+                const missingNodeId = values.widgetDataChainNodeIds.find(
+                    (widgetNodeId) =>
+                        !availableNodeIds.has(widgetNodeId) ||
+                        !values.mountedNodeIds[widgetNodeId] ||
+                        !completedNodeIds.has(widgetNodeId)
+                )
+                if (missingNodeId) {
+                    actions.abortChain(missingNodeId)
+                } else {
+                    actions.widgetDataChainFinished(values.widgetDataChainNodeIds)
+                }
             } else {
                 actions.setChainRoot(null)
                 lemonToast.success('Stale cells re-run.')

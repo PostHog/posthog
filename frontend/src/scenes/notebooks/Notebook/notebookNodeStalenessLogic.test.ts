@@ -178,6 +178,28 @@ describe('notebookNodeStalenessLogic', () => {
         expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
     })
 
+    it('does not report success when a requested widget cell disappears during the chain', async () => {
+        let finishFirstRun: (value: { status: 'done'; result: null; error: null }) => void = () => undefined
+        resultSpy.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishFirstRun = resolve
+                })
+        )
+        mountNode('a')
+        const secondNode = mountNode('b')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toDispatchActions(['dispatchChainRun'])
+        secondNode.unmount()
+        finishFirstRun({ status: 'done', result: null, error: null })
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a'])
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
+    })
+
     it('a chain run picks up cells its own completion marked stale', async () => {
         // The queue must be rebuilt as the chain advances: a's run marks b and c stale, and
         // a snapshot taken at chain start would finish "successfully" while they stay flagged.
