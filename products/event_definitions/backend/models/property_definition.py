@@ -103,14 +103,6 @@ class PropertyDefinition(UUIDTModel):
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
             models.Index(
-                F("team_id"),
-                F("type"),
-                Coalesce(F("group_type_index"), -1),
-                F("query_usage_30_day").desc(nulls_last=True),
-                F("name").asc(),
-                name="index_property_def_query",
-            ),
-            models.Index(
                 Coalesce(F("project_id"), F("team_id")),
                 F("type"),
                 Coalesce(F("group_type_index"), -1),
@@ -118,9 +110,6 @@ class PropertyDefinition(UUIDTModel):
                 F("name").asc(),
                 name="index_property_def_query_proj",
             ),
-            # creates an index pganalyze identified as missing
-            # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
-            models.Index(fields=["team_id", "type", "is_numerical"]),
             models.Index(
                 Coalesce(F("project_id"), F("team_id")),
                 F("type"),

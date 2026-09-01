@@ -1,1 +1,1 @@
-0010_propertydefinition_warehouse_origin
+0011_drop_propertydefinition_team_scoped_indexes
