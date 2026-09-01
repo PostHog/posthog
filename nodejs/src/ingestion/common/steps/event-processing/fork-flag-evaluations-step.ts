@@ -1,4 +1,4 @@
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { FLAG_EVALUATIONS_OUTPUT, FlagEvaluationsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -32,6 +32,18 @@ export const flagEvaluationsEventsTotal = new Counter({
 export const flagEvaluationsPendingAcks = new Gauge({
     name: 'ingestion_flag_evaluations_pending_acks',
     help: 'flag_evaluations produces queued but not yet acknowledged; sustained non-zero means the fork is holding up batches',
+})
+
+/**
+ * How long a produce takes to be acknowledged. The pending-acks gauge above only
+ * separates "stalled" from "not stalled", so it moves once the lane is already
+ * holding up offset commits. This shows the lane slowing down while it still
+ * works, which is what gates widening the fork onto a lane other teams share.
+ */
+export const flagEvaluationsAckDuration = new Histogram({
+    name: 'ingestion_flag_evaluations_ack_duration_seconds',
+    help: 'Time from queueing a flag_evaluations produce to the broker acknowledging it',
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
 })
 
 export const flagEvaluationsSetPropsTotal = new Counter({
@@ -106,6 +118,7 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             })
             const ack = outputs.queueMessages(FLAG_EVALUATIONS_OUTPUT, messages)
             flagEvaluationsPendingAcks.inc(messages.length)
+            const stopAckTimer = flagEvaluationsAckDuration.startTimer()
             // Count on the ack, not the enqueue, so a failed produce is not reported as
             // dual-written.
             //
@@ -116,10 +129,12 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             const settled = ack.then(
                 () => {
                     flagEvaluationsPendingAcks.dec(messages.length)
+                    stopAckTimer()
                     flagEvaluationsEventsTotal.labels('dual_written').inc(messages.length)
                 },
                 (error: unknown) => {
                     flagEvaluationsPendingAcks.dec(messages.length)
+                    stopAckTimer()
                     if (error instanceof MessageSizeTooLarge) {
                         // An oversized row is a property of the row, not of the broker, so
                         // it gets its own outcome and no warning: retrying or alerting on

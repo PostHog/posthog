@@ -4,6 +4,7 @@ from posthog.dags import (
     delete_persons_from_trigger_log,
     detach_distinct_id,
     distinct_id_usage,
+    flag_evaluations_parity,
     ingestion_assets,
     person_property_reconciliation,
     persondistinctids_without_person_cleanup,
@@ -21,6 +22,7 @@ defs = dagster.Definitions(
         delete_persons_from_trigger_log.delete_persons_from_trigger_log_job,
         detach_distinct_id.detach_distinct_id_job,
         distinct_id_usage.distinct_id_usage_monitoring,
+        flag_evaluations_parity.flag_evaluations_parity,
         person_property_reconciliation.person_property_reconciliation_job,
         persondistinctids_without_person_cleanup.persondistinctids_without_person_cleanup_job,
         persons_new_backfill.persons_new_backfill_job,
@@ -28,6 +30,7 @@ defs = dagster.Definitions(
     ],
     schedules=[
         distinct_id_usage.distinct_id_usage_monitoring_schedule,
+        flag_evaluations_parity.flag_evaluations_parity_schedule,
     ],
     sensors=[
         person_property_reconciliation.person_property_reconciliation_scheduler,
