@@ -11,6 +11,7 @@ from posthog.models import EventDefinition, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
+from products.actions.backend.models.action import Action
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
@@ -28,13 +29,14 @@ from products.replay_vision.backend.scanner_draft import (
     _finalize,
     _finalize_v2,
     _generate,
+    _goal_entity_matches,
     _goal_terms,
     _LlmDraft,
     _LlmDraftV2,
     _LlmEventPropertyFilter,
+    _MatchedAction,
     _MatchedSurvey,
     _solve_budget,
-    _surveys_for_goal,
     _v2_query,
     draft_scanner_from_goal_v2,
 )
@@ -656,7 +658,7 @@ class TestEventsForGoal(_VisionAPITestCase):
         assert events == ["checkout_started"]
 
 
-class TestSurveysForGoal(_VisionAPITestCase):
+class TestGoalEntityMatches(_VisionAPITestCase):
     def _survey(self, name: str):
         return Survey.objects.create(team=self.team, name=name, created_by=self.user)
 
@@ -666,17 +668,29 @@ class TestSurveysForGoal(_VisionAPITestCase):
         survey = self._survey("Pricing feedback")
         self._survey("Onboarding NPS")
 
-        matched = _surveys_for_goal(
+        surveys, _ = _goal_entity_matches(
             self.team, "watch people who answered the pricing feedback survey", _access_control(allow=True)
         )
 
-        assert [(m.name, m.survey_id) for m in matched] == [("Pricing feedback", str(survey.id))]
+        assert [(m.name, m.survey_id) for m in surveys] == [("Pricing feedback", str(survey.id))]
 
-    def test_a_survey_the_caller_cannot_read_is_never_named_back(self):
-        # Surveys are access-controlled, so naming one back would leak its existence and its id.
+    def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
+        # An action is the team's own curated definition of a behavior, so a goal naming one is the
+        # sharpest filter available and must come back with the id the query needs.
+        action = Action.objects.create(team=self.team, name="Completed checkout")
+
+        _, actions = _goal_entity_matches(
+            self.team, "sessions where someone completed checkout", _access_control(allow=True)
+        )
+
+        assert [(a.name, a.action_id) for a in actions] == [("Completed checkout", action.id)]
+
+    def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
+        # Surveys and actions are access-controlled, so naming one back would leak its existence.
         self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
 
-        assert _surveys_for_goal(self.team, "the pricing feedback survey", _access_control(allow=False)) == []
+        assert _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False)) == ([], [])
 
     def test_no_resource_access_returns_nothing_even_though_the_queryset_filter_would_pass_it(self):
         # `filter_queryset_by_access_level` returns the queryset untouched when the caller has
@@ -687,7 +701,7 @@ class TestSurveysForGoal(_VisionAPITestCase):
         denied.check_access_level_for_resource.return_value = False
         denied.has_any_specific_access_for_resource.return_value = False
 
-        assert _surveys_for_goal(self.team, "the pricing feedback survey", denied) == []
+        assert _goal_entity_matches(self.team, "the pricing feedback survey", denied) == ([], [])
 
 
 class TestV2Query:
@@ -831,6 +845,29 @@ class TestFinalizeV2PropertyFilters:
 
         assert draft.query is not None
         assert "properties" not in draft.query["events"][0]
+
+
+class TestFinalizeV2Actions:
+    _ACTION = _MatchedAction(name="Completed checkout", action_id=42)
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides), allowed_pages=[], allowed_events=[], team_id=1, allowed_actions=[self._ACTION]
+        )
+
+    def test_a_grounded_action_name_becomes_an_action_filter_with_its_id(self):
+        draft = self._finalize(filter_actions=["Completed checkout"])
+
+        assert draft.query is not None
+        assert draft.query["actions"] == [{"id": 42, "name": "Completed checkout", "type": "actions", "order": 0}]
+
+    def test_an_invented_action_name_is_dropped(self):
+        # A name has no id to resolve to unless it came from the matched list, so it cannot invent
+        # a filter that silently matches nothing.
+        draft = self._finalize(filter_actions=["Made-up behavior"])
+
+        assert draft.query is not None
+        assert "actions" not in draft.query
 
 
 class TestFinalizeV2:
