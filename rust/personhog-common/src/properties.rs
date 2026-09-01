@@ -73,6 +73,8 @@ static PROTECTED_PROPERTIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "epik",
         "qclid",
         "sccid",
+        // Derived from a campaign param rather than lifted from the event
+        "$fbc",
         // Session and page tracking
         "$session_id",
         "$window_id",
@@ -595,6 +597,7 @@ mod tests {
         assert!(!can_trim_property("email"));
         assert!(!can_trim_property("$browser"));
         assert!(!can_trim_property("utm_source"));
+        assert!(!can_trim_property("$fbc"));
         assert!(!can_trim_property("$user_id"));
         assert!(!can_trim_property("$initial_referrer"));
         assert!(can_trim_property("custom_field"));
