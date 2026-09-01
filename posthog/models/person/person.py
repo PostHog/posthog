@@ -516,34 +516,6 @@ class PendingPersonOverride(models.Model):
         managed = False
 
 
-class FlatPersonOverride(models.Model):
-    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
-
-    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
-    old_person_id = models.UUIDField()
-    override_person_id = models.UUIDField()
-    oldest_event = models.DateTimeField()
-    version = models.BigIntegerField(null=True, blank=True)
-
-    class Meta:
-        # migrations managed via rust/persons_migrations
-        managed = False
-        indexes = [
-            models.Index(fields=["team_id", "override_person_id"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team_id", "old_person_id"],
-                name="flatpersonoverride_unique_old_person_by_team",
-            ),
-            models.CheckConstraint(
-                condition=~Q(old_person_id__exact=F("override_person_id")),
-                name="flatpersonoverride_check_circular_reference",
-            ),
-        ]
-
-
 def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str]:
     """_summary_
     Fetching distinct_ids for a person from CH is slow, so we

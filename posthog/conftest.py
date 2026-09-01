@@ -355,7 +355,6 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
                 DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
                 DROP TABLE IF EXISTS posthog_personoverride CASCADE;
                 DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
-                DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
                 DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
                 DROP TABLE IF EXISTS posthog_person CASCADE;
             """)
