@@ -8,9 +8,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import {
+    METRIC_CONTEXTS,
+    type MetricContext,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+
 import type { ExperimentIdType } from '../../../types'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { METRIC_CONTEXTS, type MetricContext } from './experimentMetricModalLogic'
 
 export const MODAL_PAGE_SIZE = 20
 

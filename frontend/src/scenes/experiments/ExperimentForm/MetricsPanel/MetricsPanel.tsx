@@ -5,16 +5,17 @@ import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMetric } from '~/queries/utils'
 import { ExposureCriteriaModal } from '~/scenes/experiments/ExperimentView/ExposureCriteria'
-import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
-import {
-    METRIC_CONTEXTS,
-    MetricContext,
-    experimentMetricModalLogic,
-} from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '~/scenes/experiments/Metrics/MetricSourceModal'
 import { SharedMetricModal } from '~/scenes/experiments/Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '~/scenes/experiments/Metrics/sharedMetricModalLogic'
 import type { Experiment } from '~/types'
+
+import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
+import {
+    METRIC_CONTEXTS,
+    MetricContext,
+    experimentMetricModalLogic,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { EmptyMetricsPanel } from './EmptyMetricsPanel'
 import { MetricList } from './MetricList'

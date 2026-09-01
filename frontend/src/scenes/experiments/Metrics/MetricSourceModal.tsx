@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconWarning } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
 
+import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+
 import { experimentLogic } from '../experimentLogic'
-import { experimentMetricModalLogic } from './experimentMetricModalLogic'
 import { metricSourceModalLogic } from './metricSourceModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
