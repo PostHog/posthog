@@ -58,7 +58,7 @@ import {
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
-import { withHiddenEventsExcluded } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { hiddenEventMatchingSearch, withHiddenEventsExcluded } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import {
     filterPinnedForContext,
@@ -1320,8 +1320,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return false
                 }
                 // Offering an excluded name would let it be selected as a non-captured event,
-                // committing the value the exclusion forbids.
-                if (excludedProperties?.includes(trimmedSearch)) {
+                // committing the value the exclusion forbids. A hidden event is excluded by its
+                // label and case variants too, so match it the same way the empty state does —
+                // otherwise a label search offers a "not seen yet" row for a name no event carries
+                // and suppresses the explanation of the event's absence.
+                if (
+                    excludedProperties?.includes(trimmedSearch) ||
+                    hiddenEventMatchingSearch(searchQuery, excludedProperties)
+                ) {
                     return false
                 }
                 // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them

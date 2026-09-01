@@ -970,6 +970,36 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    // A hidden event is excluded by its label and case variants, not just its raw name, so a picker
+    // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
+    // commit a name no event carries and hide the explanation of the event's absence.
+    describe('the "not seen yet" option and hidden events', () => {
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
+            'does not offer the option when searching %p',
+            async (query) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                    allowNonCapturedEvents: true,
+                })
+                listLogic.mount()
+
+                await expectLogic(listLogic, () => {
+                    listLogic.actions.setSearchQuery(query)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ showNonCapturedEventOption: false })
+            }
+        )
+    })
+
     describe('data warehouse pin lifecycle', () => {
         beforeEach(() => {
             const databaseLogic = databaseTableListLogic()
