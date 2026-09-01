@@ -217,6 +217,7 @@ async def arun_scout_suggestions(
         return _finish("skipped", skip_reason="no_active_user")
 
     task_run_id: str | None = None
+    session: MultiTurnSession | None = None
     try:
         fleet = await database_sync_to_async(fleet_context, thread_sensitive=False)(team.id)
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
@@ -262,7 +263,6 @@ async def arun_scout_suggestions(
             fallback_from_text=None,
         )
         task_run_id = str(session.task_run.id)
-        await session.end()
 
         canonical_names = {name for name, _ in fleet.available_canonical} | set(fleet.enabled_skill_names)
         items = validate_suggestion_items(
@@ -282,18 +282,30 @@ async def arun_scout_suggestions(
             model=runtime.model,
             fleet_snapshot=list(fleet.enabled_skill_names),
         )
+        # The TaskRun closes as completed only once the batch is stored: its terminal status is
+        # what run metrics and triage read, and a scan whose output never landed did fail.
+        await session.end()
     except asyncio.CancelledError:
         # The activity deadline cancels the coroutine with a BaseException, which the handler
         # below would not see. The coordinator has already stamped `last_requested_at`, so an
         # unrecorded cancellation would suppress the project for a whole refresh window.
         logger.warning("scout_suggestions: generation cancelled", team_id=team.id, exc_info=True)
+        await _end_failed(session, "cancelled")
         await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(team.id, task_run_id=task_run_id)
         raise
     except Exception as error:
         logger.warning("scout_suggestions: generation failed", team_id=team.id, error=str(error), exc_info=True)
+        await _end_failed(session, str(error))
         await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(team.id, task_run_id=task_run_id)
         return _finish("failed", task_run_id=task_run_id)
     return _finish("completed", task_run_id=task_run_id, suggestion_count=len(items))
+
+
+async def _end_failed(session: MultiTurnSession | None, error: str) -> None:
+    if session is None:
+        return
+    # Shielded so the failure status still lands when a cancel re-fires mid-signal.
+    await asyncio.shield(session.end(status="failed", error=error))
 
 
 __all__ = ["SuggestionRunResult", "arun_scout_suggestions", "validate_suggestion_items"]

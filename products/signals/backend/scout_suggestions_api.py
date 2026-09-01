@@ -7,7 +7,8 @@ only reads and flags the stored JSON, so the scouts tab can render the strip wit
 
 from __future__ import annotations
 
-from typing import Any
+from functools import cached_property
+from typing import Any, cast
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
@@ -21,9 +22,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import Conflict
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalScoutSuggestionSet
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_chat import consume_daily_attempt, refund_daily_attempt
@@ -91,8 +94,9 @@ class ScoutSuggestionSetSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=SignalScoutSuggestionSet.Status.choices,
         help_text=(
-            "`fresh`: current batch. `stale`: the fleet changed since it was generated. `failed`: the last "
-            "refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet."
+            "`fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past "
+            "the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). "
+            "`empty`: nothing to suggest yet."
         ),
     )
     generated_at = serializers.DateTimeField(
@@ -154,6 +158,15 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if getattr(view, "action", None) in ("dismiss", "refresh"):
             return ["signal_scout:write"]
         return None
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # `AccessControlPermission` reads its resource-level check from here. Anchor it to the
+        # canonical team like the membership and token-scope legs: the batch belongs to the parent
+        # project, so a child environment's own `signal_scout` grant must not read it or pay for
+        # its refresh when the parent grants `none`.
+        team = self.team.parent_team or self.team
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     @extend_schema(
         responses={200: OpenApiResponse(response=ScoutSuggestionSetSerializer, description="The current batch.")},

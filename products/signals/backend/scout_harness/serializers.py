@@ -34,7 +34,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice, Prior
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
-from products.signals.backend.scout_harness.config_registry import cron_schedule_error
+from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
@@ -2645,7 +2645,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     run_cron_schedule = serializers.CharField(
         required=False,
         allow_null=True,
-        max_length=100,
+        max_length=CRON_SCHEDULE_MAX_LENGTH,
         help_text=(
             "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
             "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "
@@ -2832,7 +2832,7 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     run_cron_schedule = serializers.CharField(
         required=False,
         allow_null=True,
-        max_length=100,
+        max_length=CRON_SCHEDULE_MAX_LENGTH,
         help_text=(
             "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
             "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "

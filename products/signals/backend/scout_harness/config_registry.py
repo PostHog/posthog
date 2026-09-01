@@ -37,6 +37,8 @@ MAX_RUN_INTERVAL_MINUTES = 43200
 # Matches the `run_interval_minutes` floor: one scout may not occupy the coordinator more
 # than once per 30 minutes, however the schedule is expressed.
 CRON_MIN_GAP_SECONDS = MIN_RUN_INTERVAL_MINUTES * 60
+# The column and the config API field cap; every writer applies it so a stored schedule fits.
+CRON_SCHEDULE_MAX_LENGTH = 100
 # Occurrences sampled by the min-gap check. Enough to expose sub-30-minute patterns
 # (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
 _CRON_SAMPLE_OCCURRENCES = 100
@@ -51,6 +53,8 @@ def cron_schedule_error(value: str) -> str | None:
     the same 30-minute floor as `run_interval_minutes`.
     """
     expr = value.strip()
+    if len(expr) > CRON_SCHEDULE_MAX_LENGTH:
+        return f"Cron expressions must be at most {CRON_SCHEDULE_MAX_LENGTH} characters."
     if len(expr.split()) != 5 or not croniter.is_valid(expr):
         return "Not a valid five-field cron expression, e.g. '30 9 * * *' or '0 9 * * 1-5'."
     iterator = croniter(expr, datetime(2026, 1, 1, tzinfo=UTC))

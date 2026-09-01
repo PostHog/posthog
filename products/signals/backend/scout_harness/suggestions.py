@@ -253,8 +253,13 @@ def _root_team_q() -> Q:
 
 
 def _engagement_by_team(cutoff: datetime, team_ids: Collection[int]) -> dict[int, datetime]:
-    """Most recent inbox engagement per team inside the window: report views/ratings or a scout
-    config someone touched. Aggregated in Postgres so the transfer is one row per team.
+    """Most recent inbox engagement per team inside the window: report views/ratings, a scout
+    someone turned on or off, or a scout someone created. Aggregated in Postgres so the transfer
+    is one row per team.
+
+    The config row attributes only those two acts: `status_changed_by` is cleared by system
+    transitions and enabled-only writes, and `created_by` is unset on coordinator-registered rows,
+    so neither can mistake a system touch for a person. A plain edit carries no actor.
 
     Restricted to the teams the planner is already considering, so this rides the `team_id` index.
     `SignalReportAction.last_at` is deliberately unindexed, to keep the hot repeat-view UPDATE
@@ -267,8 +272,10 @@ def _engagement_by_team(cutoff: datetime, team_ids: Collection[int]) -> dict[int
         SignalReportAction.all_teams.filter(team_id__in=team_ids, last_at__gte=cutoff)
         .values("team_id")
         .annotate(latest=Max("last_at")),
-        SignalScoutConfig.all_teams.filter(
-            team_id__in=team_ids, updated_at__gte=cutoff, status_changed_by__isnull=False
+        SignalScoutConfig.all_teams.filter(team_id__in=team_ids)
+        .filter(
+            Q(updated_at__gte=cutoff, status_changed_by__isnull=False)
+            | Q(created_at__gte=cutoff, created_by__isnull=False)
         )
         .values("team_id")
         .annotate(latest=Max("updated_at")),
@@ -643,11 +650,16 @@ def mark_generation_failed(team_id: int, *, task_run_id: str | None) -> SignalSc
     return row
 
 
+# A generated conclusion, with or without items; `failed` and `stale` already say what they are.
+_EXPIRING_STATUSES = (SignalScoutSuggestionSet.Status.FRESH, SignalScoutSuggestionSet.Status.EMPTY)
+
+
 def effective_status(row: SignalScoutSuggestionSet, *, refresh_days: int) -> str:
     """The row's status with expiry applied. Only the fleet-change receiver writes `STALE`, so a
-    batch that simply aged past its refresh window would otherwise keep reporting `fresh` for as
-    long as the planner does not reach it, which is forever while scheduling is off."""
-    if row.status != SignalScoutSuggestionSet.Status.FRESH or row.generated_at is None:
+    batch that simply aged past its refresh window would otherwise keep reporting `fresh` (or a
+    "nothing to suggest" conclusion `empty`) for as long as the planner does not reach it, which
+    is forever while scheduling is off."""
+    if row.status not in _EXPIRING_STATUSES or row.generated_at is None:
         return row.status
     if timezone.now() - row.generated_at >= timedelta(days=refresh_days):
         return SignalScoutSuggestionSet.Status.STALE

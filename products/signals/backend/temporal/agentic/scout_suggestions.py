@@ -44,6 +44,8 @@ logger = structlog.get_logger(__name__)
 # Same grid as the scout coordinator so the two tick together and the per-tick cap is the only
 # spend knob; the suggestion schedule is registered separately so it can be paused on its own.
 SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES = 30
+# How long a per-team scan may sit unclaimed on the task queue before the run is given up.
+SUGGESTIONS_ACTIVITY_QUEUE_WAIT = timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES)
 SUGGESTIONS_COORDINATOR_WORKFLOW_NAME = "run-signals-scout-suggestions-coordinator"
 SUGGESTIONS_COORDINATOR_SCHEDULE_ID = "signals-scout-suggestions-coordinator-schedule"
 
@@ -207,10 +209,15 @@ class RunScoutSuggestionsWorkflow:
     @workflow.run
     async def run(self, input: RunScoutSuggestionsInput) -> RunScoutSuggestionsOutput:
         settings = _settings_from_json(input.settings_json)
+        run_budget = timedelta(seconds=settings.max_runtime_s + SUGGESTIONS_ACTIVITY_SLACK_S)
         return await workflow.execute_activity(
             run_scout_suggestions_activity,
             input,
-            start_to_close_timeout=timedelta(seconds=settings.max_runtime_s + SUGGESTIONS_ACTIVITY_SLACK_S),
+            start_to_close_timeout=run_budget,
+            # Bounds the queue wait too: `start_to_close` only starts once a worker picks the
+            # activity up, so without this a run-now's stable id would answer 409 for as long as
+            # no compatible worker exists, and scheduled runs would stack under fresh tick ids.
+            schedule_to_close_timeout=run_budget + SUGGESTIONS_ACTIVITY_QUEUE_WAIT,
             heartbeat_timeout=timedelta(minutes=2),
             # No retries: a failed generation is recorded on the row and re-planned by the
             # coordinator after the breaker cooldown; a retry loop here would spend blindly.

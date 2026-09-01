@@ -101,6 +101,15 @@ class TestValidateSuggestionItems(SimpleTestCase):
             # Syntactically valid but never occurs; croniter only raises on enumeration, which
             # must drop the item rather than fail the whole batch.
             ("impossible_calendar_cron", _item(proposed_config={"run_cron_schedule": "0 0 31 2 *"})),
+            # Valid, hourly, and longer than the config API's column: Create would reject it.
+            (
+                "cron_over_create_length_limit",
+                _item(
+                    proposed_config={
+                        "run_cron_schedule": f"0 {','.join(map(str, range(24)))} {','.join(map(str, range(1, 32)))} * *"
+                    }
+                ),
+            ),
             ("interval_below_floor", _item(proposed_config={"run_interval_minutes": 5})),
             ("blank_title", _item(title="  ")),
             ("custom_reuses_a_stored_skill_name", _custom(skill_name="signals-scout-disabled-custom")),
@@ -260,6 +269,18 @@ class TestPlanSuggestionRuns(BaseTest):
         tier_one_only = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=1), self.now)
         self.assertEqual([run.team_id for run in tier_one_only], [engaged_overdue.id])
 
+    def test_a_scout_a_person_created_counts_as_engagement(self):
+        # Creation stamps `created_by` but no status transition, so `status_changed_by` stays
+        # null; the project is still being actively managed and must not fall to tier 2.
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-general", enabled=True, created_by=self.user
+        )
+        registered = self._team("coordinator-registered")
+        SignalScoutConfig.objects.create(team=registered, skill_name="signals-scout-general", enabled=True)
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=2), self.now)
+        self.assertEqual([(run.team_id, run.tier) for run in planned], [(self.team.id, 1), (registered.id, 2)])
+
     def test_cap_allowlist_blocklist_and_breaker(self):
         self._enable_scout(self.team, engaged=True)
         second = self._team("second")
@@ -418,10 +439,9 @@ _RUNNER = "products.signals.backend.scout_harness.suggestions_runner"
 @pytest.mark.django_db
 async def test_runner_persists_validated_batch(asuggestion_team):
     batch = ScoutSuggestionBatch(suggestions=[_custom(), _item(skill_name="signals-scout-not-canonical")])
+    session = _fake_session()
     with (
-        patch(
-            f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(_fake_session(), batch)
-        ) as start,
+        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(session, batch)) as start,
         patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
         patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
@@ -436,6 +456,7 @@ async def test_runner_persists_validated_batch(asuggestion_team):
     # The manual caller's identity wins over the resolved team member (patched to 42 above).
     assert start.call_args.kwargs["context"].user_id == 7
     assert start.call_args.kwargs["fallback_from_text"] is None
+    session.end.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -463,8 +484,9 @@ async def test_runner_fails_a_batch_that_validates_down_to_nothing(asuggestion_t
     # Every suggestion names an unknown canonical scout, so validation drops the lot. Storing that
     # as an empty success would reset the breaker and buy a whole refresh window.
     batch = ScoutSuggestionBatch(suggestions=[_item(skill_name="signals-scout-not-canonical")])
+    session = _fake_session()
     with (
-        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(_fake_session(), batch)),
+        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(session, batch)),
         patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
         patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
@@ -474,6 +496,9 @@ async def test_runner_fails_a_batch_that_validates_down_to_nothing(asuggestion_t
     assert result.status == "failed"
     row = await database_sync_to_async(SignalScoutSuggestionSet.all_teams.get)(team=asuggestion_team)
     assert (row.status, row.consecutive_failures) == (SignalScoutSuggestionSet.Status.FAILED, 1)
+    # The TaskRun must not read as completed when nothing was stored: triage reads its status.
+    session.end.assert_awaited_once()
+    assert session.end.await_args.kwargs["status"] == "failed"
 
 
 @pytest.mark.asyncio
@@ -516,9 +541,15 @@ class TestScoutSuggestionsAPI(APIBaseTest):
             response.json(), {"status": "empty", "generated_at": None, "model": "", "fleet_snapshot": [], "items": []}
         )
 
-    def test_list_reports_an_aged_batch_as_stale(self):
-        row = persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model="m", fleet_snapshot=[])
-        self.assertEqual(row.status, SignalScoutSuggestionSet.Status.FRESH)
+    @parameterized.expand(
+        [
+            ("with_items", [_item()], SignalScoutSuggestionSet.Status.FRESH),
+            ("nothing_to_suggest", [], SignalScoutSuggestionSet.Status.EMPTY),
+        ]
+    )
+    def test_list_reports_an_aged_batch_as_stale(self, _name, items, stored_status):
+        row = persist_suggestion_batch(self.team.id, items, task_run_id=None, model="m", fleet_snapshot=[])
+        self.assertEqual(row.status, stored_status)
         SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(generated_at=timezone.now() - timedelta(days=8))
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/")
@@ -657,6 +688,22 @@ class TestScoutSuggestionsResourceLevelAccess(APIBaseTest):
     @parameterized.expand([("list", "get", ""), ("dismiss", "post", "x/dismiss/"), ("refresh", "post", "refresh/")])
     def test_a_grant_on_one_scout_does_not_open_the_project_batch(self, _name, method, suffix):
         url = f"/api/projects/{self.team.id}/signals/scout/suggestions/{suffix}"
+        response = self.client.get(url) if method == "get" else self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+    @parameterized.expand([("list", "get", ""), ("dismiss", "post", "x/dismiss/"), ("refresh", "post", "refresh/")])
+    def test_a_child_environment_grant_does_not_open_the_parent_batch(self, _name, method, suffix):
+        # The batch is the parent project's row, so RBAC on the child environment's URL must
+        # answer for the parent, where this member's `signal_scout` access is `none`.
+        environment = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="env"
+        )
+        membership = OrganizationMembership.objects.get(user__email="scout-granted@posthog.com")
+        AccessControl.objects.create(
+            team=environment, resource="signal_scout", access_level="editor", organization_member=membership
+        )
+
+        url = f"/api/projects/{environment.id}/signals/scout/suggestions/{suffix}"
         response = self.client.get(url) if method == "get" else self.client.post(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
