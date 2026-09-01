@@ -399,6 +399,7 @@ _SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
     ("session_replay", "session_problem"): "Session replay · Session problem",
     ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
     ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
+    ("replay_vision", "scanner_finding"): "Replay Vision · Scanner finding",
     ("llm_analytics", "evaluation"): "AI observability · Evaluation",
     ("llm_analytics", "evaluation_report"): "AI observability · Evaluation report",
     ("zendesk", "ticket"): "Zendesk · Ticket",
