@@ -349,6 +349,43 @@ class TestRecalculationService(BaseTest):
         recalc.refresh_from_db()
         assert get_run_results(recalc) == []
 
+    def test_changing_stats_config_invalidates_run_results(self):
+        # A stopped experiment pins query_to at end_date, so a stats-settings change (CUPED, confidence,
+        # sequential) can only invalidate the cache through the fingerprint. Enabling CUPED changes what the
+        # metric computes, so the cached row must stop matching even at the same query_to.
+        exp = self._launched_experiment(flag_key="reuse-stats-config")
+        assert exp.start_date is not None
+        query_to = datetime(2026, 1, 10, tzinfo=UTC)
+        recalc_fp = compute_recalc_fingerprint(
+            compute_metric_fingerprint(
+                _mean_metric("m1"),
+                exp.start_date,
+                get_experiment_stats_method(exp),
+                exp.exposure_criteria,
+                only_count_matured_users=exp.only_count_matured_users,
+                excluded_variants=exp.excluded_variants,
+                stats_config=exp.stats_config,
+            )
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=exp.start_date,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"some": "result"},
+        )
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, metric_uuids=["m1"], query_to=query_to
+        )
+        assert [r["metric_uuid"] for r in get_run_results(recalc)] == ["m1"]
+
+        exp.stats_config = {**(exp.stats_config or {}), "cuped": {"enabled": True}}
+        exp.save(update_fields=["stats_config"])
+        recalc.refresh_from_db()
+        assert get_run_results(recalc) == []
+
     def test_get_run_results_strips_step_sessions(self):
         # step_sessions carries per-step person IDs, session IDs, and event UUIDs. It powers the frontend's
         # "view sessions per step" affordance off a separate per-metric query, so it does not belong in the

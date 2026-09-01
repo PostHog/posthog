@@ -90,3 +90,31 @@ def test_fingerprint_changes_when_excluded_variants_change():
     assert fp_two != fp_one
     assert fp_two_reversed == fp_two, "Order of excluded keys must not affect fingerprint"
     assert fp_one != fp_one_other
+
+
+@parameterized.expand(
+    [
+        # name, stats_config, moves_fingerprint: result-affecting settings must invalidate the cache;
+        # bookkeeping keys must not, or every admin migration would recompute every metric.
+        ("cuped_enabled", {"cuped": {"enabled": True}}, True),
+        ("cuped_lookback", {"cuped": {"enabled": True, "lookback_days": 30}}, True),
+        ("frequentist_alpha", {"frequentist": {"alpha": 0.1}}, True),
+        ("sequential_enabled", {"frequentist": {"sequential_testing_enabled": True}}, True),
+        ("bayesian_ci_level", {"bayesian": {"ci_level": 0.9}}, True),
+        ("bayesian_prior", {"bayesian": {"prior_type": "informative"}}, True),
+        ("baseline_variant_key", {"baseline_variant_key": "test"}, True),
+        ("migrated_from_ignored", {"migrated_from": 123}, False),
+        ("migrated_to_ignored", {"migrated_to": 456}, False),
+    ]
+)
+def test_fingerprint_tracks_result_affecting_stats_config(name, stats_config, moves_fingerprint):
+    metric = {"kind": "ExperimentMeanMetric", "source": {"kind": "EventsNode", "event": "$pageview"}}
+    start = "2026-01-01T00:00:00+00:00"
+
+    baseline = compute_metric_fingerprint(metric, start, stats_config=None)
+    with_config = compute_metric_fingerprint(metric, start, stats_config=stats_config)
+
+    if moves_fingerprint:
+        assert with_config != baseline
+    else:
+        assert with_config == baseline

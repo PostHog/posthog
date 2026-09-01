@@ -21,6 +21,15 @@ METRIC_FIELDS_TO_IGNORE: set[str] = {
     "only_count_matured_users",
 }
 
+# stats_config keys that do NOT change a computed metric result, so they must not move the fingerprint.
+# Everything else in stats_config (method, frequentist/bayesian/cuped sub-configs, baseline_variant_key)
+# feeds the stored result, so it is hashed by default. Add a key here only when it is purely bookkeeping
+# or display state; a new result-affecting setting needs no change and is captured automatically.
+STATS_CONFIG_FIELDS_TO_IGNORE: set[str] = {
+    "migrated_from",
+    "migrated_to",
+}
+
 
 def compute_metric_fingerprint(
     metric: dict,
@@ -29,6 +38,7 @@ def compute_metric_fingerprint(
     exposure_criteria: dict | None = None,
     only_count_matured_users: bool = False,
     excluded_variants: list[str] | None = None,
+    stats_config: dict | None = None,
 ) -> str:
     """
     Compute fingerprint for a metric.
@@ -41,6 +51,9 @@ def compute_metric_fingerprint(
         only_count_matured_users
         excluded_variants: Variant keys excluded from analysis — changing the set
             invalidates cached results since it alters which data is computed
+        stats_config: Experiment stats settings (CUPED, sequential, confidence, baseline variant).
+            These feed the stored result, so a change must invalidate the cache. Only the keys in
+            STATS_CONFIG_FIELDS_TO_IGNORE are dropped. Callers on the timeseries path may omit this.
 
     Returns:
         SHA256 hash string representing the metric fingerprint
@@ -73,6 +86,10 @@ def compute_metric_fingerprint(
 
     if excluded_variants:
         fingerprint_data["excluded_variants"] = sorted(set(excluded_variants))
+
+    result_affecting_stats = {k: v for k, v in (stats_config or {}).items() if k not in STATS_CONFIG_FIELDS_TO_IGNORE}
+    if result_affecting_stats:
+        fingerprint_data["stats_config"] = result_affecting_stats
 
     # Create deterministic JSON string with sorted keys at all levels
     json_str = json.dumps(fingerprint_data, sort_keys=True, separators=(",", ":"))
