@@ -139,6 +139,10 @@ container.bind(GIT_CACHE_KEY_PROVIDER).toConstantValue(gitCacheKeyProvider);
 // archive
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: (input) => hostTrpcClient.archive.unarchive.mutate(input),
   delete: (input) => hostTrpcClient.archive.delete.mutate(input),
   showArchivedTaskContextMenu: (input) =>
