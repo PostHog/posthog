@@ -402,6 +402,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run_at(self) -> str | None:
+        """ISO timestamp of the last run that actually extracted, so a schema completing on a
+        negative probe still gets one full run per interval (see `_fast_return_eligible`)."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_full_run_at", None)
+
+        return None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)

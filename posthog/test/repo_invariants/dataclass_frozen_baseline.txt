@@ -1356,7 +1356,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/check_billing_limits.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/compute_table_statistics.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/create_job_model.py
-1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/import_data_sync.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/repartition_table.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/sync_new_schemas.py
 1 products/web_analytics/backend/hogql_queries/bot_definitions.py
