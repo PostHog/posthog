@@ -164,6 +164,12 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function isDataVisualizationNodeWithHogQLQuery(
+    node?: Record<string, any> | null
+): node is DataVisualizationNode & { source: HogQLQuery } {
+    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
+}
+
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
     if (!isDataTableNodeWithHogQLQuery(node)) {
         return node

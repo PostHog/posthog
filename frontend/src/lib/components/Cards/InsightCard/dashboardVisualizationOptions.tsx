@@ -6,18 +6,20 @@ import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
 import { isDisplayTabSupported } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
-import { SqlVisualizationPicker } from './SqlVisualizationPicker'
+import { DashboardSqlChartType, DashboardSqlDisplayOptions } from './DashboardSqlDisplayOptions'
 
-// SQL insights only. A trends chart type goes through the editor's own action, which rewrites more
-// than the display: it drops a breakdown the picked type cannot draw, and a box plot drops the
-// formulas too. That is fine in the editor, where you see it before saving, but a card saves with no
-// undo onto an insight every dashboard shares. A SQL insight has no such side effects.
+export interface DashboardSqlVisualizationPersistence {
+    saving: boolean
+    version: number
+    persistChartType: (display: ChartDisplayType) => void
+    persistDisplayOptions: (query: DataVisualizationNode) => void
+}
+
 export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {
-    return canPersist && query && isDataVisualizationNode(query) ? query : null
+    return canPersist && query && isDataVisualizationNodeWithHogQLQuery(query) ? query : null
 }
 
 export function useDashboardVisualizationOptions({
@@ -25,56 +27,37 @@ export function useDashboardVisualizationOptions({
     insightData,
     variablesOverride,
     loading,
-    saving,
-    savingSqlDisplayOptions,
-    persistVisualizationType,
-    persistSqlDisplayOptions,
+    persistence,
 }: {
     query: Node | null
     insightData: Record<string, any>
     variablesOverride?: Record<string, HogQLVariable> | null
-    /** So a tile that has not produced results yet is not reported as having none. */
     loading?: boolean
-    saving?: boolean
-    savingSqlDisplayOptions?: boolean
-    /** Present only when the viewer can save; also the gate for showing the picker at all. */
-    persistVisualizationType?: (display: ChartDisplayType) => void
-    persistSqlDisplayOptions?: (query: DataVisualizationNode) => void
+    persistence?: DashboardSqlVisualizationPersistence
 }): LemonMenuItems {
-    const sqlQuery = sqlQueryForVisualizationPicker(query, !!persistVisualizationType)
-    const savingVisualizationChanges = saving || savingSqlDisplayOptions
-
-    // Dashboard date and property filters reach a HogQL query only through a {filters} placeholder,
-    // which substitutes into a WHERE clause, so they change rows and never the columns the axes name.
-    // A variable can appear in the SELECT list, so an overridden one can. The override map is
-    // dashboard-wide, so only a variable this insight actually uses counts.
+    const sqlQuery = sqlQueryForVisualizationPicker(query, !!persistence)
     const overriddenVariable = Object.keys(sqlQuery?.source.variables ?? {}).find((key) => variablesOverride?.[key])
-
-    const columns = insightData?.columns
-    const types = insightData?.types
-    const rowCount = Array.isArray(insightData?.result) ? insightData.result.length : 0
 
     const pickerProps = {
         query: sqlQuery,
-        columns,
-        types,
-        rowCount,
+        cachedResults: insightData,
+        variablesOverride,
         loading,
-        saving: savingVisualizationChanges,
+        saving: persistence?.saving,
+        version: persistence?.version,
         overriddenVariable,
-        persistVisualizationType,
+        persistChartType: persistence?.persistChartType,
     }
-    // LemonMenu treats a custom label function as its component type, so its identity must stay stable.
     const pickerPropsRef = useRef(pickerProps)
     pickerPropsRef.current = pickerProps
     const renderPicker = useCallback((): JSX.Element => {
         const props = pickerPropsRef.current
         return (
-            <SqlVisualizationPicker
+            <DashboardSqlChartType
+                key={props.version}
                 query={props.query!}
-                columns={props.columns}
-                types={props.types}
-                rowCount={props.rowCount}
+                cachedResults={props.cachedResults}
+                variablesOverride={props.variablesOverride}
                 loading={props.loading}
                 saving={props.saving}
                 disabledReason={
@@ -82,7 +65,7 @@ export function useDashboardVisualizationOptions({
                         ? 'This dashboard overrides a variable this insight uses. Open the insight to change its chart type.'
                         : undefined
                 }
-                persistVisualizationType={props.persistVisualizationType!}
+                persistChartType={props.persistChartType!}
             />
         )
     }, [])
@@ -91,9 +74,8 @@ export function useDashboardVisualizationOptions({
         query: sqlQuery,
         cachedResults: insightData,
         variablesOverride,
-        persistDisplayOptions: persistSqlDisplayOptions,
         loading,
-        disabled: saving,
+        persistence,
     }
     const displayOptionsPropsRef = useRef(displayOptionsProps)
     displayOptionsPropsRef.current = displayOptionsProps
@@ -108,55 +90,42 @@ export function useDashboardVisualizationOptions({
         }
         return (
             <DashboardSqlDisplayOptions
+                key={props.persistence!.version}
                 query={props.query!}
                 cachedResults={props.cachedResults}
                 variablesOverride={props.variablesOverride}
-                persistDisplayOptions={props.persistDisplayOptions!}
-                disabled={props.disabled}
+                persistDisplayOptions={props.persistence!.persistDisplayOptions}
+                disabled={props.persistence!.saving}
             />
         )
     }, [])
 
     return useMemo<LemonMenuItems>(() => {
-        if (!sqlQuery || !persistVisualizationType) {
+        if (!sqlQuery || !persistence) {
             return []
         }
+
         return [
             {
                 title: 'Chart type',
-                items: [
-                    {
-                        label: renderPicker,
-                    },
-                ],
+                items: [{ label: renderPicker }],
             },
-            persistSqlDisplayOptions && isDisplayTabSupported(sqlQuery.display ?? ChartDisplayType.ActionsTable)
+            isDisplayTabSupported(sqlQuery.display ?? ChartDisplayType.ActionsTable)
                 ? {
                       key: 'display',
                       title: (
                           <h5 className="mx-2 my-1 flex items-center justify-between gap-2">
                               Display
-                              {savingVisualizationChanges ? (
+                              {persistence.saving ? (
                                   <span className="flex items-center gap-1 font-normal text-muted" role="status">
                                       <Spinner /> Saving
                                   </span>
                               ) : null}
                           </h5>
                       ),
-                      items: [
-                          {
-                              label: renderDisplayOptions,
-                          },
-                      ],
+                      items: [{ label: renderDisplayOptions }],
                   }
                 : false,
         ]
-    }, [
-        sqlQuery,
-        savingVisualizationChanges,
-        persistVisualizationType,
-        persistSqlDisplayOptions,
-        renderPicker,
-        renderDisplayOptions,
-    ])
+    }, [sqlQuery, persistence, renderPicker, renderDisplayOptions])
 }

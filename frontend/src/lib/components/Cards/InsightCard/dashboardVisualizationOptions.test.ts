@@ -23,6 +23,18 @@ function displayOptionsElement(items: LemonMenuItems): JSX.Element {
     return (item as { label: () => JSX.Element }).label()
 }
 
+function chartTypeElement(items: LemonMenuItems): JSX.Element {
+    const section = items.find(
+        (item): item is LemonMenuSection => !!item && 'title' in item && item.title === 'Chart type'
+    )
+    expect(section).not.toBeUndefined()
+
+    const item = section?.items[0]
+    expect(item && typeof item.label).toBe('function')
+
+    return (item as { label: () => JSX.Element }).label()
+}
+
 describe('dashboardVisualizationOptions', () => {
     const sqlQuery = {
         kind: NodeKind.DataVisualizationNode,
@@ -44,6 +56,15 @@ describe('dashboardVisualizationOptions', () => {
             {
                 label: 'a trends insight gets nothing, since its chart type carries query side effects',
                 query: trendsQuery as Node,
+                canPersist: true,
+                expected: null,
+            },
+            {
+                label: 'a non-SQL data visualization gets nothing',
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source: { kind: NodeKind.EventsQuery },
+                } as unknown as DataVisualizationNode,
                 canPersist: true,
                 expected: null,
             },
@@ -81,12 +102,62 @@ describe('dashboardVisualizationOptions', () => {
         const baseProps: DashboardVisualizationOptionsProps = {
             query: lineQuery,
             insightData,
-            persistVisualizationType: jest.fn(),
-            persistSqlDisplayOptions: jest.fn(),
+            persistence: {
+                saving: false,
+                version: 0,
+                persistChartType: jest.fn(),
+                persistDisplayOptions: jest.fn(),
+            },
         }
 
         beforeEach(() => {
             initKeaTests()
+        })
+
+        it('persists the chart type selected through the editor control', async () => {
+            const persistChartType = jest.fn()
+            const { result } = renderHook(() =>
+                useDashboardVisualizationOptions({
+                    ...baseProps,
+                    persistence: { ...baseProps.persistence!, persistChartType },
+                })
+            )
+            const { container } = render(chartTypeElement(result.current))
+
+            await userEvent.click(
+                container.querySelector('[data-attr="dashboard-insight-visualization-picker"]') as HTMLElement
+            )
+            const matches = screen.getAllByText('Bar chart')
+            await userEvent.click(matches[matches.length - 1])
+
+            expect(persistChartType).toHaveBeenCalledWith(ChartDisplayType.ActionsBar)
+        })
+
+        it('restores the saved chart type after a failed save', async () => {
+            const { result, rerender } = renderHook(
+                (props: DashboardVisualizationOptionsProps) => useDashboardVisualizationOptions(props),
+                { initialProps: baseProps }
+            )
+            const view = render(chartTypeElement(result.current))
+
+            await userEvent.click(
+                view.container.querySelector('[data-attr="dashboard-insight-visualization-picker"]') as HTMLElement
+            )
+            const matches = screen.getAllByText('Bar chart')
+            await userEvent.click(matches[matches.length - 1])
+            expect(
+                view.container.querySelector('[data-attr="dashboard-insight-visualization-picker"]')
+            ).toHaveTextContent('Bar chart')
+
+            rerender({
+                ...baseProps,
+                persistence: { ...baseProps.persistence!, version: 1 },
+            })
+            view.rerender(chartTypeElement(result.current))
+
+            expect(
+                view.container.querySelector('[data-attr="dashboard-insight-visualization-picker"]')
+            ).toHaveTextContent('Line chart')
         })
 
         it('reloads the available controls when the SQL chart type changes', async () => {
@@ -118,7 +189,7 @@ describe('dashboardVisualizationOptions', () => {
             const { result } = renderHook(() =>
                 useDashboardVisualizationOptions({
                     ...baseProps,
-                    persistSqlDisplayOptions,
+                    persistence: { ...baseProps.persistence!, persistDisplayOptions: persistSqlDisplayOptions },
                 })
             )
             render(displayOptionsElement(result.current))
@@ -166,7 +237,7 @@ describe('dashboardVisualizationOptions', () => {
                 {
                     initialProps: {
                         ...baseProps,
-                        persistSqlDisplayOptions,
+                        persistence: { ...baseProps.persistence!, persistDisplayOptions: persistSqlDisplayOptions },
                     },
                 }
             )
@@ -176,7 +247,14 @@ describe('dashboardVisualizationOptions', () => {
             const displayLabel = (
                 result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection
             ).items[0]
-            rerender({ ...baseProps, savingSqlDisplayOptions: true, persistSqlDisplayOptions })
+            rerender({
+                ...baseProps,
+                persistence: {
+                    ...baseProps.persistence!,
+                    saving: true,
+                    persistDisplayOptions: persistSqlDisplayOptions,
+                },
+            })
             const rerenderedDisplayLabel = (
                 result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection
             ).items[0]
@@ -194,11 +272,11 @@ describe('dashboardVisualizationOptions', () => {
             )
         })
 
-        it('shows when display settings are being saved', () => {
+        it('shows when SQL visualization settings are being saved', () => {
             const { result } = renderHook(() =>
                 useDashboardVisualizationOptions({
                     ...baseProps,
-                    savingSqlDisplayOptions: true,
+                    persistence: { ...baseProps.persistence!, saving: true },
                 })
             )
 
@@ -210,33 +288,36 @@ describe('dashboardVisualizationOptions', () => {
             expect(screen.getByRole('status')).toHaveTextContent('Saving')
         })
 
-        it('shows the display options saving state while the chart type is being saved', () => {
+        it('makes display controls inert while SQL visualization settings are being saved', () => {
             const { result } = renderHook(() =>
                 useDashboardVisualizationOptions({
                     ...baseProps,
-                    saving: true,
-                })
-            )
-
-            render(
-                (result.current.find((item) => item && 'key' in item && item.key === 'display') as LemonMenuSection)
-                    .title as JSX.Element
-            )
-
-            expect(screen.getByRole('status')).toHaveTextContent('Saving')
-        })
-
-        it('makes display controls inert while a chart type is being saved', () => {
-            const { result } = renderHook(() =>
-                useDashboardVisualizationOptions({
-                    ...baseProps,
-                    saving: true,
+                    persistence: { ...baseProps.persistence!, saving: true },
                 })
             )
 
             const { container } = render(displayOptionsElement(result.current))
 
             expect(container.firstChild).toHaveAttribute('inert')
+        })
+
+        it('restores saved display settings after a failed save', async () => {
+            const { result, rerender } = renderHook(
+                (props: DashboardVisualizationOptionsProps) => useDashboardVisualizationOptions(props),
+                { initialProps: baseProps }
+            )
+            const view = render(displayOptionsElement(result.current))
+
+            await userEvent.click(await screen.findByLabelText('Show legend'))
+            expect(screen.getByLabelText('Show legend')).toBeChecked()
+
+            rerender({
+                ...baseProps,
+                persistence: { ...baseProps.persistence!, version: 1 },
+            })
+            view.rerender(displayOptionsElement(result.current))
+
+            expect(await screen.findByLabelText('Show legend')).not.toBeChecked()
         })
     })
 })

@@ -598,7 +598,7 @@ describe('insightDataLogic', () => {
         })
     })
 
-    describe('persistVisualizationType', () => {
+    describe('persistSqlVisualization', () => {
         const insightId = 43
         const Insight43 = '43' as InsightShortId
         const cachedQuery = {
@@ -620,10 +620,12 @@ describe('insightDataLogic', () => {
         let logic: ReturnType<typeof insightDataLogic.build>
         let patchBodies: Record<string, any>[]
         let savedQuery: Node
+        let patchFails: boolean
 
         beforeEach(() => {
             patchBodies = []
             savedQuery = latestQuery
+            patchFails = false
             useMocks({
                 get: {
                     '/api/environments/:team_id/insights/': () => [
@@ -635,6 +637,9 @@ describe('insightDataLogic', () => {
                     '/api/environments/:team_id/insights/:id': async ({ request }) => {
                         const body = (await request.json()) as Record<string, any>
                         patchBodies.push(body)
+                        if (patchFails) {
+                            return [500, { detail: 'Save failed' }]
+                        }
                         return [200, { id: insightId, short_id: Insight43, ...body }]
                     },
                 },
@@ -663,7 +668,10 @@ describe('insightDataLogic', () => {
 
         it('derives the picked chart from the latest clean query and loaded tile schema', async () => {
             await expectLogic(logic, () => {
-                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['renameInsightSuccess'])
@@ -688,11 +696,14 @@ describe('insightDataLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingVisualizationType).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBe(false)
         })
 
         it('does not combine a changed saved query with the loaded tile schema', async () => {
@@ -702,22 +713,28 @@ describe('insightDataLogic', () => {
             } as DataVisualizationNode
 
             await expectLogic(logic, () => {
-                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingVisualizationType).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBe(false)
         })
 
         it('does not overwrite an insight that changed away from SQL', async () => {
             savedQuery = { kind: NodeKind.EventsQuery }
 
             await expectLogic(logic, () => {
-                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingVisualizationType).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBe(false)
         })
 
         it('persists only the last display edit against the latest clean SQL query', async () => {
@@ -734,15 +751,21 @@ describe('insightDataLogic', () => {
             } as DataVisualizationNode
             logic.actions.syncQueryFromProps(dashboardQuery)
 
-            logic.actions.persistSqlDisplayOptions({
-                ...dashboardQuery,
-                chartSettings: { ...latestQuery.chartSettings, showLegend: true },
+            logic.actions.persistSqlVisualization({
+                type: 'display-options',
+                query: {
+                    ...dashboardQuery,
+                    chartSettings: { ...latestQuery.chartSettings, showLegend: true },
+                },
             })
-            logic.actions.persistSqlDisplayOptions({
-                ...dashboardQuery,
-                chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
+            logic.actions.persistSqlVisualization({
+                type: 'display-options',
+                query: {
+                    ...dashboardQuery,
+                    chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
+                },
             })
-            expect(logic.values.savingSqlDisplayOptions).toBe(true)
+            expect(logic.values.savingSqlVisualization).toBe(true)
 
             await expectLogic(logic).toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
 
@@ -751,7 +774,7 @@ describe('insightDataLogic', () => {
                 ...savedQuery,
                 chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
             })
-            expect(logic.values.savingSqlDisplayOptions).toBe(false)
+            expect(logic.values.savingSqlVisualization).toBe(false)
         })
 
         it('does not persist display settings from a stale chart type', async () => {
@@ -761,26 +784,33 @@ describe('insightDataLogic', () => {
             } as DataVisualizationNode
 
             await expectLogic(logic, () => {
-                logic.actions.persistSqlDisplayOptions({
-                    ...cachedQuery,
-                    chartSettings: { showLegend: true },
+                logic.actions.persistSqlVisualization({
+                    type: 'display-options',
+                    query: {
+                        ...cachedQuery,
+                        chartSettings: { showLegend: true },
+                    },
                 })
             }).toFinishAllListeners()
 
             expect(patchBodies).toHaveLength(0)
         })
 
-        it('does not overlap a display save with a chart type save', async () => {
-            logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
-            logic.actions.persistSqlDisplayOptions({
-                ...cachedQuery,
-                chartSettings: { showLegend: true },
-            })
+        it('invalidates optimistic display controls when their save fails', async () => {
+            patchFails = true
 
-            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'display-options',
+                    query: {
+                        ...cachedQuery,
+                        chartSettings: { showLegend: true },
+                    },
+                })
+            }).toFinishAllListeners()
 
-            expect(patchBodies).toHaveLength(1)
-            expect(patchBodies[0].query.display).toBe(ChartDisplayType.ActionsLineGraph)
+            expect(logic.values.sqlVisualizationVersion).toBe(1)
+            expect(logic.values.savingSqlVisualization).toBe(false)
         })
     })
 

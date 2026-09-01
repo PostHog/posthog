@@ -75,8 +75,6 @@ export const columnsFromResponse = (response: AnyResponseType | null): Column[] 
     )
 }
 
-// Which columns a chart plots when nothing has been picked yet: every numeric column on the y axis,
-// and a date column on the x axis, falling back to the first column no y series claimed.
 export const deriveDefaultAxes = (columns: Column[]): { xAxis: string | null; yAxis: string[] } => {
     const dateColumn = columns.find((column) => column.type.name.indexOf('DATE') !== -1)
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
@@ -109,7 +107,6 @@ const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayT
     return ChartDisplayType.ActionsTable
 }
 
-/** insightDataLogic always sets a `result` key, even when empty, so its presence proves nothing. */
 export const rowCountFromResponse = (response: AnyResponseType | null): number => {
     const rawResults =
         response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
@@ -123,7 +120,6 @@ const hasTimeSeriesData = (columns: Column[], rowCount: number): boolean => {
     return hasDateColumn && hasNumericColumn && rowCount > 1
 }
 
-/** Takes a row count rather than the rows: it only ever asks whether there is more than one. */
 export const getAutoVisualizationType = (columns: Column[], rowCount: number): ChartDisplayType => {
     if (hasTimeSeriesData(columns, rowCount)) {
         return ChartDisplayType.ActionsLineGraph

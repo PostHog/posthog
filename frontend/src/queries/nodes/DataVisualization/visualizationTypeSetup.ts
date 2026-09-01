@@ -5,12 +5,9 @@ import { deriveDefaultAxes, getAutoVisualizationType } from './columnUtils'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { Column, defaultAxisSettings } from './types'
 
-/** Applies display-specific defaults to a query so the editor and dashboard persistence cannot drift. */
-
 const isNumerical = (columns: Column[], name: string | undefined): boolean =>
     !!name && !!columns.find((column) => column.name === name)?.type.isNumerical
 
-/** All columns numeric means nothing is left to label the x axis, so the first one moves there. */
 export function shouldPromoteFirstNumericToX(
     columns: Column[],
     numericalColumns: Column[],
@@ -30,12 +27,6 @@ export function shouldPromoteFirstNumericToX(
     return numericalColumns.every((column) => names.has(column.name))
 }
 
-/**
- * A scatter plots two measures against each other, so its x axis has to hold a numeric column.
- * Returns the column that should sit there: the current one when it is already numeric, otherwise
- * one that is not already a y series, so the chart is not left with nothing on either axis. Null
- * when a scatter cannot be plotted at all.
- */
 export function resolveScatterXAxisColumn(
     columns: Column[],
     numericalColumns: Column[],
@@ -52,7 +43,6 @@ export function resolveScatterXAxisColumn(
     return numericalColumns.find((column) => !names.has(column.name)) ?? numericalColumns[0]
 }
 
-/** The heatmap column roles no rule can infer from a type alone, filled only where still unset. */
 export function getHeatmapAutoSettings(columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> {
     const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
@@ -79,7 +69,6 @@ export function applyVisualizationType(
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
     const chartSettings: ChartSettings = { ...query.chartSettings }
 
-    // Saved axes can outlive SQL column changes. Re-seed them together so x and y stay compatible.
     const columnNames = new Set(columns.map((column) => column.name))
     const invalidX = chartSettings.xAxis !== undefined && !columnNames.has(chartSettings.xAxis.column)
     const invalidY =
@@ -107,8 +96,6 @@ export function applyVisualizationType(
     let yAxis = chartSettings.yAxis ? [...chartSettings.yAxis] : []
     const yAxisNames = yAxis.map((series) => series.column)
 
-    // A newly picked pie labels its slices. One loaded with the type already set never reaches here,
-    // so it keeps the legacy value-on-slice default.
     if (visualizationType === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
         chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
     }

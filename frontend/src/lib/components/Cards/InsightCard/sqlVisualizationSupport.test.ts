@@ -1,11 +1,11 @@
 import { columnsFromResponse, getAutoVisualizationType } from '~/queries/nodes/DataVisualization/columnUtils'
-import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Components/tableDisplayOptions'
+import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
 import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-describe('SqlVisualizationPicker support rules', () => {
+describe('dashboard SQL visualization support', () => {
     const responses = {
         'date and numeric': {
             columns: ['day', 'total'],
@@ -55,9 +55,6 @@ describe('SqlVisualizationPicker support rules', () => {
         source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
     } as DataVisualizationNode
 
-    // The guard that stops this class of bug recurring: a card only offers what it can finish. Every
-    // option is checked, so a chart type added later without a support classification fails here
-    // rather than saving a query the tile has no settings to draw.
     it.each(Object.entries(responses))(
         'every type the card leaves enabled saves a query it can draw: %s',
         (_label, response) => {
@@ -87,8 +84,6 @@ describe('SqlVisualizationPicker support rules', () => {
                 const resolved =
                     displayType === ChartDisplayType.Auto ? autoVisualizationType : (displayType as ChartDisplayType)
 
-                // A table and a big number draw without axes. Everything else the card offers must
-                // come out with both, or the tile renders blank with no way to repair it.
                 const needsAxes = ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
                 if (!needsAxes) {
                     continue
@@ -117,8 +112,6 @@ describe('SqlVisualizationPicker support rules', () => {
         ).toContain('Open the insight')
     })
 
-    // Saved axes only count when they still name plottable columns. A y series that is no longer
-    // numeric is repaired away, the same as the editor does, so the type stays refused.
     it('does not treat stale saved axes as making a chart type available', () => {
         const response = responses['all string, so nothing is left to plot']
         const columns = columnsFromResponse(response)
