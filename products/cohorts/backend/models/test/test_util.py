@@ -1245,6 +1245,7 @@ class TestParseErrorCode(BaseTest):
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
+            ("clickhouse_not_enough_space", "ClickHouseNotEnoughSpace", CohortErrorCode.INSUFFICIENT_STORAGE),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
         ]
     )
@@ -1287,6 +1288,7 @@ class TestParseErrorCode(BaseTest):
             "ClickHouseMemoryError": "MEMORY_LIMIT_EXCEEDED",
             "ClickHouseTimeoutError": "TIMEOUT_EXCEEDED",
             "ClickHouseTypeError": "NO_COMMON_TYPE",
+            "ClickHouseNotEnoughSpace": "NOT_ENOUGH_SPACE",
         }
 
         if exception_type in clickhouse_code_names:
@@ -1305,6 +1307,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.TIMEOUT, "terminated for taking too long"),
             (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
             (CohortErrorCode.QUERY_SIZE, "query that was too large"),
+            (CohortErrorCode.INSUFFICIENT_STORAGE, "out of storage"),
             (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
@@ -1353,12 +1356,49 @@ class TestRecalculationErrorRecovery(BaseTest):
             # Patch connections so the reconnect doesn't close the real test transaction's connection.
             patch("products.cohorts.backend.models.util.connections") as mock_connections,
         ):
+            # The connection is gone, so the recovery path reconnects and retries.
+            mock_connections[DEFAULT_DB_ALIAS].is_usable.return_value = False
             with self.assertRaises(RuntimeError) as ctx:
                 _recalculate_cohortpeople_for_team(cohort, 0, self.team)
 
         self.assertIs(ctx.exception, real_error)
         assert mock_history.save.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+    def test_disk_full_history_save_is_logged_without_retry(self):
+        # A write can fail with the connection intact, for example when Postgres is out of disk.
+        # Retrying reconnects and re-runs a write that cannot succeed, and reports a second error on
+        # top of the real one. The recovery path must log it, not retry, and not double-report.
+        cohort = _create_cohort(
+            team=self.team,
+            name="c",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        real_error = RuntimeError("real root cause")
+        mock_history = MagicMock()
+        mock_history.save.side_effect = OperationalError("could not extend file: No space left on device")
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.CohortCalculationHistory.objects.create",
+                return_value=mock_history,
+            ),
+            patch(
+                "products.cohorts.backend.models.util._recalculate_cohortpeople_for_team_hogql",
+                side_effect=real_error,
+            ),
+            patch("products.cohorts.backend.models.util.connections") as mock_connections,
+            patch("products.cohorts.backend.models.util.capture_exception") as mock_capture,
+        ):
+            # The connection is still alive, so the failed write is not a connection drop.
+            mock_connections[DEFAULT_DB_ALIAS].is_usable.return_value = True
+            with self.assertRaises(RuntimeError) as ctx:
+                _recalculate_cohortpeople_for_team(cohort, 0, self.team)
+
+        self.assertIs(ctx.exception, real_error)
+        assert mock_history.save.call_count == 1
+        mock_connections[DEFAULT_DB_ALIAS].close.assert_not_called()
+        mock_capture.assert_not_called()
 
     def test_original_error_surfaces_when_reset_calculating_save_fails(self):
         # calculate_people_ch's finally block resets is_calculating on the same connection the recovery
@@ -1385,6 +1425,7 @@ class TestRecalculationErrorRecovery(BaseTest):
             # Patch connections so the reconnect doesn't close the real test transaction's connection.
             patch("products.cohorts.backend.models.util.connections") as mock_connections,
         ):
+            mock_connections[DEFAULT_DB_ALIAS].is_usable.return_value = False
             with self.assertRaises(RuntimeError) as ctx:
                 cohort.calculate_people_ch(pending_version=0)
 
