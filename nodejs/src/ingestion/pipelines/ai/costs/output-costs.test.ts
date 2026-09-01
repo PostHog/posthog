@@ -1,4 +1,5 @@
 import { calculateOutputCost } from './output-costs'
+import { openRouterCostsByModel } from './providers'
 import { ResolvedModelCost } from './providers/types'
 import { createAIEvent } from './test-helpers'
 
@@ -448,6 +449,30 @@ describe('calculateOutputCost()', () => {
 
             // Expected: (10 * 0.0000025) + (3870 * 0.00003) = 0.000025 + 0.1161 = 0.116125
             expectCost(result, 0.116125, 6)
+        })
+    })
+
+    describe('committed cost data - image output regression', () => {
+        it('bills gemini-3-pro-image-preview image output on the default variant at the image rate, not the completion fallback', () => {
+            // Guards the ~10x underbill from a `default` variant missing image_output:
+            // an event whose $ai_provider matches no google key resolves to `default`,
+            // and without image_output its image tokens drop to the completion rate.
+            const row = openRouterCostsByModel['google/gemini-3-pro-image-preview']
+            expect(row?.cost.default.image_output).toBeDefined()
+
+            const event = createAIEvent({
+                $ai_provider: 'unmatched-provider',
+                $ai_model: 'gemini-3-pro-image-preview',
+                $ai_output_tokens: 1000,
+                $ai_image_output_tokens: 1000,
+            })
+            const resolved: ResolvedModelCost = { model: row.model, provider: 'default', cost: row.cost.default }
+
+            const result = calculateOutputCost(event, resolved)
+
+            // Image tokens billed at the dedicated rate stay far above the completion
+            // fallback a missing rate would silently drop to.
+            expect(parseFloat(result)).toBeGreaterThan(row.cost.default.completion_token * 1000 * 5)
         })
     })
 

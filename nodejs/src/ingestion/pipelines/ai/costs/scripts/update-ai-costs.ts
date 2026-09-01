@@ -143,6 +143,31 @@ export interface EndpointCandidate {
     discount: number
 }
 
+/** output-costs.ts bills these output-modality rates at the text completion rate
+ * when `default` lacks them, which underbills image tokens by about 10x. OpenRouter
+ * sometimes omits the rate from the model-level pricing that builds `default`, yet
+ * still serves it per endpoint. */
+export const MODALITY_OUTPUT_FIELDS: ReadonlyArray<keyof ModelCost> = ['image_output', 'audio_output']
+
+/** Copies a modality-output rate onto `default` from a provider variant when the
+ * model-level pricing omits it. Prefers an undiscounted variant, because its list
+ * price equals what a direct caller pays. Falls back to any variant with the rate,
+ * because even a de-discounted rate beats the completion fallback. */
+export const backfillDefaultModalityRates = (defaultCost: ModelCost, candidates: EndpointCandidate[]): void => {
+    for (const field of MODALITY_OUTPUT_FIELDS) {
+        if (defaultCost[field] !== undefined) {
+            continue
+        }
+        const source =
+            candidates.find((candidate) => candidate.discount === 0 && candidate.cost[field] !== undefined) ??
+            candidates.find((candidate) => candidate.cost[field] !== undefined)
+        const rate = source?.cost[field]
+        if (rate !== undefined) {
+            defaultCost[field] = rate
+        }
+    }
+}
+
 /*
  * `default` keeps the promotion. `PROVIDER_ALIASES` maps `$ai_provider:
  * 'openrouter'` onto it, and for those callers the promo price is what they were
@@ -305,6 +330,8 @@ export const buildModelRow = (
             discount: parseDiscountRate(endpoint.pricing ?? {}, context, false),
         })
     }
+
+    backfillDefaultModalityRates(defaultCost, candidates)
 
     // Keyed on parsed candidates rather than the raw endpoint count: a payload
     // whose entries all fail to parse yielded nothing to check either.

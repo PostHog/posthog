@@ -392,6 +392,49 @@ describe('buildModelRow()', () => {
         expect(built!.cost.openai.prompt_token).toBe(0.000001)
     })
 
+    it('backfills a modality-output rate onto `default` from a provider variant', () => {
+        // OpenRouter omits image_output from the model-level pricing but serves it
+        // per endpoint. Without the backfill `default` bills image tokens at the
+        // ~10x-lower completion rate (issue in google/gemini-3-pro-image-preview).
+        const built = buildModelRow('google/gemini-3-pro-image-preview', listPricing, [
+            {
+                tag: 'google-vertex',
+                provider_name: 'google-vertex',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00012' },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00012)
+    })
+
+    it('leaves an existing `default` modality rate untouched', () => {
+        const built = buildModelRow('x/y', { ...listPricing, image_output: '0.00012' }, [
+            {
+                tag: 'openai',
+                provider_name: 'openai',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00009' },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00012)
+    })
+
+    it('prefers an undiscounted variant when backfilling a modality rate', () => {
+        // A de-discounted rate still beats the completion fallback, but the
+        // undiscounted variant is exactly what a direct caller pays.
+        const built = buildModelRow('x/y', listPricing, [
+            {
+                tag: 'discounted',
+                provider_name: 'discounted',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00005', discount: 0.5 },
+            },
+            {
+                tag: 'listed',
+                provider_name: 'listed',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00012' },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00012)
+    })
+
     it('confines a hostile provider name to a safe key', () => {
         // Interpolated into generated TypeScript, so an apostrophe must not reach it.
         const built = buildModelRow('evil/model', listPricing, [
