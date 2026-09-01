@@ -113,14 +113,9 @@ export const NEW_WORKFLOW: HogFlow = {
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
 // Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
-// row, and a Slack poster are all things no PostHog person is attached to. Keep in sync with the
-// backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
-export const ROW_SCOPED_TRIGGER_TYPES = new Set([
-    'data-warehouse-table',
-    'data-warehouse-view',
-    'slack-message',
-    'github-event',
-])
+// row, and an internal event are all things no PostHog person is attached to. Keep in sync with
+// the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -525,6 +520,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
@@ -777,15 +773,11 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1056,15 +1048,11 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1176,6 +1164,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
@@ -1384,6 +1373,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
@@ -1636,15 +1626,11 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1915,15 +1901,11 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -2035,6 +2017,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
@@ -2102,15 +2085,11 @@ export interface workflowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'github-event'
-              }
-            | {
-                  filters: {
-                      properties?: any[] | undefined
-                  }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -2220,6 +2199,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
@@ -2483,15 +2463,11 @@ export interface workflowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'github-event'
-              }
-            | {
-                  filters: {
-                      properties?: any[] | undefined
-                  }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -2601,6 +2577,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
@@ -2880,15 +2857,11 @@ export interface workflowLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
                                     properties?: any[] | undefined
+                                    source: 'internal-events'
                                 }
-                                type: 'github-event'
-                            }
-                          | {
-                                filters: {
-                                    properties?: any[] | undefined
-                                }
-                                type: 'slack-message'
+                                type: 'internal-event'
                             }
                           | {
                                 filters: {

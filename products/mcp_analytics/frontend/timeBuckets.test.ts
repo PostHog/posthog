@@ -144,10 +144,12 @@ describe('timeBuckets', () => {
     })
 
     describe('resolveInterval', () => {
-        // Relative windows resolve against "now": pin the clock mid-month so a -7d window
-        // stays inside one month regardless of the real date.
+        // Relative windows resolve against the clock, so a -7d window that sits inside one calendar
+        // month on most days straddles two at a month boundary. Pin the clock mid-month, or those
+        // cases invert on the 1st of every month.
         beforeEach(() => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
         })
 
         afterEach(() => {
@@ -170,7 +172,8 @@ describe('timeBuckets', () => {
 
     describe('intervalOptionsForWindow', () => {
         beforeEach(() => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
         })
 
         afterEach(() => {

@@ -48,15 +48,6 @@ export const RESPONDER_AGENT_GROUPS: ResponderAgentGroup[] = [
         docsLabel: "Health checks",
       },
       {
-        source: "session_replay",
-        sourceProduct: "session_replay",
-        label: "Session Replay",
-        description: "UX problems found in session recordings.",
-        docsUrl: "https://posthog.com/docs/session-replay",
-        docsLabel: "Session Replay",
-        alpha: true,
-      },
-      {
         source: "llm_analytics",
         sourceProduct: "llm_analytics",
         label: "AI observability",
