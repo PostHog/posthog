@@ -1,6 +1,11 @@
 import { useMemo } from 'react'
 
-import { type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import {
+    type Series,
+    type TimeInterval,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+} from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -45,6 +50,16 @@ function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): Ex
     }))
 }
 
+function bucketInterval(bucketMinutes: number): TimeInterval {
+    if (bucketMinutes >= 1440) {
+        return 'day'
+    }
+    if (bucketMinutes >= 60) {
+        return 'hour'
+    }
+    return 'minute'
+}
+
 /** Shared config for the rate limit bar charts: hidden bucket ticks, stacked bars, default tooltip
  *  with a total row. */
 export function buildRateLimitBarChartConfig(
@@ -55,7 +70,7 @@ export function buildRateLimitBarChartConfig(
         xAxis: {
             hide: true,
             timezone: dayjs.tz.guess(),
-            interval: bucketMinutes >= 1440 ? 'day' : bucketMinutes >= 60 ? 'hour' : 'minute',
+            interval: bucketInterval(bucketMinutes),
         },
         showAxisLines: { x: false, y: true },
         barLayout,
