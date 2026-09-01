@@ -3,9 +3,11 @@
 Artifacts are untrusted user content, so they are served from a dedicated
 origin (``CANVAS_ARTIFACT_ORIGIN``) that fails closed: in production the view
 refuses to answer on any other Host, keeping user code off the application
-origin. Access is capability-based — a signed, time-boxed token minted for the
-authenticated client is the only credential, so the artifact origin itself
-holds no cookies or sessions.
+origin. Access is capability-based: a signed token minted for the
+authenticated user is the only credential, so the artifact origin itself
+holds no cookies or sessions. Every request re-authorizes against the live
+build row and the minting user's current team access, so deleting the canvas
+or its build, or revoking that user's access, cuts off outstanding URLs.
 
 Integrity is verified when artifacts are written and again when they are read
 from object storage. The manifest hash is also used as the response ETag.
@@ -22,16 +24,24 @@ from django.core import signing
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from posthog.models import OrganizationMembership, Team, User
 from posthog.storage import object_storage
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.canvas.backend.contract import artifact_csp
 from products.canvas.backend.models import CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
-# Tokens embed a coarse time bucket instead of a per-second timestamp, so the
-# artifact URL for a build is stable within a bucket (the iframe src doesn't
-# churn on every lifecycle poll) while still expiring: a token is accepted for
-# its own bucket and the next one, i.e. between one and two hours.
+# Minted tokens carry no expiry claim, because the URL for a build must stay
+# byte-stable: the assets are served with `max-age=31536000, immutable`, and the
+# browser HTTP cache is keyed by URL, so any time component in the token forces
+# a full re-download of the artifact (up to the 12 MB size cap) every time it
+# rolls over. Because they never expire, stable tokens are bound to the user
+# they were minted for, and every request re-checks the build row and that
+# user's team access, so a leaked URL outlives neither the build nor its
+# holder's access. A token carrying a `bucket` claim is still honored for its
+# original window (its own bucket and the next one, i.e. between one and two
+# hours) without a user binding, so URLs held by open clients keep working.
 ARTIFACT_TOKEN_BUCKET_SECONDS = 3600
 
 
@@ -50,15 +60,19 @@ def _configured_artifact_host() -> str | None:
     return origin.netloc.lower()
 
 
-def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
+def create_canvas_artifact_token(build: CanvasBuild, user: User) -> str | None:
     keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
     if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
         return None
     if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
         return None
-    bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
     return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(
-        {"team_id": build.team_id, "canvas_id": str(build.canvas_id), "build_id": str(build.id), "bucket": bucket},
+        {
+            "team_id": build.team_id,
+            "canvas_id": str(build.canvas_id),
+            "build_id": str(build.id),
+            "user_id": user.id,
+        },
         compress=True,
     )
 
@@ -77,21 +91,43 @@ def _artifact_origin() -> str:
     return settings.CANVAS_ARTIFACT_ORIGIN or settings.SITE_URL
 
 
-def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | None:
-    token = create_canvas_artifact_token(build)
+def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str, user: User) -> str | None:
+    token = create_canvas_artifact_token(build, user)
     if token is None:
         return None
     return f"{_artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
 
 
+def _minting_user_retains_access(user_id: int, team: Team) -> bool:
+    """Whether the user a stable token was minted for can still access the team.
+
+    Stable tokens never expire, so this per-request check is what revokes a
+    leaked URL: deactivating the user or removing them from the organization
+    cuts off every artifact URL minted for them.
+    """
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if user is None:
+        return False
+    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user_id).exists():
+        return False
+    # Project RBAC can revoke project access without touching org membership.
+    # check_access_level_for_object default-allows admins/creators/no-AC-feature
+    # orgs, so this only fails closed on an explicit revocation.
+    return UserAccessControl(user=user, team=team).check_access_level_for_object(team, required_level="member")
+
+
 def _read_token(token: str) -> dict[str, Any]:
-    current_bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
     for key in settings.CANVAS_ARTIFACT_SIGNING_KEYS:
         try:
             value = signing.Signer(key=key, salt=ARTIFACT_TOKEN_SALT).unsign_object(token)
         except signing.BadSignature:
             continue
-        if isinstance(value, dict) and value.get("bucket") in (current_bucket, current_bucket - 1):
+        if not isinstance(value, dict):
+            continue
+        if "bucket" not in value:
+            return value
+        current_bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
+        if value["bucket"] in (current_bucket, current_bucket - 1):
             return value
     raise Http404
 
@@ -113,10 +149,21 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     build = (
         CanvasBuild.objects.for_team(team_id)
         .filter(id=build_id, canvas_id=canvas_id, canvas__deleted=False, status=CanvasBuild.STATUS_READY)
+        .select_related("team")
         .first()
     )
     if build is None or not build.artifact_object_prefix or not isinstance(build.manifest, dict):
         raise Http404
+    # A stable (bucket-less) token is a credential with no expiry, so it must
+    # name the user it was minted for and that user must still have access.
+    # Bucketed tokens are exempt: they carry no user binding, and their own
+    # window already bounds them to at most two hours.
+    if "bucket" not in claims:
+        user_id = claims.get("user_id")
+        if not isinstance(user_id, int) or isinstance(user_id, bool):
+            raise Http404
+        if not _minting_user_retains_access(user_id, build.team):
+            raise Http404
     assets = build.manifest.get("assets")
     asset = (
         next((item for item in assets if isinstance(item, dict) and item.get("path") == artifact_path), None)
