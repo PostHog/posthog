@@ -1283,6 +1283,7 @@ class TestPrinter(BaseTest):
             json.loads(raw_explain_result)[0]["Plan"],
             condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
         )
+        assert read_from_merge_tree_step is not None
         return {index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"}
 
     def test_property_groups_optimized_basic_equality_comparisons(self) -> None:
