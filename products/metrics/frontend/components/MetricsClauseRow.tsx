@@ -89,7 +89,7 @@ export function MetricsClauseRow({
                         title={
                             isActive
                                 ? 'Samples and related links follow this series'
-                                : 'Click to focus this series — samples and related links follow it'
+                                : 'Click to focus this series. Samples and related links follow it.'
                         }
                     >
                         <LemonTag
