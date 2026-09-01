@@ -36,9 +36,6 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
-from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -48,9 +45,14 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
+    RetentionFixedIntervalBaseQueryBuilder,
+)
+from products.product_analytics.backend.hogql_queries.retention.retention_query_runner import RetentionQueryRunner
+from products.product_analytics.backend.hogql_queries.retention.test.utils import pad, pluck
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention"
+TEST_BUCKET = "test_storage_bucket-products.product_analytics.backend.hogql_queries.retention"
 
 
 def _create_signup_actions(team, user_and_timestamps):

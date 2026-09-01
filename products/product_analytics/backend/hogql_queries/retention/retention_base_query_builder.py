@@ -13,14 +13,16 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import entity_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
+
+from products.product_analytics.backend.hogql_queries.retention.utils import breakdown_extract_expr
 
 if TYPE_CHECKING:
     from posthog.schema import RetentionEntity, RetentionQuery
 
-    from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
     from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
     from posthog.models import Team
+
+    from products.product_analytics.backend.hogql_queries.retention.retention_query_runner import RetentionQueryRunner
 
 
 class RetentionBaseQueryBuilder(ABC):

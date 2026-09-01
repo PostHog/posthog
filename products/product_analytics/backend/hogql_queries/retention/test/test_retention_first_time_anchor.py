@@ -10,7 +10,9 @@ from posthog.schema import RetentionEntity
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
+from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
+    RetentionFixedIntervalBaseQueryBuilder,
+)
 
 
 def _walk_ast(node: Any, visit: Callable[[Any], None]) -> None:

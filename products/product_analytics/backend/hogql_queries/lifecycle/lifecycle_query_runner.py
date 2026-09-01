@@ -27,9 +27,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.lifecycle.lifecycle_validation_rules import (
-    RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
-)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
@@ -38,6 +35,9 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.actions.backend.models.action import Action
+from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_validation_rules import (
+    RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
+)
 
 
 class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):

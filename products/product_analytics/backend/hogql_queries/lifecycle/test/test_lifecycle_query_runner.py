@@ -33,7 +33,6 @@ from posthog.schema import (
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
@@ -43,6 +42,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
 
 def create_action(**kwargs):
