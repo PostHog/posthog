@@ -83608,7 +83608,7 @@ export namespace Schemas {
          * @maxLength 64
          */
       source?: string;
-      /** Artifact contents encoded according to content_encoding */
+      /** Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead. */
       content: string;
       /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
        *
