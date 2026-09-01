@@ -163,6 +163,11 @@ def test_implementation_memory_protocol_follows_the_write_posture(
     assert ("Describe, never quote" in steering.section) is memory_writable
     assert ("Search the key first, then condense" in steering.section) is memory_writable
     assert ("Always set `expires_at`" in steering.section) is memory_writable
+    # 30 days has to stay the firm default with the longer tiers marked as the justified exception.
+    # Pipeline runs drifted to routine 90 and 180-day expiry when the wording read as a soft
+    # preference, so a rewrite that loosens it back has to fail here.
+    assert ("default it to 30 days" in steering.section) is memory_writable
+    assert ("90 or 180 days" in steering.section) is memory_writable
     # A sweep without `keys_only` returns 20 entries whose bodies run to 50,000 characters each, so
     # dropping this spends the run's context before it has read the report.
     assert ("`keys_only=true`" in steering.section) is memory_writable
@@ -201,6 +206,10 @@ def test_research_memory_protocol_follows_the_write_posture(team, memory_writabl
     assert ("Describe, never quote" in steering.section) is memory_writable
     assert ("Search the key first, then condense" in steering.section) is memory_writable
     assert ("Always set `expires_at`" in steering.section) is memory_writable
+    # Same firm-default guard over the research section's own copy: the `pattern:research:*` entries
+    # drifted to routine 90 and 180-day expiry too, so this wording must not loosen either.
+    assert ("default it to 30 days" in steering.section) is memory_writable
+    assert ("90 or 180 days" in steering.section) is memory_writable
     # The prompt names a report id only on a re-research, so an entry that has to cite its source
     # report gets the id from here or invents one.
     assert (str(report.id) in steering.section) is memory_writable
