@@ -2536,7 +2536,20 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
 
 # pgrep -f matches the whole command line, so the subcommand does not follow `git`
 # directly when a caller passes -C or -c. The launchd repack job uses `git -C <path>`.
-_GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +[^ ]+)* +(gc|repack|maintenance|pack-objects)"
+_GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +.*?)* +(gc|repack|maintenance|pack-objects)( |$)"
+
+
+def _names_path(haystack: str, path: str) -> bool:
+    """Whether text names a path, and not a sibling that merely starts the same way.
+
+    A plain substring test reads `/work/posthog-copy` as `/work/posthog`.
+    """
+    return re.search(re.escape(path) + r"(?=$|[\s/'\"])", haystack) is not None
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    """Path containment by component, so `posthog-copy` is not inside `posthog`."""
+    return candidate == root or candidate.is_relative_to(root)
 
 
 def _process_cwd(pid: str) -> Path | None:
@@ -2588,14 +2601,14 @@ def _process_belongs_to_repo(pid: str, repo: str, common_dir: Path) -> bool:
         cmdline = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return True  # Cannot tell, so claim it and do nothing.
-    if repo in cmdline.stdout or str(common_dir) in cmdline.stdout:
+    if _names_path(cmdline.stdout, repo) or _names_path(cmdline.stdout, str(common_dir)):
         return True
     cwd = _process_cwd(pid)
     if cwd is None:
         # An unreadable working directory must not disable the repair. Every
         # invocation this code starts names the path, so an unknown one is not ours.
         return False
-    return str(cwd).startswith(repo) or _common_dir_of(cwd) == common_dir
+    return _is_within(cwd, Path(repo)) or _common_dir_of(cwd) == common_dir
 
 
 def _git_housekeeping_running(main_worktree: Path, common_dir: Path) -> bool:

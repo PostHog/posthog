@@ -1318,6 +1318,7 @@ def test_doctor_git_spawns_the_repack_detached_instead_of_blocking(
     [
         "git repack -adl --threads=0",
         "git -C /home/x/posthog repack -adl --threads=0",
+        "git -C /tmp/PostHog Work/posthog repack -adl",
         "taskpolicy -b git -C /home/x/posthog repack -adl",
         "git -c gc.auto=0 gc --prune=now",
         "git maintenance run --schedule=daily",
@@ -1559,3 +1560,22 @@ def test_doctor_git_fix_refuses_while_a_repack_is_already_running(
 
     assert result.exit_code == 0
     assert not any("repack" in cmd for cmd in ran)
+
+
+def test_housekeeping_scan_ignores_a_sibling_clone_with_a_shared_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # /work/posthog-copy starts with /work/posthog. A substring test claims it, which
+    # suppresses stale-lock removal and repacking for the real repository.
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: (
+            SimpleNamespace(returncode=0, stdout="4242\n", stderr="")
+            if cmd[0] == "pgrep"
+            else SimpleNamespace(returncode=0, stdout="git -C /work/posthog-copy repack -adl\n", stderr="")
+        ),
+    )
+    monkeypatch.setattr("hogli_commands.doctor._process_cwd", lambda pid: Path("/work/posthog-copy"))
+    monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: Path("/work/posthog-copy/.git"))
+
+    assert _git_housekeeping_running(Path("/work/posthog"), Path("/work/posthog/.git")) is False
