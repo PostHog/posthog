@@ -3,7 +3,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, Table
 
-from posthog.hogql_queries.insights.query_context import QueryContextProtocol
+from posthog.hogql_queries.query_context import QueryContextProtocol
 
 
 def resolve_warehouse_field(database: Database, table_name: str, field_name: str) -> DatabaseField:
