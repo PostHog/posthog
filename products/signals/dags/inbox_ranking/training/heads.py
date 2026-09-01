@@ -73,6 +73,10 @@ class Head:
     horizon_days: int
     # Below this many positives in the holdout the head's AUC is noise; the promotion gate ignores it.
     min_holdout_positives: int
+    # Cumulative count columns the label reads. A scoring pair whose snapshot is missing one of these
+    # cannot tell "outcome not yet observed" from "column absent", so the example builder skips it.
+    # Empty when the label tolerates a missing column on its own (dismiss_wrong falls back to a reason).
+    label_columns: tuple[str, ...] = ()
     # The label comes from the status-change stream, whose tenant provenance the dataset dag
     # cross-checks; rows that fail that check are unusable for this head.
     status_labels: bool = False
@@ -97,13 +101,36 @@ HEADS: tuple[Head, ...] = (
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
     # Of the reports that got a PR, which got it merged? Completes the open -> pr_created -> pr_merged
     # funnel; the negative is "pr_created, no merge within the horizon".
-    Head(name="pr_merged", cohort=pr_created, label=pr_merged, horizon_days=14, min_holdout_positives=30),
+    Head(
+        name="pr_merged",
+        cohort=pr_created,
+        label=pr_merged,
+        horizon_days=14,
+        min_holdout_positives=30,
+        label_columns=("pr_merged_count",),
+    ),
     # Of the reports users saw, which drew a discuss? Overlaps the action head, which is fine - each
     # head trains independently.
-    Head(name="discuss", cohort=impressed, label=discussed, horizon_days=7, min_holdout_positives=30),
+    Head(
+        name="discuss",
+        cohort=impressed,
+        label=discussed,
+        horizon_days=7,
+        min_holdout_positives=30,
+        label_columns=("discuss_count",),
+    ),
     # Which reports led to a refund? Cohort is everyone, not pr_created: a minority of refunded reports
     # carry no pr_created event, since the refund stream is minted server-side on its own event.
-    Head(name="refund", cohort=everyone, label=refunded, horizon_days=14, min_holdout_positives=20),
+    # refund_count entered the labels schema after the epoch, so pre-existing partitions lack it; the
+    # label_columns guard keeps its cumulative count from leaking stale refunds as future positives.
+    Head(
+        name="refund",
+        cohort=everyone,
+        label=refunded,
+        horizon_days=14,
+        min_holdout_positives=20,
+        label_columns=("refund_count",),
+    ),
 )
 
 HEADS_BY_NAME: dict[str, Head] = {head.name: head for head in HEADS}

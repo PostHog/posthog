@@ -284,6 +284,20 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name)
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1}
 
 
+def test_build_examples_skips_refund_pairs_when_the_scoring_snapshot_lacks_the_column():
+    # refund_count entered the labels schema after the epoch, so a partition written before it has no
+    # such column. Without the guard _count reads the gap as zero, so the "not refunded yet" filter
+    # passes for a report already refunded before D0, and its cumulative refund in the later snapshot
+    # mints a stale future positive. The whole pair must be skipped, not scored.
+    head = HEADS_BY_NAME["refund"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    snapshots = {
+        D0: Snapshot(date=D0, state=_state(["a"]), labels=_labels(["a"])),
+        later: Snapshot(date=later, state=_state(["a"]), labels=_labels(["a"], refund_count=[1])),
+    }
+    assert build_examples(snapshots, head).empty
+
+
 def test_build_examples_skips_label_only_rows():
     head = HEADS_BY_NAME["pr_created"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
