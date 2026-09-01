@@ -270,8 +270,11 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("awaiting verification", response.json()["error"].lower())
+        # The contract is the same as the password login path: the frontend uses the
+        # uuid to route to the code entry page at /verify_email/<uuid>.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "verify_email_pending")
+        self.assertEqual(response.json()["detail"], str(self.user.uuid))
 
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
