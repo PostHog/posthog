@@ -50,7 +50,8 @@ function Arrow({ second = false }: { second?: boolean }): JSX.Element {
  */
 export function LoopDiagram(): JSX.Element {
     return (
-        <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 md:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
+        // text-left so the mock UI stays left-aligned even inside a text-center hero (the intro modal)
+        <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 text-left md:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
             <div className="flex flex-col gap-2">
                 <StageLabel>Signal sources</StageLabel>
                 <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
@@ -76,9 +77,11 @@ export function LoopDiagram(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <StageLabel>Scouts &amp; pipeline</StageLabel>
                 <StageCard stage="pipeline" className="flex flex-col gap-1.5 px-3.5 py-3">
-                    <div className="flex items-center gap-2 text-[13px] font-semibold">
-                        <span className="size-[7px] shrink-0 rounded-full bg-success" />
-                        Reproduced the bug, wrote the fix
+                    {/* items-start + margin keeps the dot on the first line when the text wraps
+                        in narrower hosts (the intro modal) instead of floating between lines */}
+                    <div className="flex items-start gap-2 text-[13px] font-semibold">
+                        <span className="mt-1.5 size-[7px] shrink-0 rounded-full bg-success" />
+                        <span className="min-w-0">Reproduced the bug, wrote the fix</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="font-mono text-xs font-semibold text-success">+142</span>
