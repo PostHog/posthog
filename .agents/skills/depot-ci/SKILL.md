@@ -23,7 +23,7 @@ This SKILL.md covers the core workflow plus the most common commands. Detailed f
 <!-- PostHog-local section. Keep it when resyncing from upstream; see UPSTREAM.md. -->
 
 PostHog addition: read [references/posthog-check-run-semantics.md](references/posthog-check-run-semantics.md) before you reason about what a Depot CI run reports to GitHub.
-It carries measured results for what Depot CI and GitHub Actions each post for a skipped, empty-matrix or `continue-on-error` job, how GitHub and the Trunk merge queue score those conclusions against a required status check, and the check-run naming and rerun differences between the two engines.
+It covers what Depot CI and GitHub Actions each post for a skipped, empty-matrix or `continue-on-error` job, how GitHub and the Trunk merge queue score those conclusions, and how the two engines differ on check naming and reruns.
 This repo runs Depot CI workflows out of `.depot/workflows/` alongside GitHub Actions, so both engines report on the same commit.
 
 <!-- End PostHog-local section. -->

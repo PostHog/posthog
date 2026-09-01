@@ -125,7 +125,7 @@ The half of rule 2 it cannot check is whether you named the right jobs in `needs
 
 ### What GitHub does with each conclusion
 
-Rule 3 works because a `skipped` check run satisfies a required context. `Build Docker image` concludes `SKIPPED` on merged PRs [92414](https://github.com/PostHog/posthog/pull/92414) and [92402](https://github.com/PostHog/posthog/pull/92402), and both merged through the Trunk queue, which scores it the same way.
+Rule 3 works because a `skipped` check run satisfies a required context, in the Trunk queue as well as on GitHub. `Build Docker image` rides on that: it concludes `skipped` on most PRs and they merge anyway.
 
 Three cases behave in ways the name does not suggest:
 

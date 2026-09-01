@@ -7,7 +7,7 @@ Two engines report on the same commit in this repo, and they are easy to confuse
 - **Depot runners** run GitHub Actions jobs from `.github/workflows/`. GitHub is still the engine, and checks come from the `github-actions` app. See the `depot-github-runners` skill.
 - **Depot CI** is its own engine. It parses workflows under `.depot/workflows/`, which GitHub Actions ignores, and reports its own check runs from the `depot-code-access` app. That is what this skill covers.
 
-Everything below was measured, not read from docs. Two twin workflows ran an identical job graph on both engines against the same commit ([probe PR](https://github.com/PostHog/posthog/pull/92542)).
+Neither vendor documents any of what follows. It comes from running one job graph on both engines against the same commit and reading the check runs each posted. To re-derive it, put twin workflows in `.github/workflows/` and `.depot/workflows/`, give each job a shape from the table below, and have an `if: always()` job print `toJSON(needs)`.
 
 ## Conclusions the two engines post
 
@@ -26,7 +26,7 @@ Everything below was measured, not read from docs. Two twin workflows ran an ide
 
 The engines agree everywhere except the empty matrix and the matrix check granularity.
 
-## Two traps that bite on both engines
+## Two cases where the check disagrees with the run
 
 **A job-level `continue-on-error: true` still posts a `failure` check run.** Dependents read `success`, the workflow goes green, and the check stays red. Put a required context on such a job and the merge blocks while every gate says the run passed. Prefer step-level `continue-on-error` plus an explicit verdict step, which is what `ci-backend.yml` does.
 
@@ -34,7 +34,7 @@ The engines agree everywhere except the empty matrix and the matrix check granul
 
 ## How GitHub scores a conclusion against a required context
 
-- A check run that concludes `skipped` **satisfies** a required status check. Production evidence: `Build Docker image` concludes `SKIPPED` on merged PRs [92414](https://github.com/PostHog/posthog/pull/92414), [92402](https://github.com/PostHog/posthog/pull/92402), [92396](https://github.com/PostHog/posthog/pull/92396) and [92372](https://github.com/PostHog/posthog/pull/92372). All four merged, and all four went through the Trunk merge queue, so Trunk scores it the same way.
+- A check run that concludes `skipped` **satisfies** a required status check, and the Trunk merge queue scores it the same way. The repo already depends on this: `Build Docker image` is a required context that concludes `skipped` on most PRs, and they merge.
 - A required context that **no check run ever reports** stays pending and blocks. This is the empty-matrix failure mode above, and it is also what a `paths:` filter does when it silences a whole workflow.
 - Required contexts are pinned to one app. Every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app. Read them with:
 
@@ -56,7 +56,7 @@ Matrix jobs differ: GitHub Actions posts one check per cell and appends the cell
 
 ## Reruns
 
-Depot updates the existing check run in place. Measured by retrying one failed job: the check run kept id `99890906312` and only its timestamps moved. GitHub Actions instead creates a fresh check run per attempt and leaves the old one behind, which is why a superseded GitHub Actions run can show a stale red check next to a green one for the same name.
+Retrying a failed Depot job updates the existing check run: same check run id, new timestamps and conclusion. GitHub Actions instead creates a fresh check run per attempt and leaves the old one behind, which is why a superseded GitHub Actions run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine.
 
 ## Depot CI CLI recipes
 
