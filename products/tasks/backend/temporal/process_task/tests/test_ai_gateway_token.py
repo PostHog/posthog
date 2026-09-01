@@ -40,8 +40,6 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product(origin_product, ai_stage) == expected
 
     def test_review_hog_requires_the_server_stamped_internal_flag(self):
-        """A row stamped review_hog through the API before the origin was reserved
-        must resolve to posthog_code, never the mintable product."""
         assert resolve_sandbox_ai_product("review_hog", "validation-c1", internal=True) == "review_hog"
         assert resolve_sandbox_ai_product("review_hog", None, internal=True) == "review_hog"
         assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
@@ -137,8 +135,6 @@ class TestMintScopedToken:
         assert kwargs["timeout"] == 3
 
     def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
-        """The pin covers the stage pins plus the SDK's implicit utility models; a
-        gateway without allowed_models support ignores the field, so deploy order is free."""
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response(201, {"token": "phe_abc"})
             assert mint_scoped_token(ai_product="review_hog", team_id=2) == "phe_abc"

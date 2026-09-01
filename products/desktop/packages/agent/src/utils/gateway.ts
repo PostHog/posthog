@@ -35,8 +35,8 @@ export function resolveGatewayProduct({
 
   if (originProduct && originProduct in originProductToGatewayProductMap) {
     const mapped = originProductToGatewayProductMap[originProduct];
-    // review_hog was API-settable before its reservation, so a stored forged row
-    // must not reach the mintable product; `internal` is server-stamped only.
+    // Stored rows may carry a caller-set review_hog origin predating its
+    // reservation; only the server-stamped `internal` flag admits the mintable product.
     if (mapped === "review_hog" && !isInternal) {
       return "posthog_code";
     }
@@ -48,9 +48,9 @@ export function resolveGatewayProduct({
   return "posthog_code";
 }
 
-// The legacy gateway's review_hog product is API-key-only (no OAuth apps), and
-// background_agents is the slug these runs use today, so the pre-flip state and
-// the mint-failure fallback stay exactly as they are.
+// The legacy gateway's review_hog product is API-key-only, so sandbox OAuth
+// tokens 403 on that slug; the legacy leg, including the mint-failure
+// fallback, uses background_agents.
 const LEGACY_PRODUCT_OVERRIDES: Partial<
   Record<GatewayProduct, GatewayProduct>
 > = {
