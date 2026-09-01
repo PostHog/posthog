@@ -49,6 +49,14 @@ The provisioned persons relation stores one row per distinct ID and can retain p
 
 Source metadata describes what HogQL means. Target mappings describe where the corresponding Trino data exists. Missing mappings and unsupported constructs fail compilation; the compiler must not invent physical relations or assume a ClickHouse materialized view exists in Trino.
 
+## Managed warehouse bulk translation
+
+`managed-warehouse.translate-views` is the tracked bulk consumer of the managed-warehouse compiler facade. A `ManagedWarehouseViewTranslationJob` identifies the organization, trigger, Temporal run, aggregate counts, and terminal status. Its team-scoped `ManagedWarehouseViewTranslationResult` rows identify the saved-query snapshot and store either compiled SQL or an error.
+
+Creating a job through Django admin starts the Temporal workflow after the database transaction commits. Provisioning does not create or start these jobs. The workflow discovers control-plane-enabled teams, snapshots their active non-endpoint views and materialized views, then compiles each team independently on the DuckLake task queue.
+
+Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
+
 `test_trino_semantics.py` exercises action expansion, cohort expansion, V2 person attribution, and unsupported-mode rejection through the compilation API without using the execution adapter. A batch export script is a separate operational tool, not part of this release.
 
 ## Validation

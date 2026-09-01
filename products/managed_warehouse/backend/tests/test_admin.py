@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Permission
@@ -14,7 +14,8 @@ from rest_framework.response import Response
 from posthog.models import Organization, Team
 
 from products.managed_warehouse.backend.admin.duckgres_server_admin import DuckgresServerAdmin
-from products.managed_warehouse.backend.models import DuckgresServer
+from products.managed_warehouse.backend.admin.view_translation_admin import ManagedWarehouseViewTranslationJobAdmin
+from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseViewTranslationJob
 
 MW = "products.managed_warehouse.backend.presentation.views"
 
@@ -26,6 +27,27 @@ def _attach_messages(request) -> None:
 
 def _messages(request) -> list[str]:
     return [str(m) for m in get_messages(request)]
+
+
+class TestManagedWarehouseViewTranslationJobAdmin(BaseTest):
+    def test_adding_a_job_dispatches_it_after_commit(self) -> None:
+        request = RequestFactory().post("/admin/managed_warehouse/managedwarehouseviewtranslationjob/add/")
+        request.user = self.user
+        model_admin = ManagedWarehouseViewTranslationJobAdmin(ManagedWarehouseViewTranslationJob, AdminSite())
+        job = ManagedWarehouseViewTranslationJob(organization=self.organization)
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.admin.view_translation_admin._start_translation_job"
+            ) as start_job,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            model_admin.save_model(request, job, MagicMock(), change=False)
+
+        job.refresh_from_db()
+        assert job.created_by == self.user
+        assert job.status == ManagedWarehouseViewTranslationJob.Status.PENDING
+        start_job.assert_called_once_with(job.id)
 
 
 class TestDuckgresServerAdminProvision(BaseTest):

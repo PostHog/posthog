@@ -59,6 +59,16 @@ The DuckLake copy and registration workflows write data into a DuckLake-managed 
 
 The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise copies will fail before they even reach the first activity.
 
+## Managed view translation pass
+
+The `managed-warehouse.translate-views` Temporal workflow performs a best-effort HogQL-to-Trino compilation pass for an existing managed warehouse. It snapshots active views and materialized views for control-plane-enabled teams in the organization, excluding endpoint queries. Each result is stored in `ManagedWarehouseViewTranslationResult`; it does not replace the saved query's canonical HogQL, execute SQL, or create Trino objects.
+
+Provisioning does not start this workflow. To run it, add a `Managed warehouse view translation job` row in Django admin and select the provisioned organization. The admin starts the workflow after the row commits. Only one pending or running job may exist for an organization.
+
+The job ends as completed when every snapshot compiles, completed with errors when individual views fail or become stale, and failed when setup or workflow infrastructure prevents the pass. Individual failures do not stop later views from compiling. A view becomes stale when its definition changes or is removed after the snapshot. The result rows retain the generated Trino SQL, named values, normalized HogQL, and any compilation error for inspection.
+
+The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
+
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:
