@@ -2,15 +2,18 @@ import io
 import json
 import pickle
 import dataclasses
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -29,8 +32,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     _CATALOG_PICKLE_MODULE_PREFIXES,
     _CATALOG_PICKLE_MODULES,
+    _TEAM_FLAG_CACHE,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _cached_team_flag,
     _CatalogUnpickler,
     _compute_system_table_access_decision,
     _construct_database_root_node,
@@ -1106,6 +1111,41 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    def test_event_modifier_fetch_is_one_query_for_all_names(self):
+        found = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="found", query={"query": "SELECT 1 AS id"}, columns={"id": "String"}
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="soft_deleted",
+            query={"query": "SELECT 2 AS id"},
+            columns={"id": "String"},
+            deleted=True,
+        )
+
+        def modifier(name: str) -> DataWarehouseEventsModifier:
+            return DataWarehouseEventsModifier(
+                table_name=name, id_field="id", timestamp_field="created_at", distinct_id_field="id"
+            )
+
+        def fetch(names: list[str]) -> tuple[int, dict]:
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(dataWarehouseEventsModifiers=[modifier(n) for n in names])
+            )
+            with CaptureQueriesContext(connection) as context:
+                sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+            return len(context.captured_queries), sources.event_modifier_saved_queries
+
+        fetch(["found"])  # warm per-process caches so the measured fetches differ only in name count
+        single_count, _ = fetch(["found"])
+        triple_count, saved_queries = fetch(["found", "soft_deleted", "missing"])
+
+        # One bulk query serves any number of modifier names.
+        assert triple_count == single_count
+        assert saved_queries["found"].id == found.id
+        assert saved_queries["soft_deleted"] is None
+        assert saved_queries["missing"] is None
 
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(
@@ -4181,3 +4221,34 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestCachedTeamFlag(TestCase):
+    def setUp(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    def tearDown(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    @override_settings(HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS=30.0)
+    def test_evaluates_once_within_ttl_and_isolates_teams(self):
+        team_a = cast(Team, SimpleNamespace(uuid="team-a-uuid"))
+        team_b = cast(Team, SimpleNamespace(uuid="team-b-uuid"))
+        evaluate = Mock(side_effect=[True, False])
+
+        assert _cached_team_flag("some-flag", team_a, evaluate) is True
+        assert _cached_team_flag("some-flag", team_a, evaluate) is True
+        assert evaluate.call_count == 1
+
+        # A different team must not see team A's cached decision.
+        assert _cached_team_flag("some-flag", team_b, evaluate) is False
+        assert evaluate.call_count == 2
+
+    @override_settings(HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS=0)
+    def test_zero_ttl_disables_caching(self):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("some-flag", team, evaluate)
+        _cached_team_flag("some-flag", team, evaluate)
+        assert evaluate.call_count == 2
