@@ -126,6 +126,14 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             error=self._conversion_goal_error,
         )
 
+    def _build_not_ready_response(self) -> MarketingAnalyticsTableQueryResponse:
+        return MarketingAnalyticsTableQueryResponse(
+            results=[],
+            columns=[],
+            modifiers=self.modifiers,
+            precomputeNotReady=True,
+        )
+
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]

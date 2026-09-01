@@ -190,6 +190,13 @@ class MarketingAnalyticsAggregatedQueryRunner(
             error=self._conversion_goal_error,
         )
 
+    def _build_not_ready_response(self) -> MarketingAnalyticsAggregatedQueryResponse:
+        return MarketingAnalyticsAggregatedQueryResponse(
+            results={},
+            modifiers=self.modifiers,
+            precomputeNotReady=True,
+        )
+
     def calculate_without_compare(self) -> ast.SelectQuery:
         """Execute the query without comparison - no pagination needed"""
         query = self.to_query()

@@ -123,6 +123,14 @@ class NonIntegratedConversionsTableQueryRunner(
             error=self._conversion_goal_error,
         )
 
+    def _build_not_ready_response(self) -> NonIntegratedConversionsTableQueryResponse:
+        return NonIntegratedConversionsTableQueryResponse(
+            results=[],
+            columns=[],
+            modifiers=self.modifiers,
+            precomputeNotReady=True,
+        )
+
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
         """Extract and filter select columns based on self.query.select"""
         if self.query.select:
