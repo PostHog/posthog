@@ -63,6 +63,54 @@ def test_finalize_run_is_retry_safe(team, user, status: WizardRunStatus, error_c
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("finalizer_status", "finalizer_error_code"),
+    (
+        (WizardRunStatus.FAILED, WizardRunErrorCode.EXECUTION_FAILED),
+        (WizardRunStatus.COMPLETED, None),
+    ),
+)
+def test_finalize_run_preserves_user_cancellation(
+    team, user, finalizer_status: WizardRunStatus, finalizer_error_code: str | None
+) -> None:
+    with (
+        patch(
+            "products.wizard.backend.logic.runs.repository_access.repo_selection.resolve_team_github_integration_id",
+            return_value=123,
+        ),
+        patch(
+            "products.wizard.backend.logic.runs.repository_access.repo_selection.repository_accessible_via_integration",
+            return_value=True,
+        ),
+    ):
+        run = wizard_facade.create_run(
+            CreateWizardRunInput(
+                team_id=team.id,
+                created_by_id=user.id,
+                program_id="posthog-integration",
+                environment=WizardRunEnvironment.CLOUD,
+                idempotency_key="test-cancellation-race",
+                workspace=GitRepositoryWorkspace(repository="posthog/posthog"),
+            )
+        )
+    wizard_facade.update_run_status(team.id, run.id, WizardRunStatus.RUNNING)
+    wizard_facade.update_run_status(team.id, run.id, WizardRunStatus.CANCELLED)
+
+    input = WizardRunFinalizationActivityInput(
+        team_id=team.id,
+        run_id=run.id,
+        status=finalizer_status,
+        error_code=finalizer_error_code,
+    )
+
+    async_to_sync(_run_activity)(input)
+
+    persisted = wizard_facade.get_run(team.id, run.id)
+    assert persisted.status == WizardRunStatus.CANCELLED
+    assert persisted.error_code is None
+
+
+@pytest.mark.django_db(transaction=True)
 def test_finalize_run_rejects_local_run(team, user) -> None:
     run = wizard_facade.create_run(
         CreateWizardRunInput(
