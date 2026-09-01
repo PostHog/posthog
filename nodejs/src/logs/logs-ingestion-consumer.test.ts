@@ -16,6 +16,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } 
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -228,6 +229,7 @@ describe('LogsIngestionConsumer', () => {
                         'test'
                     ),
                 }),
+                usageBatch: new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
                 ...depsPartial,
             },
             overrides
@@ -2064,6 +2066,7 @@ describe('LogsIngestionConsumer', () => {
                             'test'
                         ),
                     }),
+                    usageBatch: new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
                 }
             )
             tracesConsumer['kafkaConsumer'] = {

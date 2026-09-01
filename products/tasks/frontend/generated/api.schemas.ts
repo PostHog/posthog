@@ -2635,6 +2635,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -2756,6 +2761,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3122,6 +3132,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -3440,7 +3455,7 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 64
      */
     source?: string
-    /** Artifact contents encoded according to content_encoding */
+    /** Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead. */
     content: string
     /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
      *
