@@ -33,6 +33,7 @@ from posthog.schema_enums import (
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
     AssistantArrayPropertyFilterOperator as AssistantArrayPropertyFilterOperator,
+    AssistantBehavioralPropertyFilterOperator as AssistantBehavioralPropertyFilterOperator,
     AssistantDataVisualizationDisplayType as AssistantDataVisualizationDisplayType,
     AssistantDateTimePropertyFilterOperator as AssistantDateTimePropertyFilterOperator,
     AssistantEventMultipleBreakdownFilterType as AssistantEventMultipleBreakdownFilterType,
@@ -9204,6 +9205,55 @@ class AnalyticsQueryResponseBase(BaseModel):
     )
 
 
+class AssistantBehavioralPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_filters: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | FeaturePropertyFilter
+            | HogQLPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Extra property filters the matching events must satisfy. Deliberately"
+            " excludes nested behavioral/cohort filters and groups"
+        ),
+    )
+    event_type: BehavioralEventSource
+    explicit_datetime: str | None = Field(
+        default=None,
+        description=("Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"),
+    )
+    explicit_datetime_to: str | None = None
+    key: str = Field(..., description="Event name, or action id when event_type is 'actions'")
+    label: str | None = None
+    negation: bool | None = Field(
+        default=None,
+        description=(
+            "Match persons who did NOT satisfy the criterion. Not the same as a low"
+            " count — zero-occurrence persons never match count operators"
+        ),
+    )
+    operator: AssistantBehavioralPropertyFilterOperator | None = None
+    operator_value: int | None = Field(default=None, description="Count threshold for performed_event_multiple")
+    time_interval: TimeUnitType | None = None
+    time_value: int | None = Field(default=None, description="Relative time window size, paired with time_interval")
+    type: Literal["behavioral"] = Field(
+        default="behavioral",
+        description=(
+            "Person performed (or didn't perform) an event in a time window."
+            " ClickHouse-only — not evaluable by flags or CDP"
+        ),
+    )
+    value: InlineBehavioralType
+
+
 class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9461,84 +9511,6 @@ class AssistantFunnelsGroupNode(BaseModel):
     operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
 
 
-class AssistantFunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=(
-            "Use this field to define the aggregation by a specific group from the"
-            " provided group mapping, which is NOT users or sessions."
-        ),
-    )
-    breakdownFilter: AssistantFunnelsBreakdownFilter | None = Field(
-        default=None,
-        description=(
-            "A breakdown is used to segment data by a single property value. They"
-            " divide all defined funnel series into multiple subseries based on the"
-            " values of the property. Include a breakdown **only when it is essential"
-            " to directly answer the user’s question**. You must not add a breakdown if"
-            " the question can be addressed without additional segmentation. When using"
-            " breakdowns, you must:\n- **Identify the property group** and name for a"
-            " breakdown.\n- **Provide the property name** for a breakdown.\n-"
-            " **Validate that the property value accurately reflects the intended"
-            " criteria**. Examples of using a breakdown:\n- page views to sign up"
-            " funnel by country: you need to find a property such as"
-            " `$geoip_country_code` and set it as a breakdown.\n- conversion rate of"
-            " users who have completed onboarding after signing up by an organization:"
-            " you need to find a property such as `organization name` and set it as a"
-            " breakdown."
-        ),
-    )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
-        default=None, description="Date range for the query"
-    )
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the respective filters"),
-    )
-    funnelsFilter: AssistantFunnelsFilter | None = Field(
-        default=None, description="Properties specific to the funnels insight"
-    )
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
-    )
-    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    properties: (
-        list[
-            AssistantCohortPropertyFilter
-            | AssistantHogQLPropertyFilter
-            | AssistantFlagPropertyFilter
-            | AssistantGenericPropertyFilter1
-            | AssistantGenericPropertyFilter2
-            | AssistantGenericPropertyFilter3
-            | AssistantGenericPropertyFilter4
-            | AssistantGenericPropertyFilter5
-            | AssistantGroupPropertyFilter1
-            | AssistantGroupPropertyFilter2
-            | AssistantGroupPropertyFilter3
-            | AssistantGroupPropertyFilter4
-            | AssistantGroupPropertyFilter5
-            | AssistantElementPropertyFilter1
-            | AssistantElementPropertyFilter2
-            | AssistantElementPropertyFilter3
-            | AssistantElementPropertyFilter4
-            | AssistantElementPropertyFilter5
-        ]
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    samplingFactor: float | None = Field(
-        default=None,
-        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
-    )
-    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
-        ...,
-        description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
-    )
-
-
 class AssistantInsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9553,7 +9525,8 @@ class AssistantInsightsQueryBase(BaseModel):
     )
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -9693,7 +9666,8 @@ class AssistantPathsQuery(BaseModel):
     )
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -9900,7 +9874,8 @@ class AssistantRetentionQuery(BaseModel):
     kind: Literal["RetentionQuery"] = "RetentionQuery"
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -10118,7 +10093,8 @@ class AssistantStickinessQuery(BaseModel):
     kind: Literal["StickinessQuery"] = "StickinessQuery"
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -10365,7 +10341,8 @@ class AssistantTrendsQuery(BaseModel):
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -24933,67 +24910,82 @@ class AssistantBasePropertyFilter(
     )
 
 
-class AssistantFunnelsActorsQuery(BaseModel):
+class AssistantFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelStep: int | None = Field(
+    aggregation_group_type_index: int | None = Field(
         default=None,
         description=(
-            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the'
-            " step to drill into.\n**Positive** lists actors who converted through that"
-            " step; **negative** lists actors who dropped off at it. E.g. `2` ="
-            " converted through step 2, `-2` = dropped off at step 2. The smallest"
-            " negative value is `-2` (no one can drop off at the entry step)."
+            "Use this field to define the aggregation by a specific group from the"
+            " provided group mapping, which is NOT users or sessions."
         ),
     )
-    funnelStepBreakdown: list[str] | None = Field(
+    breakdownFilter: AssistantFunnelsBreakdownFilter | None = Field(
         default=None,
         description=(
-            "Step mode only. Scope the actors to a single breakdown series. Pass the"
-            " breakdown value(s) from the matching `query-funnel` result row verbatim"
-            ' (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown)'
-            " series."
+            "A breakdown is used to segment data by a single property value. They"
+            " divide all defined funnel series into multiple subseries based on the"
+            " values of the property. Include a breakdown **only when it is essential"
+            " to directly answer the user’s question**. You must not add a breakdown if"
+            " the question can be addressed without additional segmentation. When using"
+            " breakdowns, you must:\n- **Identify the property group** and name for a"
+            " breakdown.\n- **Provide the property name** for a breakdown.\n-"
+            " **Validate that the property value accurately reflects the intended"
+            " criteria**. Examples of using a breakdown:\n- page views to sign up"
+            " funnel by country: you need to find a property such as"
+            " `$geoip_country_code` and set it as a breakdown.\n- conversion rate of"
+            " users who have completed onboarding after signing up by an organization:"
+            " you need to find a property such as `organization name` and set it as a"
+            " breakdown."
         ),
     )
-    funnelTrendsDropOff: bool | None = Field(
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    funnelsFilter: AssistantFunnelsFilter | None = Field(
+        default=None, description="Properties specific to the funnels insight"
+    )
+    interval: IntervalType | None = Field(
         default=None,
-        description=(
-            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`,'
-            " list the actors who dropped off; when `false`, list those who converted."
-            " Use together with `funnelTrendsEntrancePeriodStart`."
-        ),
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
     )
-    funnelTrendsEntrancePeriodStart: str | None = Field(
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    properties: (
+        list[
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
         default=None,
-        description=(
-            "Trends-dropoff mode only. The entrance period to drill into, as a"
-            " `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from"
-            " the funnel-trends point the user is asking about. Use together with"
-            " `funnelTrendsDropOff`."
-        ),
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    includeRecordings: bool | None = Field(
-        default=True,
-        description="Whether to include matched session recordings for each actor.",
-    )
-    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
-    limit: int | None = Field(
-        default=100,
-        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
-    )
-    offset: int | None = Field(
-        default=0,
-        description=(
-            "Number of persons to skip before the returned page. Use it with `limit` to"
-            " walk the whole result set: the response reports `limit`, `offset`, and"
-            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
-            " `limit`."
-        ),
-    )
-    source: AssistantFunnelsQuery = Field(
+    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
         ...,
-        description=("The source funnel insight query whose step (or trends point) we are drilling into."),
+        description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
     )
 
 
@@ -25019,7 +25011,8 @@ class AssistantLifecycleQuery(BaseModel):
     )
     properties: (
         list[
-            AssistantCohortPropertyFilter
+            AssistantBehavioralPropertyFilter
+            | AssistantCohortPropertyFilter
             | AssistantHogQLPropertyFilter
             | AssistantFlagPropertyFilter
             | AssistantGenericPropertyFilter1
@@ -27983,6 +27976,70 @@ class AnyDataWarehouseNode(RootModel[DataWarehouseNode | FunnelsDataWarehouseNod
 
 class AnyEntityNodeDataWarehouseNode(RootModel[EventsNode | ActionsNode | DataWarehouseNode]):
     root: EventsNode | ActionsNode | DataWarehouseNode
+
+
+class AssistantFunnelsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelStep: int | None = Field(
+        default=None,
+        description=(
+            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the'
+            " step to drill into.\n**Positive** lists actors who converted through that"
+            " step; **negative** lists actors who dropped off at it. E.g. `2` ="
+            " converted through step 2, `-2` = dropped off at step 2. The smallest"
+            " negative value is `-2` (no one can drop off at the entry step)."
+        ),
+    )
+    funnelStepBreakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Step mode only. Scope the actors to a single breakdown series. Pass the"
+            " breakdown value(s) from the matching `query-funnel` result row verbatim"
+            ' (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown)'
+            " series."
+        ),
+    )
+    funnelTrendsDropOff: bool | None = Field(
+        default=None,
+        description=(
+            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`,'
+            " list the actors who dropped off; when `false`, list those who converted."
+            " Use together with `funnelTrendsEntrancePeriodStart`."
+        ),
+    )
+    funnelTrendsEntrancePeriodStart: str | None = Field(
+        default=None,
+        description=(
+            "Trends-dropoff mode only. The entrance period to drill into, as a"
+            " `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from"
+            " the funnel-trends point the user is asking about. Use together with"
+            " `funnelTrendsDropOff`."
+        ),
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
+    source: AssistantFunnelsQuery = Field(
+        ...,
+        description=("The source funnel insight query whose step (or trends point) we are drilling into."),
+    )
 
 
 class AssistantLifecycleActorsQuery(BaseModel):
