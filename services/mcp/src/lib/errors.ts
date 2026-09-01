@@ -195,6 +195,24 @@ export class ExecCommandError extends Error {
     }
 }
 
+/**
+ * Thrown when the MCP gateway refuses a proxied third-party tool call with a
+ * typed reason (`needs_approval`, `disabled`, `removed`, `upstream_error`). The
+ * backend's `detail` rides on `message` so the agent reads why the call was
+ * refused; `reason` classifies the refusal into a code distinct from
+ * `unknown_tool` — the tool name resolved, the call was refused. Not captured as
+ * an exception: a refusal is an expected policy or upstream state, not a bug.
+ */
+export class GatewayToolError extends Error {
+    public readonly reason: string
+
+    constructor(message: string, reason: string) {
+        super(message)
+        this.name = 'GatewayToolError'
+        this.reason = reason
+    }
+}
+
 export interface PostHogApiErrorOptions {
     status: number
     statusText: string
@@ -441,7 +459,12 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
 
 /** Classifies a recoverable error class the tool layer raises itself. */
 function codeForRecoverableError(
-    error: MissingProjectContextError | MissingOrganizationContextError | ToolInputValidationError | ExecCommandError
+    error:
+        | MissingProjectContextError
+        | MissingOrganizationContextError
+        | ToolInputValidationError
+        | ExecCommandError
+        | GatewayToolError
 ): ToolErrorCode {
     if (error instanceof MissingProjectContextError) {
         return 'missing_project_context'
@@ -449,7 +472,31 @@ function codeForRecoverableError(
     if (error instanceof MissingOrganizationContextError) {
         return 'missing_organization_context'
     }
+    if (error instanceof GatewayToolError) {
+        return codeForGatewayRefusal(error.reason)
+    }
     return error instanceof ExecCommandError ? error.reason : 'invalid_input'
+}
+
+/**
+ * Classifies a gateway refusal of a proxied third-party tool call. The gateway
+ * returns these as HTTP 403 (`needs_approval`, `disabled`), 404 (`removed`) and
+ * 502 (`upstream_error`), so the codes match what the same statuses get from
+ * `codeForApiError` and the 5xx path — a refused call is never `unknown_tool`,
+ * because the tool name did resolve.
+ */
+function codeForGatewayRefusal(reason: string): ToolErrorCode {
+    switch (reason) {
+        case 'needs_approval':
+        case 'disabled':
+            return 'permission_denied'
+        case 'removed':
+            return 'not_found'
+        case 'upstream_error':
+            return 'upstream_error'
+        default:
+            return 'invalid_request'
+    }
 }
 
 /** Classifies a 4xx the PostHog API returned. */
@@ -515,7 +562,8 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
         error instanceof ToolInputValidationError ||
-        error instanceof ExecCommandError
+        error instanceof ExecCommandError ||
+        error instanceof GatewayToolError
     ) {
         return buildToolErrorResult(toolName, codeForRecoverableError(error), error.message)
     }

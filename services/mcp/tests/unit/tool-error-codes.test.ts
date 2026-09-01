@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
     ExecCommandError,
+    GatewayToolError,
     handleToolError,
     MissingProjectContextError,
     PostHogApiError,
@@ -38,6 +39,21 @@ describe('tool error codes', () => {
             name: 'exec rejection, which keeps its own reason',
             error: new ExecCommandError('nope', 'unknown_tool'),
             code: 'unknown_tool',
+        },
+        {
+            name: 'a gateway tool awaiting approval',
+            error: new GatewayToolError('Tool needs approval in PostHog.', 'needs_approval'),
+            code: 'permission_denied',
+        },
+        {
+            name: 'a gateway tool removed upstream',
+            error: new GatewayToolError('Tool no longer exists upstream.', 'removed'),
+            code: 'not_found',
+        },
+        {
+            name: 'a gateway upstream failure',
+            error: new GatewayToolError('The upstream MCP server errored.', 'upstream_error'),
+            code: 'upstream_error',
         },
         { name: 'a 404', error: apiError(404), code: 'not_found' },
         { name: 'a 429', error: apiError(429), code: 'rate_limited' },

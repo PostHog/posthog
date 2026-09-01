@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { ExecCommandError } from '@/lib/errors'
+import { GatewayToolError } from '@/lib/errors'
 import { buildGatewayTools } from '@/lib/gateway-tools'
 import { createExecTool, type ExecCommandMeta } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
@@ -143,7 +143,7 @@ describe('gateway tools', () => {
         })
         const tools = buildGatewayTools(payload(), mockContext(request), '1')
 
-        await expect(tools[0]!.handler(mockContext(), {})).rejects.toThrow(ExecCommandError)
+        await expect(tools[0]!.handler(mockContext(), {})).rejects.toThrow(GatewayToolError)
         await expect(tools[0]!.handler(mockContext(), {})).rejects.toThrow('needs approval in PostHog')
     })
 

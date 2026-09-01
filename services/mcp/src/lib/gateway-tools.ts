@@ -15,7 +15,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { ExecCommandError } from '@/lib/errors'
+import { GatewayToolError } from '@/lib/errors'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 /** Separates the server slug from the upstream tool name. PostHog's own tool names are
@@ -104,11 +104,13 @@ async function callGatewayTool(
         })
     } catch (error) {
         // The gateway refuses a call with a typed reason (needs approval, disabled by
-        // policy, removed upstream). Surface that verbatim: it tells the agent whether
-        // to stop or to ask the user for something, which a bare HTTP error does not.
+        // policy, removed upstream, upstream failure). Preserve both parts: the `detail`
+        // tells the agent whether to stop or to ask the user for something, and the
+        // `reason` classifies the refusal into a code distinct from a name that never
+        // resolved — a bare HTTP error carries neither.
         const refusal = parseRefusal(error)
         if (refusal) {
-            throw new ExecCommandError(refusal, 'unknown_tool')
+            throw new GatewayToolError(refusal.detail, refusal.reason)
         }
         throw error
     }
@@ -127,7 +129,7 @@ async function callGatewayTool(
 }
 
 /** Pull the gateway's `{detail, reason}` body out of an API error, if that's what it is. */
-function parseRefusal(error: unknown): string | undefined {
+function parseRefusal(error: unknown): { detail: string; reason: string } | undefined {
     const body = (error as { body?: unknown } | undefined)?.body
     if (typeof body !== 'string') {
         return undefined
@@ -135,7 +137,7 @@ function parseRefusal(error: unknown): string | undefined {
     try {
         const parsed = JSON.parse(body) as { detail?: unknown; reason?: unknown }
         if (typeof parsed.detail === 'string' && typeof parsed.reason === 'string') {
-            return parsed.detail
+            return { detail: parsed.detail, reason: parsed.reason }
         }
     } catch {
         return undefined
