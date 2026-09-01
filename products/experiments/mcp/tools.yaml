@@ -1411,6 +1411,9 @@ tools:
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false
+    experiments-running-time-estimates-retrieve:
+        operation: experiments_running_time_estimates_retrieve
+        enabled: false
     experiments-session-buckets-create:
         operation: experiments_session_buckets_create
         enabled: false
