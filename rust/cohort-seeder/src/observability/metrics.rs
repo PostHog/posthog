@@ -48,6 +48,20 @@ pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total"
 /// object or escaped the static analysis, so the scan selects every column. A team sitting at
 /// `full_columns` is the signal to read the run's census for which event names block it.
 pub const CHUNKS_PROJECTED: &str = "seeder_chunks_projected_total";
+/// Shadow-compare verdicts per chunk, labelled by closed `result` (`match`/`diff`/`error`) and
+/// `team_id` (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on. `diff` is the
+/// validation failure signal — the paired `warn!` carries the chunk attribution and exemplars.
+/// `error` means the diagnostic wide scan itself failed and the chunk's projected tiles were
+/// emitted unverified.
+pub const SHADOW_COMPARE: &str = "seeder_shadow_compare_total";
+/// Rows the shadow compare's legacy wide arm refused to build globals for, labelled by `team_id`
+/// (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on, and at zero as well.
+///
+/// The projected arm selects an empty literal wherever no condition reads a blob, so nothing there
+/// can fail to parse. Only the wide arm can count these, and the count is what separates a
+/// projection defect from the malformed-blob over-count `sql::render_blob` documents — which lands
+/// in `result="diff"` indistinguishably otherwise.
+pub const SHADOW_COMPARE_LEGACY_SKIPPED: &str = "seeder_shadow_compare_legacy_skipped_total";
 /// Top-level JSON keys a narrowed scan rebuilds one blob from, labelled by `blob`
 /// (`properties`/`person_properties`) and `team_id` (histogram). Zero means the blob is not read at
 /// all and the scan selects an empty literal for it.

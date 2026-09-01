@@ -15,22 +15,22 @@ use cohort_core::hogvm::VmErrorClass;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{plan_scan, scan_sql, ScanPlan};
+use super::sql::{plan_scan, scan_sql, ScanPlan, ScanSpec};
 use crate::domain::{
-    conditions_active_on, ActiveConditions, AggregateError, BlobSource, CancelCause,
-    ChunkAccumulator, ChunkDomainError, ChunkProjection, ClaimedChunk, ConditionAnalyses, DayIdx,
-    EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome, RecordStats, ScanVolume,
-    ScannedChunk, SeedDomain, SeedTile, UtcMillis,
+    conditions_active_on, diff_tiles, ActiveConditions, AggregateError, BlobSource, CancelCause,
+    ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk,
+    ConditionAnalyses, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome,
+    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
     CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
-    PROJECTION_KEYS, ROWS_SCANNED,
+    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_LEGACY_SKIPPED,
 };
 
 #[derive(Clone)]
@@ -40,11 +40,18 @@ pub struct ChunkScanner {
     /// admission decision from it — discovery already did, and re-deciding here would give one
     /// chunk a second, quieter place to be dropped.
     allowlist: TeamAllowlist,
+    /// `SEEDER_SCAN_SHADOW_COMPARE`: re-scan each chunk wide and diff the tiles. On by default and
+    /// diagnostic only — the projected arm's tiles are what the chunk returns either way.
+    shadow_compare: bool,
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist) -> Self {
-        Self { client, allowlist }
+    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
+        Self {
+            client,
+            allowlist,
+            shadow_compare,
+        }
     }
 
     /// `analyses` is the run's, not the chunk's: it is a pure function of the pinned bytecode, so
@@ -97,7 +104,7 @@ impl ChunkScanner {
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<(Vec<SeedTile>, ScanVolume), ScanHalt> {
-        let _timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
+        let timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
         let spec = chunk.spec();
         let domain = run.domain_for(&spec).map_err(ScanError::from)?;
         let active = active_conditions_at(spec.day, run.tz, now_ms, &run.conditions);
@@ -121,41 +128,183 @@ impl ChunkScanner {
         let projection = analyses.projection(&active);
         self.record_projection(run.team_id, &projection);
 
-        let mut cursor = self
-            .client
-            .query(&scan_sql(&scan_spec, &projection))
-            .with_option(
-                LOG_COMMENT_OPTION,
+        let (tiles, volume, _) = self
+            .scan_once(
+                spec,
+                run,
+                &domain,
+                &active,
+                &scan_spec,
+                &projection,
+                ScanKind::Behavioral,
                 ScanLogComment::BehavioralChunk {
                     spec,
                     cohort_id: run.sole_cohort_id(),
-                }
-                .to_string(),
+                },
+                lease_cancel,
+                shutdown,
             )
+            .await?;
+        // Closed before the diagnostic arm, which must not lengthen the chunk's reported scan.
+        drop(timer);
+
+        if self.shadow_compare {
+            self.compare_scan(
+                spec,
+                run,
+                &domain,
+                &active,
+                &scan_spec,
+                &tiles,
+                lease_cancel,
+                shutdown,
+            )
+            .await?;
+        }
+        Ok((tiles, volume))
+    }
+
+    /// One rendering of this chunk's scan: build the cursor from [`scan_sql`], fold it through a
+    /// fresh accumulator, meter the moved bytes under `kind`, and return the sorted tiles.
+    ///
+    /// `kind` and `comment` co-vary at the two call sites. The per-row and per-chunk fold metrics
+    /// are emitted for the authoritative [`ScanKind::Behavioral`] arm only, so a diagnostic
+    /// re-scan of the same rows never doubles a throughput series.
+    #[allow(clippy::too_many_arguments)]
+    async fn scan_once(
+        &self,
+        spec: ChunkSpec,
+        run: &PinnedRun,
+        domain: &SeedDomain,
+        active: &ActiveConditions,
+        scan_spec: &ScanSpec,
+        projection: &ChunkProjection,
+        kind: ScanKind,
+        comment: ScanLogComment,
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<(Vec<SeedTile>, ScanVolume, FoldSummary), ScanHalt> {
+        let mut cursor = self
+            .client
+            .query(&scan_sql(scan_spec, projection))
+            .with_option(LOG_COMMENT_OPTION, comment.to_string())
             .fetch::<EventRow>()
             .map_err(ScanError::Query)?;
         let mut accumulator =
-            ChunkAccumulator::new(run.team_id, &run.filters, &active).map_err(ScanError::from)?;
+            ChunkAccumulator::new(run.team_id, &run.filters, active).map_err(ScanError::from)?;
 
         // Every way out of the fold funnels back here, so the volume is metered once whether the
         // scan finished, was cancelled, or failed mid-stream.
         let folded = fold_cursor(
             &mut cursor,
             &mut accumulator,
-            &domain,
+            domain,
             run.team_id,
+            kind,
             lease_cancel,
             shutdown,
         )
         .await;
-        let volume = scan_volume::observe(ScanKind::Behavioral, &cursor);
-        if folded? == RowsSeen::None {
-            counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
+        let volume = scan_volume::observe(kind, &cursor);
+        let summary = folded?;
+        if kind == ScanKind::Behavioral {
+            if summary.rows == RowsSeen::None {
+                counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
+            }
+            histogram!(AGGREGATE_ENTRIES).record(accumulator.entry_count() as f64);
         }
+        Ok((
+            accumulator.into_tiles(domain, run.run_id, spec.lease.epoch()),
+            volume,
+            summary,
+        ))
+    }
 
-        histogram!(AGGREGATE_ENTRIES).record(accumulator.entry_count() as f64);
-        let tiles = accumulator.into_tiles(&domain, run.run_id, spec.lease.epoch());
-        Ok((tiles, volume))
+    /// The diagnostic arm: re-scan the same chunk wide, diff the two tile vectors, meter the
+    /// verdict, and drop the legacy tiles.
+    ///
+    /// A scan *failure* here is metered and swallowed: the diagnostic never fails a chunk. A
+    /// *cancellation* propagates and is then handled exactly as one raised during the projected
+    /// arm — so a lost lease still spends the attempt, and this arm widens the window in which
+    /// that can happen to a fully computed chunk. Swallowing it is worse: pressing on to confirm
+    /// a chunk whose lease is gone would invert the lease protocol, and a shutdown must stay
+    /// prompt.
+    #[allow(clippy::too_many_arguments)]
+    async fn compare_scan(
+        &self,
+        spec: ChunkSpec,
+        run: &PinnedRun,
+        domain: &SeedDomain,
+        active: &ActiveConditions,
+        scan_spec: &ScanSpec,
+        projected_tiles: &[SeedTile],
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<(), ScanHalt> {
+        let team = team_label(&self.allowlist, run.team_id);
+        let (legacy_tiles, summary) = match self
+            .scan_once(
+                spec,
+                run,
+                domain,
+                active,
+                scan_spec,
+                &ChunkProjection::FullColumns,
+                ScanKind::BehavioralCompare,
+                ScanLogComment::BehavioralCompareChunk {
+                    spec,
+                    cohort_id: run.sole_cohort_id(),
+                },
+                lease_cancel,
+                shutdown,
+            )
+            .await
+        {
+            Ok((tiles, _, summary)) => (tiles, summary),
+            Err(ScanHalt::Cancelled(cause)) => return Err(ScanHalt::Cancelled(cause)),
+            Err(ScanHalt::Failed(error)) => {
+                counter!(SHADOW_COMPARE, "result" => "error", "team_id" => team.clone())
+                    .increment(1);
+                // Debug, not Display: the variant's message names the stage, and only its source
+                // chain carries what ClickHouse actually said.
+                warn!(
+                    run_id = %run.run_id.0,
+                    team_id = run.team_id.0,
+                    chunk = %spec.lease.chunk_id().0,
+                    day = spec.day,
+                    band = spec.band.band(),
+                    error = ?error,
+                    "shadow compare scan failed; projected tiles emitted unverified"
+                );
+                return Ok(());
+            }
+        };
+        // Recorded whatever the verdict, and at zero too: on a chunk the projection narrowed to an
+        // empty literal this is the only count of malformed blobs anything will ever take, and it
+        // is what tells a projection defect apart from the over-count `render_blob` documents.
+        counter!(SHADOW_COMPARE_LEGACY_SKIPPED, "team_id" => team.clone())
+            .increment(summary.globals_parse_errors);
+
+        let diff = diff_tiles(projected_tiles, &legacy_tiles);
+        if diff.is_match() {
+            counter!(SHADOW_COMPARE, "result" => "match", "team_id" => team.clone()).increment(1);
+            return Ok(());
+        }
+        counter!(SHADOW_COMPARE, "result" => "diff", "team_id" => team).increment(1);
+        warn!(
+            run_id = %run.run_id.0,
+            team_id = run.team_id.0,
+            chunk = %spec.lease.chunk_id().0,
+            day = spec.day,
+            band = spec.band.band(),
+            missing = diff.missing,
+            extra = diff.extra,
+            count_differs = diff.count_differs,
+            legacy_globals_parse_errors = summary.globals_parse_errors,
+            exemplars = ?diff.exemplars,
+            "shadow compare diverged between the projected and legacy scans"
+        );
+        Ok(())
     }
 
     /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
@@ -193,10 +342,33 @@ fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>
 
 /// Whether the cursor yielded anything, which is what separates a chunk with no matching history
 /// from one that produced no tiles for another reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum RowsSeen {
+    #[default]
     None,
     Some,
+}
+
+/// What a fold observed beyond the metrics it emitted.
+///
+/// `globals_parse_errors` is counted on every arm, metered or not: the projected arm selects an
+/// empty literal wherever no condition reads a blob, so nothing there can fail to parse, and only
+/// the wide arm can report how many rows the two arms therefore treat differently.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FoldSummary {
+    rows: RowsSeen,
+    globals_parse_errors: u64,
+}
+
+impl FoldSummary {
+    /// Count the outcomes the two arms can disagree on, which is the malformed-blob skip alone:
+    /// both read the same rows with the same timestamps, and only the wide arm parses a blob the
+    /// projection replaced with an empty literal.
+    fn observe(&mut self, outcome: ScanEventOutcome) {
+        if outcome == ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError) {
+            self.globals_parse_errors += 1;
+        }
+    }
 }
 
 /// Drive the cursor into the accumulator until it is exhausted, cancelled, or fails. Returns rather
@@ -206,10 +378,12 @@ async fn fold_cursor(
     accumulator: &mut ChunkAccumulator,
     domain: &SeedDomain,
     team_id: TeamId,
+    kind: ScanKind,
     lease_cancel: &CancellationToken,
     shutdown: &CancellationToken,
-) -> Result<RowsSeen, ScanHalt> {
-    let mut rows_seen = RowsSeen::None;
+) -> Result<FoldSummary, ScanHalt> {
+    let metered = kind == ScanKind::Behavioral;
+    let mut summary = FoldSummary::default();
     loop {
         let row = tokio::select! {
             biased;
@@ -218,16 +392,23 @@ async fn fold_cursor(
             row = cursor.next() => row.map_err(ScanError::Cursor)?,
         };
         let Some(row) = row else {
-            return Ok(rows_seen);
+            return Ok(summary);
         };
-        rows_seen = RowsSeen::Some;
-        counter!(ROWS_SCANNED).increment(1);
-        match fold_event(domain, accumulator, row_to_event(team_id, row))
-            .map_err(ScanError::from)?
-        {
-            ScanEventOutcome::Evaluated(stats) => record_evaluation(stats),
-            ScanEventOutcome::Skipped(reason) => {
-                counter!(EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
+        summary.rows = RowsSeen::Some;
+        // The per-row series describe the authoritative scan. A diagnostic re-scan walks the same
+        // rows, so counting them again would double every reading a dashboard takes off these.
+        if metered {
+            counter!(ROWS_SCANNED).increment(1);
+        }
+        let outcome =
+            fold_event(domain, accumulator, row_to_event(team_id, row)).map_err(ScanError::from)?;
+        summary.observe(outcome);
+        if metered {
+            match outcome {
+                ScanEventOutcome::Evaluated(stats) => record_evaluation(stats),
+                ScanEventOutcome::Skipped(reason) => {
+                    counter!(EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
+                }
             }
         }
     }
@@ -306,15 +487,24 @@ enum ScanEventOutcome {
     Skipped(ScanSkipReason),
 }
 
+/// Why a scanned row produced no evaluation. The closed `reason` vocabulary on
+/// `seeder_events_skipped_total`, which is why [`ScanSkipReason::ALL`] exists: a validation run
+/// gated on `globals_parse_error` staying at zero needs the series present before it reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScanSkipReason {
+pub enum ScanSkipReason {
     TimestampParse,
     DayMismatch,
     GlobalsParseError,
 }
 
 impl ScanSkipReason {
-    const fn as_str(self) -> &'static str {
+    pub const ALL: [Self; 3] = [
+        Self::TimestampParse,
+        Self::DayMismatch,
+        Self::GlobalsParseError,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::TimestampParse => "timestamp_parse",
             Self::DayMismatch => "day_mismatch",
@@ -484,6 +674,7 @@ mod tests {
         let scanner = ChunkScanner::new(
             clickhouse::Client::default(),
             TeamAllowlist::Only(std::collections::HashSet::from([2])),
+            false,
         );
         let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
@@ -538,6 +729,26 @@ mod tests {
                 "{blob} took a sample from the full-columns chunk:\n{rendered}"
             );
         }
+    }
+
+    /// The one number that separates a projection defect from the malformed-blob over-count
+    /// `sql::render_blob` documents, and the only reading a fully-`Empty` projection can ever
+    /// produce. It has to count the globals skip and nothing else.
+    #[test]
+    fn the_fold_summary_tallies_malformed_blobs_and_no_other_outcome() {
+        let mut summary = FoldSummary::default();
+        for outcome in [
+            ScanEventOutcome::Evaluated(RecordStats::default()),
+            ScanEventOutcome::Skipped(ScanSkipReason::TimestampParse),
+            ScanEventOutcome::Skipped(ScanSkipReason::DayMismatch),
+        ] {
+            summary.observe(outcome);
+        }
+        assert_eq!(summary.globals_parse_errors, 0);
+
+        summary.observe(ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError));
+        summary.observe(ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError));
+        assert_eq!(summary.globals_parse_errors, 2);
     }
 
     #[test]
