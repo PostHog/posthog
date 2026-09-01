@@ -17,6 +17,7 @@ import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
 from parameterized import parameterized
+from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import (
@@ -2407,6 +2408,14 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
         # groups by the stable message instead of the errno and pod address the leaf still carries.
         assert exc_info.value.__cause__ is None
         assert exc_info.value.__suppress_context__ is True
+        # Prove it through the real capture serializer: the errno and pod address must not survive into
+        # `$exception_list`, or one outage still fragments into a fresh error-tracking issue per variant.
+        serialized = exceptions_from_error_tuple(
+            (type(exc_info.value), exc_info.value, exc_info.value.__traceback__)
+        )
+        captured = " ".join(str(item.get("value")) for item in serialized)
+        assert "ECONNREFUSED" not in captured
+        assert "10.0.0.5" not in captured
 
 
 @pytest.mark.asyncio
