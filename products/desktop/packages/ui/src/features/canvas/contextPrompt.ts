@@ -31,8 +31,12 @@ export function buildContextGenerationPrompt(input: {
   description?: string;
   contextLayerEnabled?: boolean;
 }): string {
-  const { channelName, channelId, description, contextLayerEnabled = false } =
-    input;
+  const {
+    channelName,
+    channelId,
+    description,
+    contextLayerEnabled = false,
+  } = input;
   const seed = description?.trim()
     ? `\nThe user describes what this space is about:
 """
