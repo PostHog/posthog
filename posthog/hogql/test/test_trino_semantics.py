@@ -9,10 +9,15 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.schema_enums import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -80,6 +85,49 @@ class TestTrinoSemantics(APIBaseTest):
 
         self.assertNotIn("COHORT", sql)
         self.assertIn('"ducklake"."analytics"."raw_cohort_people"', sql)
+
+    def test_restricted_user_cannot_compile_any_trino_query(self) -> None:
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.PROPERTY_ACCESS_CONTROL,
+                "key": AvailableFeature.PROPERTY_ACCESS_CONTROL,
+            }
+        ]
+        self.organization.save()
+        self.team.organization.refresh_from_db()
+        restricted_property = PropertyDefinition.objects.create(
+            team=self.team,
+            name="private_email",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=restricted_property,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        context = self._semantic_context(["events"])
+        context.restricted_properties = None
+
+        with self.assertRaisesRegex(TrinoLoweringError, "TRINO_RESTRICTED_PROPERTIES_UNSUPPORTED"):
+            prepare_and_print_ast(parse_select("SELECT 1"), context, "trino")
+
+
+class TestTrinoAccessControl(SimpleTestCase):
+    def test_preloaded_restriction_rejects_query_without_property_reads(self) -> None:
+        context = HogQLContext(
+            database=Database(include_posthog_tables=True),
+            enable_select_queries=True,
+            restricted_properties={
+                RestrictedProperty(
+                    name="private_email",
+                    property_type=PropertyDefinition.Type.EVENT,
+                )
+            },
+        )
+
+        with self.assertRaisesRegex(TrinoLoweringError, "TRINO_RESTRICTED_PROPERTIES_UNSUPPORTED"):
+            prepare_and_print_ast(parse_select("SELECT 1"), context, "trino")
 
 
 class TestTrinoPersonsSemantics(SimpleTestCase):
