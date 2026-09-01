@@ -171,7 +171,7 @@ export function AutoArchiveSettingsDialog({
                 max={MAX_THRESHOLD_DAYS}
                 step={1}
                 disabled={isSaving}
-                className="w-24 shrink-0"
+                className="w-20 shrink-0"
               >
                 <NumberFieldGroup>
                   <NumberFieldInput className="text-start" />
