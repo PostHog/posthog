@@ -32,7 +32,6 @@ import structlog
 
 from posthog.models import Team, User
 
-from products.feature_flags.backend.facade.api import add_group_to_flag_targeting, widen_group_targeting
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -102,10 +101,20 @@ class _FlagsApiTargeting:
             response = self._session.get(url, timeout=15)
             response.raise_for_status()
             filters = response.json().get("filters") or {}
-            outcome = widen_group_targeting(filters, group_key)
-            if outcome is None:
+            # Mirrors add_group_to_flag_targeting in the feature flags facade; keep in sync.
+            conditions = [
+                prop
+                for group in filters.get("groups") or []
+                for prop in group.get("properties", [])
+                if prop.get("key") == "$group_key"
+            ]
+            if not conditions:
                 return "no organization targeting to widen"
-            if outcome == "added":
+            values = conditions[0].get("value")
+            if not isinstance(values, list):
+                return "no organization targeting to widen"
+            if group_key not in values:
+                values.append(group_key)
                 self._session.patch(url, json={"filters": filters}, timeout=15).raise_for_status()
             return None
         except requests.RequestException as error:
@@ -124,6 +133,10 @@ class _LocalFlagTargeting:
         return f"team {self._team.id}"
 
     def add_group(self, key: str, group_key: str) -> str | None:
+        from products.feature_flags.backend.facade.api import (  # noqa: PLC0415 — keeps the flags API surface off the command's import path
+            add_group_to_flag_targeting,
+        )
+
         if add_group_to_flag_targeting(team=self._team, key=key, group_key=group_key):
             return None
         return "no organization targeting to widen"
