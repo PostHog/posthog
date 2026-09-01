@@ -2021,10 +2021,7 @@ export interface FeatureRequestEvidencePayloadApi {
      * @maxLength 200
      */
     evidence_source: string
-    /**
-     * Optional HTTP or HTTPS link to the source.
-     * @maxLength 2000
-     */
+    /** Optional HTTP or HTTPS link to the source. */
     source_url?: string
     /**
      * Date the account made the request, or null when unknown.
@@ -2145,10 +2142,7 @@ export interface FeatureRequestEvidenceCreateApi {
      * @maxLength 200
      */
     evidence_source: string
-    /**
-     * Optional HTTP or HTTPS link to the source.
-     * @maxLength 2000
-     */
+    /** Optional HTTP or HTTPS link to the source. */
     source_url?: string
     /**
      * Date the account made the request, or null when unknown.
@@ -2361,10 +2355,7 @@ export interface FeatureRequestEvidenceUpdateApi {
      * @maxLength 200
      */
     evidence_source: string
-    /**
-     * Optional HTTP or HTTPS link to the source.
-     * @maxLength 2000
-     */
+    /** Optional HTTP or HTTPS link to the source. */
     source_url?: string
     /**
      * Date the account made the request, or null when unknown.
