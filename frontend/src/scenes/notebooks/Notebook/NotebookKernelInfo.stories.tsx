@@ -62,7 +62,7 @@ const kernelStatus = (overrides: Record<string, unknown> = {}): Record<string, u
     memory_gb: 2,
     disk_size_gb: 10,
     idle_timeout_seconds: 3600,
-    hourly_price: 0.25,
+    next_hourly_price: 0.25,
     preset_key: 'small',
     ...overrides,
 })
@@ -111,7 +111,7 @@ export const TunedByHand: Story = {
                 [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status`]: kernelStatus({
                     cpu_cores: 6,
                     memory_gb: 32,
-                    hourly_price: 2,
+                    next_hourly_price: 2,
                     preset_key: null,
                 }),
                 '/api/projects/:team_id/notebooks/kernel/compute_options': COMPUTE_OPTIONS,

@@ -53,8 +53,8 @@ export type NotebookKernelInfo = {
     memory_gb?: number | null
     disk_size_gb?: number | null
     idle_timeout_seconds?: number | null
-    /** What this sandbox shape costs per hour while it is alive, in USD. */
-    hourly_price?: number | null
+    /** What the next sandbox will cost per hour in USD. Not necessarily the live sandbox's rate. */
+    next_hourly_price?: number | null
     /** Compute preset the shape matches, or null when it was tuned by hand. */
     preset_key?: string | null
 }
@@ -593,7 +593,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                     kernelInfo.memory_gb != null &&
                     Math.abs(kernelInfo.cpu_cores - selectedCpu) < 1e-6 &&
                     Math.abs(kernelInfo.memory_gb - selectedMemory) < 1e-6
-                return shapeUnchanged ? (kernelInfo?.hourly_price ?? null) : null
+                return shapeUnchanged ? (kernelInfo?.next_hourly_price ?? null) : null
             },
         ],
         /**
