@@ -142,27 +142,22 @@ describe("loopModelOptions", () => {
   it.each<{
     name: string;
     adapter: LoopSchemas.LoopRuntimeAdapterEnum;
-    glmEnabled: boolean;
+    glm53Enabled?: boolean;
     expectedValues: string[];
   }>([
     {
       name: "falls back to the known claude models when the config has no model select",
       adapter: "claude",
-      glmEnabled: true,
       expectedValues: [
-        "claude-sonnet-4-6",
-        "claude-opus-4-7",
         "claude-opus-4-8",
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-fable-5",
-        "@cf/zai-org/glm-5.2",
       ],
     },
     {
       name: "falls back to the known codex models when the config has no model select",
       adapter: "codex",
-      glmEnabled: true,
       expectedValues: [
         "gpt-5",
         "gpt-5.5",
@@ -172,21 +167,21 @@ describe("loopModelOptions", () => {
       ],
     },
     {
-      name: "applies the GLM flag to the fallback list",
+      name: "applies the GLM 5.3 flag to the fallback list",
       adapter: "claude",
-      glmEnabled: false,
+      glm53Enabled: true,
       expectedValues: [
-        "claude-sonnet-4-6",
-        "claude-opus-4-7",
         "claude-opus-4-8",
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-fable-5",
+        "zai-org/glm-5.3",
       ],
     },
-  ])("$name", ({ adapter, glmEnabled, expectedValues }) => {
+  ])("$name", ({ adapter, glm53Enabled, expectedValues }) => {
     const values = loopModelOptions(adapter, [], {
-      glmEnabled,
+      glmEnabled: true,
+      glm53Enabled,
       pinnedModel: "",
     }).map((option) => option.value);
     expect(values).toEqual(expectedValues);

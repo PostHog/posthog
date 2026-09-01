@@ -19,9 +19,7 @@ const ANTHROPIC_MODELS = [
   harnessOption("claude", "claude-fable-5", "Claude Fable 5"),
   harnessOption("claude", "claude-opus-5", "Claude Opus 5"),
   harnessOption("claude", "claude-opus-4-8", "Claude Opus 4.8"),
-  harnessOption("claude", "claude-opus-4-7", "Claude Opus 4.7"),
   harnessOption("claude", "claude-sonnet-5", "Claude Sonnet 5"),
-  harnessOption("claude", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
 ];
 
 const OPENAI_MODELS = [
@@ -33,7 +31,6 @@ const OPENAI_MODELS = [
 const ZAI_MODELS = [
   harnessOption("claude", "zai-org/glm-5.3-flash", "GLM-5.3 Flash"),
   harnessOption("claude", "zai-org/glm-5.3", "GLM-5.3"),
-  harnessOption("claude", "@cf/zai-org/glm-5.2", "GLM-5.2"),
 ];
 
 const MOONSHOT_MODELS = [

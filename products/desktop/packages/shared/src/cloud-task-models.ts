@@ -60,14 +60,21 @@ export const BLOCKED_GATEWAY_MODEL_IDS = [
   "openai/gpt-5.3",
   "gpt-5.3-codex",
   "openai/gpt-5.3-codex",
+  "gpt-5.4",
+  "openai/gpt-5.4",
   "claude-opus-4-5",
   "anthropic/claude-opus-4-5",
   "claude-opus-4-6",
   "anthropic/claude-opus-4-6",
+  "claude-opus-4-7",
+  "anthropic/claude-opus-4-7",
   "claude-sonnet-4-5",
   "anthropic/claude-sonnet-4-5",
+  "claude-sonnet-4-6",
+  "anthropic/claude-sonnet-4-6",
   "claude-haiku-4-5",
   "anthropic/claude-haiku-4-5",
+  "@cf/zai-org/glm-5.2",
 ] as const;
 
 const BLOCKED_GATEWAY_MODELS = new Set<string>(BLOCKED_GATEWAY_MODEL_IDS);

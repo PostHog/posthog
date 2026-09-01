@@ -54,9 +54,9 @@ describe("formatGatewayModelName", () => {
 });
 
 describe("normalizeGatewayModelsResponse", () => {
-  it("passes through the gateway's advertised context window for GLM 5.2 unmodified", () => {
+  it("passes through the gateway's advertised context window unmodified", () => {
     const models = normalizeGatewayModelsResponse([
-      model("@cf/zai-org/glm-5.2", "cloudflare"),
+      model("zai-org/glm-5.3", "baseten"),
     ]);
 
     expect(models[0]?.context_window).toBe(128000);
@@ -64,7 +64,7 @@ describe("normalizeGatewayModelsResponse", () => {
 
   it("does not override any model's context window", () => {
     const models = normalizeGatewayModelsResponse([
-      { ...model("@cf/zai-org/glm-5.2", "cloudflare"), context_window: 256000 },
+      { ...model("zai-org/glm-5.3", "baseten"), context_window: 256000 },
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
@@ -75,12 +75,16 @@ describe("isBlockedModelId", () => {
   it.each([
     "claude-opus-4-5",
     "claude-opus-4-6",
+    "claude-opus-4-7",
     "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
     "ANTHROPIC/CLAUDE-HAIKU-4-5",
     "gpt-5.2",
     "gpt-5.3",
     "gpt-5.3-codex",
     "OPENAI/GPT-5.3-CODEX",
+    "gpt-5.4",
+    "@cf/zai-org/glm-5.2",
   ])("blocks %s", (modelId) => {
     expect(isBlockedModelId(modelId)).toBe(true);
   });

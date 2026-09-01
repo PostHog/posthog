@@ -41,13 +41,10 @@ const FALLBACK_MODEL_OPTIONS: Record<
   LoopModelOption[]
 > = {
   claude: [
-    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
     { value: "claude-opus-4-8", label: "Claude Opus 4.8" },
     { value: "claude-opus-5", label: "Claude Opus 5" },
     { value: "claude-sonnet-5", label: "Claude Sonnet 5" },
     { value: "claude-fable-5", label: "Claude Fable 5" },
-    { value: "@cf/zai-org/glm-5.2", label: "GLM-5.2" },
     { value: "zai-org/glm-5.3", label: "GLM-5.3" },
     { value: "zai-org/glm-5.3-flash", label: "GLM-5.3 Flash" },
     { value: "moonshotai/kimi-k3", label: "Kimi K3" },
