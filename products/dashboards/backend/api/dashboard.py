@@ -1213,7 +1213,11 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False, help_text="Custom color mapping for breakdown values.")
+    breakdown_colors = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Custom color mapping for breakdown values, as a list of breakdown color config objects.",
+    )
     data_color_theme_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."
     )

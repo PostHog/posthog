@@ -131,13 +131,21 @@ export function breakdownConfigIdentityMatches(a: BreakdownValueAndType, b: Brea
     )
 }
 
+/** Persisted `breakdown_colors` is an unvalidated JSONField, so a dashboard can hold a
+ * non-list value. Read it as no saved colors instead of passing it to array-only callers. */
+export function getPersistedBreakdownColors(
+    dashboard: { breakdown_colors?: BreakdownColorConfig[] } | null | undefined
+): BreakdownColorConfig[] {
+    return Array.isArray(dashboard?.breakdown_colors) ? dashboard.breakdown_colors : []
+}
+
 export function findBreakdownColorConfig(
     configs: BreakdownColorConfig[] | undefined | null,
     breakdownValue: unknown,
     breakdownType: BreakdownFilter['breakdown_type'] | null | undefined,
     breakdownPropertyKey?: string | null
 ): BreakdownColorConfig | undefined {
-    if (normalizeBreakdownValue(breakdownValue) == null) {
+    if (normalizeBreakdownValue(breakdownValue) == null || !Array.isArray(configs)) {
         return undefined
     }
     // A property-scoped entry beats a property-less one, which acts as a fallback pin
@@ -163,10 +171,15 @@ export function findBreakdownColorConfig(
 /** Merge configs by (breakdownValue, breakdownType, breakdownProperty), earlier lists winning
  * over later ones. Scoped and property-less entries for the same value stay separate, so a
  * scoped pin can shadow a legacy one per property without erasing it elsewhere. Values are
- * normalized on the way out, migrating legacy non-string entries on the next save. */
+ * normalized on the way out, migrating legacy non-string entries on the next save. Persisted
+ * `breakdown_colors` is an unvalidated JSONField, so a list is not guaranteed here: a non-array
+ * input is skipped instead of thrown on. */
 export function mergeBreakdownColorConfigs(...configLists: BreakdownColorConfig[][]): BreakdownColorConfig[] {
     const merged: BreakdownColorConfig[] = []
     for (const configs of configLists) {
+        if (!Array.isArray(configs)) {
+            continue
+        }
         for (const config of configs) {
             const breakdownValue = normalizeBreakdownValue(config.breakdownValue)
             if (breakdownValue == null) {

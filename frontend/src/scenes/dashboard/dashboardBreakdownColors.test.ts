@@ -12,6 +12,7 @@ import {
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
     getBreakdownPropertyKey,
+    getPersistedBreakdownColors,
     groupBreakdownValuesByProperty,
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
@@ -1069,6 +1070,35 @@ describe('dashboardBreakdownColors', () => {
                 { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
             ])
         })
+
+        // breakdown_colors is an unvalidated JSONField, so a dashboard can hold a non-list value
+        it.each([
+            ['an object instead of a list', { Chrome: 'preset-1' }],
+            ['a null list', null],
+        ] as const)('skips %s', (_name, malformed) => {
+            const merged = mergeBreakdownColorConfigs(malformed as any, [
+                { breakdownValue: 'Firefox', breakdownType: 'event', colorToken: 'preset-2' },
+            ])
+
+            expect(merged).toEqual([{ breakdownValue: 'Firefox', breakdownType: 'event', colorToken: 'preset-2' }])
+        })
+    })
+
+    describe('getPersistedBreakdownColors', () => {
+        it.each([
+            ['an object', { Chrome: 'preset-1' }],
+            ['null', null],
+        ] as const)('reads %s as no saved colors', (_name, persisted) => {
+            expect(getPersistedBreakdownColors({ breakdown_colors: persisted } as any)).toEqual([])
+        })
+
+        it('passes a list through unchanged', () => {
+            const configs: BreakdownColorConfig[] = [
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
+            ]
+
+            expect(getPersistedBreakdownColors({ breakdown_colors: configs })).toBe(configs)
+        })
     })
 
     describe('findBreakdownColorConfig', () => {
@@ -1103,6 +1133,10 @@ describe('dashboardBreakdownColors', () => {
         it('returns undefined for null or undefined dataset values', () => {
             expect(findBreakdownColorConfig(configs, undefined, 'event')).toBeUndefined()
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
+        })
+
+        it('returns undefined when the configs are not a list', () => {
+            expect(findBreakdownColorConfig({ '123': 'preset-1' } as any, '123', 'event')).toBeUndefined()
         })
 
         it('prefers a property-scoped entry and falls back to a property-less one', () => {
