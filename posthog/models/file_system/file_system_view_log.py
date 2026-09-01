@@ -5,7 +5,7 @@ from dataclasses import is_dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import IntegrityError, models
+from django.db import IntegrityError, OperationalError, models
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
@@ -61,6 +61,22 @@ def _drop_view_logs_when_file_deleted(sender, instance: FileSystem, **kwargs) ->
     ).delete()
 
 
+# Postgres cancels a statement that outlives statement_timeout with SQLSTATE 57014. Django surfaces
+# the psycopg cancellation as OperationalError, carrying the code on the error or its __cause__
+# (`sqlstate` on psycopg3, `pgcode` on psycopg2).
+_QUERY_CANCELED_SQLSTATE = "57014"
+
+
+def _is_statement_cancellation(error: BaseException) -> bool:
+    for exc in (error, error.__cause__):
+        if (
+            exc is not None
+            and (getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)) == _QUERY_CANCELED_SQLSTATE
+        ):
+            return True
+    return False
+
+
 def log_file_system_view(
     *,
     user: Optional[User],
@@ -91,16 +107,26 @@ def log_file_system_view(
     }
     surface = getattr(representation, "surface", DEFAULT_SURFACE)
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
-
-    if updated:
-        return
-
+    # One upsert instead of UPDATE-then-INSERT collapses the write into a single statement. A
+    # concurrent view of the same item can still make it wait on posthog_fsvl_unique_user_item, so
+    # the guards below keep both outcomes of that wait from surfacing as a 500 on scene open.
     try:
-        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, **update_kwargs)
+        FileSystemViewLog.objects.bulk_create(
+            [FileSystemViewLog(viewed_at=now, surface=surface, **update_kwargs)],
+            update_conflicts=True,
+            unique_fields=["team", "user", "type", "ref"],
+            update_fields=["viewed_at", "surface"],
+        )
     except IntegrityError:
-        # Another request may have created the row after our update attempt.
+        # Backstop for the narrow window an upsert still cannot cover.
         FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
+    except OperationalError as error:
+        # When the wait outlives statement_timeout, Postgres cancels the statement and Django raises
+        # OperationalError, not IntegrityError. Recents logging is best-effort and every call site
+        # runs outside a transaction, so drop the cancelled view instead of failing the request.
+        # Re-raise anything that is not a cancellation.
+        if not _is_statement_cancellation(error):
+            raise
 
 
 def recent_view_logs(
