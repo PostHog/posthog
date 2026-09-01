@@ -7737,7 +7737,7 @@
         "feature_flag": "revamped-py-notebooks"
     },
     "notebooks-configure-compute": {
-        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is true when a kernel is already active, meaning it keeps its current resources until restarted (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs). The user pays for the sandbox for as long as it runs, so tell them the response's hourly_price in dollars whenever you set or change the size. notebooks-compute-options lists the presets and the values this tool accepts.",
+        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is true when a kernel is already active, meaning it keeps its current resources until restarted (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs). The user pays for the sandbox for as long as it runs, so tell them the response's next_hourly_price in dollars whenever you set or change the size. When restart_required is true that rate applies only after a restart, and the running sandbox is still on its previous shape and rate, so say so rather than presenting it as the current charge. notebooks-compute-options lists the presets and the values this tool accepts.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Configure notebook compute",

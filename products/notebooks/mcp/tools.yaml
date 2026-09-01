@@ -62,8 +62,10 @@ tools:
             idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is
             true when a kernel is already active, meaning it keeps its current resources until restarted (restarting
             loses materialized dataframes, so prefer configuring before the first Python cell runs). The user pays for
-            the sandbox for as long as it runs, so tell them the response's hourly_price in dollars whenever you set or
-            change the size. notebooks-compute-options lists the presets and the values this tool accepts.
+            the sandbox for as long as it runs, so tell them the response's next_hourly_price in dollars whenever you
+            set or change the size. When restart_required is true that rate applies only after a restart, and the
+            running sandbox is still on its previous shape and rate, so say so rather than presenting it as the current
+            charge. notebooks-compute-options lists the presets and the values this tool accepts.
         feature_flag: revamped-py-notebooks
     notebooks-create:
         operation: notebooks_create
@@ -196,7 +198,7 @@ tools:
                 - cpu_cores
                 - memory_gb
                 - idle_timeout_seconds
-                - hourly_price
+                - next_hourly_price
                 - preset_key
             informational_wrapper:
                 tag: notebook-frames
@@ -264,7 +266,7 @@ tools:
             those cells must have completed a run first — refs resolve to each upstream cell's last completed run, so
             run cells in dependency order. The first Python cell run can take noticeably longer while the notebook's
             sandbox kernel starts. That run also provisions the sandbox when none is up, and the user pays for it while
-            it runs, so tell them its hourly_price (from notebooks-list-frames) the first time a run starts one.
+            it runs, so tell them its next_hourly_price (from notebooks-list-frames) the first time a run starts one.
         feature_flag: revamped-py-notebooks
     notebooks-run-cell-interrupt:
         operation: notebooks_sql_v2_runs_interrupt_create

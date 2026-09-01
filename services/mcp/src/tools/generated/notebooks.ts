@@ -196,7 +196,7 @@ const notebooksListFrames = (): ToolBase<
             'cpu_cores',
             'memory_gb',
             'idle_timeout_seconds',
-            'hourly_price',
+            'next_hourly_price',
             'preset_key',
         ]) as typeof result
         return withInformationalResponse(
