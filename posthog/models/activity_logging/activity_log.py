@@ -220,13 +220,15 @@ class ActivityLog(UUIDTModel):
             # above can't serve the sort, and the org indexes above are partial on a detail
             # predicate the list query never carries. These full indexes let the LIMITed
             # ordered scan walk created_at directly instead of sorting the whole partition.
+            # `id` is the tie-breaker the list endpoints sort on after `created_at`, so it
+            # must be in the index too, or Postgres sorts the rows again after the scan.
             models.Index(
-                fields=["organization_id", "-created_at"],
-                name="idx_alog_org_created_at",
+                fields=["organization_id", "-created_at", "-id"],
+                name="idx_alog_org_created_at_id",
             ),
             models.Index(
-                fields=["team_id", "-created_at"],
-                name="idx_alog_team_created_at",
+                fields=["team_id", "-created_at", "-id"],
+                name="idx_alog_team_created_at_id",
             ),
         ]
 
