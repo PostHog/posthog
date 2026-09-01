@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -8,8 +8,10 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
+import { externalDataSourcesDestinationsRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 import { DestinationMetricSummary } from './DestinationMetricSummary'
 
@@ -65,20 +67,29 @@ export function DataWarehouseMetrics({ logicKey, sourceId, schemaId }: DataWareh
 
     const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { destinations } = useValues(destinationLookupLogic)
     const { loadDestinations } = useActions(destinationLookupLogic)
+    const [attachedIds, setAttachedIds] = useState<string[] | null>(null)
 
     const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION] && !schemaId
 
     useEffect(() => {
-        if (showDestinations) {
-            loadDestinations()
+        if (!showDestinations) {
+            return
         }
-    }, [showDestinations, loadDestinations])
+        loadDestinations()
+        // Only the destinations this source actually writes to. The lookup holds every destination
+        // the project has, and one the source does not use has nothing to chart.
+        externalDataSourcesDestinationsRetrieve(String(currentTeamId), sourceId)
+            .then((response) => setAttachedIds(response.destination_ids ?? []))
+            .catch(() => setAttachedIds([]))
+    }, [showDestinations, loadDestinations, currentTeamId, sourceId])
 
+    const attached = destinations.filter((destination) => attachedIds?.includes(destination.id))
     // With a single destination every row already went there, so a breakdown would repeat the
     // totals above it.
-    const destinationBreakdown = showDestinations && destinations.length > 1 ? destinations : []
+    const destinationBreakdown = showDestinations && attached.length > 1 ? attached : []
 
     const metricLabels = Object.fromEntries(
         DATA_WAREHOUSE_METRIC_KEYS.map((key) => [key, DATA_WAREHOUSE_METRICS_INFO[key].name])
