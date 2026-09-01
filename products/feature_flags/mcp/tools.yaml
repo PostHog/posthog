@@ -126,7 +126,7 @@ tools:
 
             A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
             `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, so a flag that is already archived
-            looks missing on a retry. Pass `archived=true` to `feature-flag-get-all` before you report the flag as
+            looks missing on a retry. Pass `{"archived":"true"}` to `feature-flag-get-all` before you report the flag as
             missing.
 
 
@@ -168,7 +168,7 @@ tools:
 
             A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
             `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, and an archived flag is already
-            disabled. Pass `archived=true` to `feature-flag-get-all` before you report the flag as missing.
+            disabled. Pass `{"archived":"true"}` to `feature-flag-get-all` before you report the flag as missing.
 
 
             To turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status`
@@ -203,7 +203,7 @@ tools:
 
 
             A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
-            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`. Pass `archived=true` to
+            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`. Pass `{"archived":"true"}` to
             `feature-flag-get-all` before you report the flag as missing.
 
 
@@ -275,7 +275,7 @@ tools:
         title: Unarchive feature flag
         description: >
             Restore an archived feature flag to the default flag list. Requires the flag's numeric ID; pass
-            `archived=true` to `feature-flag-get-all` to find archived flags.
+            `{"archived":"true"}` to `feature-flag-get-all` to find archived flags.
 
 
             Sets `archived` to false and changes nothing else. This tool never accepts or replaces the `filters` object.
