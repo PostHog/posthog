@@ -119,6 +119,8 @@ class TestComputeOptionsEndpoint(APIBaseTest):
             user=self.user,
             status=KernelRuntime.Status.RUNNING,
             backend=KernelRuntime.Backend.MODAL,
+            provisioned_cpu_cores=notebook.kernel_cpu_cores,
+            provisioned_memory_gb=notebook.kernel_memory_gb,
         )
 
     @patch(
@@ -242,20 +244,43 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         payload = response.json()
         assert payload["restarted"] is False
         assert payload["restart_required"] is True
-        # Quoted against the running shape, not the one that failed to apply.
-        assert payload["cpu_cores"] == 1
-        assert payload["memory_gb"] == 2
-        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
 
+        # The requested size is kept: it is what the next sandbox gets.
         notebook.refresh_from_db()
-        assert notebook.kernel_cpu_cores == 1
-        assert notebook.kernel_memory_gb == 2
+        assert notebook.kernel_cpu_cores == 8
+        assert notebook.kernel_memory_gb == 16
 
-        # And the next status poll, which is where the old bug became permanent.
+        # But status prices the sandbox that is actually running, which is where the old bug
+        # became permanent — every poll quoted the shape that failed to apply.
         status_payload = self.client.get(
             f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/status/"
         ).json()
         assert status_payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
+
+    def test_status_prices_the_running_sandbox_not_the_configuration(self) -> None:
+        # The notebook is configured for a bigger shape than the live sandbox was built with,
+        # which is the state a resize leaves until a restart applies it.
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        runtime = self._live_kernel(notebook)
+        notebook.kernel_cpu_cores = 8
+        notebook.kernel_memory_gb = 16
+        notebook.save(update_fields=["kernel_cpu_cores", "kernel_memory_gb"])
+
+        payload = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/status/").json()
+
+        assert runtime.provisioned_cpu_cores == 1
+        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
+        assert payload["preset_key"] == "small"
+
+    def test_status_prices_the_configuration_when_nothing_is_running(self) -> None:
+        # With no live sandbox the configured shape is what the next one costs, so quote that.
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, kernel_cpu_cores=8, kernel_memory_gb=16
+        )
+
+        payload = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/status/").json()
+
+        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=8, memory_gb=16)
 
     def test_a_new_sandbox_gets_the_default_preset_shape(self) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
