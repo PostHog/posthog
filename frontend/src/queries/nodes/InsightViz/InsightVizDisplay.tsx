@@ -1,11 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -168,9 +171,9 @@ export function InsightVizDisplay({
         insightData,
         validationError,
         validationErrorCode,
-        theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { defaultTheme, themesLoading } = useValues(dataThemeLogic)
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
@@ -496,10 +499,19 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
-    if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return null
-    }
+    // The color theme failed to resolve (list empty, or matching neither the environment default nor a
+    // global theme). Charts now fall back to the built-in colors instead of a blank tile, so capture the
+    // state to keep it measurable. Web Analytics insights don't use themes, so they are exempt.
+    const colorThemeMissing = !themesLoading && !defaultTheme && activeView !== InsightType.WEB_ANALYTICS
+    useEffect(() => {
+        if (colorThemeMissing) {
+            posthog.capture('insight color theme missing', {
+                dashboard_id: insightProps?.dashboardId ?? null,
+                insight_short_id:
+                    typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
+            })
+        }
+    }, [colorThemeMissing, insightProps?.dashboardId, insightProps?.dashboardItemId])
 
     return (
         <>

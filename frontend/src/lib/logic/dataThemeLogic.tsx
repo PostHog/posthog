@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { DataColorTheme, DataColorToken, DEFAULT_DATA_COLOR_THEME } from 'lib/colors'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataColorThemeModel } from '~/types'
@@ -163,7 +163,9 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         }, {} as DataColorTheme)
                     }
 
-                    return null
+                    // No theme resolved (list still loading, empty, or matching neither the environment
+                    // default nor a global theme). Fall back to the built-in colors so charts still draw.
+                    return DEFAULT_DATA_COLOR_THEME
                 },
         ],
         getColorFromToken: [
