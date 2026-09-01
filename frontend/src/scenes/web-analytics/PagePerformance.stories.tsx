@@ -109,7 +109,9 @@ const breakdownTable = (rows: (string | number)[][]): Record<string, unknown> =>
 const handlers = (
     overviewHuman: Record<string, unknown>,
     overviewCrawler: Record<string, unknown>,
-    leaderboard: Record<string, unknown> = LEADERBOARD
+    leaderboard: Record<string, unknown> = LEADERBOARD,
+    // The AI sections read their own queries, so an empty overview has to empty those too.
+    hasAiData: boolean = true
 ): Parameters<typeof mswDecorator>[0] => ({
     get: {
         '/stats': () => [200, { users_on_product: 2387 }],
@@ -125,28 +127,36 @@ const handlers = (
                 return [200, { tables: {}, joins: [] }]
             }
             if (kind === 'TrendsQuery') {
-                return [200, trend('Visitors', [180, 220, 190, 260, 240, 310, 295])]
+                return [200, hasAiData ? trend('Visitors', [180, 220, 190, 260, 240, 310, 295]) : { results: [] }]
             }
             if (kind === 'WebBotsTableQuery') {
                 return [
                     200,
-                    breakdownTable([
-                        ['GPTBot', 31200],
-                        ['ClaudeBot', 24800],
-                        ['PerplexityBot', 16400],
-                        ['Google-Extended', 9700],
-                    ]),
+                    breakdownTable(
+                        hasAiData
+                            ? [
+                                  ['GPTBot', 31200],
+                                  ['ClaudeBot', 24800],
+                                  ['PerplexityBot', 16400],
+                                  ['Google-Extended', 9700],
+                              ]
+                            : []
+                    ),
                 ]
             }
             if (kind === 'WebStatsTableQuery') {
                 if (source.breakdownBy === 'InitialReferringDomain') {
                     return [
                         200,
-                        breakdownTable([
-                            ['chatgpt.com', 640],
-                            ['perplexity.ai', 410],
-                            ['claude.ai', 220],
-                        ]),
+                        breakdownTable(
+                            hasAiData
+                                ? [
+                                      ['chatgpt.com', 640],
+                                      ['perplexity.ai', 410],
+                                      ['claude.ai', 220],
+                                  ]
+                                : []
+                        ),
                     ]
                 }
                 return [200, CANDIDATES]
@@ -183,7 +193,7 @@ const meta: Meta = {
 export default meta
 
 WebAnalyticsPagePerformanceNoAiTraffic.decorators = [
-    mswDecorator(handlers(OVERVIEW_HUMAN_NO_AI, OVERVIEW_CRAWLER_NONE, LEADERBOARD_NO_AI)),
+    mswDecorator(handlers(OVERVIEW_HUMAN_NO_AI, OVERVIEW_CRAWLER_NONE, LEADERBOARD_NO_AI, false)),
 ]
 export function WebAnalyticsPagePerformanceNoAiTraffic(): JSX.Element {
     return <App />
