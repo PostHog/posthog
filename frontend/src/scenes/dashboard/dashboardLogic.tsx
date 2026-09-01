@@ -3982,6 +3982,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
+            // Snapshot the load-start time before the tile wait below. A concurrent load resets
+            // dashboardLoadData.startTime, so both load-time reports must measure from this
+            // initial load's start, not a later one's.
+            const dashboardLoadData = values.dashboardLoadData
+
             if (sortedTilesToRefresh.length > 0) {
                 // Mark tiles as queued before the breakpoint's await, so there's no render gap
                 // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
@@ -4004,14 +4009,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
-                const {
-                    currentTeamId,
-                    effectiveRefreshFilters,
-                    urlFilters,
-                    urlVariables,
-                    dashboardLoadData,
-                    lastDashboardRefresh,
-                } = values
+                const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables, lastDashboardRefresh } =
+                    values
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -4125,7 +4124,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Report the load time from load start until every stale tile has settled, not just until
                 // the dashboard metadata resolves. insights_fetched lets the size correlation be read directly.
                 eventUsageLogic.actions.reportDashboardLoadingTime(
-                    Math.floor(performance.now() - values.dashboardLoadData.startTime),
+                    Math.floor(performance.now() - dashboardLoadData.startTime),
                     dashboardId,
                     sortedTilesToRefresh.length
                 )
