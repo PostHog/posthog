@@ -2363,7 +2363,9 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
     base_version: zod
         .number()
         .optional()
-        .describe('Workflow version this was authored against. Defaults to the current live version.'),
+        .describe(
+            'Workflow version this was authored against. Required when the proposal changes a whole list (actions, edges, variables), because approve refuses such a proposal once the workflow has moved on and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+        ),
     step_id: zod
         .string()
         .max(hogFlowsProposalsCreateBodyStepIdMax)
