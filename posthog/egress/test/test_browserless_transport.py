@@ -5,11 +5,7 @@ from django.test import SimpleTestCase
 import requests
 from parameterized import parameterized
 
-from posthog.egress.browserless.transport import (
-    BrowserlessEgressBudgetExhausted,
-    browserless_request,
-    fleet_scope,
-)
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request, fleet_scope
 from posthog.egress.limiter.policies import Priority
 
 _TOKEN = "s3cret-fleet-token"
