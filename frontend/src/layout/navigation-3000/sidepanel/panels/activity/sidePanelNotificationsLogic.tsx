@@ -174,7 +174,6 @@ export interface sidePanelNotificationsLogicValues {
     archivedListOffset: number
     archivedLoaded: boolean
     archivedNotifications: InAppNotification[]
-    archivingEnabled: boolean
     errorCounter: number
     expandedGroupKeys: Set<string>
     groups: NotificationGroup[]
@@ -386,7 +385,6 @@ export interface sidePanelNotificationsLogicActions {
 export interface sidePanelNotificationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         realTimeNotificationsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        archivingEnabled: (featureFlags: FeatureFlagsSet) => boolean
         legacyNotifications: (importantChanges: ChangesResponse | null) => HumanizedActivityLogItem[]
         notifications: (
             realTimeNotificationsEnabled: boolean,
@@ -1177,11 +1175,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
-        ],
-        archivingEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.CLEARABLE_NOTIFICATIONS],
         ],
         legacyNotifications: [
             (s) => [s.importantChanges],

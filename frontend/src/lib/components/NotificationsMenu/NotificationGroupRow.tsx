@@ -28,8 +28,7 @@ export function NotificationGroupRow({
     onNavigate?: () => void
     readOnly?: boolean
 }): JSX.Element {
-    const { expandedGroupKeys, loadingGroupKeys, manuallyToggledIds, archivingEnabled } =
-        useValues(sidePanelNotificationsLogic)
+    const { expandedGroupKeys, loadingGroupKeys, manuallyToggledIds } = useValues(sidePanelNotificationsLogic)
     const { toggleGroupExpanded, loadGroupChildren, loadArchivedGroupChildren, toggleGroupRead, archiveGroup } =
         useActions(sidePanelNotificationsLogic)
     const isExpanded = expandedGroupKeys.has(group.group_key)
@@ -99,14 +98,12 @@ export function NotificationGroupRow({
                                 // Revealed as one unit, like a single row's cluster — a group's actions
                                 // shouldn't sit louder in the list than the rows it contains
                                 <div className={`flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
-                                    {archivingEnabled && (
-                                        <NotificationActionButton
-                                            icon={<IconArchive className="size-4" />}
-                                            tooltip="Archive group"
-                                            onClick={handleArchive}
-                                            tone="danger"
-                                        />
-                                    )}
+                                    <NotificationActionButton
+                                        icon={<IconArchive className="size-4" />}
+                                        tooltip="Archive group"
+                                        onClick={handleArchive}
+                                        tone="danger"
+                                    />
                                     <NotificationReadToggle read={allRead} onToggle={handleToggleRead} target="group" />
                                 </div>
                             )}
