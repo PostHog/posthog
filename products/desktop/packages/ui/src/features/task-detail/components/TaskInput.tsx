@@ -121,6 +121,7 @@ import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
+import { shouldShowChannelContextChip } from "./channelContext";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
@@ -348,9 +349,8 @@ export function TaskInput({
     reportAssociation ?? null,
   );
 
-  // Channel CONTEXT.md is included by default; the chip lets the user drop it
-  // from this task's prompt. Re-include whenever the source context changes
-  // (e.g. switching channels) so a dismissal doesn't stick across channels.
+  // Legacy CONTEXT.md is optional. A resolved context-layer page is a pointer
+  // into the session-wide mount and stays connected for the whole session.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
   const channelContextSource = channelContextPath ?? channelContext;
   const lastChannelContextRef = useRef(channelContextSource);
@@ -361,7 +361,7 @@ export function TaskInput({
     }
   }, [channelContextSource]);
   const includeChannelContext =
-    !!channelContextSource && !channelContextDismissed;
+    !!channelContextPath || (!!channelContext && !channelContextDismissed);
 
   const adapter = lastUsedAdapter;
   const codexSubscription = useCodexSubscription();
@@ -1498,7 +1498,10 @@ export function TaskInput({
                           </button>
                         ) : null}
                       </span>
-                    ) : includeChannelContext ? (
+                    ) : shouldShowChannelContextChip(
+                        includeChannelContext,
+                        channelContextPath,
+                      ) ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}
