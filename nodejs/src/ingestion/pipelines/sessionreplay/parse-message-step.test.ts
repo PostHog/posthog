@@ -653,8 +653,7 @@ describe('createParseMessageStep', () => {
             const uploadedAt = new Date(now).toISOString()
             const payload = createSnapshotPayload({
                 sessionId: 'session-1',
-                // Recorded an hour before the batch was flushed: buffering, not a wrong clock. The
-                // Kafka message time would read this as an hour of skew; the envelope pair does not.
+                // Buffering, not a wrong clock: the Kafka message time would read this as an hour of skew.
                 snapshotItems: [{ type: 2, timestamp: now - HOUR_MS }],
                 distinctId: 'user-123',
                 sentAt: uploadedAt,

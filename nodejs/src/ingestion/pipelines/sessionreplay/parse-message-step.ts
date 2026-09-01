@@ -121,15 +121,10 @@ function getValidEvents(events: unknown[]): {
 }
 
 /**
- * Record the sender's clock offset: the device clock when the batch was uploaded (`sent_at`) against
- * the server clock when capture received it (`now`). Capture stamps both at the same instant, so
- * however long the client buffered before flushing shifts both equally and cancels out, leaving the
- * offset itself. Comparing the Kafka message time against rrweb event times does not cancel: that
- * difference is the offset plus the buffering delay, which is why an offline flush from a correctly
- * clocked device reads there as a large skew.
- *
- * Capture omits `sent_at` when the client sends none, and applies no correction of its own in that
- * case, so those messages are counted as unmeasured rather than as zero.
+ * Record the sender's clock offset: the device clock at upload (`sent_at`) against the server clock
+ * at receipt (`now`). Capture stamps both at the same instant, so buffering shifts them equally and
+ * cancels; the Kafka message time against rrweb event times does not cancel. Capture omits `sent_at`
+ * when the client sends none, so those messages count as unmeasured rather than as zero.
  */
 export function observeClockSkew(sentAt: string | undefined, now: string | undefined): void {
     if (!sentAt || !now) {
