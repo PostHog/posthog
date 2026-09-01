@@ -296,7 +296,16 @@ class Command(BaseCommand):
 
             total += 1
             try:
-                outcome = self._resave_cohort(cohort, seen_cohorts_cache, cohort_dependencies, dry_run)
+                outcome = self._recompute_cohort(cohort, seen_cohorts_cache, cohort_dependencies)
+                if outcome.validation_failed:
+                    validation_errors += 1
+                # Counted before the save, so a realtime cohort whose save raises still reports as one.
+                if outcome.prospective_realtime:
+                    prospective_realtime += 1
+                if outcome.changed:
+                    if not dry_run:
+                        cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
+                    changed += 1
             except Exception as err:
                 errors += 1
                 logger.error(
@@ -306,14 +315,6 @@ class Command(BaseCommand):
                     error=str(err),
                     exc_info=True,
                 )
-                continue
-
-            if outcome.changed:
-                changed += 1
-            if outcome.validation_failed:
-                validation_errors += 1
-            if outcome.prospective_realtime:
-                prospective_realtime += 1
 
         return CohortResaveStats(
             total=total,
@@ -325,7 +326,7 @@ class Command(BaseCommand):
 
     def _load_team_cohorts(self, team: Team, batch_size: int) -> list[Cohort]:
         """Read every cohort on the team, one page at a time."""
-        base_qs = Cohort.objects.filter(team=team).order_by("id")
+        base_qs = Cohort.objects.filter(team=team).select_related("team").order_by("id")
         all_cohorts: list[Cohort] = []
         last_id = 0
 
@@ -349,14 +350,17 @@ class Command(BaseCommand):
             cohort_dependencies[cohort.id] = {dep.id for dep in dependencies}
         return cohort_dependencies
 
-    def _resave_cohort(
+    def _recompute_cohort(
         self,
         cohort: Cohort,
         seen_cohorts_cache: dict[int, CohortOrEmpty],
         cohort_dependencies: dict[int, set[int]],
-        dry_run: bool,
     ) -> CohortResaveOutcome:
-        """Recompute one cohort's filters, cohort_type, and condition_type, and persist any change."""
+        """Recompute one cohort's filters, cohort_type, and condition_type in memory.
+
+        The caller persists the change, so the counters report the same on a save that raises as
+        they did before this work moved out of the loop.
+        """
         filters = cohort.filters
         # Nothing to recompute without filters.
         if not filters:
@@ -396,9 +400,6 @@ class Command(BaseCommand):
         cohort.filters = clean_filters
         cohort.cohort_type = computed_type
         cohort.condition_type = computed_condition_type
-
-        if will_change and not dry_run:
-            cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
 
         return CohortResaveOutcome(
             changed=will_change,
