@@ -17,12 +17,9 @@ use crate::storage::types::AttachOutcome;
 /// Callers dedupe; sorted insert order keeps row locks deadlock-free.
 ///
 /// Two guards keep a racing lifecycle op from acquiring a mapping it can
-/// no longer sweep: the join on a live person row rejects committed
-/// deletions, and the mark check rejects persons held by a live op, whose
-/// destructive transaction sweeps distinct ids before it tombstones. The
-/// one statement that can slip both (a snapshot predating the mark's
-/// commit whose insert lands after the sweep) leaves an orphaned mapping
-/// naming a tombstoned person, which the next resolve treats as absent.
+/// no longer sweep: the join rejects committed deletions, and the mark
+/// check rejects persons held by a live op. The rare statement that slips
+/// both leaves an orphaned mapping the next resolve treats as absent.
 pub(super) async fn attach_distinct_ids(
     pool: &PgPool,
     tables: &IdentityTables,

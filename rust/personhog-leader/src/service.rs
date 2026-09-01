@@ -352,11 +352,8 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(fallback) = &self.fallback else {
-            // With no fallback pool a cache miss is answered as absence,
-            // conflating "cannot see Postgres" with "destroyed". A caller is
-            // entitled to read NotFound as an authoritative death signal and
-            // cache it, so this is only safe where the cache is the whole
-            // world; production always configures the pool.
+            // Without the pool a cache miss answers NotFound, which callers
+            // read as authoritative death; production always sets it.
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
@@ -1108,10 +1105,8 @@ impl PersonHogLeader for PersonHogLeaderService {
             }));
         }
 
-        // Changes confined to the filtered property list are answered
-        // without writing, matching the Postgres store's suppression: the
-        // values are discarded, not stored, so the two backends' rows
-        // agree. A scalar move or a forced event promotes everything.
+        // Filtered-only changes are answered without writing, matching the
+        // Postgres suppression; a scalar move or force promotes everything.
         if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
@@ -1539,10 +1534,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // (snapshot values were already hour-floored when stored).
         //
         // The Postgres backend never passes last_seen_at to its merge
-        // update, so it answers the target's own until the caller's
-        // follow-up update advances it. The two part only where a source
-        // was seen after the merge event itself, which needs out-of-order
-        // events or clock skew above the hour floor.
+        // update; the caller's follow-up update advances it.
         let created_at = snapshots
             .iter()
             .map(|snapshot| snapshot.created_at)
@@ -2230,12 +2222,9 @@ mod tests {
     /// The person is seeded deliberately: without it a removed check
     /// would still surface `FailedPrecondition` from the ownership guard
     /// further down, and the test would pass having proved nothing.
-    /// The write path's half of the classification: a lane whose only
-    /// changes sit on the filtered list answers updated=false, bumps no
-    /// version, and produces nothing — the values are discarded, matching
-    /// the Postgres store's suppression. With force set, the same lane
-    /// writes. The produce would hang against the absent test broker, so
-    /// a demotion regression surfaces here as a timeout, not a pass.
+    /// Filtered-only lanes answer updated=false with no write or produce;
+    /// force writes. A demotion regression would produce, hang on the
+    /// absent broker, and time out rather than pass.
     #[tokio::test]
     async fn filtered_only_update_answers_without_writing() {
         let service = make_test_service().await;

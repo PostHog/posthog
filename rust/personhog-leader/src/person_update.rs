@@ -9,10 +9,9 @@ static NO_PERSON_UPDATE_EVENTS: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| HashSet::from(["$exception", "$$heatmap"]));
 
 /// Properties that change too often to be worth a person update on their
-/// own; they still persist whenever an update happens for another reason.
-/// Copied from FILTERED_PERSON_UPDATE_PROPERTIES in
-/// nodejs/src/common/persons/person-property-utils.ts, which cross-links
-/// back here — the two lists must stay identical while both backends run.
+/// own. Copied from FILTERED_PERSON_UPDATE_PROPERTIES in
+/// nodejs/src/common/persons/person-property-utils.ts, which links back;
+/// the two lists must stay identical while both backends run.
 static FILTERED_PERSON_UPDATE_PROPERTIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     HashSet::from([
         "$current_url",
@@ -55,19 +54,17 @@ pub struct PropertyUpdates {
     pub to_set: HashMap<String, Value>,
     pub to_unset: Vec<String>,
     pub has_changes: bool,
-    /// Whether any surviving change warrants a write on its own: a new
-    /// `$set` key, an unset, a non-filtered value change, or anything at
-    /// all under force. False with `has_changes` true is the
-    /// filtered-only shape the caller discards without writing.
+    /// Whether any change warrants a write on its own: a new `$set` key,
+    /// an unset, a non-filtered value change, or anything under force.
+    /// False with `has_changes` true is the filtered-only shape.
     pub has_non_filtered_changes: bool,
 }
 
 /// Compute property changes from event data without modifying the existing person properties.
 ///
-/// Mirrors the TypeScript `refineEventOps` in `person-update.ts`,
-/// filtered-property promotion included: the classification must be
-/// byte-identical across backends or shadow comparison reads the drift
-/// as divergence.
+/// Mirrors the TypeScript `refineEventOps`, filtered-property promotion
+/// included: the classification must be byte-identical across backends
+/// or shadow comparison reads the drift as divergence.
 pub fn compute_event_property_updates(
     event_name: &str,
     set_properties: &Value,
@@ -93,8 +90,8 @@ pub fn compute_event_property_updates(
     let mut to_set = HashMap::new();
     let mut to_unset = Vec::new();
 
-    // $set_once fills absent keys. A new filtered key does not promote on
-    // its own — the TS reference gates it the same way.
+    // $set_once fills absent keys; a new filtered key does not promote
+    // on its own, as in the TS reference.
     if let Some(set_once_map) = set_once_properties.as_object() {
         for (key, value) in set_once_map {
             let existing = person_props.and_then(|p| p.get(key));
@@ -108,8 +105,8 @@ pub fn compute_event_property_updates(
         }
     }
 
-    // $set, two passes: if any changed key promotes — a NEW key does even
-    // when filtered — every changed key in the map rides along.
+    // $set, two passes: if any changed key promotes (a new key always
+    // does, filtered or not), every changed key rides along.
     let mut set_changes: Vec<(&String, &Value)> = Vec::new();
     let mut any_set_promotes = false;
     if let Some(set_map) = set_properties.as_object() {
@@ -311,9 +308,7 @@ mod tests {
 
     #[test]
     fn filtered_only_changes_do_not_warrant_a_write() {
-        // Every changed key is on the filtered list, so the lane carries
-        // changes but nothing worth writing: the caller answers
-        // updated=false and discards, matching the Postgres suppression.
+        // All changes filtered: the caller answers updated=false and discards.
         let result = compute_event_property_updates(
             "$pageview",
             &json!({"$current_url": "https://example.com/b", "$browser": "Firefox"}),
@@ -345,8 +340,7 @@ mod tests {
 
     #[test]
     fn a_new_set_key_promotes_even_when_filtered() {
-        // Mirrors the TS rule: a key the person has never had is worth
-        // writing even off the filtered list, via $set only.
+        // A never-seen key is worth writing even when filtered, $set only.
         let result = compute_event_property_updates(
             "$pageview",
             &json!({"$browser": "Chrome"}),

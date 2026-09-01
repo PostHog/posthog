@@ -119,11 +119,8 @@ pub struct Config {
     #[envconfig(default = "15")]
     pub lifecycle_lease_secs: u64,
 
-    /// How long one lifecycle call — MergePersons or DeletePersons — keeps
-    /// driving (or waiting on another driver's lease) before returning
-    /// UNAVAILABLE (seconds); checked between steps. A caller's own deadline
-    /// must exceed this value, or it cancels drives mid-lease and every
-    /// follow-up waits the abandoned lease out.
+    /// Seconds one lifecycle call drives (or waits on another driver's
+    /// lease) before returning UNAVAILABLE; callers need a larger deadline.
     #[envconfig(default = "30")]
     pub lifecycle_execute_timeout_secs: u64,
 
@@ -135,11 +132,8 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub lifecycle_attempt_alert_threshold: i32,
 
-    /// Run the background sweeper + GC loop for abandoned lifecycle ops;
-    /// the lease arbitrates, so any number of instances may run it. The
-    /// protocol depends on it: a claim-race drop can orphan a live saga
-    /// whose op id no client presents again, and without the sweeper its
-    /// fences freeze until an operator intervenes.
+    /// Run the sweeper + GC loop for abandoned lifecycle ops; the lease
+    /// arbitrates, so any number of instances may run it.
     #[envconfig(default = "true")]
     pub lifecycle_sweeper_enabled: bool,
 
@@ -147,11 +141,7 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub lifecycle_sweep_interval_secs: u64,
 
-    /// How long completed op rows are retained for op_id idempotency before
-    /// GC (hours); the durable deletion shield is the person tombstone row,
-    /// not the op row. A completed op's verdict replays for this long, so a
-    /// client that caches which persons a merge destroyed must hold those
-    /// marks longer than this window or a replay can resurrect one.
+    /// Hours completed op rows are kept for op_id idempotency before GC.
     #[envconfig(default = "24")]
     pub lifecycle_op_retention_hours: u64,
 }

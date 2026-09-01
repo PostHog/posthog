@@ -110,11 +110,8 @@ pub struct MergeRequest {
     /// Per-source distinct-id count guard. Required: an unlimited merge
     /// would make the flip's repoint an unbounded statement.
     pub move_limit: i64,
-    /// The uuid of the event that asked for this merge, carried onto the
-    /// fences the seal step installs so the event's own caller can
-    /// recognise them. Not serialized when empty, keeping the frozen
-    /// shape of creator-less requests identical to rows written before
-    /// the field existed.
+    /// The event that asked for this merge, echoed on its fences. Skipped
+    /// when empty so older frozen rows compare equal.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub creator_event_uuid: String,
 }
@@ -128,10 +125,7 @@ pub struct MergeSourceEntry {
     pub event_uuid: String,
 }
 
-/// Whether the op row has advanced past the step this drive believes it
-/// is on, or settled entirely — the mark another driver holds. Consulted
-/// after a verification refusal to tell a stale claim (defer to the row)
-/// from state that went bad under a live one (unwind it).
+/// Whether another driver advanced or settled the op past our step.
 async fn op_moved_on(pool: &PgPool, op: &OpRow) -> Result<bool, SagaError> {
     let current = sqlx::query!(
         r#"SELECT step, completed_at FROM lifecycle_op WHERE op_id = $1"#,
@@ -140,8 +134,7 @@ async fn op_moved_on(pool: &PgPool, op: &OpRow) -> Result<bool, SagaError> {
     .fetch_optional(pool)
     .await?;
     Ok(match current {
-        // A vanished row was completed and garbage-collected; either way
-        // it is not ours to unwind.
+        // A vanished row was completed and garbage-collected.
         None => true,
         Some(row) => row.completed_at.is_some() || row.step != op.step,
     })
@@ -163,9 +156,7 @@ pub struct MergeOutcome {
 pub struct MergeSourceRecord {
     pub distinct_id: String,
     pub outcome: String,
-    /// The person this verdict speaks about, when one was resolved.
-    /// Defaulted so op rows written before this field existed still
-    /// deserialize during a mixed-fleet roll; those replay as `None`.
+    /// Defaulted so rows written before the field existed replay as `None`.
     #[serde(default)]
     pub person_id: Option<i64>,
 }
@@ -177,8 +168,6 @@ pub const OUTCOME_SKIPPED_CONFLICT: &str = "skipped_conflict";
 pub const OUTCOME_SKIPPED_MOVE_LIMIT: &str = "skipped_move_limit";
 pub const OUTCOME_SKIPPED_REFUSED: &str = "skipped_refused";
 
-/// The verdict an abort settles its pending sources with. An enum so a
-/// caller cannot pass an arbitrary outcome string into the settlement.
 #[derive(Clone, Copy)]
 enum AbortOutcome {
     /// Claim contention: another live op held a person. Unsettled.
@@ -215,16 +204,11 @@ const ROLE_SOURCE: &str = "source";
 
 /// Cap on concurrent leader RPCs per fan-out (fence, release): a bulk
 /// merge must not burst the router with one in-flight call per source.
-/// A worst-case fan-out under a degraded leader outlives any single
-/// client attempt; the cancelled fan-out restarts from an idempotent
-/// re-seal, so this is a liveness bound rather than a deadline.
 const LEADER_CALL_CONCURRENCY: usize = 8;
 
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
-/// Pre-flip aborts by refusal slug. The outcome counter records that sources
-/// were refused; only this says which refusal, which is what separates a
-/// leader misconfiguration from a corrupted mark without reading logs.
+/// Pre-flip aborts by refusal slug.
 const ABORTS_TOTAL: &str = "personhog_lifecycle_merge_aborts_total";
 
 fn record_transition(from: &str, to: &str) {
@@ -354,9 +338,7 @@ impl MergeOpExecutor {
         .map_err(|e| Status::internal(format!("database error: {e}")))
     }
 
-    /// Whether this terminal row is a claim abort: nothing was destroyed
-    /// and no fence was installed, so the record is disposable and a
-    /// retry re-runs the merge fresh.
+    /// Whether this terminal row is a disposable claim abort.
     pub fn is_claim_abort(row: &OpRow) -> bool {
         row.completed_at.is_some()
             && row
@@ -367,8 +349,7 @@ impl MergeOpExecutor {
                 == Some(true)
     }
 
-    /// Delete a claim-aborted op so the caller's retry re-runs fresh. The
-    /// flag is re-checked in SQL, so only a row of that shape can go.
+    /// Delete a claim-aborted op; the flag is re-checked in SQL.
     // See `find` for why result_large_err is allowed.
     #[allow(clippy::result_large_err)]
     pub async fn discard_claim_abort(&self, op_id: Uuid) -> Result<(), Status> {
@@ -894,11 +875,8 @@ async fn abort_in_claim_tx(
         None,
         &HashMap::new(),
     )?;
-    // A claim abort destroyed nothing and installed no fences, so its
-    // verdict is not worth keeping: the entrance deletes a row carrying
-    // this flag on the next presentation of the op id and re-runs the
-    // merge fresh, which is what makes a plain caller retry meaningful
-    // where a recorded conflict would replay forever.
+    // The entrance discards flagged rows on the next presentation of the
+    // op id, so a plain retry re-runs where a recorded conflict replays.
     outcome["claim_abort"] = Value::Bool(true);
     if !complete_op_in_tx(
         &mut tx,
@@ -1116,10 +1094,8 @@ impl MergeDriver {
         Ok(())
     }
 
-    /// Back the op out after a pre-flip refusal: release the live
-    /// sources' fences, settle the marks, and complete as aborted. No
-    /// person is destroyed before the flip, so unwinding is safe; a
-    /// refusal after the flip has no undo and parks instead.
+    /// Back the op out after a pre-flip refusal. Nothing is destroyed
+    /// before the flip, so unwinding is safe; post-flip refusals park.
     async fn abort_refused(
         &self,
         pool: &PgPool,
@@ -1159,11 +1135,7 @@ impl MergeDriver {
         )
         .execute(&mut *tx)
         .await?;
-        // Every status reaching this abort is a slugged semantic refusal;
-        // fence contention bounces as bare FAILED_PRECONDITION and
-        // exhausts into UNAVAILABLE, transient at the step, never an
-        // abort. Recording a refusal as a conflict would misfile a
-        // configuration error as claim contention behind salted retries.
+        // Fence contention never reaches this abort; it retries at the step.
         let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Refused)).await?;
         if !complete_op_in_tx(
             &mut tx,
@@ -1178,9 +1150,8 @@ impl MergeDriver {
             return Ok(());
         }
         tx.commit().await?;
-        // Attribute the abort the moment it commits: a failed release
-        // below leaves the op terminal with nothing retrying it, losing
-        // the attribution on exactly the path that leaves ghost fences.
+        // Attribute the abort before the releases: a failed release
+        // leaves the op terminal with nothing retrying it.
         tracing::error!(
             op_id = %op.op_id,
             step = %from_step.as_str(),
@@ -1198,11 +1169,8 @@ impl MergeDriver {
             1,
         );
         record_outcomes(&outcome);
-        // Releases run only after the completing CAS committed: success
-        // proves this driver still owned the op, so no stealer's flip
-        // needs these fences held. A crash or failed release after the
-        // commit leaves ghosts on settled marks, which the leader's lazy
-        // healer clears on the next bounced write.
+        // Releases only after the completing CAS proves we still owned the
+        // op; ghosts left by a crash here are healed lazily by the leader.
         self.release_fences(op, &pairs).await?;
         Ok(())
     }
@@ -1289,10 +1257,8 @@ async fn settle_drops(
             continue;
         };
         if vanished.contains(&person_id) {
-            // A vanished source records error. If the whole seal then
-            // falls out and aborts, the caller's fold guard reads
-            // error-without-merged as an abort, so this shape cannot read
-            // as executed.
+            // error-without-merged reads as an abort to the caller's fold
+            // guard, so this shape cannot read as executed.
             disposition.decision = OUTCOME_ERROR.to_string();
         } else if identified.contains(&person_id) {
             disposition.decision = OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string();
@@ -1382,13 +1348,9 @@ impl MergeDriver {
             Err(status) => {
                 return match SagaError::leader(status) {
                     SagaError::LeaderRefused(status) => {
-                        // 'fold-unverified' has two provenances the row
-                        // tells apart. If the op advanced under this
-                        // drive's stale claim, aborting would release
-                        // fences the advancing driver still needs held, so
-                        // Busy sends the retry back through attach; if the
-                        // row is still ours and live, the target mark went
-                        // bad and the pre-flip abort unwinds safely.
+                        // Under a stale claim the advancing driver still
+                        // needs the fences, so Busy re-attaches the retry;
+                        // under a live claim the pre-flip abort is safe.
                         if personhog_common::grpc::semantic_refusal_reason(&status)
                             == Some("fold-unverified")
                             && op_moved_on(pool, op).await?
@@ -1511,13 +1473,9 @@ async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
     .await?;
     sources.sort_unstable();
 
-    // Take every row lock up front, in id order: the updates below lock
-    // in plan order and the writer's flush upsert spans overlapping
-    // persons, so uncontrolled order is a deadlock cycle under load.
-    // Sorted acquisition on both sides (the writer sorts its flush
-    // batches; unmap does the same) makes a cycle impossible. The target
-    // is included although no statement below writes its person row
-    // today, so the lock set stays a superset of any partner's.
+    // Lock every row up front in id order; the writer's flush does the
+    // same, so a deadlock cycle is impossible. Including the target keeps
+    // the lock set a superset of any partner's.
     let mut lock_ids = sources.clone();
     lock_ids.push(target);
     lock_ids.sort_unstable();

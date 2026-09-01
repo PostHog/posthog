@@ -179,9 +179,8 @@ async fn forward_one(
         ForwardDecision::Bounced(reason) => Disposition::Bounce(reason),
         // A bounced replay is not an answer: it re-enters the bounce
         // backoff, so there is no response here to carry fence metadata on.
-        // A stash that never stops bouncing ends at its own expiry with a
-        // plain-retry reply, so a fence met during a handoff costs a
-        // redelivery instead of being recognised.
+        // A never-settling stash expires with a plain-retry reply, so a
+        // fence met during a handoff costs a redelivery.
         ForwardDecision::BouncedFenced { .. } => Disposition::Bounce(BounceReason::Fenced),
     }
 }
