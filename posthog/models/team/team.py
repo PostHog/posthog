@@ -20,7 +20,6 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
@@ -52,6 +51,8 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
+
+    from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
 
@@ -566,7 +567,7 @@ class Team(UUIDTClassicModel):
             Supported entry types and the exact shape each accepts:
 
             # Person property — match (or exclude) by a person property
-            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
 
             # Event property — match by an event property
             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
@@ -578,8 +579,9 @@ class Team(UUIDTClassicModel):
             # property-filter schema.
             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
 
-            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
-            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
+            "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
+            "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
         ),
         "project",
         "admin",
@@ -880,21 +882,29 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.clickhouse.client import sync_execute
-        from posthog.queries.person_query import PersonQuery
+        return self.count_persons_seen_so_far()
 
-        filter = Filter(data={"full": "true"})
-        person_query, person_query_params = PersonQuery(filter, self.id).get_query()
+    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
+        from posthog.schema import HogQLQueryModifiers
+
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.query import execute_hogql_query
+
+        from posthog.schema_enums import PersonsArgMaxVersion
 
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
-            return sync_execute(
-                f"""
-                SELECT count(1) FROM (
-                    {person_query}
-                )
-            """,
-                {**person_query_params, **filter.hogql_context.values},
-            )[0][0]
+            return execute_hogql_query(
+                "SELECT count() FROM persons",
+                team=self,
+                query_type="persons_seen_so_far",
+                # Pin v1 because the v2 persons path pushes the executor's default LIMIT into its
+                # dedup subquery, which caps a bare count() at ~101 for teams pinned to v2 (see #87323).
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
+                # A caller that runs several queries can pass a prebuilt database to skip a rebuild.
+                # The v1 pin survives a shared database: the persons table reads the dedup mode from
+                # each query's modifiers at print time, not from the database.
+                context=HogQLContext(team_id=self.pk, database=database),
+            ).results[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:

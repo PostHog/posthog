@@ -166,6 +166,9 @@ services:
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
             OTEL_SDK_DISABLED: 'true'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
+            # Blank sends no CSP reports. Point it at this instance's own /report/ endpoint to
+            # collect them yourself.
+            CSP_REPORT_ENDPOINT: ${CSP_REPORT_ENDPOINT:-}
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'

@@ -188,6 +188,7 @@ from products.product_analytics.backend.presentation.insight_suggestions import 
     get_insight_analysis,
     get_insight_suggestions,
 )
+from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
 from common.hogvm.python.utils import HogVMException
 
@@ -735,6 +736,16 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        validate_insight_write(
+            query=query,
+            filters=attrs.get("filters"),
+            # A write that omits `query` keeps the stored one, which is still what renders.
+            unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
+            team=self.context["get_team"](),
+            user=self.context["request"].user,
+            request=self.context["request"],
+        )
 
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
@@ -1522,7 +1533,16 @@ class MCPInsightSerializer(InsightSerializer):
         # Already-wrapped node → use as-is
         for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
             try:
-                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
+                wrapped_node = wrapped_cls.model_validate(value)
+                normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
+                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                    box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
+                    if box_plot is not None:
+                        normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})
+                        for field in ("xAxisColumn", "seriesColumn"):
+                            if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
+                                normalized_box_plot[field] = None
+                return normalized_query
             except PydanticValidationError:
                 pass
 

@@ -115,6 +115,11 @@ export const getVisionActionsListUrl = (projectId: string, params?: VisionAction
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsList = async (
     projectId: string,
@@ -133,6 +138,11 @@ export const getVisionActionsCreateUrl = (projectId: string) => {
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsCreate = async (
     projectId: string,
@@ -153,6 +163,11 @@ export const getVisionActionsRetrieveUrl = (projectId: string, id: string) => {
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsRetrieve = async (
     projectId: string,
@@ -171,6 +186,11 @@ export const getVisionActionsPartialUpdateUrl = (projectId: string, id: string) 
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsPartialUpdate = async (
     projectId: string,
@@ -192,6 +212,11 @@ export const getVisionActionsDestroyUrl = (projectId: string, id: string) => {
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
@@ -806,6 +831,29 @@ export const visionScannersBulkObserveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkObserveRequestApi),
+    })
+}
+
+export const getVisionScannersDuplicateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/duplicate/`
+}
+
+/**
+ * Copy a scanner into a new disabled scanner named "<name> (copy)".
+ *
+ * Copies the stored model row rather than the serializer's read representation, so a query
+ * that no longer validates survives the copy; duplicating through the create endpoint would
+ * silently drop it. Experiment targeting is the exception and follows the read path instead.
+ * Unlike create, no digest is provisioned: the copy starts disabled and unreviewed.
+ */
+export const visionScannersDuplicateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersDuplicateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

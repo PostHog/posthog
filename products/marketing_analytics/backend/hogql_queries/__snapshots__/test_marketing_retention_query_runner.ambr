@@ -1,0 +1,126 @@
+# serializer version: 1
+# name: TestMarketingAnalyticsRetentionQueryRunner.test_query_shape
+  '''
+  WITH
+    acquisition AS MATERIALIZED (
+    SELECT
+      events.person_id AS actor_id,
+      min(events.session.$start_timestamp) AS cohort_at,
+      argMin(if(in(lower(if(notEmpty(ifNull(events.session.$entry_utm_source, '')), events.session.$entry_utm_source, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(ifNull(events.session.$entry_utm_source, '')), events.session.$entry_utm_source, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(ifNull(events.session.$entry_utm_source, '')), events.session.$entry_utm_source, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(ifNull(events.session.$entry_utm_source, '')), events.session.$entry_utm_source, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(ifNull(events.session.$entry_utm_source, '')), events.session.$entry_utm_source, 'organic'))))), events.session.$start_timestamp) AS breakdown_value
+    FROM
+      events
+    WHERE
+      and(and(equals(events.event, '$pageview'), notEmpty(events.$session_id), greater(toUnixTimestamp(events.session.$start_timestamp), 0)), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2023-01-29 23:59:59')), greaterOrEquals(events.session.$start_timestamp, toDateTime('2023-01-01 00:00:00')), lessOrEquals(events.session.$start_timestamp, toDateTime('2023-01-29 23:59:59')), globalNotIn(events.person_id, (
+          SELECT
+            DISTINCT events.person_id
+          FROM
+            events
+          WHERE
+            and(equals(events.event, '$pageview'), notEmpty(events.$session_id), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01 00:00:00'), toIntervalDay(90))), less(events.timestamp, toDateTime('2023-01-01 00:00:00'))))))
+    GROUP BY
+      actor_id),
+    activity AS (
+    SELECT
+      events.person_id AS actor_id,
+      dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(events.timestamp, 0)) AS activity_index
+    FROM
+      events
+    WHERE
+      and(equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2023-01-29 23:59:59')), globalIn(events.person_id, (
+          SELECT
+            actor_id
+          FROM
+            acquisition)))
+    GROUP BY
+      actor_id,
+      activity_index),
+    cohort_sizes AS MATERIALIZED (
+    SELECT
+      breakdown_value,
+      dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(cohort_at, 0)) AS cohort_index,
+      count(actor_id) AS cohort_size
+    FROM
+      acquisition
+    GROUP BY
+      breakdown_value,
+      cohort_index),
+    matrix AS (
+    SELECT
+      acquisition.breakdown_value,
+      dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(acquisition.cohort_at, 0)) AS cohort_index,
+      minus(activity.activity_index, dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(acquisition.cohort_at, 0))) AS intervals_from_base,
+      count(DISTINCT acquisition.actor_id) AS count
+    FROM
+      acquisition
+      INNER JOIN activity ON equals(activity.actor_id, acquisition.actor_id)
+    GROUP BY
+      acquisition.breakdown_value,
+      cohort_index,
+      intervals_from_base
+    HAVING
+      and(greaterOrEquals(intervals_from_base, 0), less(intervals_from_base, 4))),
+    folded_sizes AS (
+    SELECT
+      if(globalIn(breakdown_value, (
+          SELECT
+            breakdown_value
+          FROM
+            cohort_sizes
+          GROUP BY
+            breakdown_value
+          ORDER BY
+            sum(cohort_size) DESC,
+            breakdown_value ASC
+          LIMIT 20)), breakdown_value, '$$_posthog_breakdown_other_$$') AS breakdown_value,
+      cohort_index,
+      sum(cohort_size) AS cohort_size
+    FROM
+      cohort_sizes
+    GROUP BY
+      breakdown_value,
+      cohort_index),
+    folded_matrix AS (
+    SELECT
+      if(globalIn(breakdown_value, (
+          SELECT
+            breakdown_value
+          FROM
+            cohort_sizes
+          GROUP BY
+            breakdown_value
+          ORDER BY
+            sum(cohort_size) DESC,
+            breakdown_value ASC
+          LIMIT 20)), breakdown_value, '$$_posthog_breakdown_other_$$') AS breakdown_value,
+      cohort_index,
+      intervals_from_base,
+      sum(count) AS count
+    FROM
+      matrix
+    GROUP BY
+      breakdown_value,
+      cohort_index,
+      intervals_from_base),
+    summary AS (
+    SELECT
+      uniqExact(breakdown_value) AS distinct_breakdowns
+    FROM
+      cohort_sizes)
+  SELECT
+    folded_sizes.breakdown_value AS breakdown_value,
+    folded_sizes.cohort_index AS cohort_index,
+    folded_sizes.cohort_size AS cohort_size,
+    folded_matrix.intervals_from_base AS intervals_from_base,
+    folded_matrix.count AS count,
+    summary.distinct_breakdowns AS distinct_breakdowns
+  FROM
+    folded_sizes
+    LEFT JOIN folded_matrix ON and(equals(folded_matrix.breakdown_value, folded_sizes.breakdown_value), equals(folded_matrix.cohort_index, folded_sizes.cohort_index))
+    CROSS JOIN summary
+  ORDER BY
+    breakdown_value ASC,
+    cohort_index ASC,
+    intervals_from_base ASC
+  LIMIT 421
+  '''
+# ---

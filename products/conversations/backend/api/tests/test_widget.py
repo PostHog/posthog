@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -10,6 +11,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
+from posthog.rate_limit import WidgetTeamPollThrottle
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer
 from products.conversations.backend.models import SigningSecret, Ticket
@@ -84,6 +86,28 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertEqual(ticket.status, "new")
         self.assertEqual(ticket.unread_team_count, 1)
+
+    def test_exhausted_poll_throttle_does_not_block_send(self):
+        cache.clear()
+        tickets_url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
+        try:
+            with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
+                self.assertEqual(self.client.get(tickets_url, **self._get_headers()).status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    self.client.get(tickets_url, **self._get_headers()).status_code, status.HTTP_429_TOO_MANY_REQUESTS
+                )
+                send = self.client.post(
+                    "/api/conversations/v1/widget/message",
+                    {
+                        "message": "Hello, I need help!",
+                        "widget_session_id": self.widget_session_id,
+                        "distinct_id": self.distinct_id,
+                    },
+                    **self._get_headers(),
+                )
+            self.assertEqual(send.status_code, status.HTTP_200_OK)
+        finally:
+            cache.clear()
 
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}

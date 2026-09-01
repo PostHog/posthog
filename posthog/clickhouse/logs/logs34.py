@@ -146,7 +146,9 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_offset` UInt64,
     `_bytes_uncompressed` UInt64,
     `_bytes_compressed` UInt64,
-    `_record_count` UInt64
+    `_record_count` UInt64,
+    `pattern` String,
+    `pattern_version` UInt8
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1
@@ -377,7 +379,9 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TA
     `instrumentation_scope` String,
     `event_name` String,
     `attributes` Map(LowCardinality(String), String),
-    `retention_days` Nullable(Int32)
+    `retention_days` Nullable(Int32),
+    `pattern` Nullable(String),
+    `pattern_version` Nullable(Int32)
 )
 ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
@@ -414,7 +418,9 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     _offset,
     toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-    toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
+    toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+    ifNull(pattern, '') AS pattern,
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
@@ -448,7 +454,9 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_offset` UInt64,
     `_record_count` Int64,
     `_bytes_uncompressed` Nullable(Int64),
-    `_bytes_compressed` Nullable(Int64)
+    `_bytes_compressed` Nullable(Int64),
+    `pattern` String,
+    `pattern_version` UInt8
 )
 AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 """

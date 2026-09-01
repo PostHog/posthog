@@ -10,6 +10,7 @@ function feedbackContext(sessionId: string, traceId: string | null, run: RunRef 
     return {
         $ai_session_id: sessionId,
         $ai_trace_id: traceId,
+        ai_product: 'posthog_ai',
         agent_runtime: 'sandbox',
         task_id: run?.taskId ?? null,
         run_id: run?.runId ?? null,
@@ -40,7 +41,6 @@ export function captureTurnFeedbackText(
 ): void {
     posthog.capture('$ai_feedback', {
         $ai_feedback_text: feedbackText,
-        ai_product: 'posthog_ai',
         turn_index: turnIndex,
         ...feedbackContext(sessionId, traceId, run),
     })
@@ -69,7 +69,6 @@ export function capturePromptFeedback(
     if (feedbackText) {
         posthog.capture('$ai_feedback', {
             $ai_feedback_text: feedbackText,
-            ai_product: 'posthog_ai',
             turn_index: turnIndex,
             ...feedbackContext(sessionId, traceId, run),
         })
