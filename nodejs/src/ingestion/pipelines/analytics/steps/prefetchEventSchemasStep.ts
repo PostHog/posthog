@@ -12,7 +12,7 @@ export function prefetchEventSchemasStep<T extends PrefetchEventSchemasStepInput
     return createPrefetchStep<T, number>({
         name: 'prefetchEventSchemasStep',
         extractKey: (event) => event.team.id,
-        load: (teamIds) => eventSchemaEnforcementManager.getSchemasForTeams(teamIds),
+        load: (teamIds) => eventSchemaEnforcementManager.getSchemasForTeams(teamIds, { flush: true }),
         enabled,
     })
 }

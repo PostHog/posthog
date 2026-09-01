@@ -9,7 +9,7 @@ export function prefetchTeamsStep<T extends PrefetchTeamsStepInput>(teamManager:
     return createPrefetchStep<T, string>({
         name: 'prefetchTeamsStep',
         extractKey: (event) => event.headers.token || undefined,
-        load: (tokens) => teamManager.getTeamsByTokens(tokens),
+        load: (tokens) => teamManager.getTeamsByTokens(tokens, { flush: true }),
         enabled,
     })
 }

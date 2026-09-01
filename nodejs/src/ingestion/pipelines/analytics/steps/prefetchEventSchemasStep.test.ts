@@ -19,6 +19,6 @@ describe('prefetchEventSchemasStep', () => {
         const results = await step([createInput(3), createInput(4)])
 
         expect(results.map((result) => result.type)).toEqual(Array(2).fill(PipelineResultType.OK))
-        expect(manager.getSchemasForTeams).toHaveBeenCalledWith([3, 4])
+        expect(manager.getSchemasForTeams).toHaveBeenCalledWith([3, 4], { flush: true })
     })
 })

@@ -17,6 +17,6 @@ describe('prefetchTeamsStep', () => {
         const results = await step([createInput('token-a'), createInput('token-b'), createInput(undefined)])
 
         expect(results.map((result) => result.type)).toEqual(Array(3).fill(PipelineResultType.OK))
-        expect(teamManager.getTeamsByTokens).toHaveBeenCalledWith(['token-a', 'token-b'])
+        expect(teamManager.getTeamsByTokens).toHaveBeenCalledWith(['token-a', 'token-b'], { flush: true })
     })
 })
