@@ -1,9 +1,9 @@
 """
 DuckLake query-client surface for managed_warehouse.
 
-Connect to managed Trino, compile queries for managed DuckLake data, and run DuckDB SQL
-against an org's duckgres server. This surface serves the endpoints shadow path, the
-data-modeling materialization activity, and the duckling backfill.
+Connect to managed Trino, compile queries for managed DuckLake data, and run queries against
+an org's duckgres server. This surface serves the endpoints shadow path, data-modeling
+materialization, and the duckling backfill.
 
 Delegates to ``client`` at call time rather than re-exporting its functions: a bound
 re-export would freeze a copy that ``@patch`` on the source module never reaches. The
