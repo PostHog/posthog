@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
@@ -19,6 +19,7 @@ export function NotebookWidgetGenerationModal({
     const {
         generationDraftModel,
         generationDraftPrompt,
+        generationError,
         generationModalOperation,
         generationRequestLoading,
         isWorking,
@@ -107,6 +108,7 @@ export function NotebookWidgetGenerationModal({
                         className="mt-1"
                     />
                 </div>
+                {generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
             </div>
         </LemonModal>
     )

@@ -20,6 +20,9 @@ import {
     notebooksWidgetVersions,
 } from 'products/notebooks/frontend/generated/api'
 
+import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
+
 jest.mock('scenes/notebooks/Notebook/migrations/migrate', () => {
     const actual = jest.requireActual('scenes/notebooks/Notebook/migrations/migrate')
     return { ...actual, migrate: jest.fn(async (notebook: unknown) => notebook) }
@@ -165,6 +168,30 @@ describe('NotebookNodeGeneratedWidget', () => {
         fireEvent.click(await screen.findByText('Cancel'))
 
         expect(await screen.findByText('Cancel request failed')).toBeTruthy()
+    })
+
+    it('shows a generation failure inside the generation modal', async () => {
+        const generationModalLogicProps = {
+            projectId: MOCK_TEAM_ID,
+            notebookShortId: SHORT_ID,
+            nodeId: 'globe',
+            prompt: 'Render a globe',
+            model: 'claude-sonnet-4-6' as const,
+            isEditable: true,
+            persistNotebook: async (): Promise<void> => undefined,
+            getContent: () => null,
+        }
+        const widgetLogic = notebookNodeGeneratedWidgetLogic(generationModalLogicProps)
+        widgetLogic.mount()
+        await expectLogic(widgetLogic).toFinishAllListeners()
+        widgetLogic.actions.openGenerationModal('improve')
+        widgetLogic.actions.generationFailed('The widget could not be generated.')
+
+        render(<NotebookWidgetGenerationModal logicProps={generationModalLogicProps} />)
+
+        // A failed generation keeps the modal open, so the reason must be visible inside it.
+        expect(await screen.findByText('The widget could not be generated.')).toBeTruthy()
+        widgetLogic.unmount()
     })
 
     it('opens the current source with an improvement prompt', async () => {
