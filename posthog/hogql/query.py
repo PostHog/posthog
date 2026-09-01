@@ -69,7 +69,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries, tags_context
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -686,8 +686,6 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
-                # Set or cleared on every execution so the tag cannot outlive the query it describes.
-                person_lookup_rewrite=1 if self.person_lookup_rewritten else None,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -711,12 +709,15 @@ class HogQLQueryExecutor:
                 )
 
             try:
-                try:
-                    self.results, self.types = run_clickhouse_query()
-                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
-                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
-                    sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
-                    self.results, self.types = run_clickhouse_query()
+                # Scoped to this execution so the tag cannot leak onto later queries in the
+                # same request or task context.
+                with tags_context(person_lookup_rewrite=1 if self.person_lookup_rewritten else None):
+                    try:
+                        self.results, self.types = run_clickhouse_query()
+                    except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
+                        # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
+                        sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
+                        self.results, self.types = run_clickhouse_query()
             except Exception as e:
                 if self.debug:
                     self.results = []
@@ -728,7 +729,10 @@ class HogQLQueryExecutor:
                     raise
 
         if self.debug and self.error is None:
-            with self.timings.measure("explain"):
+            with (
+                self.timings.measure("explain"),
+                tags_context(person_lookup_rewrite=1 if self.person_lookup_rewritten else None),
+            ):
                 # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
                 explain_results = sync_execute(
                     f"EXPLAIN {self.clickhouse_sql}",

@@ -396,7 +396,9 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
         labels=labels,
     )
-    query_tags = get_query_tags().model_dump()
+    # person_lookup_rewrite is worker-local (the worker re-derives it when it runs the
+    # query), and a worker without the field rejects it during a rolling deploy.
+    query_tags = get_query_tags().model_dump(exclude={"person_lookup_rewrite"})
     manager.store_query_status(query_status)
 
     if cache_key:

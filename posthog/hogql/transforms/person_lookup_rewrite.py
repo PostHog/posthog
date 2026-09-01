@@ -1,18 +1,27 @@
-"""Rewrite single-person lookups on `events` to read the `persons` table.
+"""Rewrite single-person property lookups on `events` to read the `persons` table.
 
-`SELECT any(person.properties) FROM events WHERE person.id = 'x'` scans the team's
-entire event history, because a person filter without a timestamp bound cannot use
-the events table's date-first sort key. Production queries of this shape read
+`SELECT any(person.properties.email) FROM events WHERE person.id = 'x'` scans the
+team's entire event history, because a person filter without a timestamp bound cannot
+use the events table's date-first sort key. Production queries of this shape read
 hundreds of gigabytes to fetch one person's properties. The same answer comes from
-the `persons` table in milliseconds, so when a select reads only person-sourced
-fields and filters only on person identity, this pass retargets it.
+the `persons` table in milliseconds, so when a select reads only person property
+keys and filters only on `person.id`, this pass retargets it.
 
-`any(person_properties)` on events returns an arbitrary event-time snapshot, so the
-rewrite changes results from "some historical snapshot" to "current properties".
+`any(person.properties.<key>)` on events returns an arbitrary event-time snapshot,
+so the rewrite changes results from "some historical snapshot" to "current value".
 That is within the contract's slop: with no ORDER BY, no caller can depend on which
 snapshot `any()` picks. Everything with firmer semantics is ineligible: a timestamp
 bound (deliberate era-scoped read), a bare field (one row per event), `argMax(...,
 timestamp)` (deterministically the latest snapshot), and decorated calls.
+
+Only property-key extractions are eligible, because they are nullable on both the
+events path and the persons path in every person-on-events mode, so values and
+response types match exactly. Base fields (`person.id`, `person.created_at`, whole
+`person.properties`) are non-nullable on some paths and not others, so their
+no-match results diverge; they stay on events. `distinct_id = const` predicates
+also stay on events until the person_distinct_ids lazy table can push the filter
+below its aggregation — without that, the emitted lookup aggregates the team's
+whole distinct-id history.
 
 Exports:
 * rewrite_person_lookups
@@ -24,12 +33,9 @@ from typing import Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 _T_AST = TypeVar("_T_AST", bound=AST)
-
-# Person-sourced fields that exist on the persons table under the same name.
-_PERSON_FIELDS = {"properties", "id", "created_at"}
 
 # Position and type metadata carry no query semantics.
 _METADATA_FIELDS = frozenset({"start", "end", "type"})
@@ -58,20 +64,13 @@ def _events_alias(join: ast.JoinExpr) -> Optional[str]:
 
 
 def _person_subchain(field: ast.Field, alias: str) -> Optional[list[str | int]]:
-    """The chain below `person` when the field is person-sourced, e.g. ["properties", "email"]."""
+    """The chain below `person`, e.g. ["properties", "email"] or ["id"]."""
     chain = list(field.chain)
     if chain and chain[0] == alias:
         chain = chain[1:]
-    if len(chain) >= 2 and chain[0] == "person" and chain[1] in _PERSON_FIELDS:
+    if len(chain) >= 2 and chain[0] == "person":
         return chain[1:]
     return None
-
-
-def _is_distinct_id_field(field: ast.Field, alias: str) -> bool:
-    chain = list(field.chain)
-    if chain and chain[0] == alias:
-        chain = chain[1:]
-    return chain == ["distinct_id"]
 
 
 def _flatten_and(node: Optional[ast.Expr]) -> Optional[list[ast.Expr]]:
@@ -93,19 +92,15 @@ def _flatten_and(node: Optional[ast.Expr]) -> Optional[list[ast.Expr]]:
 
 
 def _rewrite_any_call(expr: ast.Expr, alias: str) -> Optional[ast.Call]:
-    """The persons-table version of an `any(person_field)` call, or None when ineligible.
+    """The persons-table version of an `any(person.properties.<key>)` call, or None.
 
-    Only an undecorated `any(person_field)` qualifies. A bare field returns one row
-    per matching event, so retargeting it would change cardinality, and `argMax(...,
-    timestamp)` deterministically returns the latest event-time snapshot, which the
-    current-person row does not preserve. Call decorations (DISTINCT, FILTER, ORDER
-    BY, parametric parameters) all change what `any` returns, so any field beyond
-    the name and its single argument disqualifies rather than being silently dropped.
-
-    Table-qualified so an output alias like `AS created_at` cannot capture the field,
-    and wrapped in `toNullable` because the events-side person fields are nullable:
-    `any()` over no matching rows must stay NULL, not the persons column's type
-    default (zero UUID, epoch, empty properties).
+    Only an undecorated `any` over a property-key extraction qualifies. A bare field
+    returns one row per matching event, so retargeting it would change cardinality,
+    and `argMax(..., timestamp)` deterministically returns the latest event-time
+    snapshot, which the current-person row does not preserve. Call decorations
+    (DISTINCT, FILTER, ORDER BY, parametric parameters) all change what `any`
+    returns, so any field beyond the name and its single argument disqualifies
+    rather than being silently dropped.
     """
     if (
         isinstance(expr, ast.Call)
@@ -117,9 +112,10 @@ def _rewrite_any_call(expr: ast.Expr, alias: str) -> Optional[ast.Call]:
         if not isinstance(first, ast.Field):
             return None
         subchain = _person_subchain(first, alias)
-        if subchain is None:
+        if subchain is None or len(subchain) < 2 or subchain[0] != "properties":
             return None
-        return ast.Call(name="any", args=[ast.Call(name="toNullable", args=[ast.Field(chain=["persons", *subchain])])])
+        # Table-qualified so an output alias like `AS properties` cannot capture the field.
+        return ast.Call(name="any", args=[ast.Field(chain=["persons", *subchain])])
     return None
 
 
@@ -139,7 +135,7 @@ def _implicit_column_name(call: ast.Call) -> Optional[str]:
     return f"any({printed_chain})"
 
 
-def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
+def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Alias]:
     if isinstance(expr, ast.Alias):
         inner = _rewrite_any_call(expr.expr, alias)
         if inner is None:
@@ -157,31 +153,15 @@ def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
 
 
 def _rewrite_predicate(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
-    """The persons-table version of a WHERE predicate, or None when ineligible."""
+    """The persons-table version of the WHERE predicate, or None when ineligible."""
     if not isinstance(expr, ast.CompareOperation) or expr.op != ast.CompareOperationOp.Eq:
         return None
     if not isinstance(expr.left, ast.Field) or not isinstance(expr.right, ast.Constant):
         return None
+    if _person_subchain(expr.left, alias) != ["id"]:
+        return None
     # Table-qualified so a select alias named `id` cannot capture the field.
-    if _person_subchain(expr.left, alias) == ["id"]:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["persons", "id"]), right=expr.right
-        )
-    if _is_distinct_id_field(expr.left, alias):
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["persons", "id"]),
-            right=ast.SelectQuery(
-                select=[ast.Field(chain=["person_id"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["person_distinct_ids"])),
-                where=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["distinct_id"]),
-                    right=expr.right,
-                ),
-            ),
-        )
-    return None
+    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["persons", "id"]), right=expr.right)
 
 
 def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
@@ -192,13 +172,21 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
     if alias is None:
         return None
 
-    select = [_rewrite_select_expr(expr, alias) for expr in node.select]
-    if not select or any(expr is None for expr in select):
+    select_exprs: list[ast.Expr] = []
+    aliases: list[str] = []
+    for expr in node.select:
+        rewritten_expr = _rewrite_select_expr(expr, alias)
+        if rewritten_expr is None:
+            return None
+        select_exprs.append(rewritten_expr)
+        aliases.append(rewritten_expr.alias)
+    # Pinning implicit names makes duplicated unaliased expressions collide as
+    # explicit aliases, which the resolver rejects; the original compiled fine.
+    if not aliases or len(set(aliases)) != len(aliases):
         return None
 
     # Exactly one identity predicate: conjunctions of identifiers have event-existence
-    # semantics (distinct_id = 'a' AND distinct_id = 'b' matches no event, but both IDs
-    # can resolve to the same current person).
+    # semantics that current-person membership does not preserve.
     predicates = _flatten_and(node.where)
     if predicates is None or len(predicates) != 1:
         return None
@@ -207,7 +195,7 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
         return None
 
     return ast.SelectQuery(
-        select=[expr for expr in select if expr is not None],
+        select=select_exprs,
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=rewritten_where,
         limit=node.limit,
@@ -216,9 +204,20 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
     )
 
 
-# The rewrite reads `events` and emits `persons` and `person_distinct_ids`, all matched
-# by unresolved name, so a CTE shadowing any of them disqualifies the enclosed scope.
-_SHADOWABLE_NAMES = {"events", "persons", "person_distinct_ids"}
+# The rewrite reads `events` and emits `persons`, both matched by unresolved name,
+# so a CTE shadowing either name disqualifies the enclosed scope.
+_SHADOWABLE_NAMES = {"events", "persons"}
+
+
+class _ContainsBareEventsSource(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if isinstance(node.table, ast.Field) and node.table.chain == ["events"]:
+            self.found = True
+        super().visit_join_expr(node)
 
 
 class _PersonLookupRewriter(CloningVisitor):
@@ -259,6 +258,12 @@ class _PersonLookupRewriter(CloningVisitor):
 
 
 def rewrite_person_lookups(node: _T_AST) -> tuple[_T_AST, bool]:
+    # A read-only scan first: queries that never read the bare events table (the
+    # overwhelming majority) skip the full clone the rewriting visitor would allocate.
+    scan = _ContainsBareEventsSource()
+    scan.visit(node)
+    if not scan.found:
+        return node, False
     rewriter = _PersonLookupRewriter()
     result = rewriter.visit(node)
     return result, rewriter.rewrote

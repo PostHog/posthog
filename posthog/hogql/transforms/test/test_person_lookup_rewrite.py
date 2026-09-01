@@ -20,24 +20,24 @@ class TestPersonLookupRewrite(BaseTest):
     @parameterized.expand(
         [
             (
-                "any_properties_by_person_id",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "property_key_by_person_id",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "aliased_any",
-                "select any(person.properties) as properties from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(person.properties.email) as email from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
-                "property_key_and_created_at",
-                "select any(person.properties.email), any(person.created_at) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "multiple_property_keys",
+                "select any(person.properties.email), any(person.properties.name) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "events_table_alias",
-                "select any(e.person.properties) from events as e where e.person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(e.person.properties.email) from events as e where e.person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "with_limit",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' limit 1",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' limit 1",
             ),
         ]
     )
@@ -47,23 +47,17 @@ class TestPersonLookupRewrite(BaseTest):
         assert "FROM events" not in result
         assert "person.id" not in result
 
-    def test_rewrites_distinct_id_lookup_via_person_distinct_ids(self):
-        result = self._transform("select any(person.properties) from events where distinct_id = 'abc'")
-        assert "FROM persons" in result
-        assert "FROM person_distinct_ids" in result
-        assert "FROM events" not in result
-
     def test_rewrites_lookup_nested_in_outer_query(self):
         result = self._transform(
-            "select properties from "
-            "(select any(person.properties) as properties from events where person.id = '019cf684-0000-0000-0000-000000000000')"
+            "select email from "
+            "(select any(person.properties.email) as email from events where person.id = '019cf684-0000-0000-0000-000000000000')"
         )
         assert "FROM persons" in result
         assert "FROM events" not in result
 
     def test_rewritten_where_is_table_qualified_against_alias_capture(self):
         result = self._transform(
-            "select any(person.properties) as id from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+            "select any(person.properties.email) as id from events where person.id = '019cf684-0000-0000-0000-000000000000'"
         )
         assert "FROM persons" in result
         assert "persons.id" in result
@@ -81,28 +75,30 @@ class TestPersonLookupRewrite(BaseTest):
         )
         assert "FROM persons" in result
 
-    @parameterized.expand([("id",), ("properties",), ("created_at",)])
+    @parameterized.expand([("properties",), ("persons",)])
     def test_rewritten_select_fields_are_table_qualified_against_alias_capture(self, colliding_name):
         result = self._transform(
-            f"select any(person.properties.email) as {colliding_name}, any(person.{colliding_name}) "
+            f"select any(person.properties.email) as {colliding_name}, any(person.properties.name) "
             "from events where person.id = '019cf684-0000-0000-0000-000000000000'"
         )
         assert "FROM persons" in result
-        assert f"any(toNullable(persons.{colliding_name}))" in result
+        assert "any(persons.properties.name)" in result
 
-    @parameterized.expand(
-        [
-            ("events", "person.id = '019cf684-0000-0000-0000-000000000000'"),
-            ("persons", "person.id = '019cf684-0000-0000-0000-000000000000'"),
-            ("person_distinct_ids", "distinct_id = 'abc'"),
-        ]
-    )
-    def test_outer_cte_shadowing_a_source_or_target_table_disables_the_rewrite(self, cte_name, predicate):
+    def test_queries_without_events_source_are_returned_unchanged(self):
+        node = parse_select(
+            "select any(properties.email) from persons where id = '019cf684-0000-0000-0000-000000000000'"
+        )
+        result, rewrote = rewrite_person_lookups(node)
+        assert result is node
+        assert not rewrote
+
+    @parameterized.expand([("events",), ("persons",)])
+    def test_outer_cte_shadowing_a_source_or_target_table_disables_the_rewrite(self, cte_name):
         node, rewrote = rewrite_person_lookups(
             parse_select(
                 f"with {cte_name} as (select 1 as x) "
-                "select properties from "
-                f"(select any(person.properties) as properties from events where {predicate})"
+                "select email from "
+                "(select any(person.properties.email) as email from events where person.id = '019cf684-0000-0000-0000-000000000000')"
             )
         )
         assert not rewrote
@@ -119,7 +115,7 @@ class TestPersonLookupRewrite(BaseTest):
             parse_select(
                 "with events as (select 1 as x) select x from events "
                 "union all "
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
             )
         )
         assert not rewrote
@@ -133,9 +129,9 @@ class TestPersonLookupRewrite(BaseTest):
     def test_union_branches_rewrite_when_nothing_is_shadowed(self):
         node, rewrote = rewrite_person_lookups(
             parse_select(
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' "
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' "
                 "union all "
-                "select any(person.properties) from events where person.id = '019cf684-1111-0000-0000-000000000000'"
+                "select any(person.properties.email) from events where person.id = '019cf684-1111-0000-0000-000000000000'"
             )
         )
         assert rewrote
@@ -150,75 +146,91 @@ class TestPersonLookupRewrite(BaseTest):
         [
             (
                 "timestamp_bound_is_era_scoped",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' and timestamp > '2026-01-01'",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' and timestamp > '2026-01-01'",
             ),
             (
                 "event_column_in_select",
-                "select any(person.properties), any(event) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(person.properties.email), any(event) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "event_predicate_in_where",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' and event = '$pageview'",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' and event = '$pageview'",
             ),
             (
                 "raw_person_id_column_skips_override_resolution",
-                "select any(person.properties) from events where person_id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(person.properties.email) from events where person_id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "whole_properties_object_is_not_nullable_on_all_paths",
+                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "base_person_id_field",
+                "select any(person.id) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "base_created_at_field",
+                "select any(person.created_at) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "distinct_id_predicate",
+                "select any(person.properties.email) from events where distinct_id = 'abc'",
+            ),
+            (
+                "repeated_unaliased_select_would_collide_as_aliases",
+                "select any(person.properties.email), any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "group_by",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' group by distinct_id",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' group by distinct_id",
             ),
             (
                 "group_by_all",
-                "select person.properties from events where person.id = '019cf684-0000-0000-0000-000000000000' group by all",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' group by all",
             ),
             (
                 "bare_field_changes_cardinality",
-                "select person.properties from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select person.properties.email from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "argmax_is_deterministic_latest",
-                "select argMax(person.properties, timestamp) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select argMax(person.properties.email, timestamp) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "any_distinct",
-                "select any(distinct person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(distinct person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "multiple_identity_predicates",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' and distinct_id = 'abc'",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' and distinct_id = 'abc'",
             ),
             (
                 "repeated_distinct_id_equalities",
-                "select any(person.properties) from events where distinct_id = 'a' and distinct_id = 'b'",
+                "select any(person.properties.email) from events where distinct_id = 'a' and distinct_id = 'b'",
             ),
             (
                 "order_by",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' order by timestamp",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' order by timestamp",
             ),
             (
                 "join",
-                "select any(person.properties) from events join groups on events.$group_0 = groups.key where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(person.properties.email) from events join groups on events.$group_0 = groups.key where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "non_equality_operator",
-                "select any(person.properties) from events where person.id != '019cf684-0000-0000-0000-000000000000'",
+                "select any(person.properties.email) from events where person.id != '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "non_constant_comparison",
-                "select any(person.properties) from events where person.id = distinct_id",
+                "select any(person.properties.email) from events where person.id = distinct_id",
             ),
             (
                 "no_where",
-                "select any(person.properties) from events",
+                "select any(person.properties.email) from events",
             ),
             (
                 "or_predicate",
-                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' or distinct_id = 'abc'",
-            ),
-            (
-                "other_table",
-                "select any(properties) from persons where id = '019cf684-0000-0000-0000-000000000000'",
+                "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' or distinct_id = 'abc'",
             ),
             (
                 "count_aggregate",
@@ -248,14 +260,14 @@ class TestPersonLookupRewrite(BaseTest):
     )
     def test_unhandled_select_fields_disqualify(self, _name, attribute, value):
         node = parse_select(
-            "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' limit 10"
+            "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000' limit 10"
         )
         setattr(node, attribute, value)
         self._assert_untouched_events_source(node)
 
     def test_filter_expr_on_any_disqualifies(self):
         node = parse_select(
-            "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+            "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
         )
         assert isinstance(node, ast.SelectQuery)
         call = node.select[0]
@@ -277,7 +289,7 @@ class TestPersonLookupRewrite(BaseTest):
 
         modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode(poe_mode)) if poe_mode else None
         executor = HogQLQueryExecutor(
-            query="select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            query="select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             team=self.team,
             connection_id=connection_id,
             modifiers=modifiers,
@@ -313,37 +325,20 @@ class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
                 person_properties={"email": "a@example.com"},
             )
         flush_persons_and_events()
-        predicate = f"person.id = '{person.uuid}'"
-        assert self._lookup(predicate, rewrite=True) == self._lookup(predicate, rewrite=False)
+        query = f"select any(person.properties.email) from events where person.id = '{person.uuid}'"
+        on = self._execute(query, rewrite=True)
+        off = self._execute(query, rewrite=False)
+        assert on.results == off.results == [("a@example.com",)]
+        assert [column_type for _, column_type in on.types] == [column_type for _, column_type in off.types]
 
-    def test_lookup_parity_by_distinct_id_across_merged_ids(self):
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        create_person(team=self.team, distinct_ids=["pdi-a", "pdi-b"], properties={"email": "a@example.com"})
-        for distinct_id in ["pdi-a", "pdi-b"]:
-            _create_event(
-                event="$pageview",
-                distinct_id=distinct_id,
-                team=self.team,
-                person_properties={"email": "a@example.com"},
-            )
-        flush_persons_and_events()
-        assert self._lookup("distinct_id = 'pdi-b'", rewrite=True) == self._lookup(
-            "distinct_id = 'pdi-b'", rewrite=False
-        )
-        assert self._lookup("distinct_id = 'pdi-b'", rewrite=True) == [("a@example.com",)]
-
-    def test_lookup_serves_current_properties_without_events(self):
-        person = create_person(team=self.team, distinct_ids=["lookup-user"], properties={"email": "a@example.com"})
-        assert self._lookup(f"person.id = '{person.uuid}'", rewrite=False) == [(None,)]
-        assert self._lookup(f"person.id = '{person.uuid}'", rewrite=True) == [("a@example.com",)]
-
-    def test_lookup_returns_null_for_unknown_person_across_all_fields(self):
+    def test_lookup_parity_for_unknown_person(self):
         query = (
-            "select any(person.id), any(person.created_at), any(person.properties) "
-            "from events where person.id = '019cf684-9999-0000-0000-000000000000'"
+            "select any(person.properties.email) from events where person.id = '019cf684-9999-0000-0000-000000000000'"
         )
-        assert self._execute(query, rewrite=True).results == [(None, None, None)]
+        on = self._execute(query, rewrite=True)
+        off = self._execute(query, rewrite=False)
+        assert on.results == off.results == [(None,)]
+        assert [column_type for _, column_type in on.types] == [column_type for _, column_type in off.types]
 
     def test_lookup_preserves_implicit_response_columns(self):
         query = (
@@ -351,3 +346,15 @@ class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
         )
         assert self._execute(query, rewrite=True).columns == self._execute(query, rewrite=False).columns
         assert self._execute(query, rewrite=True).columns == ["any(person.properties.email)"]
+
+    def test_lookup_serves_current_properties_without_events(self):
+        person = create_person(team=self.team, distinct_ids=["lookup-user"], properties={"email": "a@example.com"})
+        assert self._lookup(f"person.id = '{person.uuid}'", rewrite=False) == [(None,)]
+        assert self._lookup(f"person.id = '{person.uuid}'", rewrite=True) == [("a@example.com",)]
+
+    def test_rewrite_tag_is_restored_after_execution(self):
+        from posthog.clickhouse.query_tagging import get_query_tags
+
+        person = create_person(team=self.team, distinct_ids=["tag-user"], properties={"email": "a@example.com"})
+        self._lookup(f"person.id = '{person.uuid}'", rewrite=True)
+        assert get_query_tags().person_lookup_rewrite is None
