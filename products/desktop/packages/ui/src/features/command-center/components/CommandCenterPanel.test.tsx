@@ -6,6 +6,19 @@ import type { CommandCenterCellData } from "../hooks/useCommandCenterData";
 
 const mocks = vi.hoisted(() => ({
   openTask: vi.fn(),
+  setDraft: vi.fn(),
+  createdTask: { id: "task-2", title: "Composed in a tile" },
+  store: {
+    layout: "2x2",
+    cells: [null, null, null, null] as (string | null)[],
+    composer: null as { cellIndex: number; sessionId: string } | null,
+    finishCreating: vi.fn(() => true),
+    clearCell: vi.fn(),
+    setBrainrotCell: vi.fn(),
+    setTerminalCell: vi.fn(),
+    startCreating: vi.fn(),
+    stopCreating: vi.fn(),
+  },
 }));
 
 vi.mock("@posthog/ui/router/useOpenTask", () => ({
@@ -55,16 +68,54 @@ vi.mock("../../sidebar/components/items/TaskIcon", () => ({
 vi.mock("../../sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null, hasDiff: false }),
 }));
+vi.mock("../../message-editor/draftStore", () => ({
+  useDraftStore: (selector: (state: unknown) => unknown) =>
+    selector({ actions: { setDraft: mocks.setDraft } }),
+}));
+vi.mock("../../auth/store", () => ({
+  useAuthStateValue: () => "us:2",
+}));
+vi.mock("../../auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: "user-1" } }),
+}));
+vi.mock("../../settings/settingsStore", () => ({
+  useSettingsStore: (selector: (state: unknown) => unknown) =>
+    selector({ brainrotMode: false }),
+}));
+vi.mock("../../task-detail/components/TaskInput", () => ({
+  TaskInput: ({ onTaskCreated }: { onTaskCreated?: (task: Task) => void }) => (
+    <button
+      type="button"
+      onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
+    >
+      Send
+    </button>
+  ),
+}));
 vi.mock("../commandCenterStore", () => ({
-  useCommandCenterStore: (
-    selector: (state: { clearCell: () => void }) => unknown,
-  ) => selector({ clearCell: vi.fn() }),
+  useCommandCenterStore: (selector: (state: unknown) => unknown) =>
+    selector(mocks.store),
+  getCellSessionId: (scope: string, cellIndex: number) =>
+    `cc-cell-${scope}-${cellIndex}`,
 }));
 vi.mock("./CommandCenterPRButton", () => ({
   CommandCenterPRButton: () => null,
 }));
 vi.mock("./TaskSelector", () => ({
-  TaskSelector: ({ children }: { children: ReactNode }) => children,
+  TaskSelector: ({
+    children,
+    onNewTask,
+  }: {
+    children: ReactNode;
+    onNewTask: () => void;
+  }) => (
+    <>
+      {children}
+      <button type="button" onClick={onNewTask}>
+        New task
+      </button>
+    </>
+  ),
 }));
 
 import { CommandCenterPanel } from "./CommandCenterPanel";
@@ -95,9 +146,18 @@ const cell = {
   terminalCwd: null,
 } satisfies CommandCenterCellData;
 
+const emptyCell = {
+  ...cell,
+  cellIndex: 2,
+  taskId: null,
+  task: undefined,
+} satisfies CommandCenterCellData;
+
 describe("CommandCenterPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.store.composer = null;
+    mocks.store.finishCreating.mockReturnValue(true);
   });
 
   it("preserves the task's space when opening it", () => {
@@ -108,5 +168,63 @@ describe("CommandCenterPanel", () => {
     expect(mocks.openTask).toHaveBeenCalledWith(task, {
       channelId: "channel-1",
     });
+  });
+
+  // Sending the user to the full-page composer instead abandons the grid they
+  // laid out, which is the whole point of working in Command Center.
+  it("starts a new task inside the tile that asked for one", () => {
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+
+    expect(mocks.store.startCreating).toHaveBeenCalledWith(
+      2,
+      "cc-cell-us:2:user-1-2",
+    );
+  });
+
+  // Without this the task is created but never claims a tile, so its session
+  // renders nowhere.
+  it("keeps a task composed in a tile in that tile", () => {
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(mocks.store.finishCreating).toHaveBeenCalledWith(
+      "cc-cell-us:2:user-1-2",
+      "task-2",
+    );
+  });
+
+  it("opens a created task when its tile is no longer reserved", () => {
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    mocks.store.finishCreating.mockReturnValue(false);
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(mocks.openTask).toHaveBeenCalledWith(mocks.createdTask);
+  });
+
+  it("clears the draft when a composing tile is replaced", () => {
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    const { rerender } = render(
+      <CommandCenterPanel cell={emptyCell} isActiveSession={false} />,
+    );
+
+    mocks.store.composer = null;
+    rerender(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+
+    expect(mocks.setDraft).toHaveBeenCalledWith("cc-cell-us:2:user-1-2", null);
   });
 });
