@@ -332,6 +332,19 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.customSqlPreviewStale).toBe(false)
     })
 
+    it('forces a fresh calculation for the custom SQL preview so it cannot serve cached data', async () => {
+        ;(performQuery as jest.Mock).mockResolvedValue({ columns: [], results: [], hasMore: false })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        const refresh = (performQuery as jest.Mock).mock.calls.at(-1)?.[2]
+        expect(refresh).toEqual('force_blocking')
+    })
+
     it('clears a custom SQL preview error when the query changes', async () => {
         ;(performQuery as jest.Mock).mockRejectedValue({ detail: 'Unknown table' })
         await mountLogic()

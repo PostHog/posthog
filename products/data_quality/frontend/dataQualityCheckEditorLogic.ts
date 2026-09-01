@@ -460,7 +460,13 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
             {
                 runCustomSqlPreview: async (): Promise<CustomSqlPreview> => {
                     const sql = values.checkForm.customSql.trim()
-                    const response = await performQuery<HogQLQuery>({ kind: NodeKind.HogQLQuery, query: sql })
+                    // Force a fresh calculation: the scheduled check run always reads current data, so the
+                    // preview must not serve a cached result that could report a different verdict.
+                    const response = await performQuery<HogQLQuery>(
+                        { kind: NodeKind.HogQLQuery, query: sql },
+                        undefined,
+                        'force_blocking'
+                    )
                     return {
                         sql,
                         columns: response.columns ?? [],
