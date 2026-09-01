@@ -33,6 +33,14 @@ Trino table rendering stays in Trino-specific modules. Neither the built-in numb
 
 After deployment, Django shell can call the same compilation API. Construct the context with the intended team, user, effective modifiers, and `Database.create_for(...)`, then supply explicit Trino locators. No new HTTP endpoint or scheduled job is required.
 
+For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the managed-warehouse client facade. This explicit entry point reads the organization's ready Trino catalog from the control plane and combines it with the project's authoritative team row. It maps:
+
+- `events` and `persons` to the project's provisioned tables in the `posthog` schema;
+- materialized saved queries to their `shadow_<team_id>_models` relations;
+- copied warehouse sources to their provisioned data-import schema and table names.
+
+The control-plane read accepts both `trino_catalog_name` and the earlier `catalog` field during a rolling deployment. A disabled or non-ready Trino target, an organization mismatch, a missing team row, or an unmapped relation fails compilation before SQL submission. The helper only compiles; deploying it does not change query routing or execute Trino SQL.
+
 Source metadata describes what HogQL means. Target mappings describe where the corresponding Trino data exists. Missing mappings and unsupported constructs fail compilation; the compiler must not invent physical relations or assume a ClickHouse materialized view exists in Trino.
 
 `test_trino_semantics.py` exercises action expansion, cohort expansion, and lazy person joins through the compilation API without using the execution adapter. A batch export script is a separate operational tool, not part of this release.
