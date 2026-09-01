@@ -71,7 +71,7 @@ async def test_insert_into_s3_activity_fails_without_an_integration(activity_env
 
     # Non-retryable errors are returned on the result rather than raised, so the run fails once.
     assert result.error is not None
-    assert result.error.type == "MissingS3IntegrationError"
+    assert result.error.type == "MissingIntegrationError"
 
 
 @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)

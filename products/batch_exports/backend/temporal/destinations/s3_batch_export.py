@@ -94,7 +94,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Invalid S3 credentials
     "InvalidCredentialsError",
     # The export has no linked Integration to authenticate with
-    "MissingS3IntegrationError",
+    "MissingIntegrationError",
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
@@ -143,7 +143,7 @@ class S3IntegrationNotFoundError(Exception):
         super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
 
 
-class MissingS3IntegrationError(Exception):
+class MissingIntegrationError(Exception):
     """Raised when an S3-family export has no Integration to authenticate with."""
 
     def __init__(self, batch_export_id: str | None):
@@ -701,7 +701,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         elif refresh_credentials is not None:
             credentials = await refresh_credentials()
         else:
-            raise MissingS3IntegrationError(inputs.batch_export_id)
+            raise MissingIntegrationError(inputs.batch_export_id)
 
         external_logger = EXTERNAL_LOGGER.bind()
         external_logger.info(
