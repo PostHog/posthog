@@ -402,6 +402,9 @@ export class IngestionApiServer implements NodeServer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
+            teamsPrefetchEnabled: this.config.TEAMS_PREFETCH_ENABLED,
+            eventSchemasPrefetchEnabled: this.config.EVENT_SCHEMAS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: this.config.HOG_FUNCTIONS_PREFETCH_ENABLED,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
