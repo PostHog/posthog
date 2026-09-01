@@ -209,7 +209,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                     <LemonButton
                         size="small"
                         type="secondary"
-                        onClick={() => ensureLoaded()}
+                        onClick={() => (isLoaded ? refresh() : ensureLoaded())}
                         data-attr="inbox-report-list-retry"
                     >
                         Retry

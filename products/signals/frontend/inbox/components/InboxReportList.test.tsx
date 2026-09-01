@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 import { InboxReportList, InboxReportCardProps } from './InboxReportList'
 
@@ -123,6 +124,46 @@ describe('InboxReportList', () => {
         })
 
         render(<InboxReportList tabKey="reports" Card={StubCard} emptyState={{ content: <div>empty</div> }} />)
+
+        const retry = await screen.findByText('Retry')
+        expect(screen.getByText("Couldn't load these reports.")).toBeInTheDocument()
+
+        act(() => retry.click())
+
+        await screen.findByText('Report recovered')
+        expect(screen.queryByText("Couldn't load these reports.")).not.toBeInTheDocument()
+    })
+
+    it('retry refetches when a refresh fails on an already-loaded empty list', async () => {
+        let pageAttempts = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const { searchParams } = new URL(request.url)
+                    if (searchParams.get('limit') === '1') {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
+                    pageAttempts += 1
+                    // First load lands empty (a tab or filter with no matches), the refresh fails,
+                    // then the retry recovers. A failed load keeps the earlier empty response, so
+                    // `ensureLoaded` alone would send no request — the retry must refetch.
+                    if (pageAttempts === 1) {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
+                    if (pageAttempts === 2) {
+                        return [500, { detail: 'boom' }]
+                    }
+                    return [200, { count: 1, next: null, previous: null, results: [makeReport('recovered')] }]
+                },
+            },
+        })
+
+        render(<InboxReportList tabKey="reports" Card={StubCard} emptyState={{ content: <div>empty</div> }} />)
+
+        await screen.findByText('empty')
+        // A reload (filter/scope change, bulk broadcast) refetches the loaded list and fails here.
+        act(() => reportListLogic(legacyTabListLogicProps('reports')).actions.refresh())
 
         const retry = await screen.findByText('Retry')
         expect(screen.getByText("Couldn't load these reports.")).toBeInTheDocument()
