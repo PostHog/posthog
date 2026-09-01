@@ -1,5 +1,53 @@
 # posthog-cli
 
+## 0.16.0 — 2026-08-26
+
+### Minor changes
+
+- [db85d262555](https://github.com/PostHog/posthog/commit/db85d262555a61d89eb71b5dfcfc969053b82236) Add `--release-mode` to `hermes clone` and `hermes upload`. `event` leaves the uploaded Hermes source maps release-independent, so a React Native build that ships unchanged JavaScript across two releases keeps one symbol set instead of colliding on the release the first upload stamped on it. Each exception resolves its own release from the `$app_namespace` / `$app_version` / `$app_build` the SDK already sends, so pass `--release-name`, `--release-version` and `--build` matching the app's bundle identifier or applicationId, version and build number. `symbol-set` stays the default. `hermes inject --release-mode=event` no longer errors: it injects content-addressed chunk ids and, unlike a web build, embeds no release id, because a Hermes bytecode bundle has nothing to read one back out. — Thanks @ablaszkiewicz!
+
+## 0.15.1 — 2026-08-24
+
+### Patch changes
+
+- [4c7c1c85604](https://github.com/PostHog/posthog/commit/4c7c1c8560431add076127c3d6bc53ca253aa116) Keep release resolution optional when Info.plist values cannot be resolved — Thanks @marandaneto!
+
+## 0.15.0 — 2026-08-24
+
+### Minor changes
+
+- [30bb8706d09](https://github.com/PostHog/posthog/commit/30bb8706d09854256be3dbe2be6ccd62c8f4a993) Read iOS release metadata from Info.plist files — Thanks @marandaneto!
+
+## 0.14.1 — 2026-08-23
+
+### Patch changes
+
+- [5e488e12013](https://github.com/PostHog/posthog/commit/5e488e120131361723c3b86cc98dcd3d7e814322) Accept sourcemaps that use the camel-case `chunkId` field when cloning or uploading Hermes sourcemaps. — Thanks @marandaneto!
+
+## 0.14.0 — 2026-08-21
+
+### Minor changes
+
+- [7dd3d0f5c27](https://github.com/PostHog/posthog/commit/7dd3d0f5c27b044db02b30ed7af19909010f96a9) With `--release-mode=event`, `sourcemap inject` now adopts a bundler-emitted ECMA-426 debug id (`//# debugId=` comment or the sourcemap's `debugId` field) as the chunk id instead of deriving its own, so one id identifies the chunk across the toolchain. The sourcemap's `debugId` field is preserved on save instead of being renamed to `chunk_id`, a bundler-stamped debug id no longer makes inject skip the mapping adjustment for the injected snippet, and hermes uploads still accept maps that carry only a `debugId`. Behavior change: `sourcemap upload --hermes` now fails with an error when it finds no maps carrying a chunk id or debug id, instead of exiting successfully having uploaded nothing. — Thanks @ablaszkiewicz!
+
+## 0.13.3 — 2026-08-20
+
+### Patch changes
+
+- [ee7d6424091](https://github.com/PostHog/posthog/commit/ee7d642409193f1dd781651c931991a70497712e) Linux release binaries now embed a GNU build id, so native crash reports from the CLI can be matched to uploaded debug symbols. — Thanks @ablaszkiewicz!
+
+## 0.13.2 — 2026-08-20
+
+### Patch changes
+
+- [029c984bdef](https://github.com/PostHog/posthog/commit/029c984bdefc2a09acb7975e29de052fcf0144d7) Retry symbol set uploads through the standard S3 endpoint when the transfer-acceleration endpoint is unreachable, so uploads complete on networks that block the accelerate domain. A 5 second connect timeout on uploads makes unreachable endpoints fail fast. — Thanks @ablaszkiewicz!
+
+## 0.13.1 — 2026-08-20
+
+### Patch changes
+
+- [fd234e17b30](https://github.com/PostHog/posthog/commit/fd234e17b301dcf20ffac31d839a773d400af933) Improve CLI error diagnostics with native stack symbolication metadata, release debug symbols, and structured categories for local file and parsing failures. — Thanks @hpouillot!
+
 ## 0.13.0 — 2026-08-18
 
 ### Minor changes

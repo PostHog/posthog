@@ -36,6 +36,13 @@ export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                 </>
@@ -124,7 +131,7 @@ export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                             },
                             {
                                 language: 'bash',
-                                file: 'Bun',
+                                file: 'bun',
                                 code: dedent`
                                     bun add posthog-node
                                 `,
@@ -170,19 +177,24 @@ export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefi
     ]
 }
 
-export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { snippets } = ctx
-    const JSEventCapture = snippets?.JSEventCapture
+export const getSvelteInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getSvelteClientSteps(ctx),
+    ...getSvelteServerSteps(ctx),
+]
 
-    return [
-        ...getSvelteClientSteps(ctx),
-        ...getSvelteServerSteps(ctx),
-        {
-            title: 'Send events',
-            badge: undefined,
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
-    ]
+export const getSvelteEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const JSEventCapture = ctx.snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: undefined,
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
 }
+
+export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getSvelteInstallSteps(ctx),
+    getSvelteEventStep(ctx),
+]
 
 export const SvelteInstallation = createInstallation(getSvelteSteps)

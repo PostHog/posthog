@@ -13,10 +13,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { FeatureFlagType } from '~/types'
 
-import { NEW_EXPERIMENT } from '../constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
+import { experimentsLogic } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { experimentsLogic } from '../experimentsLogic'
 import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { VariantsStep } from './steps/VariantsStep'
@@ -590,37 +591,6 @@ describe('experimentWizardLogic', () => {
                     about: ['A feature flag with this key already exists.'],
                 }),
             })
-        })
-
-        it('feature flag key is re-validated on remount', async () => {
-            // Set up: trigger a duplicate-key validation error
-            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
-            createLogic.actions.setExperimentValue('feature_flag_key', 'existing-flag')
-            vpLogic.actions.validateFeatureFlagKeySuccess({
-                valid: false,
-                error: 'A feature flag with this key already exists.',
-                key: 'existing-flag',
-            })
-
-            await expectLogic(logic).toMatchValues({
-                featureFlagKeyValidation: partial({
-                    valid: false,
-                    error: 'A feature flag with this key already exists.',
-                }),
-            })
-
-            // Unmount and remount
-            logic.unmount()
-            vpLogic.unmount()
-            createLogic.unmount()
-
-            createLogic = createExperimentLogic()
-            createLogic.mount()
-            logic = experimentWizardLogic()
-            logic.mount()
-
-            // afterMount should re-validate since feature_flag_key is set
-            await expectLogic(logic).toDispatchActions(['validateFeatureFlagKey'])
         })
 
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {

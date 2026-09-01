@@ -106,6 +106,21 @@ export type NotebookApiParentResource = {
     readonly id: string
 } | null
 
+/**
+ * One notebook-level variable. Shared by the notebook's own `variables` field and a run body.
+ */
+export interface NotebookVariableApi {
+    /**
+     * Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.
+     * @maxLength 200
+     */
+    name: string
+    /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+    type: string
+    /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+    value?: unknown
+}
+
 export interface NotebookApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -146,6 +161,8 @@ export interface NotebookApi {
      * @nullable
      */
     readonly parent_resource: NotebookApiParentResource
+    /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+    variables?: NotebookVariableApi[]
     _create_in_folder?: string
 }
 
@@ -198,6 +215,8 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     readonly parent_resource?: PatchedNotebookApiParentResource
+    /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+    variables?: NotebookVariableApi[]
     _create_in_folder?: string
 }
 
@@ -427,6 +446,8 @@ export interface NotebookSQLV2RunRequestApi {
     output_name?: string
     /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
     refs?: NotebookSQLV2RunRequestApiRefs
+    /** Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to its value before dispatch; a Python node gets them as globals in the kernel namespace. A SQL node reading a `{name}` that is absent here fails the dispatch. */
+    variables?: NotebookVariableApi[]
     /**
      * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
      * @nullable

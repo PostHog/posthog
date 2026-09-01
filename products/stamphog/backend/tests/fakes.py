@@ -157,6 +157,8 @@ class GitHubRecorder:
         # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
         # exercise the best-effort catch for exception types the client does not raise itself.
         self.add_label_side_effect: Exception | None = None
+        # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
+        self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         # Per-repository overrides for the same paths, for cases where two connected repos must
@@ -208,7 +210,12 @@ class GitHubRecorder:
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
             return FakeResponse(200, json_data=self.pr_reviews.get((m.group("repo"), int(m.group("number"))), []))
         if method == "POST" and (m := _REVIEWS_RE.match(path)):
-            return self._record_write("approve_review", m.group("repo"), int(m.group("number")), json_body)
+            # Split by event so a test asserting on approvals never matches a COMMENT review.
+            event = (json_body or {}).get("event")
+            kind = "approve_review" if event == "APPROVE" else "comment_review"
+            if kind == "comment_review" and self.comment_review_side_effect is not None:
+                raise self.comment_review_side_effect
+            return self._record_write(kind, m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and (m := _ISSUE_COMMENTS_RE.match(path)):
             page = int(params.get("page", 1))
             comments = self.issue_comments.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
@@ -401,15 +408,21 @@ class FakeSlackClient:
     lands, which is what Slack does for a public channel the app was never invited to.
     """
 
-    def __init__(self, posted: list[dict[str, Any]], needs_join: set[str], joined: list[str]) -> None:
+    def __init__(
+        self, posted: list[dict[str, Any]], needs_join: set[str], joined: list[str], fail_thread_replies: bool
+    ) -> None:
         self._posted = posted
         self._needs_join = needs_join
         self._joined = joined
+        self._fail_thread_replies = fail_thread_replies
 
     def chat_postMessage(self, *, channel: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
         if channel in self._needs_join and channel not in self._joined:
             raise SlackApiError("not_in_channel", {"ok": False, "error": "not_in_channel"})
-        self._posted.append({"channel": channel, "blocks": blocks, "text": text})
+        thread_ts = kwargs.get("thread_ts")
+        self._posted.append({"channel": channel, "blocks": blocks, "text": text, "thread_ts": thread_ts})
+        if thread_ts and self._fail_thread_replies:
+            raise SlackApiError("msg_too_long", {"ok": False, "error": "msg_too_long"})
         return {"ok": True, "ts": "1234.5678"}
 
     def conversations_join(self, *, channel: str) -> dict[str, Any]:
@@ -418,7 +431,7 @@ class FakeSlackClient:
 
 
 class FakeSlackIntegration:
-    """Stand-in for ``posthog.models.integration.SlackIntegration``.
+    """Stand-in for ``posthog.models.integration.slack.SlackIntegration``.
 
     Class-level state is shared across every instance a run constructs, so a test can read
     ``posted_messages`` and script ``workspace_channels`` regardless of which module built the
@@ -430,6 +443,9 @@ class FakeSlackIntegration:
     # Channels the app has not been invited to, and the ones it joined by itself during the run.
     channels_needing_join: set[str] = set()
     joined_channels: list[str] = []
+    # Makes the threaded reply fail while the lead still succeeds, which is the only Slack failure
+    # the digest is expected to swallow.
+    fail_thread_replies: bool = False
 
     def __init__(self, integration: Any) -> None:
         self.integration = integration
@@ -440,17 +456,27 @@ class FakeSlackIntegration:
             FakeSlackIntegration.posted_messages,
             FakeSlackIntegration.channels_needing_join,
             FakeSlackIntegration.joined_channels,
+            FakeSlackIntegration.fail_thread_replies,
         )
 
     def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
         return sorted(FakeSlackIntegration.workspace_channels, key=lambda c: c["name"])
 
+    def list_public_channels(self) -> list[dict]:
+        # The workspace fixture is public channels only, so this matches list_channels. Both exist
+        # because callers pick one, and a fake missing the method a caller uses fails as a routing
+        # error rather than as the missing stub it is.
+        return sorted(FakeSlackIntegration.workspace_channels, key=lambda c: c["name"])
+
     @classmethod
-    def reset(cls, channels: list[dict[str, str]], *, needs_join: Iterable[str] = ()) -> None:
+    def reset(
+        cls, channels: list[dict[str, str]], *, needs_join: Iterable[str] = (), fail_thread_replies: bool = False
+    ) -> None:
         cls.posted_messages = []
         cls.workspace_channels = list(channels)
         cls.channels_needing_join = set(needs_join)
         cls.joined_channels = []
+        cls.fail_thread_replies = fail_thread_replies
 
 
 # --- Sandbox fake at the ``get_sandbox_class_for_backend`` seam ---
@@ -500,6 +526,9 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     class _FakeSandbox:
         # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
         destroy_error: Exception | None = None
+        # A test can set this to make provisioning blow up, which is the first step of the review's
+        # paid phase (retry-boundary coverage).
+        create_error: Exception | None = None
         # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
         # (environment variables, egress allowlist).
         created_configs: list[Any] = []
@@ -507,6 +536,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
             cls.created_configs.append(config)
+            if cls.create_error is not None:
+                raise cls.create_error
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:

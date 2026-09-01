@@ -161,12 +161,23 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
-    it('backfills the metric type when the picker loads after the metric was set', () => {
+    it('backfills the metric type and recommended aggregation when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+        // A cold URL restore sets the name before the list arrives, so without the late
+        // recommendation a gauge/counter link would silently chart as a raw sum.
+        expect(logic.values.aggregation).toBe('avg')
+    })
+
+    it('the late backfill leaves an explicitly chosen aggregation alone', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('p95')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.aggregation).toBe('p95')
     })
 
     // "Add to dashboard" must not create a fresh insight on every click — repeated
@@ -242,6 +253,24 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryError).toBeNull()
     })
 
+    // A superseded query's abort lands as a failure while the replacement query is still in
+    // flight. kea-loaders' auto `queryResultsLoading` drops to false then, which flashed the
+    // "No data" empty state between the spinner and the chart, so `queryLoading` must ride
+    // out the abort, while still clearing on a real failure.
+    it.each([
+        [
+            'a superseded (aborted) query',
+            NEW_QUERY_STARTED_ERROR_MESSAGE,
+            new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'),
+            true,
+        ],
+        ['a real query failure', 'Invalid regex pattern', new Error('Invalid regex pattern'), false],
+    ])('queryLoading after %s', (_name, message, errorObject, expected) => {
+        logic.actions.fetchQueryResults({})
+        logic.actions.fetchQueryResultsFailure(message, errorObject)
+        expect(logic.values.queryLoading).toBe(expected)
+    })
+
     // The filter bar's property filters must translate into the backend's Prometheus-style
     // matchers: operator mapping, multi-value alternation (with regex escaping), and skipping
     // chips that are still being edited. A bad mapping silently filters the chart wrong.
@@ -279,6 +308,36 @@ describe('metricsViewerLogic', () => {
     ])('maps filter bar chip (%s) to a backend matcher', (_name, propertyFilter, expected) => {
         logic.actions.setFilterGroup(filterGroupWith([propertyFilter]))
         expect(logic.values.queryFilters).toEqual([expected])
+    })
+
+    // Drives the metric picker's scope. Getting this wrong is silent: the picker
+    // reverts to offering every metric while the filter bar still shows a service.
+    it.each([
+        ['one exact service', [{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] }], ['web']],
+        [
+            'several exact services',
+            [{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web', 'worker'] }],
+            ['web', 'worker'],
+        ],
+        ['the unnamed sender group', [{ key: 'service_name', operator: PropertyOperator.Regex, value: ['^$'] }], ['']],
+        ['a non-service chip', [{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }], []],
+        [
+            // Two chips are ANDed, which one IN list cannot express.
+            'two service chips',
+            [
+                { key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] },
+                { key: 'service_name', operator: PropertyOperator.Exact, value: ['worker'] },
+            ],
+            [],
+        ],
+        [
+            'a service chip that is not a membership test',
+            [{ key: 'service_name', operator: PropertyOperator.IContains, value: ['we'] }],
+            [],
+        ],
+    ])('derives the picker service scope from %s', (_name, propertyFilters, expected) => {
+        logic.actions.setFilterGroup(filterGroupWith(propertyFilters))
+        expect(logic.values.selectedServices).toEqual(expected)
     })
 
     it('skips chips that are still being edited or use unsupported operators', () => {
@@ -319,7 +378,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsValuesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({})
+            metricNamePickerLogic.actions.loadItems({ debounce: true })
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')

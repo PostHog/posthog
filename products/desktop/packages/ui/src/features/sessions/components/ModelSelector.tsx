@@ -16,11 +16,13 @@ import {
   type Adapter,
   DEEPSEEK_MODEL_FLAG,
   GLM_MODEL_FLAG,
+  GLM53_FLASH_MODEL_FLAG,
   GLM53_MODEL_FLAG,
   KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import {
@@ -52,12 +54,14 @@ export function ModelSelector({
   const deepseek = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
   const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
+  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const modelOption = rawModelOption
     ? stripDisabledModelOption(rawModelOption, {
         deepseek,
         glm: glmEnabled,
         glm53: glm53Enabled,
+        glm53Flash: glm53FlashEnabled,
         kimi: kimiEnabled,
       })
     : rawModelOption;
@@ -142,6 +146,7 @@ export function ModelSelector({
             ))}
           </DropdownMenuRadioGroup>
         )}
+        <ModelCostFooter />
       </DropdownMenuContent>
     </DropdownMenu>
   );

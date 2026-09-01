@@ -30,8 +30,6 @@ export const unarchiveTaskInput = z.object({
   recreateBranch: z.boolean().optional(),
 });
 
-export type UnarchiveTaskInput = z.infer<typeof unarchiveTaskInput>;
-
 export const archiveTaskOutput = archivedTaskSchema;
 
 export const unarchiveTaskOutput = z.object({

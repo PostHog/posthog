@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -34,6 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _MONGO_UNREACHABLE_MESSAGE = (
     "Could not reach your MongoDB cluster. Check that the cluster is running and that PostHog's "
     "IP addresses are allowlisted in your database's network access settings."
+)
+
+# `_parse_connection_string` raises a ValueError when the string isn't a usable MongoDB URI: a
+# wrong or missing scheme, or a host/port that urlparse rejects. The raw reason gives the user
+# little to act on, so point at the expected scheme and format instead.
+_MONGO_INVALID_CONNECTION_STRING_MESSAGE = (
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "PostHog couldn't read your MongoDB connection string. It must start with mongodb:// or "
+    "mongodb+srv:// and follow the standard format, for example "
+    "mongodb+srv://user:password@cluster.mongodb.net/database. Check the connection string and try again."
 )
 
 _MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
@@ -130,6 +141,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # reach the user — match the stable 'not authorized' fragment. Granting permission is a
             # config change the user must make, so this never recovers on retry.
             "not authorized": _MONGO_NOT_AUTHORIZED_MESSAGE,
+            # A view whose pipeline drops `_id` yields documents the importer can't key on. mongo.py
+            # raises MONGO_DOCUMENT_MISSING_ID_ERROR for this instead of a bare KeyError. Every retry
+            # reads the same `_id`-less documents, so it never recovers. Match our own stable phrase.
+            "one of its documents has no _id field": MONGO_DOCUMENT_MISSING_ID_ERROR,
             "SSL handshake failed": None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
@@ -227,8 +242,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        except:
-            return False, "Invalid connection string"
+        except Exception:
+            return False, _MONGO_INVALID_CONNECTION_STRING_MESSAGE
 
         if not connection_params.get("database"):
             return False, DATABASE_NAME_REQUIRED_ERROR

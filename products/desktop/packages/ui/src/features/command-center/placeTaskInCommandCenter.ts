@@ -2,6 +2,7 @@ import {
   type ExpandDirection,
   getExpandedLayout,
   getExpansionCellIndex,
+  resizeCellsForLayout,
 } from "@posthog/core/command-center/grid";
 import { planCommandCenterPlacement } from "@posthog/core/command-center/placement";
 import { navigateToCommandCenter } from "@posthog/ui/router/navigationBridge";
@@ -16,7 +17,23 @@ export function placeTaskInCommandCenter(
   taskId: string,
   taskTitle: string,
 ): void {
-  useCommandCenterStore.getState().requestPlacement(taskId, taskTitle);
+  useCommandCenterStore.getState().requestPlacement({
+    kind: "task",
+    id: taskId,
+    title: taskTitle,
+  });
+  navigateToCommandCenter();
+}
+
+export function placeCanvasInCommandCenter(
+  canvasId: string,
+  canvasTitle: string,
+): void {
+  useCommandCenterStore.getState().requestPlacement({
+    kind: "canvas",
+    id: canvasId,
+    title: canvasTitle,
+  });
   navigateToCommandCenter();
 }
 
@@ -85,6 +102,31 @@ export function placeTasksInCommandCenterCell(
   }
 }
 
+export function placeCanvasInCommandCenterCell(
+  canvasId: string,
+  cellIndex: number,
+): void {
+  useCommandCenterStore.getState().setCanvasCell(cellIndex, canvasId);
+}
+
+export function expandCanvasInCommandCenterInto(
+  direction: ExpandDirection,
+  slot: number,
+  canvasId: string,
+): void {
+  const state = useCommandCenterStore.getState();
+  const expanded = getExpandedLayout(state.layout, direction);
+  if (!expanded) return;
+
+  state.setLayout(
+    expanded,
+    resizeCellsForLayout(state.cells, state.layout, expanded),
+  );
+  useCommandCenterStore
+    .getState()
+    .setCanvasCell(getExpansionCellIndex(expanded, direction, slot), canvasId);
+}
+
 export function expandTasksInCommandCenterInto(
   direction: ExpandDirection,
   slot: number,
@@ -98,7 +140,10 @@ export function expandTasksInCommandCenterInto(
   const expanded = getExpandedLayout(state.layout, direction);
   if (!expanded) return;
 
-  state.setLayout(expanded);
+  state.setLayout(
+    expanded,
+    resizeCellsForLayout(state.cells, state.layout, expanded),
+  );
   useCommandCenterStore
     .getState()
     .assignTask(getExpansionCellIndex(expanded, direction, slot), firstTaskId);

@@ -26,7 +26,9 @@ from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
     GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
+    GATEWAY_KNOWN_TIERS,
     OVERSPEND_ALLOWANCE_KEY,
+    TIER_KEY,
     clear_gateway_credential,
     credential_hash,
     drain_gateway_credential_last_used,
@@ -195,6 +197,48 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         # Pin the literal wire value, not a serializer round-trip.
         self.assertEqual(blob[OVERSPEND_ALLOWANCE_KEY], expected)
         self.assertIsInstance(blob[OVERSPEND_ALLOWANCE_KEY], str)
+
+    def test_tier_omitted_by_default(self):
+        # Absent means tier-unknown on the gateway; ordinary teams' blobs must
+        # stay byte-identical to the pre-tier shape.
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(TIER_KEY, blob)
+
+    def test_tier_projected_for_configured_team(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        with override_settings(
+            AI_GATEWAY_TEAM_TIER_OVERRIDES={str(self.team.id): "enterprise"},
+        ):
+            project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertEqual(blob[TIER_KEY], "enterprise")
+
+    def test_unknown_tier_override_not_projected(self):
+        # A typo'd tier must not reach the wire; the gateway would degrade it to
+        # unknown anyway, but the blob should stay clean.
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        with override_settings(AI_GATEWAY_TEAM_TIER_OVERRIDES={str(self.team.id): "platinum"}):
+            project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(TIER_KEY, blob)
+
+    def test_the_writable_tiers_are_the_gateway_vocabulary_minus_the_sentinel(self):
+        # The gateway owns this vocabulary in internal/principal/tiers.go and
+        # holds free/pro/enterprise/unknown. "unknown" is its sentinel for a tier
+        # it could not resolve, so projecting it would assert a value rather than
+        # leave the field absent; the writable set is the rest.
+        #
+        # Nothing can import across the repositories, so this pins the literal and
+        # catches this set drifting on its own. A gateway-side change shows up as
+        # gateway.auth.tier_unrecognized.total going nonzero for credential blobs,
+        # but not for a tier already stamped into a live scoped-token structure,
+        # which degrades to unknown with no signal.
+        self.assertEqual(GATEWAY_KNOWN_TIERS, {"free", "pro", "enterprise"})
 
 
 class TestOverspendAllowanceFormatting(BaseTest):
@@ -375,7 +419,7 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         # fails closed, even though org membership is intact. Uses a real
         # AccessControl (not a mock) so it also covers that a Team resolves to the
         # "project" resource and the access-control keying matches.
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -695,7 +739,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
     def test_project_access_control_change_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -713,7 +757,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
         # Role membership is per-user, so it reprojects synchronously, unlike the
         # team-wide access-control handler. The async retry fires only on sync failure.
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()

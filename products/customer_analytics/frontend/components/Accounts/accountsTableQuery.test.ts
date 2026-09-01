@@ -1,13 +1,19 @@
 import {
     AccountsTableAccountField,
+    AccountsTableAccountFieldOperator,
     AccountsTableCustomPropertyOperator,
+    AccountsTableRelationshipOperator,
     AccountsTableSortDirection,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { AccountCustomPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import type { AccountPropertyFilter, AccountRelationshipFilter } from './accountsPropertyFilters'
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
@@ -23,6 +29,26 @@ const definition = {
     name: 'MRR',
     display_type: 'currency',
 } as CustomPropertyDefinitionApi
+
+function accountFieldFilter(overrides: Partial<AccountPropertyFilter> = {}): AccountPropertyFilter {
+    return {
+        type: PropertyFilterType.Account,
+        key: AccountsTableAccountField.IgnoredAt,
+        operator: PropertyOperator.IsSet,
+        value: null,
+        ...overrides,
+    }
+}
+
+function relationshipFilter(overrides: Partial<AccountRelationshipFilter> = {}): AccountRelationshipFilter {
+    return {
+        type: PropertyFilterType.AccountRelationship,
+        key: RELATIONSHIP_ID,
+        operator: PropertyOperator.Exact,
+        value: [7],
+        ...overrides,
+    }
+}
 
 function customFilter(overrides: Partial<AccountCustomPropertyFilter> = {}): AccountCustomPropertyFilter {
     return {
@@ -49,7 +75,10 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         assignedToFilter: [],
         accountIdFilter: null,
         tileFilter: null,
-        customPropertyFilters: [],
+        accountFilters: [],
+        relationshipDefinitionsById: {
+            [RELATIONSHIP_ID]: { id: RELATIONSHIP_ID, name: 'CSM' } as AccountRelationshipDefinitionApi,
+        },
         customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: definition },
         columnDisplay: {},
         sortOrder: null,
@@ -65,7 +94,7 @@ describe('accountsTableQuery', () => {
                 searchQuery: ' acme ',
                 tagsFilter: ['enterprise'],
                 assignedToFilter: [7, 9],
-                customPropertyFilters: [customFilter()],
+                accountFilters: [relationshipFilter(), customFilter()],
                 sortOrder: { column: 'csm', direction: 'desc' },
                 canSortClientSide: false,
             })
@@ -84,6 +113,12 @@ describe('accountsTableQuery', () => {
                 { kind: 'tags', tagNames: ['enterprise'] },
                 { kind: 'assigned_to', userIds: [7, 9] },
                 {
+                    kind: 'relationship',
+                    definitionId: RELATIONSHIP_ID,
+                    operator: AccountsTableRelationshipOperator.Exact,
+                    userIds: [7],
+                },
+                {
                     kind: 'custom_property',
                     definitionId: CUSTOM_PROPERTY_ID,
                     operator: AccountsTableCustomPropertyOperator.GreaterThan,
@@ -95,6 +130,59 @@ describe('accountsTableQuery', () => {
                 direction: AccountsTableSortDirection.Descending,
             },
         })
+    })
+
+    it('translates typed native account field filters', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [
+                    accountFieldFilter(),
+                    accountFieldFilter({
+                        key: AccountsTableAccountField.CreatedAt,
+                        operator: PropertyOperator.IsDateAfter,
+                        value: '2026-08-01',
+                    }),
+                ],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
+            {
+                kind: 'account_field',
+                field: AccountsTableAccountField.IgnoredAt,
+                operator: AccountsTableAccountFieldOperator.IsSet,
+                values: [],
+            },
+            {
+                kind: 'account_field',
+                field: AccountsTableAccountField.CreatedAt,
+                operator: AccountsTableAccountFieldOperator.DateAfter,
+                values: ['2026-08-01'],
+            },
+        ])
+    })
+
+    it('omits incompatible native account field filters', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [
+                    accountFieldFilter({
+                        key: AccountsTableAccountField.Name,
+                        operator: PropertyOperator.IsDateAfter,
+                        value: '2026-08-01',
+                    }),
+                ],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+    })
+
+    it('filters the default account list to accounts assigned to someone', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput())
+
+        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
     })
 
     it('translates saved custom-property history display configuration', () => {
@@ -165,6 +253,7 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -190,6 +279,7 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -215,11 +305,31 @@ describe('accountsTableQuery', () => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({
                 customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: incompatibleDefinition },
-                customPropertyFilters: [customFilter({ operator })],
+                accountFilters: [customFilter({ operator })],
             })
         )
 
-        expect(plan.query.filters).toEqual([])
+        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+    })
+
+    it('keeps contains filters for link properties', () => {
+        const linkDefinition = { ...definition, display_type: 'link' } as CustomPropertyDefinitionApi
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: linkDefinition },
+                accountFilters: [customFilter({ operator: PropertyOperator.IContains, value: 'example.com' })],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.Contains,
+                values: ['example.com'],
+            },
+        ])
     })
 
     it('reads cells directly from keyed rows', () => {

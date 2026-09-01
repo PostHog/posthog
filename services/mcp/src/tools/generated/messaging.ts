@@ -46,6 +46,7 @@ const optOutsList = (): ToolBase<typeof OptOutsListSchema, Schemas.PaginatedOptO
                 category_key: params.category_key,
                 page: params.page,
                 page_size: params.page_size,
+                search: params.search,
             },
         })
         return result

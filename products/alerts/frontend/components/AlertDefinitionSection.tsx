@@ -63,7 +63,6 @@ export interface AlertDefinitionSectionProps {
     supportsAnomalyDetection: boolean
     showAnomalyGuidance?: boolean
     twoColumnLayout?: boolean
-    investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
     simulationDateFrom: string | null
@@ -88,7 +87,6 @@ export function AlertDefinitionSection({
     supportsAnomalyDetection,
     showAnomalyGuidance = false,
     twoColumnLayout = false,
-    investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
     simulationDateFrom,
@@ -219,7 +217,7 @@ export function AlertDefinitionSection({
                         />
                     )}
 
-                    {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
+                    {alertMode === 'detector' && alertForm.detector_config && (
                         <InvestigationAgentSettings alertForm={alertForm} onSetAlertFormValue={onSetAlertFormValue} />
                     )}
 

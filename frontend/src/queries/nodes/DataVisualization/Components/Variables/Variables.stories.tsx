@@ -52,3 +52,12 @@ export const DateVariableInput: Story = {
 export const RelativeDateVariableInput: Story = {
     args: { variable: { ...dateVariable, default_value: '-7d' } },
 }
+
+/** The editing UI shows the variable's HogQL reference on one unbroken line, so a long code name
+ *  widens the popover well past its usual 320px. Guards against the calendar growing with it. */
+export const DateVariableInputWithLongCodeName: Story = {
+    args: {
+        showEditingUI: true,
+        variable: { ...dateVariable, code_name: 'quarterly_revenue_report_period_start_date' },
+    },
+}

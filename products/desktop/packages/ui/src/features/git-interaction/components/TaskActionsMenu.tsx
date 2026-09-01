@@ -34,6 +34,7 @@ import type { ReactNode } from "react";
 import { toast } from "../../../primitives/toast";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
 import { getPrActionIcon, getPrVisualIcon } from "../prIcon";
+import { prBadgeToneProps } from "../prTone";
 import { useCloudPrSummaries, useCloudPrUrls } from "../useCloudPrUrl";
 import {
   type GitMenuAction,
@@ -55,7 +56,7 @@ import {
   GitCommitDialog,
   GitPushDialog,
 } from "./GitInteractionDialogs";
-import { PRBadgeLink, prBadgeToneProps } from "./PRBadgeLink";
+import { PRBadgeLink } from "./PRBadgeLink";
 
 interface TaskActionsMenuProps {
   taskId: string;
@@ -430,7 +431,7 @@ interface GitActionControlProps {
   onSelect: (id: GitMenuActionId) => void;
 }
 
-function GitActionControl({
+export function GitActionControl({
   primaryAction,
   actions,
   isBusy,
@@ -440,9 +441,7 @@ function GitActionControl({
   const showDropdown = actions.length > 1;
   const isPrimaryDisabled = !primaryAction.enabled || isBusy;
 
-  // Outlined rather than solid: the git action is one of several things the
-  // header offers, not the header's call to action, and "Continue in cloud"
-  // sits right beside it.
+  // Outlined rather than solid because the git action is one of several header actions.
   const primaryButton = (
     <QButton
       size="sm"

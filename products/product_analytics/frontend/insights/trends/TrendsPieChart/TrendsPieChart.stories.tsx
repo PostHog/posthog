@@ -11,7 +11,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import type { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, type InsightLogicProps, type InsightShortId } from '~/types'
 
 import { TrendsPieChart } from './TrendsPieChart'
 
@@ -94,6 +94,23 @@ export const Breakdown: Story = {
 // still sizes itself and renders slices rather than collapsing to the bare aggregation total.
 export const MinHeightParent: Story = {
     render: () => renderTrendsPieChart(trendsPieBreakdownFixture, MinHeightStage),
+}
+
+export const Donut: Story = {
+    render: () =>
+        renderTrendsPieChart({
+            ...trendsPieBreakdownFixture,
+            query: {
+                ...trendsPieBreakdownFixture.query,
+                source: {
+                    ...trendsPieBreakdownFixture.query.source,
+                    trendsFilter: {
+                        ...trendsPieBreakdownFixture.query.source.trendsFilter,
+                        display: ChartDisplayType.ActionsDonut,
+                    },
+                },
+            },
+        }),
 }
 
 function renderBreakdownPieWithFilter(trendsFilter: Record<string, unknown>): JSX.Element {

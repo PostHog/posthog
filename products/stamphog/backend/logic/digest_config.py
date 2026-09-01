@@ -3,7 +3,7 @@ channel for ALL of a repo's merged-PR digests, if the repo owner wants to opt ou
 audience cascade.
 
 Read from the target repo's DEFAULT branch only (never the PR head), same master-read
-security model as the sandboxed review engine's policy pipeline (tools/pr-approval-agent/
+security model as the sandboxed review engine's policy pipeline (products/stamphog/packages/pr-approval-agent/
 policy.py) — a PR must not be able to redirect its own digest.
 Only the top-level `digest` key is read here; the rest of the policy schema is that
 engine's concern and is neither parsed nor validated.

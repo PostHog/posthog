@@ -25,7 +25,6 @@ describe("isSessionIdle", () => {
     ["connecting session", { status: "connecting" as const }, false],
     ["pending prompt", { isPromptPending: true }, false],
     ["compacting session", { isCompacting: true }, false],
-    ["handoff in progress", { handoffInProgress: true }, false],
     [
       "pending permission",
       { pendingPermissions: new Map([["p1", {} as never]]) },

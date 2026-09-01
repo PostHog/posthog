@@ -51,21 +51,22 @@ export interface LoopFormValues {
    * unrelated change never drops a loop's other repository associations.
    */
   repositories: LoopSchemas.LoopRepositoryEntry[];
+  sandboxEnvironmentId: string | null;
   triggers: LoopTriggerDraft[];
   behaviors: LoopSchemas.LoopBehaviors;
   notifications: LoopSchemas.LoopNotifications;
   contextTarget: LoopContextTargetDraft | null;
 }
 
-export function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
+function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
   return { cron_expression: "0 9 * * 1", timezone: systemTimezone() };
 }
 
-export function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
+function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
   return { github_integration_id: 0, repository: "", events: [] };
 }
 
-export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
+function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
 }
 
@@ -162,7 +163,7 @@ export function withGithubTriggerFilters(
   return { ...config, filters };
 }
 
-export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
+function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
   const off = { enabled: false, events: [], params: {} };
   return { push: { ...off }, email: { ...off }, slack: { ...off } };
 }
@@ -204,7 +205,7 @@ export function nextDraftTriggerKey(): string {
   return `draft-trigger-${draftKeySeq}`;
 }
 
-export function defaultLoopScheduleTrigger(): LoopTriggerDraft {
+function defaultLoopScheduleTrigger(): LoopTriggerDraft {
   return {
     key: nextDraftTriggerKey(),
     type: "schedule",
@@ -240,6 +241,7 @@ export function emptyLoopFormValues(): LoopFormValues {
     model: "",
     reasoningEffort: null,
     repositories: [],
+    sandboxEnvironmentId: null,
     triggers: [defaultLoopScheduleTrigger()],
     behaviors: defaultLoopBehaviors(),
     notifications: defaultLoopNotifications(),
@@ -280,6 +282,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     model: loop.model,
     reasoningEffort: loop.reasoning_effort,
     repositories: [...loop.repositories],
+    sandboxEnvironmentId: loop.sandbox_environment_id,
     triggers: loop.triggers.map((trigger) => ({
       key: trigger.id,
       id: trigger.id,
@@ -313,6 +316,7 @@ export function formValuesToLoopWrite(
     model: values.model.trim(),
     reasoning_effort: values.reasoningEffort,
     repositories: values.repositories,
+    sandbox_environment: values.sandboxEnvironmentId,
     triggers: values.triggers.map((trigger) => ({
       id: trigger.id,
       type: trigger.type,

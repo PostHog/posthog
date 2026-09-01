@@ -7,13 +7,32 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks, build_langchain_chat_client
+from temporalio.exceptions import ApplicationError
+
+from posthog.temporal.ai_observability.llm_endpoint import (
+    AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
+    build_langchain_callbacks,
+    build_langchain_chat_client,
+)
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 GATEWAY_URL = "https://gateway.example/v1"
 GATEWAY_KEY = "phs_project_secret"
 
 
 class TestBuildOpenAIChatClient:
+    @override_settings(DEBUG=False)
+    @patch("posthog.temporal.ai_observability.llm_endpoint.is_cloud", return_value=False)
+    def test_non_cloud_guard_raises_non_retryable_non_reportable_error(self, _mock_is_cloud):
+        # A non-cloud, non-DEBUG deployment has no AI gateway, so the guard must stop the activity
+        # without a retry and without filing an error tracking issue.
+        with pytest.raises(ApplicationError) as exc_info:
+            build_langchain_chat_client("gpt-5.4", 600.0)
+
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.type == AI_FEATURES_CLOUD_ONLY_ERROR_TYPE
+        assert AI_FEATURES_CLOUD_ONLY_ERROR_TYPE in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
     @pytest.mark.parametrize(
         "gateway_url,gateway_key,expected_base,expected_key,custom_http_client",
         [
@@ -82,6 +101,7 @@ class TestBuildOpenAIChatClient:
 
         headers = mock_chat.call_args.kwargs["default_headers"]
         assert headers == {
+            "X-PostHog-Product": "aio_clustering",
             "X-PostHog-Properties": json.dumps(
                 {
                     "team_id": "42",

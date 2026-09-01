@@ -84,7 +84,7 @@ pnpm make
 Output will be in:
 
 - `out/mac-arm64/PostHog.app` - Packaged app
-- `out/PostHog-Code-*.dmg` - macOS installer
+- `out/PostHog-Desktop-*.dmg` - macOS installer
 - `out/make/zip/` - ZIP archives
 
 **Note:** Native modules for the DMG maker are automatically compiled via the `prePackage` hook. If you need to manually rebuild them, run:
@@ -100,7 +100,7 @@ PostHog auto-updates on macOS and Windows. Current builds use `electron-updater`
 There are three ways a release can fire:
 
 1. **Scheduled (default)** — automatic at 17:00 and 01:00 UTC.
-2. **Hotfix** — add the `create desktop release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
+2. **Hotfix** — add the `desktop-release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
 3. **Manual** — run `Tag PostHog Release` via `workflow_dispatch` from the Actions tab.
 
 Local prep (only needed for one-off manual builds):
@@ -216,7 +216,7 @@ PostHog automatically sets environment variables in all workspace terminals and 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `POSTHOG_CODE_WORKSPACE_NAME` | Worktree name, or folder name in root mode | `my-feature-branch` |
-| `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-code/worktrees/repo/my-feature` |
+| `POSTHOG_CODE_WORKSPACE_PATH` | Absolute path to the workspace | `/Users/dev/.posthog-desktop/worktrees/repo/my-feature` |
 | `POSTHOG_CODE_ROOT_PATH` | Absolute path to the repository root | `/Users/dev/repos/my-project` |
 | `POSTHOG_CODE_DEFAULT_BRANCH` | Default branch detected from git | `main` |
 | `POSTHOG_CODE_WORKSPACE_BRANCH` | Initial branch when workspace was created | `posthog/my-feature` |

@@ -3,6 +3,7 @@ import {
   ANY_SOURCE,
   type AttentionFilter,
   type ChannelItemFilters,
+  type ChannelItemGrouping,
   type ChannelItemSort,
   type CreatedByFilter,
   type EnvironmentFilter,
@@ -60,6 +61,11 @@ const ENVIRONMENT_OPTIONS: readonly Option<EnvironmentFilter>[] = [
   { value: "any", label: "Anywhere" },
   { value: "local", label: "Local" },
   { value: "cloud", label: "Cloud" },
+];
+
+const GROUPING_OPTIONS: readonly Option<ChannelItemGrouping>[] = [
+  { value: "date", label: "Date" },
+  { value: "repository", label: "Repository" },
 ];
 
 const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
@@ -152,6 +158,9 @@ export function ChannelFilterMenu({
   onClearFilters,
   sort,
   onSortChange,
+  grouping,
+  onGroupingChange,
+  onEditAppearance,
   sources,
   showCreatedBy,
   showRunFilters,
@@ -173,6 +182,11 @@ export function ChannelFilterMenu({
   onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
+  /** What the list's section headers stand for. */
+  grouping: ChannelItemGrouping;
+  onGroupingChange: (grouping: ChannelItemGrouping) => void;
+  /** Opens the list's appearance dialog, which the list itself renders. */
+  onEditAppearance: () => void;
   /** `origin_product` keys present in the list. */
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
@@ -202,7 +216,7 @@ export function ChannelFilterMenu({
             aria-label="Filter"
             className={cn("relative", cnHeaderButton(active))}
           >
-            <FunnelSimpleIcon size={12} />
+            <FunnelSimpleIcon size={14} />
             {active && (
               <span
                 aria-hidden
@@ -218,6 +232,22 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
+        {/* A canvas has no repository, so the canvas tab cannot group by repository. */}
+        {showRunFilters && (
+          <FilterSubmenu
+            label="Group by"
+            options={GROUPING_OPTIONS}
+            value={grouping}
+            onChange={onGroupingChange}
+          />
+        )}
+        <FilterSubmenu
+          label="Sort by"
+          options={SORT_OPTIONS}
+          value={sort}
+          onChange={onSortChange}
+        />
+        <DropdownMenuSeparator />
         {showRunFilters && (
           <FilterSubmenu
             label="Status"
@@ -259,13 +289,18 @@ export function ChannelFilterMenu({
             />
           </>
         )}
-        <DropdownMenuSeparator />
-        <FilterSubmenu
-          label="Sort by"
-          options={SORT_OPTIONS}
-          value={sort}
-          onChange={onSortChange}
-        />
+        {/* A canvas has no configurable second row, so the canvas tab has no appearance editor. */}
+        {showRunFilters && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-attr="edit-list-item-appearance"
+              onClick={onEditAppearance}
+            >
+              Edit list item appearance…
+            </DropdownMenuItem>
+          </>
+        )}
         {active && (
           <>
             <DropdownMenuSeparator />

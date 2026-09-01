@@ -119,6 +119,15 @@ MODAL_TOKEN_ID=<token_id>
 MODAL_TOKEN_SECRET=<token_secret>
 ```
 
+> **Docker sandboxes derive the LLM gateway from `SITE_URL`.** It reaches the sandbox as
+> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
+> `host.docker.internal` to the local gateway on 3308. Any other host — an ngrok domain set for
+> Slack or webhook testing, for instance — falls through to the production gateway, which a local
+> run token cannot authenticate against. The failure is silent: the agent boots, sends its first
+> prompt, and idles until its inactivity window closes it, with nothing in the gateway or agent
+> logs. If `SITE_URL` is not localhost, set
+> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` as well.
+
 ### Tunnel gateway, API, and MCP
 
 If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
@@ -151,6 +160,20 @@ SANDBOX_MCP_URL=https://<node>.<tailnet>.ts.net:10000/mcp
 Funnel exposes these services to anyone on the internet who learns the URL, so turn the mappings off when you're done: `tailscale funnel --https=443 off` (and likewise for `8443` and `10000`).
 
 `SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
+
+### AI gateway token caps
+
+Scoped AI gateway tokens use `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD` as their default
+per-run dollar cap. Two JSON object settings can override it:
+
+- `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
+- `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
+  caps and defaults to `{"signals_implementation": "15"}`.
+
+A product override takes precedence over a team override, which takes precedence
+over the default cap. Set the product override to `{}` to disable the built-in
+implementation override. An empty environment value is treated as unset and
+restores the built-in map.
 
 ### Agent run telemetry (optional)
 

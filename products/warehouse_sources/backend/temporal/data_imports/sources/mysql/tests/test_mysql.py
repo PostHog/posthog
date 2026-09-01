@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 import pymysql
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -37,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
@@ -250,25 +249,6 @@ def cursor() -> MagicMock:
 
 
 class TestSchemaDiscovery:
-    def test_schema_field_is_optional(self):
-        field = next(field for field in MySQLSource().get_source_config.fields if field.name == "schema")
-
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.required is False
-        assert (
-            MySQLSourceConfig.from_dict(
-                {
-                    "host": "localhost",
-                    "port": 3306,
-                    "database": "d",
-                    "user": "u",
-                    "password": "p",
-                    "using_ssl": "false",
-                }
-            ).schema
-            is None
-        )
-
     def test_get_columns_uses_plain_table_names_when_schema_configured(self, impl, cursor):
         cursor.fetchall.return_value = [
             ("app", "users", "id", "int", "NO"),
@@ -1514,6 +1494,26 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
 
+    def test_retries_tiproxy_unavailable_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"
+                ),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
     def test_does_not_retry_connection_refused(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
@@ -1646,6 +1646,32 @@ class TestIsTransientVitessReparent:
 
     def test_does_not_match_non_operational_error(self):
         assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
+
+
+class TestIsTransientTiproxyUnavailable:
+    def test_matches_tiproxy_unavailable(self):
+        assert _is_transient_tiproxy_unavailable(
+            pymysql.err.OperationalError(1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available")
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other 1105 payloads (Vitess cases, unrelated TiDB errors) are not this class.
+            (1105, "vttablet: rpc error: code = Unavailable desc = node is shutting down"),
+            (1105, "vttablet: rpc error: code = InvalidArgument desc = some bad request"),
+            (1045, "Access denied for user"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_tiproxy_unavailable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_tiproxy_unavailable(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_tiproxy_unavailable(ValueError("TiProxy fails to connect to TiDB"))
 
 
 class TestIsTransientMetadataQueryReset:
@@ -1927,18 +1953,6 @@ class TestMySQLSourceNonRetryableErrors:
         )
         assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
         assert "SSH tunnel" in friendly
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Cannot build decimal array from values",
-            "ValueError: Cannot build decimal array from values",
-        ],
-    )
-    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2345,18 +2359,6 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Transient thread-exhaustion error should be classified retryable: {error_msg}"
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "OperationalError: (1040, 'Too many connections')",
-            "Too many connections",
-        ],
-    )
-    def test_too_many_connections_stays_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert not is_non_retryable, f"Too-many-connections error should remain retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

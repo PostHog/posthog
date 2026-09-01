@@ -12,7 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -90,21 +90,18 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
 
-    def test_bundles_the_extended_platform_libraries(self) -> None:
-        source = """
-import { useVirtualizer } from "@tanstack/react-virtual"
-import { useForm } from "react-hook-form"
-import { groupBy } from "lodash-es"
-import ReactMarkdown from "react-markdown"
-import Papa from "papaparse"
-void useVirtualizer
-void useForm
-void groupBy
-void ReactMarkdown
-void Papa
-"""
+    def test_bundles_every_allowlisted_platform_library(self) -> None:
+        # Transitive versions are not pinned, so a caret range can drift onto a
+        # dependency that dropped an export and break every canvas importing the
+        # library, while source validation still passes because the specifier is
+        # allowlisted. Namespace imports keep the whole module graph reachable,
+        # so a missing deep export fails here instead of in a user's publish.
+        imports: list[str] = []
+        for index, specifier in enumerate(sorted(allowed_import_specifiers())):
+            imports.append(f'import * as library{index} from "{specifier}"')
+            imports.append(f"void library{index}")
 
-        project = self._project(source)
+        project = self._project("\n".join(imports))
         project["dependencies"] = platform_dependencies()
         result = run_cloud_builder(project)
 
@@ -166,6 +163,50 @@ void Papa
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_runtime_bounds_csp_violation_telemetry_to_one_per_directive(self) -> None:
+        # Blocked subresources fire securitypolicyviolation before the port
+        # connects, so each violation shares the 256-slot pre-connect queue with
+        # data requests. A canvas that misses one origin can render many blocked
+        # resources; without a bound the burst fills the queue and a later
+        # ph.query is dropped and dies on its 30s timeout. Reporting each
+        # directive once keeps the queue open for the request.
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = {};",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "const received = [];",
+                "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                # A burst larger than the 256-slot queue across two directives.
+                'for (let i = 0; i < 300; i++) for (const fn of listeners.securitypolicyviolation) fn({ effectiveDirective: i % 2 ? "img-src" : "font-src" });',
+                # The data request issued after the burst must still fit the queue.
+                'window.ph.query("SELECT 1");',
+                'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                'const cspErrors = received.filter((m) => m.type === "error" && m.message.startsWith("SecurityPolicyViolationError:"));',
+                'if (cspErrors.length !== 2) { console.error("expected one error per directive, got " + cspErrors.length); process.exit(1); }',
+                "const directives = new Set(cspErrors.map((m) => m.message));",
+                'if (directives.size !== 2) { console.error("directives were not deduplicated"); process.exit(1); }',
+                'if (!received.some((m) => m.type === "data-request" && m.payload.hogql === "SELECT 1")) { console.error("data request was dropped by the violation burst"); process.exit(1); }',
                 "process.exit(0);",
             ]
         )
@@ -443,6 +484,42 @@ bridge.port1.close();
         self.assertEqual(manifest["capabilities"], project["capabilities"])
         html = next(file["content"] for file in files if file["path"] == "index.html")
         self.assertIn("connect-src https://api.example.com", html)
+        self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
+        self.assertIn("img-src 'self' data: blob: https://api.example.com", html)
+        self.assertIn("font-src 'self' data: https://api.example.com", html)
+        self.assertIn("media-src 'self' data: blob: https://api.example.com", html)
+        self.assertIn("frame-src https://api.example.com", html)
+        self.assertNotIn("script-src 'self' https://api.example.com", html)
+
+    def test_preserves_declared_remote_stylesheet_links(self) -> None:
+        project = self._project('document.body.textContent = "Hello"')
+        project["files"]["index.html"] = (
+            '<head><link rel="stylesheet" href="https://styles.example.com/theme.css" /></head>'
+            '<div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        project["capabilities"] = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "network": {"origins": ["https://styles.example.com"]},
+        }
+
+        files, _, diagnostics = validate_builder_output(run_cloud_builder(project))
+
+        self.assertEqual(diagnostics, [])
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        # A declared remote stylesheet is not a local build entry, so it stays in
+        # the HTML and loads at runtime under the widened style-src CSP, instead
+        # of failing the build with entry_not_found.
+        self.assertIn('href="https://styles.example.com/theme.css"', html)
+        self.assertIn("style-src 'self' 'unsafe-inline' https://styles.example.com", html)
+
+    def test_runtime_reports_csp_violations_without_blocked_urls(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        self.assertIn('addEventListener("securitypolicyviolation"', runtime)
+        self.assertIn("SecurityPolicyViolationError", runtime)
+        self.assertIn("effectiveDirective", runtime)
+        self.assertNotIn("blockedURI", runtime)
 
     def test_rejects_unbounded_capabilities(self) -> None:
         project = self._project("")

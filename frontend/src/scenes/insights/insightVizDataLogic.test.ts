@@ -6,9 +6,17 @@ import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mock
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    LifecycleQuery,
+    Node,
+    NodeKind,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
@@ -36,6 +44,9 @@ describe('insightVizDataLogic', () => {
             get: {
                 '/api/environments/:team_id/insights/trend': [],
                 '/api/environments/:team_id/insights/': { results: [{}] },
+                '/api/projects/:team_id/actions/': {
+                    results: [{ id: 7, name: 'Sign up', steps: [{ event: '$pageview' }, { event: 'sign_up' }] }],
+                },
             },
         })
         initKeaTests()
@@ -223,6 +234,42 @@ describe('insightVizDataLogic', () => {
                         version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                     },
                 },
+            })
+        })
+
+        it('clears a custom retention aggregation target when an entity switches away from the data warehouse', () => {
+            const dataWarehouseEntity = {
+                id: 'warehouse_orders',
+                type: 'data_warehouse' as const,
+                table_name: 'warehouse_orders',
+                timestamp_field: 'created_at',
+                aggregation_target_field: 'order_id',
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    customAggregationTarget: true,
+                    targetEntity: dataWarehouseEntity,
+                    returningEntity: dataWarehouseEntity,
+                },
+            } as RetentionQuery)
+            expect(builtInsightVizDataLogic.values.retentionFilter).toMatchObject({ customAggregationTarget: true })
+
+            // updateInsightFilter merges entity changes into the full filter, so the stale flag rides along
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    customAggregationTarget: true,
+                    targetEntity: { id: '$pageview', type: 'events' },
+                    returningEntity: dataWarehouseEntity,
+                },
+            } as RetentionQuery)
+
+            expect(builtInsightVizDataLogic.values.retentionFilter).toEqual({
+                customAggregationTarget: undefined,
+                targetEntity: { id: '$pageview', type: 'events' },
+                returningEntity: dataWarehouseEntity,
             })
         })
 
@@ -1168,6 +1215,31 @@ describe('insightVizDataLogic', () => {
             setFunnelVizType(funnelVizType)
 
             expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+    })
+
+    describe('allEventNames', () => {
+        it('resolves action series once actionsModel mounts, without mounting it itself', async () => {
+            initKeaTests()
+            actionsModel.build()
+            const props = { dashboardItemId: Insight123 }
+            builtInsightDataLogic = insightDataLogic(props)
+            builtInsightVizDataLogic = insightVizDataLogic(props)
+            builtInsightDataLogic.mount()
+            builtInsightVizDataLogic.mount()
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                series: [{ kind: NodeKind.ActionsNode, id: 7 }],
+            } as TrendsQuery)
+
+            expect(actionsModel.isMounted()).toBe(false)
+            expect(builtInsightVizDataLogic.values.allEventNames).toEqual([])
+
+            actionsModel.mount()
+            await expectLogic(builtInsightVizDataLogic)
+                .toDispatchActions([actionsModel.actionTypes.loadActionsSuccess])
+                .toMatchValues({ allEventNames: ['$pageview', 'sign_up'] })
         })
     })
 })

@@ -83,14 +83,33 @@ class TestStrictAndFixContracts:
     ) -> None:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
-        assert "run `hogli build:openapi` and commit before pushing" in result.output
+        assert "if you have not run `hogli build:openapi` since changing them, run it and commit" in result.output
+        # Nothing regenerated here, so the advisory must not claim the types are stale.
+        # A branch keeps its source edits in the diff after a regen, so a staleness claim
+        # can never be cleared by running the fix.
+        assert "out of date" not in result.output
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_guidance_only_check_is_not_counted_as_an_advisory(
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--json"])
+        summary = json.loads(result.output)
+        assert "openapi" in summary["triggered"]
+        # A check that runs nothing has found nothing. Counting it puts an advisory on
+        # every push that touches an API file, which spends the weight the footer needs
+        # for the checks that did measure something.
+        assert summary["advisories"] == 0
 
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
     @patch("hogli_commands.ci_preflight.subprocess.run")
     @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
-    def test_type_check_names_the_mypy_command_without_running_it(
+    def test_nudge_names_the_command_without_running_it(
         self,
         mock_changed: MagicMock,
         mock_run: MagicMock,
@@ -102,8 +121,9 @@ class TestStrictAndFixContracts:
 
         assert result.exit_code == 0
         assert "uv run mypy --cache-fine-grained ." in result.output
-        # Giving this check a `verify` would tax every Python push with a repo-wide run.
-        assert not any("mypy" in call.args[0] for call in mock_run.call_args_list)
+        # Giving the check a `verify` would tax every push with a repo-wide mypy run.
+        ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
+        assert "mypy" not in ran
 
 
 class TestStalenessRisks:
@@ -223,6 +243,20 @@ class TestShadowDriftCompanion:
             ([".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"], 0, "both files updated"),
             # Depot-only is a notice in CI, never a failure. Blocking it would false-block depot tuning.
             ([".depot/workflows/ci-backend.yml"], 0, ""),
+            (
+                [".github/actions/paths-filter/src/main.ts"],
+                1,
+                "mirror the change into .depot/actions/paths-filter/**",
+            ),
+            (
+                [
+                    ".github/actions/paths-filter/src/main.ts",
+                    ".depot/actions/paths-filter/src/main.ts",
+                ],
+                0,
+                "both files updated",
+            ),
+            ([".depot/actions/paths-filter/src/main.ts"], 0, "both files updated"),
         ],
     )
     @patch("hogli_commands.ci_preflight._emit_telemetry")
@@ -255,6 +289,6 @@ class TestShadowDriftCompanion:
         workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci-backend-shadow-drift.yml").read_text())
         # `on` parses as the boolean True in YAML 1.1.
         watched = set(workflow[True]["pull_request"]["paths"])
-        shadow = next(chk for chk in COMPANION_CHECKS if chk.key == "shadow-drift")
+        companion_paths = {path for companion in COMPANION_CHECKS for path in (companion.source, companion.companion)}
 
-        assert watched == {shadow.source, shadow.companion}
+        assert watched == companion_paths

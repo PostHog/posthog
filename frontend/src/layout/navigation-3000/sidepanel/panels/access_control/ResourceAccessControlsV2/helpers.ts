@@ -59,21 +59,30 @@ export interface AccessSummaryTag {
 }
 
 /** Builds the "Access" column tags for a role/member entry, excluding resources whose
- * product isn't rolled out to the current user even if a stale access level exists for it. */
+ * product isn't rolled out to the current user even if a stale access level exists for it.
+ *
+ * `filteredResources` are the tools selected in the Tool filter. If the set is not empty, the row
+ * shows tags for those tools only, and no project tag. Each tag then answers the question the
+ * filter asked. */
 export function getAccessSummaryTags(
     entry: AccessControlSettingsEntry,
-    visibleResources: Set<APIScopeObject>
+    visibleResources: Set<APIScopeObject>,
+    filteredResources?: Set<APIScopeObject>
 ): AccessSummaryTag[] {
     const tags: AccessSummaryTag[] = []
 
-    if (entry.project.effective_access_level !== null) {
+    if (!filteredResources?.size && entry.project.effective_access_level !== null) {
         tags.push({ resource: 'project', level: entry.project.effective_access_level })
     }
 
     for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
-        if (resourceEntry.effective_access_level !== null && visibleResources.has(resource as APIScopeObject)) {
-            tags.push({ resource, level: resourceEntry.effective_access_level })
+        if (resourceEntry.effective_access_level === null || !visibleResources.has(resource as APIScopeObject)) {
+            continue
         }
+        if (filteredResources?.size && !filteredResources.has(resource as APIScopeObject)) {
+            continue
+        }
+        tags.push({ resource, level: resourceEntry.effective_access_level })
     }
 
     return tags

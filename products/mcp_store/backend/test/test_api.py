@@ -36,7 +36,7 @@ from products.mcp_store.backend.models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import DcrClientRegistration
+from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -1239,10 +1239,19 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert create_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
         assert delete_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
+    @parameterized.expand([("default_scope", None, "personal"), ("team_scope", "team", "team")])
     @ALLOW_URL
-    def test_member_can_delegate_a_personal_credential_during_install(self, _mock_is_url_allowed) -> None:
+    def test_install_shares_the_connection_with_every_built_in_agent(
+        self, _label, agent_scope, expected_scope, _mock_is_url_allowed
+    ) -> None:
         self._make_member()
         accounts = sync_built_in_agents(self.team)
+        legacy_account = MCPServiceAccount.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Legacy custom agent",
+            handle="svc-legacy-custom-agent",
+            token_hash="legacy-custom-agent-token-hash",
+        )
         install_url = "https://mcp.personal-agent-grant.example.com/mcp"
 
         response = self.client.post(
@@ -1253,7 +1262,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "auth_type": "api_key",
                 "api_key": "secret",
                 "scope": "personal",
-                "agent_ids": [str(account.id) for account in accounts],
+                **({"agent_scope": agent_scope} if agent_scope else {}),
             },
             format="json",
         )
@@ -1261,62 +1270,85 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         installation = MCPServerInstallation.objects.get(team=self.team, url=install_url)
         accesses = MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(
-            service_account__in=accounts,
-            gateway_server=installation.gateway_server,
+            gateway_server=installation.gateway_server
         )
-        access_rows = set(accesses.values_list("service_account_id", "installation_id"))
-        assert installation.scope == "personal"
-        assert access_rows == {(account.id, installation.id) for account in accounts}
+        access_rows = set(accesses.values_list("service_account_id", "installation_id", "user_id", "scope"))
+        assert access_rows == {(account.id, installation.id, self.user.id, expected_scope) for account in accounts}
+        assert not accesses.filter(service_account=legacy_account).exists()
 
     @ALLOW_URL
-    def test_install_rejects_member_agent_grant_when_team_setting_is_off(self, _mock_is_url_allowed) -> None:
+    def test_install_skips_agent_grants_for_member_when_team_setting_is_off(self, _mock_is_url_allowed) -> None:
         self._make_member()
         TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_member_agent_access=False)
-        account = sync_built_in_agents(self.team)[0]
+        sync_built_in_agents(self.team)
         install_url = "https://mcp.restricted-agent-grant.example.com/mcp"
+        data = {
+            "name": "Restricted grant",
+            "url": install_url,
+            "auth_type": "api_key",
+            "api_key": "secret",
+            "scope": "personal",
+        }
 
+        explicit_response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={**data, "agent_scope": "personal"},
+            format="json",
+        )
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={
-                "name": "Restricted grant",
-                "url": install_url,
-                "auth_type": "api_key",
-                "api_key": "secret",
-                "scope": "personal",
-                "agent_ids": [str(account.id)],
-            },
+            data=data,
             format="json",
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert not MCPServerInstallation.objects.filter(team=self.team, url=install_url).exists()
+        assert explicit_response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_201_CREATED
+        installation = MCPServerInstallation.objects.get(team=self.team, url=install_url)
+        assert not (
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(gateway_server=installation.gateway_server)
+            .exists()
+        )
 
     @ALLOW_URL
-    def test_install_rejects_hidden_legacy_service_account(self, _mock_is_url_allowed) -> None:
-        self._make_admin()
-        legacy_account = MCPServiceAccount.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            name="Legacy custom agent",
-            handle="svc-legacy-custom-agent",
-            token_hash="legacy-custom-agent-token-hash",
+    def test_reconnect_rebinds_existing_agent_grants_and_keeps_their_scope(self, _mock_is_url_allowed) -> None:
+        self._make_member()
+        accounts = sync_built_in_agents(self.team)
+        install_url = "https://mcp.reconnect-agent-grant.example.com/mcp"
+        data = {
+            "name": "Reconnect grant",
+            "url": install_url,
+            "auth_type": "api_key",
+            "api_key": "secret",
+            "scope": "personal",
+        }
+        first_response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={**data, "agent_scope": "team"},
+            format="json",
         )
-        install_url = "https://mcp.legacy-agent-grant.example.com/mcp"
+        assert first_response.status_code == status.HTTP_201_CREATED
+        first_installation_id = first_response.json()["id"]
+        delete_response = self.client.delete(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{first_installation_id}/"
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
-            data={
-                "name": "Legacy grant",
-                "url": install_url,
-                "auth_type": "api_key",
-                "api_key": "secret",
-                "scope": "shared",
-                "agent_ids": [str(legacy_account.id)],
-            },
+            data=data,
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not MCPServerInstallation.objects.filter(team=self.team, url=install_url).exists()
+        assert response.status_code == status.HTTP_201_CREATED
+        installation = MCPServerInstallation.objects.get(team=self.team, url=install_url)
+        assert str(installation.id) != first_installation_id
+        accesses = MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(
+            gateway_server=installation.gateway_server
+        )
+        assert set(accesses.values_list("service_account_id", "installation_id", "scope")) == {
+            (account.id, installation.id, "team") for account in accounts
+        }
 
     def test_member_can_delegate_their_credential_and_control_agent_tools_by_default(self) -> None:
         self._make_member()
@@ -2463,6 +2495,29 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["icon_domain"] == "notion.example"
         assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
+
+    def test_list_installation_description_falls_back_to_template(self):
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.example/mcp",
+            description="Manage issues and projects",
+            auth_type="api_key",
+            is_active=True,
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            display_name="",
+            description="",
+            url=template.url,
+            auth_type="api_key",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["description"] == "Manage issues and projects"
 
     def test_uninstall_server(self):
         installation = MCPServerInstallation.objects.create(
@@ -3880,6 +3935,31 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         # A half-created installation should not linger after DCR failure.
         assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        side_effect=DCRRegistrationRejectedError("The server rejected registration: client_name is invalid"),
+    )
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        return_value={
+            "authorization_endpoint": "https://auth.discovered.example.com/authorize",
+            "token_endpoint": "https://auth.discovered.example.com/token",
+            "registration_endpoint": "https://auth.discovered.example.com/register",
+        },
+    )
+    def test_install_template_dcr_rejection_surfaces_provider_message(self, _discover, _register):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "client_name is invalid" in response.json()["detail"]
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
     @parameterized.expand([("row_disabled",), ("default_disabled",)])
     def test_install_template_refused_when_server_disabled_for_team(self, scenario: str) -> None:
         template = self._template()
@@ -4708,7 +4788,7 @@ class TestMCPScopeAdminGateWithAccessControlFeature(ClickhouseTestMixin, APIBase
         assert shared.scope == "personal"
 
     def test_explicit_project_admin_can_unshare(self) -> None:
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         membership = self.user.organization_memberships.get(organization=self.organization)
         AccessControl.objects.create(

@@ -172,6 +172,7 @@ export interface AddSuppressionRequestApi {
 /**
  * * `BOUNCE` - Bounce
  * * `MANUAL` - Manual
+ * * `COMPLAINT` - Complaint
  */
 export type MessageSuppressionSourceEnumApi =
     (typeof MessageSuppressionSourceEnumApi)[keyof typeof MessageSuppressionSourceEnumApi]
@@ -179,6 +180,7 @@ export type MessageSuppressionSourceEnumApi =
 export const MessageSuppressionSourceEnumApi = {
     Bounce: 'BOUNCE',
     Manual: 'MANUAL',
+    Complaint: 'COMPLAINT',
 } as const
 
 export interface MessageSuppressionApi {
@@ -186,10 +188,11 @@ export interface MessageSuppressionApi {
     readonly id: string
     /** Normalized recipient email address. Suppression is keyed on this value, per team. */
     readonly identifier: string
-    /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+    /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.
      *
      * * `BOUNCE` - Bounce
-     * * `MANUAL` - Manual */
+     * * `MANUAL` - Manual
+     * * `COMPLAINT` - Complaint */
     readonly source: MessageSuppressionSourceEnumApi
     /**
      * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
@@ -515,11 +518,21 @@ export type MessagingPreferencesOptOutsRetrieveParams = {
     category_key?: string
     page?: number
     page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
+     */
+    search?: string
 }
 
 export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number
     page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient email address.
+     * @maxLength 512
+     */
+    search?: string
 }
 
 export type MessagingTemplatesListParams = {

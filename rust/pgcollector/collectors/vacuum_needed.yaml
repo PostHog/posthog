@@ -1,0 +1,64 @@
+name: vacuum_needed
+description: >
+  Tables that autovacuum should be handling right now, with the effective
+  thresholds (reloptions override GUCs): dead tuples vs vacuum threshold,
+  modified-since-analyze vs analyze threshold, inserts vs insert-vacuum
+  threshold (13+), and xid/mxid age vs freeze limits. Only rows over 50% of a
+  threshold are emitted, so this is usually short and the API can alert on
+  ratio >= 1.0.
+interval: 10m
+scope: database
+kind: gauge
+min_pg_version: 130000
+query: |
+  WITH gucs AS (
+    SELECT current_setting('autovacuum_vacuum_threshold')::bigint        AS vac_thr,
+           current_setting('autovacuum_vacuum_scale_factor')::float8     AS vac_sf,
+           current_setting('autovacuum_analyze_threshold')::bigint       AS ana_thr,
+           current_setting('autovacuum_analyze_scale_factor')::float8    AS ana_sf,
+           current_setting('autovacuum_vacuum_insert_threshold')::bigint AS ins_thr,
+           current_setting('autovacuum_vacuum_insert_scale_factor')::float8 AS ins_sf,
+           current_setting('autovacuum_freeze_max_age')::bigint          AS freeze_max,
+           current_setting('autovacuum_multixact_freeze_max_age')::bigint AS mx_freeze_max
+  ), t AS (
+    SELECT n.nspname AS schemaname, c.relname, c.oid,
+           c.reltuples::float8 AS reltuples,
+           s.n_live_tup, s.n_dead_tup, s.n_mod_since_analyze, s.n_ins_since_vacuum,
+           s.last_autovacuum, s.last_vacuum, s.last_autoanalyze, s.last_analyze,
+           age(c.relfrozenxid)::bigint AS xid_age, mxid_age(c.relminmxid)::bigint AS mxid_age,
+           COALESCE((SELECT option_value::bigint FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_vacuum_threshold'), g.vac_thr) AS vac_thr,
+           COALESCE((SELECT option_value::float8 FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_vacuum_scale_factor'), g.vac_sf) AS vac_sf,
+           COALESCE((SELECT option_value::bigint FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_analyze_threshold'), g.ana_thr) AS ana_thr,
+           COALESCE((SELECT option_value::float8 FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_analyze_scale_factor'), g.ana_sf) AS ana_sf,
+           COALESCE((SELECT option_value::bigint FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_vacuum_insert_threshold'), g.ins_thr) AS ins_thr,
+           COALESCE((SELECT option_value::float8 FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_vacuum_insert_scale_factor'), g.ins_sf) AS ins_sf,
+           COALESCE((SELECT option_value::bigint FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_freeze_max_age'), g.freeze_max) AS freeze_max,
+           COALESCE((SELECT option_value::bigint FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_multixact_freeze_max_age'), g.mx_freeze_max) AS mx_freeze_max,
+           COALESCE((SELECT option_value::bool FROM pg_options_to_table(c.reloptions) WHERE option_name = 'autovacuum_enabled'), true) AS autovacuum_enabled
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_stat_user_tables s ON s.relid = c.oid
+    CROSS JOIN gucs g
+    WHERE c.relkind IN ('r', 'm')
+  ), scored AS (
+    SELECT *,
+           GREATEST(vac_thr + vac_sf * GREATEST(reltuples, 0), 1)::float8 AS vacuum_threshold,
+           GREATEST(ana_thr + ana_sf * GREATEST(reltuples, 0), 1)::float8 AS analyze_threshold,
+           GREATEST(ins_thr + ins_sf * GREATEST(reltuples, 0), 1)::float8 AS insert_threshold
+    FROM t
+  )
+  SELECT schemaname, relname, oid::bigint AS relid, autovacuum_enabled,
+         n_live_tup, n_dead_tup, n_mod_since_analyze, n_ins_since_vacuum,
+         vacuum_threshold, analyze_threshold, insert_threshold,
+         (n_dead_tup / vacuum_threshold)::float8          AS vacuum_ratio,
+         (n_mod_since_analyze / analyze_threshold)::float8 AS analyze_ratio,
+         (n_ins_since_vacuum / insert_threshold)::float8  AS insert_ratio,
+         xid_age, freeze_max, (xid_age::float8 / freeze_max)::float8 AS freeze_ratio,
+         mxid_age, mx_freeze_max, (mxid_age::float8 / mx_freeze_max)::float8 AS mx_freeze_ratio,
+         last_autovacuum, last_vacuum, last_autoanalyze, last_analyze
+  FROM scored
+  WHERE n_dead_tup / vacuum_threshold >= 0.5
+     OR n_mod_since_analyze / analyze_threshold >= 0.5
+     OR n_ins_since_vacuum / insert_threshold >= 0.5
+     OR xid_age::float8 / freeze_max >= 0.5
+     OR mxid_age::float8 / mx_freeze_max >= 0.5

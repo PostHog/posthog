@@ -116,6 +116,14 @@ def _resolve_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
+def _resolve_description(installation: MCPServerInstallation) -> str:
+    if installation.description:
+        return installation.description
+    if installation.template and installation.template.description:
+        return installation.template.description
+    return ""
+
+
 def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return True
@@ -132,6 +140,7 @@ def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstall
         id=str(installation.id),
         name=_resolve_name(installation),
         proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
+        description=_resolve_description(installation),
         scope=installation.scope,
     )
 
@@ -235,16 +244,22 @@ def _agent_installation_infos(
     return infos
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallation]:
-    """Return active, ready-to-use personal MCP installations for a user.
+def get_active_installations(team_id: int, user_id: int, *, include_shared: bool = False) -> list[ActiveInstallation]:
+    """Return active, ready-to-use MCP installations a user can mount.
 
-    Filters out disabled installations and OAuth installations that
-    need reauthorization or are still pending token exchange.
+    Personal installations owned by the user by default; ``include_shared`` adds the
+    team's shared-scope installations, mirroring what ``get_installations_for_sandbox``
+    resolves for an unmapped run. Filters out disabled installations and OAuth
+    installations that need reauthorization or are still pending token exchange.
     """
+    scope_filter = Q(scope="personal", user_id=user_id)
+    if include_shared:
+        scope_filter |= Q(scope="shared")
     try:
         # list() evaluates the lazy queryset here so DB errors hit this handler.
         installations = list(
-            MCPServerInstallation.objects.filter(team_id=team_id, user_id=user_id, is_enabled=True, scope="personal")
+            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+            .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
             .select_related("template")
@@ -389,3 +404,34 @@ def get_installations_for_sandbox(
         has_trusted_agent_key=agent_key is not None,
     )
     return results
+
+
+def get_sandbox_mcp_server_names(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[str]:
+    """The names of the servers ``get_installations_for_sandbox`` would mount, in mount order.
+
+    For callers that steer an agent at its mounted servers by name before the sandbox launches
+    (the Signals scout run prompt), without being handed the mount credentials. Implemented as a
+    projection of the full resolution so the two can never disagree on what mounts; the signed
+    proxy token that resolution derives is stateless, so discarding it here spends nothing.
+    """
+    return [
+        installation.name
+        for installation in get_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        )
+    ]

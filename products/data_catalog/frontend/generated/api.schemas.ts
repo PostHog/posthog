@@ -78,7 +78,7 @@ export interface DataCatalogCertificationApi {
     readonly saved_query: string | null
     /** Whether the marked target is a 'table' or a 'view'. */
     readonly target_type: string
-    /** Name of the marked table or view. */
+    /** Queryable HogQL name of the marked table or view. */
     readonly target_name: string
     /** proposed, certified (prefer this source), or deprecated (avoid this source). */
     readonly status: string
@@ -123,9 +123,9 @@ export interface CertificationCreateApi {
     table_id?: string
     /** Warehouse view (saved query) id to certify. */
     saved_query_id?: string
-    /** Table name; 409 with candidates if ambiguous. */
+    /** Queryable HogQL table name; 409 with candidates if ambiguous. */
     table_name?: string
-    /** View name; 409 with candidates if ambiguous. */
+    /** Queryable HogQL view name; 409 with candidates if ambiguous. */
     view_name?: string
     /** Why this mark exists. */
     notes?: string

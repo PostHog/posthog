@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Run a dev-stack command inside a macOS Seatbelt sandbox (see bin/dev-sandbox.sb).
 #
 # Usage: bin/dev-sandbox '<shell command>'
@@ -22,13 +22,25 @@
 
 set -euo pipefail
 
+# Everything below runs BEFORE the sandbox exists, with the developer's full
+# privileges. The inherited $PATH is not trustworthy at that point: it keeps the
+# repo's own node_modules/.bin (see the PATH sanitizing near the end, which
+# deliberately preserves repo bins for the child), and sandboxed dependency code
+# can write there. A bare `sed`/`mktemp` would then resolve to a binary a previous
+# sandboxed run planted, and run unsandboxed as the developer. So pin PATH to the
+# system directories for this script's own use and hand the inherited one to the
+# child, which is the only consumer that needs it.
+inherited_path="$PATH"
+PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+
 cmd="${1:?bin/dev-sandbox: expected a command string as the first argument}"
 project="$(cd "$(dirname "$0")/.." && pwd -P)" # canonical repo root (Seatbelt matches physical paths)
 base_profile="$project/bin/dev-sandbox.sb"
 
-run_unsandboxed() { exec /bin/bash -c "$cmd"; }
+# Passthrough runs the developer's own command, so it gets the real PATH back.
+run_unsandboxed() { PATH="$inherited_path" exec /bin/bash -c "$cmd"; }
 
-if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1 || [[ ! -f "$base_profile" ]]; then
+if [[ "$(uname -s)" != "Darwin" ]] || [[ ! -x /usr/bin/sandbox-exec ]] || [[ ! -f "$base_profile" ]]; then
     run_unsandboxed
 fi
 
@@ -53,6 +65,23 @@ fi
 # the physical path Seatbelt enforces against (/var/folders -> /private/var/...).
 tmpdir="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P || echo "${TMPDIR:-/tmp}")"
 
+# Held in variables because matching a literal backslash in a `case` pattern
+# otherwise needs a shellcheck pragma (SC1003).
+_dq='"' _bs=$'\\'
+
+# Can this path be rendered inside an SBPL (literal "…")? One owner, so every
+# emitter agrees on the answer. Quotes and backslashes are the cases that matter,
+# for two different reasons: a double quote closes the literal early and fails the
+# whole profile to parse (loud, but the wrapper then runs unsandboxed), while a
+# backslash is eaten as an SBPL string escape, so the deny silently binds to a
+# different path than intended and the real one stays writable. Tabs and newlines
+# are legal in filenames and render correctly, so they are not rejected. Empty means
+# a cd/pwd -P failed upstream, leaving nothing to protect.
+unrenderable_path() { # $1 = path
+    case "$1" in "" | *"$_dq"* | *"$_bs"*) return 0 ;; esac
+    return 1
+}
+
 # The base profile allows the git config files by literal path, but Seatbelt
 # matches physical paths — when one is a symlink (dotfile managers), the read of
 # its target is still denied and cargo/libgit2 fails hard ("failed to stat
@@ -65,9 +94,46 @@ for _cfg in "$HOME/.gitconfig" "$HOME/.gitconfig.local" "$HOME/.config/git/confi
     [[ -n "$_resolved" && "$_resolved" != "$_cfg" ]] && gitcfg_targets+=("$_resolved")
 done
 
-cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} | /usr/bin/shasum -a256 | cut -c1-16)"
+# The profile write-denies the repo's own git config by PROJECT/MAINREPO literal,
+# which reaches neither a worktree's real gitdir (it lives under the MAIN repo, at
+# .git/worktrees/<name>/) nor a checkout whose .git is a symlink, since Seatbelt
+# matches physical paths. Collect both config files there so the render can deny
+# them too. Write-deny only: reads are already allowed via the MAINREPO subpath.
+# $mainrepo is $project unless this is a worktree, where $project/.git is the
+# redirect file (nothing to deny inside it) and $gitdir is the real git dir.
+# commondir belongs to this surface too — git resolves it to the common git dir and
+# then reads that directory's config AND hooks/, so rewriting it reaches the escape
+# the .git/hooks denies close off. It is not worktree-only: git honors a commondir
+# in any git dir, including a plain clone's.
+gitcfg_wdeny=()
+for _gd in "$mainrepo/.git" ${gitdir:+"$gitdir"}; do
+    [[ -d "$_gd" ]] || continue
+    _raw="$_gd"
+    _gd="$(cd "$_gd" 2>/dev/null && pwd -P || true)" # physical path: Seatbelt matches that
+    # Dropping the whole render over one git dir would leave the developer with no
+    # sandbox at all, so skip just this deny — but say so, since the config it would
+    # have protected stays writable.
+    if unrenderable_path "$_gd"; then
+        echo "⚠️  dev sandbox: cannot deny writes to $_raw/config (path unresolvable or unrenderable)" >&2
+        continue
+    fi
+    gitcfg_wdeny+=("$_gd/config" "$_gd/config.worktree" "$_gd/commondir")
+done
+
+cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} "--" ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"} | /usr/bin/shasum -a256 | cut -c1-16)"
 rendered="$tmpdir/posthog-dev-sandbox-$cache_key.sb"
 stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
+
+# One SBPL rule over N path literals. A rule with no filters matches EVERYTHING —
+# a bare `(deny file-write*)` denies every write — so an empty list emits nothing.
+emit_rule() { # emit_rule <operation> <path>...
+    local op="$1"
+    shift
+    [[ $# -gt 0 ]] || return 0
+    printf '(%s' "$op"
+    printf ' (literal "%s")' "$@"
+    printf ')\n'
+}
 
 # Render = base profile + ancestor read-allows ($HOME down to each repo root, so
 # the OS/node/getcwd can lstat+readdir into the repo) + the SSH-agent socket deny.
@@ -77,7 +143,6 @@ stamp="$rendered.ok" # touched once the rendered profile passes the init preflig
 render_profile() {
     local -a ancestors=()
     local r p _a tmp sock_dir
-    local _dq='"' _bs=$'\\'
     for r in "$project" "$mainrepo"; do
         p="${r%/*}"
         while [[ "$p" != "$HOME" && "$p" != "/" && -n "$p" ]]; do
@@ -86,32 +151,26 @@ render_profile() {
         done
     done
     ancestors+=("$HOME")
-    # Paths are emitted as SBPL string literals; a " or \ would corrupt the
-    # profile (quoted expansions match literally, dodging glob/escape ambiguity).
+    # These paths carry the read-allows the stack needs, so unlike a single git-dir
+    # deny they cannot be dropped individually — fail the render and run without a
+    # sandbox, loudly, rather than emit a profile missing part of what it grants.
     for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
-        case "$_a" in
-        *"$_dq"* | *"$_bs"*)
-            echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
+        if unrenderable_path "$_a"; then
+            echo "⚠️  dev sandbox: path is unrenderable, running WITHOUT sandbox: $_a" >&2
             return 1
-            ;;
-        esac
+        fi
     done
     tmp="$(mktemp "$tmpdir/posthog-dev-sandbox.XXXXXX")" || return 1
     if {
         cat "$base_profile"
-        printf '(allow file-read*'
-        printf ' (literal "%s")' "${ancestors[@]}"
-        printf ')\n'
+        emit_rule 'allow file-read*' "${ancestors[@]}"
         # Physical targets of symlinked git configs (resolved above): readable like
         # the configs themselves, write-denied for the same hooksPath escape reason.
-        if [[ ${#gitcfg_targets[@]} -gt 0 ]]; then
-            printf '(allow file-read*'
-            printf ' (literal "%s")' "${gitcfg_targets[@]}"
-            printf ')\n'
-            printf '(deny file-write*'
-            printf ' (literal "%s")' "${gitcfg_targets[@]}"
-            printf ')\n'
-        fi
+        emit_rule 'allow file-read*' ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}
+        emit_rule 'deny file-write*' ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}
+        # Physical git-dir config paths (collected above), which the profile's
+        # PROJECT/MAINREPO literals miss for a worktree or a symlinked .git.
+        emit_rule 'deny file-write*' ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"}
         # Deny the SSH agent socket (path varies per agent: Secretive, 1Password,
         # launchd, gpg). Canonicalize its dir — Seatbelt matches the kernel's
         # physical path (e.g. /tmp -> /private/tmp); fall back to the raw path.
@@ -128,7 +187,7 @@ render_profile() {
         # them would bypass the sandbox on the next cache hit, which re-runs neither
         # render nor preflight. The legit render here runs outside the sandbox, so
         # it is unaffected. Literals are canonical (TMPDIR resolved above).
-        printf '(deny file-write* (literal "%s") (literal "%s"))\n' "$rendered" "$stamp"
+        emit_rule 'deny file-write*' "$rendered" "$stamp"
     } >"$tmp" 2>/dev/null && mv -f "$tmp" "$rendered"; then
         rm -f "$stamp" # new contents: force a fresh init preflight
         return 0
@@ -144,7 +203,10 @@ if [[ ! -f "$rendered" || "$base_profile" -nt "$rendered" || "$project/bin/dev-s
     render_profile || run_unsandboxed
 fi
 
-sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
+# Absolute path: the final exec below hands the child's PATH to `env`, and that PATH
+# deliberately keeps the repo's own writable bins — so a bare name here would let
+# sandboxed code plant the very binary that creates the sandbox.
+sandbox=(/usr/bin/sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
 
 # Init preflight, once per rendered profile (the stamp records that it passed).
 # Fail OPEN if it can't initialize (e.g. the profile won't compile on this OS).
@@ -172,7 +234,7 @@ sandboxed_path=""
 _oldifs="$IFS"
 set -f # PATH entries are literal paths; never glob-expand them
 IFS=':'
-for _pdir in $PATH; do
+for _pdir in $inherited_path; do # the developer's real PATH, not this script's pinned one
     case "$_pdir" in
         "$project"/* | "$mainrepo"/*) ;;   # repo bins (node_modules/.bin) — keep
         "$HOME"/* | "") continue ;;        # read-denied $HOME shim dir / empty — drop

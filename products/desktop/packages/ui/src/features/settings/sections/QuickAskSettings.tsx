@@ -3,9 +3,9 @@ import { useServiceOptional } from "@posthog/di/react";
 import { Switch } from "@posthog/quill";
 import type { Adapter } from "@posthog/shared";
 import { isSupportedReasoningEffort } from "@posthog/shared";
-import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
@@ -13,10 +13,13 @@ import {
   type QuickAskState,
 } from "@posthog/ui/features/quick-ask/identifiers";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import {
+  SettingsCard,
+  SettingsCardRow,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { QuickAskShortcutSetting } from "@posthog/ui/features/settings/sections/QuickAskShortcutSetting";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
-import { Flex, Text } from "@radix-ui/themes";
+import { Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** The new-task model pill, wired to the persisted quick-ask defaults. */
@@ -34,7 +37,6 @@ function AgentDefaults({
   const { modelOption, thoughtOption, isLoading, setConfigOption } =
     usePreviewConfig(adapter);
 
-  // Reflect the persisted defaults into the fetched options once per load.
   const seeded = useRef(false);
   useEffect(() => {
     if (seeded.current || isLoading) return;
@@ -153,7 +155,6 @@ export function QuickAskSettings() {
   const personal = channels.find(
     (channel) => channel.channelType === "personal",
   );
-  // The stored empty id means the personal space (the backend's default).
   const selectedSpaceId = state.defaultChannelId || (personal?.id ?? "");
   const selectedSpace = channels.find(
     (channel) => channel.id === selectedSpaceId,
@@ -165,10 +166,10 @@ export function QuickAskSettings() {
   const off = !state.active;
 
   return (
-    <Flex direction="column">
-      <SettingRow
+    <SettingsCard>
+      <SettingsCardRow
         label="Enable quick ask"
-        description="The floating panel and its global shortcut. Turning this off frees the shortcut."
+        description="The floating panel and its global shortcut; turning this off frees the shortcut"
       >
         <Switch
           size="sm"
@@ -176,14 +177,20 @@ export function QuickAskSettings() {
           onCheckedChange={(checked) => apply({ active: checked })}
           aria-label="Enable quick ask"
         />
-      </SettingRow>
+      </SettingsCardRow>
 
-      <div className={off ? "pointer-events-none opacity-50" : undefined}>
+      <div
+        className={
+          off
+            ? "pointer-events-none divide-y divide-border opacity-50"
+            : "divide-y divide-border"
+        }
+      >
         <QuickAskShortcutSetting disabled={off} />
 
-        <SettingRow
+        <SettingsCardRow
           label="Default space"
-          description="New quick-ask threads file into this space."
+          description="New quick-ask threads file into this space"
         >
           <SpaceSelect
             value={selectedSpaceId}
@@ -198,15 +205,15 @@ export function QuickAskSettings() {
               });
             }}
           />
-        </SettingRow>
+        </SettingsCardRow>
 
-        <SettingRow
+        <SettingsCardRow
           label="Default repositories"
           description={
             state.defaultRepositories.length === 0 &&
             spaceRepositories.length > 0
               ? `None of your own; the space brings ${spaceRepositories.join(", ")}.`
-              : "Cloned into the sandbox for every new thread. Leave empty for data-only answers, or to use the space's repositories."
+              : "Cloned into the sandbox for every new thread; leave empty for data-only answers, or to use the space's repositories"
           }
         >
           <RepositoriesField
@@ -220,16 +227,15 @@ export function QuickAskSettings() {
               })
             }
           />
-        </SettingRow>
+        </SettingsCardRow>
 
-        <SettingRow
+        <SettingsCardRow
           label="Agent"
-          description="The harness, model, and effort quick-ask answers run with."
-          noBorder
+          description="The harness, model, and effort quick-ask answers run with"
         >
           <AgentDefaults state={state} apply={apply} disabled={off} />
-        </SettingRow>
+        </SettingsCardRow>
       </div>
-    </Flex>
+    </SettingsCard>
   );
 }

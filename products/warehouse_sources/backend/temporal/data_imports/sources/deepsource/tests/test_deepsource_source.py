@@ -1,10 +1,7 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.deepsource import (
-    DeepsourceResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.settings import (
     DEEPSOURCE_ENDPOINTS,
     ENDPOINTS,
@@ -13,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
     DeepsourceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CONFIG = DeepsourceSourceConfig(api_token="tok", account_login="acme", vcs_provider="GITHUB")
 
@@ -25,20 +21,10 @@ def _source_inputs(schema_name: str) -> MagicMock:
 
 
 class TestDeepsourceSource:
-    def test_source_type(self) -> None:
-        assert DeepsourceSource().source_type == ExternalDataSourceType.DEEPSOURCE
-
     def test_connection_host_fields_force_secret_reentry_on_account_change(self) -> None:
         # Changing account_login/vcs_provider retargets the stored PAT at another account, so
         # both must be host fields — the update serializer then demands the PAT be re-entered.
         assert DeepsourceSource().connection_host_fields == ["account_login", "vcs_provider"]
-
-    def test_source_is_released_and_categorized(self) -> None:
-        config = DeepsourceSource().get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus is not None
-        assert config.category is not None
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/deepsource"
 
     def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
         schemas = DeepsourceSource().get_schemas(_CONFIG, team_id=1)
@@ -69,38 +55,6 @@ class TestDeepsourceSource:
         assert response.name == endpoint
         assert response.primary_keys == DEEPSOURCE_ENDPOINTS[endpoint].primary_keys
         assert callable(response.items)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = DeepsourceSource().get_resumable_source_manager(_source_inputs("repositories"))
-        assert manager._data_class is DeepsourceResumeConfig
-
-    @parameterized.expand(
-        [
-            ("valid", (True, None), True, None),
-            ("invalid", (False, "Invalid DeepSource personal access token"), False, "Invalid DeepSource"),
-        ]
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.source.validate_deepsource_credentials"
-    )
-    def test_validate_credentials_delegates_to_transport(
-        self,
-        _name: str,
-        transport_result: tuple[bool, str | None],
-        expected_valid: bool,
-        expected_fragment: str | None,
-        mock_validate: MagicMock,
-    ) -> None:
-        mock_validate.return_value = transport_result
-
-        valid, error = DeepsourceSource().validate_credentials(_CONFIG, team_id=1)
-
-        mock_validate.assert_called_once_with("tok", "acme", "GITHUB")
-        assert valid is expected_valid
-        if expected_fragment is None:
-            assert error is None
-        else:
-            assert error is not None and expected_fragment in error
 
 
 class TestDeepsourceNonRetryableErrors:

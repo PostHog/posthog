@@ -29,7 +29,7 @@ export function getScoutOrigin(
  * says nothing at all about a scout that is still running but already flagged
  * for auto-pause.
  */
-export type ScoutLifecycle =
+type ScoutLifecycle =
   | "active"
   /** Still running, but the system has flagged it. See `willPause`. */
   | "warned"
@@ -109,9 +109,9 @@ function systemPausedExplanation(
 ): string {
   switch (reason) {
     case "ignored":
-      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
+      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume. It can pause again later unless its findings get acted on.";
     case "no_output":
-      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
+      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume. Staying quiet on its own will not pause it again.";
     case "repeated_failures":
       // The breaker keeps a half-open probe on this reason, so this one recovers
       // without anyone touching it. Say so, or the badge reads as terminal.
@@ -559,7 +559,7 @@ export function computeFleetSummary(
   };
 }
 
-export interface RunIntervalOption {
+interface RunIntervalOption {
   minutes: number;
   label: string;
 }

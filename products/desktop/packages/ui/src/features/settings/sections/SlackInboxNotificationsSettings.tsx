@@ -5,32 +5,30 @@ import {
 } from "@posthog/core/settings/slackNotificationTarget";
 import { useSignalSourceManager } from "@posthog/ui/features/inbox/hooks/useSignalSourceManager";
 import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
+import {
+  SettingsCard,
+  SettingsCardRow,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { SignalDefaultChannelSettings } from "@posthog/ui/features/settings/sections/SignalDefaultChannelSettings";
 import { SignalSlackNotificationsSettings } from "@posthog/ui/features/settings/sections/SignalSlackNotificationsSettings";
-import {
-  SlackWorkspaceConnection,
-  SlackWorkspaceConnectionCallouts,
-} from "@posthog/ui/features/settings/sections/SlackWorkspaceConnection";
-import { Box, Flex, Text } from "@radix-ui/themes";
+import { SlackWorkspaceConnectionBlock } from "@posthog/ui/features/settings/sections/SlackWorkspaceConnection";
 import { useMemo } from "react";
-
-const WORKSPACE_CONTROL_CLASS = "min-w-[160px] max-w-[240px]";
 
 interface SlackInboxNotificationsSettingsProps {
   channelComboboxModal?: boolean;
   isLoading?: boolean;
   /** When false, omit the section header (parent already titles this block). */
   showHeader?: boolean;
-  /** When false, omit the dashed top rule (nested under a parent section). */
-  showTopBorder?: boolean;
+  /** When false, omit the workspace rows (a parent section renders them). */
+  showWorkspaceConnection?: boolean;
 }
 
 export function SlackInboxNotificationsSettings({
   channelComboboxModal = false,
   isLoading = false,
   showHeader = true,
-  showTopBorder = true,
+  showWorkspaceConnection = true,
 }: SlackInboxNotificationsSettingsProps) {
   const { slackIntegrations, hasSlackIntegration } = useIntegrationSelectors();
   const { userAutonomyConfig, handleUpdateSlackNotifications } =
@@ -63,68 +61,63 @@ export function SlackInboxNotificationsSettings({
     void handleUpdateSlackNotifications({ integrationId, channel: null });
   };
 
-  const topBorderClass = showTopBorder
-    ? "border-(--gray-5) border-t border-dashed pt-3"
-    : "";
+  const showConfiguration = isLoading || hasSlackIntegration;
 
   return (
-    <Flex direction="column" gap="3" className={topBorderClass}>
+    <div className="flex flex-col gap-3">
       {showHeader ? (
-        <>
-          <Flex align="center" gap="2">
-            <Box className="shrink-0 text-(--gray-11)">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-(--gray-11)">
               <SlackLogoIcon size={16} />
-            </Box>
-            <Text className="font-medium text-(--gray-12) text-sm">
-              Inbox notifications
-            </Text>
-          </Flex>
-          <Text className="text-(--gray-11) text-[13px]">
-            New inbox reports are posted to Slack with the suggested reviewers
-            @mentioned. PostHog must be in the channel, so invite it with{" "}
-            <code className="text-[13px]">/invite @PostHog</code>.
-          </Text>
-        </>
+            </span>
+            <span className="font-medium text-(--gray-12) text-sm">
+              Self-driving notifications
+            </span>
+          </div>
+          <p className="m-0 text-(--gray-11) text-[13px]">
+            New Self-driving reports are posted to Slack with the suggested
+            reviewers @mentioned. PostHog must be in the channel, so invite it
+            with <code className="text-[13px]">/invite @PostHog</code>.
+          </p>
+        </div>
       ) : null}
 
-      <SlackWorkspaceConnection isLoading={isLoading} />
-      <SlackWorkspaceConnectionCallouts />
+      {showWorkspaceConnection ? (
+        <SlackWorkspaceConnectionBlock isLoading={isLoading} />
+      ) : null}
 
-      {!isLoading && hasSlackIntegration ? (
-        <Flex align="center" gap="2" pt="2" className="min-w-0">
-          <Text className="shrink-0 text-(--gray-11) text-[12px]">
-            Workspace
-          </Text>
-          {slackIntegrations.length > 1 ? (
-            <SettingsOptionSelect
-              value={
-                effectiveIntegrationId ? String(effectiveIntegrationId) : ""
-              }
-              options={integrationOptions}
-              ariaLabel="Slack workspace"
-              placeholder="Select workspace"
-              className={WORKSPACE_CONTROL_CLASS}
-              onValueChange={onIntegrationChange}
-            />
-          ) : slackIntegrations[0] ? (
-            <Text className="truncate font-medium text-(--gray-12) text-[13px]">
-              {getSlackIntegrationLabel(slackIntegrations[0])}
-            </Text>
+      {showConfiguration ? (
+        <SettingsCard>
+          {!isLoading && slackIntegrations.length > 1 ? (
+            <SettingsCardRow
+              label="Workspace"
+              description="Channels below are listed from this workspace"
+            >
+              <SettingsOptionSelect
+                value={
+                  effectiveIntegrationId ? String(effectiveIntegrationId) : ""
+                }
+                options={integrationOptions}
+                ariaLabel="Slack workspace"
+                placeholder="Select workspace"
+                className="min-w-[160px] max-w-[240px]"
+                onValueChange={onIntegrationChange}
+              />
+            </SettingsCardRow>
           ) : null}
-        </Flex>
+          <SignalDefaultChannelSettings
+            integrationId={effectiveIntegrationId}
+            channelComboboxModal={channelComboboxModal}
+            isLoading={isLoading}
+          />
+          <SignalSlackNotificationsSettings
+            integrationId={effectiveIntegrationId}
+            channelComboboxModal={channelComboboxModal}
+            isLoading={isLoading}
+          />
+        </SettingsCard>
       ) : null}
-
-      <SignalDefaultChannelSettings
-        integrationId={effectiveIntegrationId}
-        channelComboboxModal={channelComboboxModal}
-        isLoading={isLoading}
-      />
-      <SignalSlackNotificationsSettings
-        integrationId={effectiveIntegrationId}
-        channelComboboxModal={channelComboboxModal}
-        isLoading={isLoading}
-        hideWorkspaceConnect
-      />
-    </Flex>
+    </div>
   );
 }

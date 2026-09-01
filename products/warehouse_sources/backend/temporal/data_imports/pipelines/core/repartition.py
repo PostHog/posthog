@@ -33,7 +33,10 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    save_repartition_checkpoint_if_claimed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     normalize_column_name,
@@ -51,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
@@ -59,8 +63,13 @@ if TYPE_CHECKING:
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
 
-# Rows per streamed record-batch. Bounds the repartition's peak memory independent of partition size.
-DEFAULT_REPARTITION_BATCH_SIZE = 50_000
+# Rows per scanned record-batch. A row count cannot bound memory on its own — the same count is a few
+# MB of a narrow table and gigabytes of nested records — so this is deliberately low rather than
+# tuned, the way `MAX_FETCH_PAGE_ROWS` is in `sources/common/sql/batching.py`. It bounds the window
+# that is still unmeasured when the scan hands a batch over; `REWRITE_BUFFER_MAX_BYTES` bounds what
+# is materialised, from real measurements. Low is cheap here: the parquet row group is read either
+# way, and the coalescing buffer merges small batches back before any commit.
+DEFAULT_REPARTITION_BATCH_SIZE = 1_000
 
 # Minimum gap between claim re-reads during the rewrite loop. The loop yields at least one batch per
 # source *file*, so an over-fragmented table (the exact kind being repartitioned) produces one batch
@@ -73,12 +82,31 @@ DEFAULT_REPARTITION_BATCH_SIZE = 50_000
 # 0 disables the throttle (check every batch).
 CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 
+# Minimum gap between rewrite checkpoints. The deadline handler saves one too, but only a rewrite that
+# survives to raise can reach it: an OOM-killed worker takes SIGKILL, so no `except` or `finally` runs
+# and nothing is persisted. That left every memory death restarting from row 0 forever. Checkpointing
+# on committed progress instead means an attempt converges across runs whatever kills it. Throttled
+# because it costs a claim check and a row write per checkpoint, and bounds re-done work to this
+# interval rather than to the whole rewrite.
+CHECKPOINT_INTERVAL_SECONDS = 30.0
+
 # Arrow payload the rewrite may hold in its coalescing buffer. Half the package's per-table cap
 # deliberately: the batch that triggers a flush is already materialised and stays resident while the
 # buffer drains, so the true peak is buffer + one incoming batch. Budgeting half keeps that sum inside
 # one `DEFAULT_MAX_TABLE_BYTES` instead of letting it reach twice the cap. Coalescing loses nothing
 # that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
 REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
+
+# Rows the coalescing buffer may hold before it commits. Deliberately not the scan batch size: one
+# number for both caps the buffer at a single batch, so nothing coalesces and every batch becomes its
+# own Delta commit. Each commit is a transaction-log write, so that puts a floor under throughput that
+# no table large enough to need repartitioning can finish above.
+REWRITE_BUFFER_MAX_ROWS = 50_000
+
+# Arrow's default 16-batch readahead keeps memory in flight that never reaches the coalescing buffer,
+# so no buffer budget bounds it. Fragment readahead is left at its default: serialising file reads
+# would cost the most on the many-small-files tables this module rewrites.
+REWRITE_BATCH_READAHEAD = 1
 
 TEMP_URI_SUFFIX = "__repartitioned"
 
@@ -140,6 +168,19 @@ class RepartitionSupersededError(Exception):
     same table corrupt each other's temp `_delta_log` and defeat the swap's row-count verification.
     The schema row's `repartition_claim` is the fence: the newest claimant owns the table, and every
     destructive step re-checks the claim and raises this to make older attempts stand down.
+    """
+
+
+class RepartitionAttemptsExhausted(Exception):
+    """Every one of `MAX_REPARTITION_ATTEMPTS` rewrites was charged but none survived to record an
+    outcome, so the controller gives up and backs the table off to the daily cooldown.
+
+    Each attempt is charged before the rewrite runs and refunded on a clean stand-down (supersession,
+    cancellation, transient infra), so reaching the cap this way means every attempt was hard-killed
+    mid-run — worker OOM, activity timeout, or an eviction that didn't surface as a cancellation —
+    before it could fail cleanly or checkpoint progress. Terminal, and unlike a caught failure it
+    carries no underlying exception, so the give-up path constructs and captures this to keep the most
+    severe repartition outcome visible in error tracking rather than silently abandoned.
     """
 
 
@@ -687,6 +728,8 @@ async def _rewrite_into_temp(
     logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
+    save_checkpoint: Callable[[int, RepartitionTarget], Awaitable[None]] | None = None,
+    checkpoint_interval_seconds: float = CHECKPOINT_INTERVAL_SECONDS,
     deadline: float | None = None,
     total_rows: int | None = None,
     skip_rows: int = 0,
@@ -720,7 +763,12 @@ async def _rewrite_into_temp(
     )
 
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
-    reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
+    reader = await asyncio.to_thread(
+        lambda: dataset.scanner(
+            batch_size=batch_size,
+            batch_readahead=REWRITE_BATCH_READAHEAD,
+        ).to_reader()
+    )
     live_schema = await asyncio.to_thread(old_delta.schema)
 
     resolved: RepartitionTarget | None = None
@@ -750,6 +798,29 @@ async def _rewrite_into_temp(
             fields["eta_seconds"] = round(max(total_rows - rows_written, 0) / rate) if rate else None
         return fields
 
+    last_checkpoint_at: float | None = None
+
+    async def maybe_checkpoint() -> None:
+        """Persist resumable progress, at most once per `checkpoint_interval_seconds`.
+
+        Called after a commit lands, so the recorded row count is always backed by data actually in
+        temp. Failing to checkpoint must not fail the rewrite: the attempt is still making progress,
+        and the next one simply resumes from further back.
+        """
+        nonlocal last_checkpoint_at
+        if save_checkpoint is None:
+            return
+        now = time.monotonic()
+        if last_checkpoint_at is not None and now - last_checkpoint_at < checkpoint_interval_seconds:
+            return
+        last_checkpoint_at = now
+        try:
+            await save_checkpoint(rows_written, resolved or target)
+        except RepartitionSupersededError:
+            raise
+        except Exception:
+            await logger.awarning("repartition: could not save rewrite checkpoint", exc_info=True)
+
     async def flush() -> None:
         """Write the buffered batches as one Delta commit, then report progress."""
         nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits
@@ -771,6 +842,8 @@ async def _rewrite_into_temp(
         )
         rows_written += combined.num_rows
         commits += 1
+        report_buffer_bytes(0)
+        await maybe_checkpoint()
         fields = progress()
         await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
@@ -858,13 +931,15 @@ async def _rewrite_into_temp(
         # buffer plus the batch in hand, which `REWRITE_BUFFER_MAX_BYTES` budgets for.
         table_bytes = table_payload_bytes(partitioned_table)
         if buffered and (
-            buffered_rows + partitioned_table.num_rows > batch_size
+            buffered_rows + partitioned_table.num_rows > REWRITE_BUFFER_MAX_ROWS
             or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
         ):
             await flush()
         buffered.append(partitioned_table)
         buffered_rows += partitioned_table.num_rows
         buffered_bytes += table_bytes
+        # Feeds the workload reporter bound by the repartition activity; no-op everywhere else.
+        report_buffer_bytes(buffered_bytes)
 
     await flush()
 
@@ -1041,12 +1116,36 @@ async def repartition_table_in_place(
             async with aget_s3_client(fresh_instance=True) as s3:
                 await _purge_stale_temp_tables(s3, live_uri)
 
+        async def save_checkpoint(rows_so_far: int, resolved_target: RepartitionTarget) -> None:
+            # Same payload as the deadline handler below, written on committed progress instead. The
+            # claim is re-checked under the row lock inside the write rather than before it: checking
+            # first would leave a window where a superseded worker still saves, and that save carries
+            # its whole stale `sync_type_config` — including its own `repartition_claim`, which would
+            # un-fence the zombie. A checkpoint skipped because we lost the claim is correct; the new
+            # claimant owns the rewrite now.
+            if claim_token is None:
+                return
+            checkpoint_version = await asyncio.to_thread(old_delta.version)
+            await asyncio.to_thread(
+                save_repartition_checkpoint_if_claimed,
+                schema,
+                claim_token=claim_token,
+                checkpoint={
+                    "temp_uri": temp_uri,
+                    "rows_written": rows_so_far,
+                    "target": resolved_target.to_dict(),
+                    "live_version": checkpoint_version,
+                    "held_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
         try:
             rows_written, resolved = await _rewrite_into_temp(
                 old_delta=old_delta,
                 temp_uri=temp_uri,
                 storage_options=storage_options,
                 target=rewrite_target,
+                save_checkpoint=save_checkpoint,
                 batch_size=batch_size,
                 logger=logger,
                 ensure_claim=ensure_claim,
@@ -1060,17 +1159,18 @@ async def repartition_table_in_place(
             # attempt. The classifier needs the distinction (see `_handle_budget_exceeded`).
             e.had_prior_checkpoint = rewrite_checkpoint is not None
             # Checkpoint the half-built temp so the next attempt resumes instead of re-streaming from
-            # row 0. Guard with a claim check first: a superseded zombie must not clobber the newer
-            # claimant's state (the check raises RepartitionSupersededError, which the caller handles
-            # by standing down without recording a failure). Only checkpoint real forward progress.
+            # row 0. Fenced on the claim inside the row lock, like the progress checkpoint above: a
+            # superseded zombie writing here would restore its own claim along with the whole config.
+            # Only checkpoint real forward progress.
             await ensure_claim()
             partial_rows = await _valid_delta_row_count(temp_uri, storage_options)
-            if partial_rows:
-                e.checkpoint_saved = True
+            if partial_rows and claim_token is not None:
                 live_version = await asyncio.to_thread(old_delta.version)
-                await asyncio.to_thread(
-                    schema.set_repartition_rewrite,
-                    {
+                e.checkpoint_saved = await asyncio.to_thread(
+                    save_repartition_checkpoint_if_claimed,
+                    schema,
+                    claim_token=claim_token,
+                    checkpoint={
                         "temp_uri": temp_uri,
                         "rows_written": partial_rows,
                         "target": (e.resolved or rewrite_target).to_dict(),

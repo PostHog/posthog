@@ -1,15 +1,24 @@
+import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useService } from "@posthog/di/react";
+import { Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   DISCORD_PRESENCE_CLIENT,
   type DiscordPresenceClient,
   type DiscordPresenceState,
 } from "@posthog/ui/features/discord-presence/identifiers";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { track } from "@posthog/ui/shell/analytics";
-import { Flex, Switch, Text } from "@radix-ui/themes";
+import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useEffect, useState } from "react";
 import { DiscordPresencePreview } from "./DiscordPresencePreview";
+
+const DISCORD_DOCS_URL =
+  "https://posthog.com/docs/libraries/discord?tab=Desktop";
 
 // Fallback used for optimistic toggle updates that fire before the initial
 // getState resolves, so the Switch reflects the change immediately instead of
@@ -78,72 +87,79 @@ export function DiscordSettings() {
     client.setShowRepoName(checked);
   };
 
+  const statusDescription = !enabled ? (
+    "Show what you're working on in PostHog on your profile"
+  ) : !configured ? (
+    <span className="text-(--amber-11)">
+      No Discord application is configured for this build, so nothing will
+      appear yet.
+    </span>
+  ) : connected ? (
+    <span className="text-(--green-11)">Connected to Discord</span>
+  ) : (
+    <span className="text-(--amber-11)">
+      Waiting for Discord (desktop app needs to be running)...
+    </span>
+  );
+
   return (
-    <Flex direction="column">
-      <SettingRow
-        label="Rich Presence"
-        description="Show what you're working on in PostHog on your profile"
-        noBorder
-      >
-        <Switch
-          checked={enabled}
-          onCheckedChange={handleEnabledChange}
-          size="1"
-        />
-      </SettingRow>
+    <div className="flex flex-col gap-7">
+      <SettingsCard>
+        <SettingsCardRow label="Rich Presence" description={statusDescription}>
+          <Switch
+            size="sm"
+            checked={enabled}
+            onCheckedChange={handleEnabledChange}
+          />
+        </SettingsCardRow>
+      </SettingsCard>
 
-      {enabled && (
-        <>
-          {!configured ? (
-            <Text color="yellow" className="-mt-3 pb-3 text-[13px]">
-              No Discord application is configured for this build, so nothing
-              will appear yet.
-            </Text>
-          ) : (
-            <Text
-              color={connected ? "green" : "amber"}
-              className="-mt-3 pb-3 text-[13px]"
+      {enabled ? (
+        <SettingsSection
+          label="Privacy"
+          description="What the Rich Presence card reveals about your session"
+        >
+          <SettingsCard>
+            <SettingsCardRow
+              label="Show task title"
+              description="Include the focused task's title"
             >
-              {connected
-                ? "Connected to Discord"
-                : "Waiting for Discord (desktop app needs to be running)..."}
-            </Text>
-          )}
-
-          <Text className="block border-gray-6 border-t pt-4 font-medium text-sm">
-            Privacy
-          </Text>
-
-          <SettingRow
-            label="Show task title"
-            description="Include the focused task's title"
-          >
-            <Switch
-              checked={state?.showTaskTitle ?? false}
-              onCheckedChange={handleShowTaskTitleChange}
-              size="1"
-            />
-          </SettingRow>
-
-          <SettingRow
-            label="Show repository name"
-            description="Include the repository (org/repo) you're working in"
-            noBorder
-          >
-            <Switch
-              checked={state?.showRepoName ?? false}
-              onCheckedChange={handleShowRepoNameChange}
-              size="1"
-            />
-          </SettingRow>
-        </>
-      )}
+              <Switch
+                size="sm"
+                checked={state?.showTaskTitle ?? false}
+                onCheckedChange={handleShowTaskTitleChange}
+              />
+            </SettingsCardRow>
+            <SettingsCardRow
+              label="Show repository name"
+              description="Include the repository (org/repo) you're working in"
+            >
+              <Switch
+                size="sm"
+                checked={state?.showRepoName ?? false}
+                onCheckedChange={handleShowRepoNameChange}
+              />
+            </SettingsCardRow>
+          </SettingsCard>
+        </SettingsSection>
+      ) : null}
 
       <DiscordPresencePreview
         enabled={enabled}
         showTaskTitle={state?.showTaskTitle ?? false}
         showRepoName={state?.showRepoName ?? false}
       />
-    </Flex>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => void openUrlInBrowser(DISCORD_DOCS_URL)}
+          className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-muted-foreground text-xs no-underline hover:text-foreground"
+        >
+          Learn about the Discord integration
+          <ArrowSquareOutIcon size={11} />
+        </button>
+      </div>
+    </div>
   );
 }

@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 from django_deprecate_fields import deprecate_field
@@ -20,6 +21,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
@@ -33,7 +35,12 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
-        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+        first_seen = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
+            .order_by("first_seen")
+            .values("first_seen")[:1]
+        )
+        return self.annotate(first_seen=models.Subquery(first_seen))
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):
@@ -125,6 +132,11 @@ class ErrorTrackingIssue(UUIDTModel):
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+            # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(
+                state_updated_at=timezone.now()
+            )
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
@@ -346,6 +358,15 @@ class ErrorTrackingRelease(UUIDTModel):
         db_table = "posthog_errortrackingrelease"
 
 
+def symbol_set_cleanup_bucket_expression() -> models.Func:
+    return models.Func(
+        models.Func(models.F("id"), function="uuid_send", output_field=models.BinaryField()),
+        models.Value(15),
+        function="get_byte",
+        output_field=models.IntegerField(),
+    )
+
+
 class ErrorTrackingSymbolSet(UUIDTModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -366,8 +387,10 @@ class ErrorTrackingSymbolSet(UUIDTModel):
     # with one
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
-    # When a symbol set is loaded, last_used is set, so we can track how often
-    # symbol sets are used, and cleanup ones not used for a long time
+    # Retention deletes a symbol set once last_used falls outside its window. Two paths write it:
+    # symbolication, when it loads the set, and a bulk upload, for every chunk id in the request.
+    # The upload must write it because event release mode derives chunk ids from content, so one
+    # row can serve many releases without symbolication ever touching it.
     last_used = models.DateTimeField(null=True, blank=True)
 
     def delete(self, *args, **kwargs):
@@ -386,10 +409,13 @@ class ErrorTrackingSymbolSet(UUIDTModel):
         # No (team_id, ref) index here on purpose: `unique_ref_per_team` below already
         # provides one on the same columns, so a second is pure write and storage cost.
         indexes = [
-            # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
-            # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
-            # then created_at range), so batch cleanup avoids a full PK-ordered scan.
-            models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
+            models.Index(
+                symbol_set_cleanup_bucket_expression(),
+                models.F("last_used"),
+                models.F("created_at"),
+                models.F("id"),
+                name="et_symset_bucket_cleanup_idx",
+            ),
         ]
 
         constraints = [
@@ -423,6 +449,20 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
         # constraints = [
         #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
         # ]
+
+
+class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)
+    severity = models.TextField(choices=ErrorTrackingIssue.Severity)
+    order_key = models.IntegerField(null=False, blank=False)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingseverityrule"
 
 
 # A custom grouping rule works as follows:
@@ -573,7 +613,11 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = []
+        indexes = [
+            # Recent-frames-per-team scans, such as the source maps recommendation. Without
+            # created_at in the index, a 24h window has to visit every frame the team ever stored.
+            models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
+        ]
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),

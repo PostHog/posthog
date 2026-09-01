@@ -655,13 +655,16 @@ class TestModalSandboxAgentServer:
             assert "POSTHOG_CODE_FAST_MODE" not in command
 
     @pytest.mark.parametrize(
-        "rtk_enabled, expected_env",
+        "toggles, expected_env",
         [
-            (True, "POSTHOG_RTK=1"),
-            (False, "POSTHOG_RTK=0"),
+            ({"rtk_enabled": True}, "POSTHOG_RTK=1"),
+            ({"rtk_enabled": False}, "POSTHOG_RTK=0"),
+            ({"benjamin_enabled": True}, "POSTHOG_BENJAMIN=1"),
+            ({"benjamin_enabled": False}, "POSTHOG_BENJAMIN=0"),
+            ({}, "POSTHOG_BENJAMIN=0"),
         ],
     )
-    def test_start_agent_server_rtk_env(self, mock_sandbox: Any, rtk_enabled, expected_env):
+    def test_start_agent_server_toggle_env(self, mock_sandbox: Any, toggles, expected_env):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
@@ -671,7 +674,7 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
-            rtk_enabled=rtk_enabled,
+            **toggles,
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
@@ -771,6 +774,7 @@ class TestModalSandboxAgentServer:
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=True),
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
         ):
@@ -785,6 +789,31 @@ class TestModalSandboxAgentServer:
         wait_for_ready.assert_called_once_with(["example.com"])
         mock_free.assert_not_called()
         mock_sandbox.execute.assert_not_called()
+
+    def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        with (
+            patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=False),
+            patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh,
+            patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
+            patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
+        ):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=["example.com"],
+            )
+
+        mock_free.assert_called_once_with()
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
+        wait_for_ready.assert_called_once_with(["example.com"])
+        assert "./node_modules/.bin/agent-server" in _agent_server_launch_command(mock_sandbox.execute)
 
     def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
         with (
@@ -1339,6 +1368,53 @@ class TestModalSandboxCreateImageFallback:
         assert sandbox.config.image_fallback is not None
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
 
+    def test_falling_back_to_the_base_image_drops_the_dev_stack_cpu_floor(self) -> None:
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            cpu_cores=8,
+            memory_gb=16,
+            burstable_resources=True,
+        )
+        bare_custom = MagicMock(name="bare_custom")
+        cpu_requests: list[Any] = []
+        original_create = MagicMock()
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            cpu_requests.append(kwargs["cpu"])
+            if kwargs["image"] is bare_custom:
+                raise RuntimeError("image build failed")
+            return original_create(**kwargs)
+
+        original_create.return_value.object_id = "sb-created"
+        original_create.return_value.exec.return_value.poll.return_value = 0
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+
+        assert cpu_requests == [(4.0, 8.0), (0.5, 8.0)]
+        assert sandbox.config.image_fallback is not None
+        assert sandbox.config.effective_cpu_request_cores == 0.5
+
     def test_snapshot_overlay_failure_falls_back_to_bare_snapshot(self):
         config = SandboxConfig(name="t", snapshot_external_id="im-snap-1")
         bare_snapshot = MagicMock(name="bare_snapshot")
@@ -1733,6 +1809,26 @@ class TestResourceCreateKwargs:
 
         # Reserve the explicitly requested floor, burst up to the configured limit.
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
+
+    @pytest.mark.parametrize(
+        "config_kwargs, expected_cpu",
+        [
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6}, (6.0, 8.0)),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
+                (4.0, 4.0),
+            ),
+            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0)),
+            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0)),
+        ],
+    )
+    def test_dev_stack_image_raises_the_cpu_request_floor(
+        self, config_kwargs: dict[str, Any], expected_cpu: tuple[float, float]
+    ) -> None:
+        config = SandboxConfig(name="t", memory_gb=16, burstable_resources=True, **{"cpu_cores": 8, **config_kwargs})
+
+        assert _resource_create_kwargs(config)["cpu"] == expected_cpu
 
     def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)

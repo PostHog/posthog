@@ -28,6 +28,7 @@ from products.customer_analytics.backend.logic.custom_property_values import (
     record_last_slack_message_at,
     set_account_custom_properties_by_id,
     set_custom_property_value,
+    set_synced_custom_property_value,
 )
 from products.customer_analytics.backend.models import (
     CANONICAL_LAST_SLACK_MESSAGE_AT,
@@ -70,6 +71,7 @@ class TestSetCustomPropertyValue(BaseTest):
     @parameterized.expand(
         [
             ("text", DisplayType.TEXT, "enterprise", "value_str", "enterprise"),
+            ("link", DisplayType.LINK, "https://example.com/customer", "value_str", "https://example.com/customer"),
             ("number_int", DisplayType.NUMBER, 12, "value_num", 12.0),
             ("number_decimal", DisplayType.NUMBER, 9.99, "value_num", 9.99),
             ("number_string", DisplayType.NUMBER, "42", "value_num", 42.0),
@@ -122,6 +124,8 @@ class TestSetCustomPropertyValue(BaseTest):
             ("datetime_from_unparseable", DisplayType.DATETIME, "not a date"),
             ("datetime_from_number", DisplayType.DATETIME, 123),
             ("text_from_list", DisplayType.TEXT, ["nope"]),
+            ("link_with_unsafe_scheme", DisplayType.LINK, "javascript:alert(1)"),
+            ("link_without_url", DisplayType.LINK, "example.com"),
         ]
     )
     def test_rejects_values_that_do_not_match_the_type(self, _name, display_type, value):
@@ -201,6 +205,38 @@ class TestSetCustomPropertyValue(BaseTest):
 
         first.refresh_from_db()
         assert first.is_deleted is True
+
+    def test_regular_same_value_still_adds_history(self):
+        definition = self._create_property_definition()
+
+        self._set(definition=definition, value="enterprise")
+        self._set(definition=definition, value="enterprise")
+
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=definition)
+            .count()
+            == 2
+        )
+
+    def test_synced_same_value_does_not_add_history(self):
+        definition = self._create_property_definition()
+        self._set(definition=definition, value="enterprise")
+
+        changed = set_synced_custom_property_value(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            definition=definition,
+            value="enterprise",
+        )
+
+        assert changed is False
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=definition)
+            .count()
+            == 1
+        )
 
     def test_list_active_returns_only_current_values(self):
         plan = self._create_property_definition(name="Plan")

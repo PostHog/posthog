@@ -86,12 +86,6 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -102,12 +96,6 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -118,12 +106,6 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsVerifyCreateBodyDomainMax = 128
@@ -134,12 +116,6 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const identityProviderConfigsCreateBodyNameMax = 255
@@ -160,6 +136,30 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
         .max(identityProviderConfigsCreateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsCreateBodySamlEntityIdMax)
@@ -211,6 +211,30 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .max(identityProviderConfigsUpdateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsUpdateBodySamlEntityIdMax)
@@ -262,6 +286,30 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         .max(identityProviderConfigsPartialUpdateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsPartialUpdateBodySamlEntityIdMax)
@@ -365,6 +413,54 @@ export const InvitesDelegateCreateBody = /* @__PURE__ */ zod.object({
         .max(invitesDelegateCreateBodyStepAtDelegationMax)
         .optional()
         .describe('Onboarding step key the delegator was on when delegating, for analytics only.'),
+})
+
+/**
+ * Lock or unlock notification settings for members of this organization. Each affected member is notified in the app.
+ */
+export const notificationLocksBulkUpdateCreateBodyChangesItemScopeIdDefault = ``
+export const notificationLocksBulkUpdateCreateBodyChangesMax = 2000
+
+export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    changes: zod
+        .array(
+            zod.object({
+                user_id: zod.number().describe('Member this rule applies to.'),
+                setting: zod
+                    .enum([
+                        'discussions_mentioned',
+                        'error_tracking_issue_assigned',
+                        'error_tracking_weekly_digest_project_enabled',
+                        'materialized_view_sync_failed',
+                        'materialized_view_sync_failed_daily',
+                        'materialized_view_sync_failed_immediate',
+                        'organization_member_join_email_disabled',
+                        'pipeline_notifications_disabled',
+                        'project_weekly_digest_disabled',
+                        'web_analytics_weekly_digest_project_enabled',
+                    ])
+                    .describe(
+                        '\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                    )
+                    .describe(
+                        'Notification setting to lock or unlock.\n\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                    ),
+                scope_id: zod
+                    .string()
+                    .default(notificationLocksBulkUpdateCreateBodyChangesItemScopeIdDefault)
+                    .describe(
+                        'Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch.'
+                    ),
+                locked_value: zod
+                    .boolean()
+                    .nullable()
+                    .describe(
+                        'Value to enforce, or null to remove the rule and give the member their own setting back.'
+                    ),
+            })
+        )
+        .max(notificationLocksBulkUpdateCreateBodyChangesMax)
+        .describe('Only the entries you changed. Anything left out keeps whatever it had.'),
 })
 
 /**
@@ -1959,90 +2055,18 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const usersVerifyEmailCreateBodyFirstNameMax = 150
-
-export const usersVerifyEmailCreateBodyLastNameMax = 150
-
-export const usersVerifyEmailCreateBodyEmailMax = 254
-
-export const usersVerifyEmailCreateBodyPasswordMax = 128
-
-export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
-    first_name: zod.string().max(usersVerifyEmailCreateBodyFirstNameMax).optional(),
-    last_name: zod.string().max(usersVerifyEmailCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersVerifyEmailCreateBodyEmailMax),
-    notification_settings: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project\/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.'
-        ),
-    anonymize_data: zod
-        .boolean()
-        .nullish()
-        .describe('Whether PostHog should anonymize events captured for this user when identified.'),
-    allow_impersonation: zod.boolean().nullish(),
-    toolbar_mode: zod
-        .union([
-            zod.enum(['disabled', 'toolbar']).describe('\* `disabled` - disabled\n\* `toolbar` - toolbar'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
-    set_current_organization: zod.string().optional(),
-    set_current_team: zod.string().optional(),
-    password: zod.string().max(usersVerifyEmailCreateBodyPasswordMax),
-    current_password: zod
-        .string()
-        .optional()
-        .describe(
-            "The user's current password. Required when changing `password` if the user already has a usable password set."
-        ),
-    events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().optional(),
-    theme_mode: zod
-        .union([
-            zod
-                .enum(['light', 'dark', 'system'])
-                .describe('\* `light` - Light\n\* `dark` - Dark\n\* `system` - System'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    hedgehog_config: zod.unknown().optional(),
-    allow_sidebar_suggestions: zod.boolean().nullish(),
-    shortcut_position: zod
-        .union([
-            zod
-                .enum(['above', 'below', 'hidden'])
-                .describe('\* `above` - Above\n\* `below` - Below\n\* `hidden` - Hidden'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
-        .optional()
-        .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
-        ),
-    passkeys_enabled_for_2fa: zod
-        .boolean()
-        .nullish()
-        .describe(
-            'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
-        ),
-    hide_mcp_hints: zod
-        .boolean()
-        .optional()
-        .describe(
-            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
-        ),
-    ui_configuration: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
-        ),
-})
+export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
+    .object({
+        uuid: zod.string().describe('UUID of the user whose email is being verified.'),
+        token: zod
+            .string()
+            .optional()
+            .describe('Verification token from the emailed link. Required unless a code is provided.'),
+        code: zod
+            .string()
+            .optional()
+            .describe(
+                'The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
+            ),
+    })
+    .describe('Request body for POST \/api\/users\/verify_email\/. Exactly one of token or code is required.')

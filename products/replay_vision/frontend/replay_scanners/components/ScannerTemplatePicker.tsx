@@ -21,6 +21,7 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates } from '../scannerTemplates'
 import { scannerTypeOutputHint } from '../types'
+import { scannerStartSearchParams } from './scannerStartParams'
 
 const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     warning: <IconWarning />,
@@ -30,18 +31,7 @@ const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     check: <IconCheckCircle />,
 }
 
-export function TemplateCard({
-    template,
-    gateStart,
-}: {
-    template: ScannerTemplate | 'blank'
-    /**
-     * The picker page sits behind a consent-gated entry button, but cards rendered elsewhere (the
-     * scanner list empty state) are the entry point themselves. When set, clicks hand the start
-     * flow to this gate so it can interpose the AI consent popover before any draft is touched.
-     */
-    gateStart?: (proceed: () => void) => void
-}): JSX.Element {
+export function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
     const isBlank = template === 'blank'
     const { searchParams } = useValues(router)
     const { scannerDraftSavedAt } = useValues(replayScannerLogic({ id: 'new' }))
@@ -49,28 +39,22 @@ export function TemplateCard({
     const start = (): void => {
         const templateKey = isBlank ? null : template.key
         replayScannerLogic({ id: 'new' }).actions.startFromTemplate(templateKey)
-        const params = isBlank ? searchParams : { ...searchParams, template: template.key }
-        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), params).url)
+        router.actions.push(
+            combineUrl(urls.replayVisionScannerDetails('new'), scannerStartSearchParams(searchParams, templateKey)).url
+        )
     }
 
     const handleClick = (): void => {
-        const proceed = (): void => {
-            if (scannerDraftSavedAt === null) {
-                start()
-                return
-            }
-            LemonDialog.open({
-                title: 'Start over and lose your draft?',
-                description: 'The scanner you have in progress will be replaced by this template.',
-                primaryButton: { children: 'Start over', status: 'danger', onClick: start },
-                secondaryButton: { children: 'Keep my draft' },
-            })
+        if (scannerDraftSavedAt === null) {
+            start()
+            return
         }
-        if (gateStart) {
-            gateStart(proceed)
-        } else {
-            proceed()
-        }
+        LemonDialog.open({
+            title: 'Start over and lose your draft?',
+            description: 'The scanner you have in progress will be replaced by this template.',
+            primaryButton: { children: 'Start over', status: 'danger', onClick: start },
+            secondaryButton: { children: 'Keep my draft' },
+        })
     }
 
     return (

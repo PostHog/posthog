@@ -62,12 +62,15 @@ in a local dev environment.
 Some migrations are cloud-guarded and skipped in local/hobby dev:
 
 ```python
-operations = (
-    []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
-    else [...]
-)
+from posthog.run_mode import run_mode
+
+operations = [...] if run_mode().is_deployed_cloud else []
 ```
+
+Spell the gate with `posthog.run_mode`, never a raw `settings.CLOUD_DEPLOYMENT` comparison.
+A semgrep rule blocks the latter. Resolve the mode inside the call rather than into a
+module-level constant, so `test_migrations.py` can re-import the module under a patched
+`posthog.settings.CLOUD_DEPLOYMENT`.
 
 If you create a new table inside such a guard, also add its SQL function to
 `posthog/clickhouse/schema.py` in the appropriate tuple so the table is created locally:

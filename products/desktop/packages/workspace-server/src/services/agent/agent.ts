@@ -16,10 +16,17 @@ import {
   detectRtkBinary,
   isMcpToolReadOnly,
   isNotification,
+  POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
+import {
+  type CodexLoginSession,
+  hasCodexChatgptLogin,
+  signOutCodexChatgpt,
+  startCodexChatgptLogin,
+} from "@posthog/agent/adapters/codex-app-server/subscription-login";
 import {
   getContextWindowOptions,
   getFastModeOptions,
@@ -31,6 +38,7 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -68,14 +76,15 @@ import {
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
+  type CodexModelAccess,
   type ExecutionMode,
   isAuthError,
-  type McpServerConnection,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
+import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
@@ -86,7 +95,12 @@ import type { ProcessTrackingService } from "../process-tracking/process-trackin
 import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
-import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import {
+  cleanupCodexHome,
+  getCodexHomeDir,
+  prepareCodexHome,
+} from "./codex-home";
+import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
   AGENT_AUTH_ADAPTER,
@@ -105,14 +119,18 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type CodexSubscriptionStatus,
   type Credentials,
   type EffortLevel,
   type InterruptReason,
   type PromptOutput,
   type ReconnectSessionInput,
   type RtkStatus,
+  type SessionContextChange,
   type SessionResponse,
+  type SideQuestionOutput,
   type StartSessionInput,
+  sideQuestionOutput,
 } from "./schemas";
 
 export type { InterruptReason };
@@ -268,6 +286,7 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
+  codexModelAccess?: CodexModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -301,14 +320,24 @@ interface SessionConfig {
   bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
-/** Pull the adapter's `agentCapabilities._meta.posthog.steering` from initialize. */
-function extractSteeringCapability(init: unknown): string | undefined {
-  const steering = (
+/** Pull the adapter's negotiated `agentCapabilities._meta.posthog` capabilities from initialize. */
+function extractPosthogCapabilities(init: unknown): {
+  steering?: string;
+  sideQuestion?: boolean;
+} {
+  const posthog = (
     init as {
-      agentCapabilities?: { _meta?: { posthog?: { steering?: unknown } } };
+      agentCapabilities?: { _meta?: { posthog?: Record<string, unknown> } };
     }
-  )?.agentCapabilities?._meta?.posthog?.steering;
-  return typeof steering === "string" ? steering : undefined;
+  )?.agentCapabilities?._meta?.posthog;
+  return {
+    steering:
+      typeof posthog?.steering === "string" ? posthog.steering : undefined,
+    sideQuestion:
+      typeof posthog?.sideQuestion === "boolean"
+        ? posthog.sideQuestion
+        : undefined,
+  };
 }
 
 /** A streaming turn emits many events a second; warn once a minute, not per event. */
@@ -330,8 +359,12 @@ interface ManagedSession {
   configOptions?: SessionConfigOption[];
   /** Adapter's negotiated steering capability from initialize (`_meta.posthog.steering`). */
   steering?: string;
+  /** Adapter's negotiated side-question capability from initialize (`_meta.posthog.sideQuestion`). */
+  sideQuestion?: boolean;
   /** Tracks in-flight MCP tool calls (toolCallId → toolKey) for cancellation */
   inFlightMcpToolCalls: Map<string, string>;
+  /** Count of "/btw" side questions awaiting a response, so the idle timer does not reap the session mid-answer. */
+  pendingSideQuestions: number;
   /** MCP tool approval states fetched at session start */
   mcpToolApprovals: McpToolApprovals;
   /** Maps tool keys to their installation for backend approval updates */
@@ -488,6 +521,59 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return this.bundledResources.resolve(`.vite/build/codex-acp/${binary}`);
   }
 
+  private codexLogin?: CodexLoginSession;
+  private codexAuthGeneration = 0;
+
+  async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
+    if (this.codexLogin) return { appLoggedIn: false };
+    return {
+      appLoggedIn: await hasCodexChatgptLogin({
+        binaryPath: this.getCodexBinaryPath(),
+      }),
+    };
+  }
+
+  async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
+    await this.prepareCodexAccountChange();
+    const login = await startCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    this.codexLogin = login;
+    void login.completed.then((loggedIn) => {
+      if (this.codexLogin === login) this.codexLogin = undefined;
+      this.log.info("Codex subscription login finished", { loggedIn });
+    });
+    return { authUrl: login.authUrl };
+  }
+
+  async signOutCodexSubscription(): Promise<void> {
+    await this.prepareCodexAccountChange();
+    await signOutCodexChatgpt({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+  }
+
+  private async prepareCodexAccountChange(): Promise<void> {
+    this.codexAuthGeneration += 1;
+    const currentLogin = this.codexLogin;
+    this.codexLogin = undefined;
+    await Promise.all([
+      currentLogin?.cancel(),
+      this.stopCodexSubscriptionSessions(),
+    ]);
+  }
+
+  private async stopCodexSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) => session.config.codexModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
+  }
+
   /**
    * Respond to a pending permission request from the UI.
    * This resolves the promise that the agent is waiting on.
@@ -588,7 +674,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private killIdleSession(taskRunId: string): void {
     const session = this.sessions.get(taskRunId);
     if (!session) return;
-    if (session.promptPending || session.inFlightMcpToolCalls.size > 0) {
+    if (
+      session.promptPending ||
+      session.inFlightMcpToolCalls.size > 0 ||
+      session.pendingSideQuestions > 0
+    ) {
       this.recordActivity(taskRunId);
       return;
     }
@@ -616,9 +706,48 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
+  /**
+   * Local mirror of the cloud sandbox wiki mount: clone the org's context wiki
+   * and return it as an explicit per-session value the harness adapters set on
+   * their own subprocess env — never via shared process.env, where concurrent
+   * session starts would race and could leak one session's publish token into
+   * another. Best-effort — sessions start without a wiki on any failure. The
+   * token doubles as POSTHOG_PERSONAL_API_KEY so the wiki's pinned
+   * scripts/publish can land edits locally.
+   */
+  private async mountContextWiki(
+    credentials: Credentials,
+  ): Promise<AgentTypes.ContextWikiEnv | null> {
+    const authToken = await this.agentAuthAdapter.gatewayAuthToken();
+    if (!authToken) {
+      return null;
+    }
+    const mount = await prepareContextWiki({
+      apiHost: credentials.apiHost,
+      projectId: credentials.projectId,
+      authenticatedFetch: (input, init) =>
+        this.agentAuthAdapter.authenticatedFetch(input, init),
+      cacheDir: join(this.storagePaths.appDataPath, "context-wiki"),
+      log: this.log,
+    });
+    if (!mount) {
+      return null;
+    }
+    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
+    // just re-synced it, so it is absent for impersonated sessions (an
+    // impersonation credential must never reach agent subprocesses) and fresh
+    // after any token rotation or account switch.
+    return {
+      path: mount.path,
+      commitsPath: mount.commitsPath,
+      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+    };
+  }
+
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
+    cwd: string,
     customInstructions?: string,
     additionalDirectories?: string[],
     systemPromptOverride?: string,
@@ -626,84 +755,35 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
-    // A constrained surface (e.g. the canvas generator) supplies its own prompt
-    // and does NOT want the default coding/attribution guidance.
+    // Overrides replace task guidance, but product engineering and rich-output rules stay available.
     if (systemPromptOverride) {
-      return { append: systemPromptOverride };
+      return {
+        append: appendRichOutputPrompt(
+          prependProductEngineerPrompt(systemPromptOverride),
+        ),
+      };
     }
 
-    let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
+    const prompt = buildTaskSystemPrompt(
+      {
+        projectId: credentials.projectId,
+        apiHost: credentials.apiHost,
+        taskId,
+        cwd,
+        environment: "local",
+        customInstructions,
+        additionalDirectories,
+        channelMode,
+      },
+      {
+        structuredInput: true,
+        repositoryTools: true,
+      },
+    );
 
-    prompt += `
-
-## Attribution
-Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
-
-Instead, add the following trailers to EVERY commit message (after a blank line at the end):
-  Generated-By: PostHog Desktop
-  Task-Id: ${taskId}
-
-Example:
-\`\`\`
-git commit -m "$(cat <<'EOF'
-fix: resolve login redirect loop
-
-Generated-By: PostHog Desktop
-Task-Id: ${taskId}
-EOF
-)"
-\`\`\`
-
-When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
-
-When creating pull requests, add the following footer at the end of the PR description:
-\`\`\`
----
-*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
-\`\`\`
-
-When you mention a pull request in any reply or summary, always hyperlink it to its full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers can open it directly.
-
-## Questions
-When you need an answer from the user before you can continue, use the structured user-input tool available in your current mode. Never end a turn with a blocking question in a normal assistant message because plain-text questions mark the task as finished instead of waiting for the user's response.
-
-## Shell efficiency
-Optimize for the fewest shell round trips.
-- Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
-- Emit all independent tool calls in the same response.
-- Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.
-
-## Rich output in replies
-${RICH_OUTPUT_TAGS_PROMPT}`;
-
-    if (channelMode) {
-      prompt += `
-
-## Channel task (no repository attached)
-You are running in a PostHog channel as a general-purpose assistant. This task may not need a code repository. It could be data analysis via PostHog tools, drafting a message, or answering a question. Do not assume you need a repo.
-
-- Your working directory is a scratch directory, not a git checkout. Treat it as empty.
-- Decide from the user's request and the channel CONTEXT.md, if present, whether the task requires a code repository. If it doesn't, do the work in the scratch directory.
-- Do not \`cd\` into or edit an existing checkout elsewhere on the machine. Another task may be using it.
-
-If a repository is required, call \`list_repos\` to find it, then use \`clone_repo\` with its \`owner/repo\`. The tool creates a task-specific clone inside the scratch directory and returns the path to use. If you cannot confidently identify the repository, ask the user which repository to clone.`;
-    }
-
-    if (customInstructions) {
-      prompt += `\n\nUser custom instructions:\n${customInstructions}`;
-    }
-
-    if (additionalDirectories?.length) {
-      const escapeXml = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const dirs = additionalDirectories
-        .map((d) => `  <directory>${escapeXml(d)}</directory>`)
-        .join("\n");
-      prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
-    }
-
-    return { append: prompt };
+    return {
+      append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
+    };
   }
 
   async startSession(params: StartSessionInput): Promise<SessionResponse> {
@@ -823,12 +903,17 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
     );
-    await this.agentAuthAdapter.configureProcessEnv({
-      credentials,
-      proxyUrl,
-      claudeCliPath: this.getClaudeCliPath(),
-      rtkEnabled: config.rtkEnabled,
-    });
+    // The wiki mount only needs the auth adapter, so it runs alongside the
+    // env configuration instead of serializing another round-trip before it.
+    const [, contextWiki] = await Promise.all([
+      this.agentAuthAdapter.configureProcessEnv({
+        credentials,
+        proxyUrl,
+        claudeCliPath: this.getClaudeCliPath(),
+        rtkEnabled: config.rtkEnabled,
+      }),
+      this.mountContextWiki(credentials),
+    ]);
 
     const isPreview = taskId === "__preview__";
 
@@ -849,6 +934,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const systemPrompt = this.buildSystemPrompt(
         credentials,
         taskId,
+        repoPath,
         customInstructions,
         additionalDirectories,
         systemPromptOverride,
@@ -859,28 +945,30 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         this.posthogPluginService.getPluginPath(),
         "skills",
       );
+      const codexSubscription =
+        adapter === "codex" && config.codexModelAccess === "own-subscription";
+      const codexAuthGeneration = this.codexAuthGeneration;
 
       let codexHome: string | undefined;
       if (adapter === "codex") {
-        try {
+        if (codexSubscription) {
+          codexHome = getCodexHomeDir(this.storagePaths.appDataPath, taskRunId);
+          await fs.promises.mkdir(codexHome, { recursive: true });
+        } else {
           codexHome = await prepareCodexHome({
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
             bundledSkillsDir,
             log: this.log,
           });
-        } catch (err) {
-          // A skills-prep failure must not kill the session; Codex falls back
-          // to its default home and the user's own ~/.agents/skills.
-          this.log.warn("Failed to prepare codex home", {
-            error: err instanceof Error ? err.message : String(err),
-          });
         }
       }
 
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
+        codexModelAccess: codexSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
+        contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
         codexHome,
@@ -943,10 +1031,11 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         },
       });
       // The adapter advertises whether mid-turn steering folds natively into the
-      // running turn (`steering: "native"`) vs needs cancel+resend. Surface it so
-      // the host gates steer-vs-resend on the negotiated capability, not on a
-      // hardcoded adapter name (codex-acp advertises "interrupt-resend").
-      const steering = extractSteeringCapability(initResult);
+      // running turn (`steering: "native"`) vs needs cancel+resend, and whether
+      // it can answer one-shot "/btw" side questions. Surface both so the host
+      // gates on the negotiated capabilities, not on a hardcoded adapter name
+      // (codex-acp advertises "interrupt-resend").
+      const { steering, sideQuestion } = extractPosthogCapabilities(initResult);
 
       const {
         servers: mcpServers,
@@ -963,16 +1052,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           headers: Object.fromEntries(s.headers.map((h) => [h.name, h.value])),
         })),
       );
-
-      // codex-acp connects to every MCP server eagerly during session creation
-      // and treats an unreachable one as fatal, which kills the session
-      // ("ACP connection closed") and makes the host silently fall back to a
-      // Claude/Opus session. Claude connects lazily and is unaffected, so only
-      // the Codex server list is pruned to the reachable ones.
-      const sessionMcpServers =
-        adapter === "codex"
-          ? await this.filterReachableMcpServers(mcpServers, taskRunId)
-          : mcpServers;
 
       let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
         [];
@@ -1025,7 +1104,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           const loadResponse = await connection.loadSession({
             sessionId: importedSessionId,
             cwd: repoPath,
-            mcpServers: sessionMcpServers,
+            mcpServers,
             _meta: {
               ...(logUrl && {
                 persistence: { taskId, runId: taskRunId, logUrl },
@@ -1113,7 +1192,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         const resumeResponse = await connection.resumeSession({
           sessionId: existingSessionId,
           cwd: repoPath,
-          mcpServers: sessionMcpServers,
+          mcpServers,
           _meta: {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
@@ -1151,7 +1230,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         }
         const newSessionResponse = await connection.newSession({
           cwd: repoPath,
-          mcpServers: sessionMcpServers,
+          mcpServers,
           _meta: {
             taskRunId,
             environment: "local",
@@ -1193,7 +1272,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         promptPending: false,
         configOptions,
         steering,
+        sideQuestion,
         inFlightMcpToolCalls: new Map(),
+        pendingSideQuestions: 0,
         mcpToolApprovals: toolApprovals,
         toolInstallations,
         evaluatedPrUrls: new Set(),
@@ -1202,6 +1283,13 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       };
 
       this.sessions.set(taskRunId, session);
+      if (
+        codexSubscription &&
+        codexAuthGeneration !== this.codexAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Codex account changed during task setup.");
+      }
       this.recordActivity(taskRunId);
 
       if (isRetry) {
@@ -1313,78 +1401,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     return `You are resuming a previous conversation after the native session could not be restored. Here is the conversation history from the previous session:\n\n${history}\n\nContinue from where you left off when responding to the user's next message.`;
   }
 
-  private async filterReachableMcpServers<T extends McpServerConnection>(
-    servers: T[],
-    taskRunId: string,
-  ): Promise<T[]> {
-    const probed = await Promise.all(
-      servers.map(async (server) => ({
-        server,
-        reachable: await this.isMcpServerReachable(server),
-      })),
-    );
-    const reachable: T[] = [];
-    for (const { server, reachable: ok } of probed) {
-      if (ok) {
-        reachable.push(server);
-      } else {
-        this.log.warn(
-          "Dropping unreachable MCP server from Codex session; codex-acp treats an unreachable server as a fatal startup error",
-          { taskRunId, server: server.name, url: server.url },
-        );
-      }
-    }
-    return reachable;
-  }
-
-  private async isMcpServerReachable(
-    server: Pick<McpServerConnection, "url" | "headers">,
-  ): Promise<boolean> {
-    const PROBE_TIMEOUT_MS = 2_000;
-    try {
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-      };
-      for (const header of server.headers) {
-        headers[header.name] = header.value;
-      }
-      const response = await fetch(server.url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 0,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-06-18",
-            capabilities: {},
-            clientInfo: { name: "posthog-code", version: "1.0.0" },
-          },
-        }),
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      });
-      // Release the body without draining it. A cancel rejection (e.g. an
-      // already-disturbed stream) is a cleanup detail, not a reachability
-      // signal, so it must not flip the result to unreachable.
-      try {
-        await response.body?.cancel();
-      } catch {
-        // ignore body cleanup failures
-      }
-      // Any HTTP response means the endpoint is reachable. codex-acp only treats
-      // transport failures (connection refused, DNS, timeout) as fatal; HTTP or
-      // JSON-RPC error responses are handled gracefully.
-      return true;
-    } catch (err) {
-      this.log.debug("MCP server reachability probe failed", {
-        url: server.url,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return false;
-    }
-  }
-
   async prompt(
     sessionId: string,
     prompt: ContentBlock[],
@@ -1456,6 +1472,42 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       if (!this.hasActiveSessions()) {
         this.emit(AgentServiceEvent.SessionsIdle, undefined);
       }
+    }
+  }
+
+  /**
+   * Answers a one-shot "/btw" side question via the adapter's SIDE_QUESTION
+   * extension method. Never touches promptPending and never becomes part of
+   * the conversation; it does count as activity (resets the idle-kill timer),
+   * the same way refreshSession does. The exchange runs beside the
+   * conversation (ACP JSON-RPC multiplexes, so this works mid-turn).
+   *
+   * `pendingSideQuestions` keeps the session alive if the idle timer fires
+   * while the extension call is still awaited — otherwise `killIdleSession`
+   * would see no pending prompt and no in-flight tool call and clean up the
+   * session out from under this request.
+   */
+  async sideQuestion(
+    sessionId: string,
+    question: string,
+  ): Promise<SideQuestionOutput> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    session.lastActivityAt = Date.now();
+    this.recordActivity(sessionId);
+    session.pendingSideQuestions++;
+
+    try {
+      const result = await session.clientSideConnection.extMethod(
+        POSTHOG_METHODS.SIDE_QUESTION,
+        { sessionId: getAgentSessionId(session), question },
+      );
+      return sideQuestionOutput.parse(result);
+    } finally {
+      session.pendingSideQuestions--;
     }
   }
 
@@ -1673,7 +1725,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
    */
   async notifySessionContext(
     sessionId: string,
-    context: import("./schemas.js").SessionContextChange,
+    context: SessionContextChange,
   ): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -1707,9 +1759,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     });
   }
 
-  private buildContextMessage(
-    context: import("./schemas.js").SessionContextChange,
-  ): string {
+  private buildContextMessage(context: SessionContextChange): string {
     if (context.isDetached) {
       return `Your worktree is now on detached HEAD while the user edits in their main repo. The branch is \`${context.branchName}\`.
 
@@ -1723,6 +1773,8 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
+    await this.codexLogin?.cancel();
+    this.codexLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());
@@ -2184,6 +2236,8 @@ For git operations while detached:
       logUrl: "logUrl" in params ? params.logUrl : undefined,
       sessionId: "sessionId" in params ? params.sessionId : undefined,
       adapter: "adapter" in params ? params.adapter : undefined,
+      codexModelAccess:
+        "codexModelAccess" in params ? params.codexModelAccess : undefined,
       permissionMode:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:
@@ -2220,6 +2274,7 @@ For git operations while detached:
       channel: session.channel,
       configOptions: session.configOptions,
       steering: session.steering,
+      sideQuestion: session.sideQuestion,
     };
   }
 

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -29,6 +31,12 @@ EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 SIGNAL_DOCUMENT_PRODUCT = "signals"
 SIGNAL_DOCUMENT_TYPE = "signal"
 SIGNAL_DOCUMENT_RENDERING = "plain"
+
+
+def _signals_query_context(team: Team) -> HogQLContext:
+    # These internal queries only use the static document_embeddings table. Supplying that catalog
+    # avoids loading every team-specific warehouse table before each synchronous inbox query.
+    return HogQLContext(team=team, database=Database(), restricted_properties=set())
 
 
 def _deduped_signals_subquery(
@@ -188,6 +196,7 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
         team=team,
+        context=_signals_query_context(team),
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),

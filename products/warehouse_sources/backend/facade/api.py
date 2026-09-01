@@ -43,12 +43,14 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable a
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
     clickhouse_columns_to_dwh_columns,
+    get_view_or_table_by_name as _get_view_or_table_by_name,
     motherduck_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
     snowflake_columns_to_dwh_columns,
+    trino_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
@@ -64,14 +66,17 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
+    "resolve_object_by_name",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
+    "trino_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
@@ -301,6 +306,19 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
     return [_to_schema(s) for s in qs]
 
 
+def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableSourceLocation]:
+    """Where each of these tables is administered. One query, and tables with no schema are absent."""
+    if not table_ids:
+        return {}
+    rows = _ExternalDataSchema.objects.filter(
+        team_id=team_id, table_id__in=list(table_ids), source_id__isnull=False
+    ).values_list("table_id", "source_id", "id")
+    return {
+        table_id: contracts.TableSourceLocation(source_id=source_id, schema_id=schema_id)
+        for table_id, source_id, schema_id in rows
+    }
+
+
 def get_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable:
     return _to_table(_DataWarehouseTable.objects.get(id=table_id, team_id=team_id))
 
@@ -315,6 +333,39 @@ def get_queryable_table(table_id: UUID, team_id: int) -> contracts.DataWarehouse
     # raw_objects skips the eager schema prefetch/joins objects does -- the mapper only reads scalars.
     table = _DataWarehouseTable.raw_objects.queryable().filter(id=table_id, team_id=team_id).first()
     return _to_table(table) if table is not None else None
+
+
+def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObjectRef | None:
+    """The warehouse table or saved query a query reaches under this name, else None.
+
+    Resolves the dotted source forms (``stripe.charges``) the same way a query does, and skips
+    soft-deleted rows and orphans of a deleted source. None means the name reaches neither, so it
+    carries no object-level access control -- a PostHog table such as ``events``, or nothing at all.
+
+    For a caller recording what a query read: the identity survives the name being freed and taken
+    by something else, which is what makes it usable as evidence later.
+    """
+    resolved = _get_view_or_table_by_name(team_id, name)
+    if resolved is None:
+        return None
+    kind = (
+        contracts.WAREHOUSE_OBJECT_TABLE
+        if isinstance(resolved, _DataWarehouseTable)
+        else contracts.WAREHOUSE_OBJECT_VIEW
+    )
+    return contracts.WarehouseObjectRef(kind=kind, id=resolved.id)
+
+
+def queryable_table_names(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, str]:
+    """The current name of each table that is still queryable. One query; anything gone is absent.
+
+    The bulk form of ``get_queryable_table`` for a caller that only needs names, so authorizing a
+    page of stored table references costs one query rather than one per reference.
+    """
+    if not table_ids:
+        return {}
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id__in=list(table_ids))
+    return dict(rows.values_list("id", "name"))
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:

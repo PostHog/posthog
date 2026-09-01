@@ -1,5 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
+import json
 from datetime import timedelta
 
 import structlog
@@ -78,6 +79,7 @@ PRODUCTS_APPS = [
     "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.billing_alerts.backend.apps.BillingAlertsConfig",
+    "products.context_layer.backend.apps.ContextLayerAppConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
@@ -96,6 +98,7 @@ PRODUCTS_APPS = [
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
+    "products.autoresearch.backend.apps.AutoresearchConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
     "products.wizard.backend.apps.WizardConfig",
     "products.exports.backend.apps.ExportsConfig",
@@ -246,7 +249,11 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "loginas.context_processors.impersonated_session_status",
                 "posthog.helpers.impersonation.impersonation_context",
-            ]
+            ],
+            "builtins": [
+                "posthog.templatetags.posthog_assets",
+                "posthog.templatetags.posthog_filters",
+            ],
         },
     }
 ]
@@ -356,13 +363,8 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
-# Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
-# Off by default: it must stay off until the launch fill-rate/failure alert is in place. Also the
-# de facto per-region toggle, since it is the only region-specific control — dispatch itself is
-# open to both US and EU (see get_instance_region gate in signup_enrichment/trigger.py), so a
-# region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
-# this only gates whether the workflow is dispatched at all.
-GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# GROWTH_SIGNUP_ENRICHMENT_ENABLED and GROWTH_ICP_REENRICH_DAILY_CAP are instance settings
+# (dynamic_settings.py): the env var seeds the default, the DB row is the value every pod reads.
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -441,21 +443,21 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+
+# WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
+if TEST:
+    _staticfiles_storage_backend = "django.contrib.staticfiles.storage.StaticFilesStorage"
+elif get_from_env("STATIC_PRECOMPRESS", True, type_cast=str_to_bool):
+    _staticfiles_storage_backend = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+else:
+    _staticfiles_storage_backend = "whitenoise.storage.ManifestStaticFilesStorage"
+
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        # CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
-        # already a dependency) so WhiteNoise serves compressed bytes from disk and
-        # the envoy edge — which otherwise gzips static per request (Contour's
-        # default compression filter) — skips recompression since Content-Encoding
-        # is already set. Same Manifest base class: hashed names unchanged.
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if TEST
-            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
-        ),
+        "BACKEND": _staticfiles_storage_backend,
     },
 }
 # Never emit .map.gz/.map.br: the production image deletes *.map after the
@@ -520,6 +522,10 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    "SERVERS": [
+        {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
+        {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
+    ],
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
@@ -574,6 +580,8 @@ SPECTACULAR_SETTINGS = {
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
+        # `source_product` names the same choice set on several signals components, so pin one name.
+        "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
@@ -591,6 +599,11 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
+        # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
+        # no longer identifies one choice set. Keyed to the name the generator already produced
+        # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
+        "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
@@ -616,6 +629,8 @@ SPECTACULAR_SETTINGS = {
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
         "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+        # Shared by ChangeRequest.state and ChangeRequestSummary.state (same choice set).
+        "ChangeRequestStateEnum": "products.approvals.backend.models.ChangeRequestState",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
@@ -685,7 +700,14 @@ SPECTACULAR_SETTINGS = {
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
+        "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
+        "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `mode` is a generic field name; name the Redshift batch-export mode set explicitly.
+        "RedshiftExportModeEnum": ["INSERT", "COPY"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
@@ -760,11 +782,17 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
+        # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
+        # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
+        # changes the hash, so this warning comes back rather than drifting silently.
+        "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
         # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
         # schedule/github/api choice set — pin them to a single named enum.
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
+            "link",
             "number",
             "currency",
             "percent",
@@ -887,6 +915,7 @@ SPECTACULAR_SETTINGS = {
         "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
         # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
@@ -906,6 +935,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
@@ -925,12 +964,6 @@ SPECTACULAR_SETTINGS = {
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
-        # effective_restriction_level and effective_privilege_level are SerializerMethodFields
-        # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
-        # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
-        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
-        # effective_membership_level and level on OrganizationMember use the same int values.
-        "EffectiveMembershipLevelEnum": [(1, 1), (8, 8), (15, 15)],
         # descriptionContentType and thankYouMessageDescriptionContentType share values.
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name
@@ -1073,6 +1106,13 @@ LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOK
 LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
+# Firecrawl (outbound page scraping, see posthog/egress/firecrawl/)
+FIRECRAWL_API_KEY = get_from_env("FIRECRAWL_API_KEY", "")
+# Operator ceilings on credit spend rather than Firecrawl's own limits, which the process can't see.
+FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_BUDGET", 60, type_cast=int)
+FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
+
+####
 # Feature flag billing analytics
 # Used to track feature flag requests for billing purposes.
 # Named "decide" for historical reasons: the /decide endpoint was the original
@@ -1133,6 +1173,12 @@ API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "202
 # Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
 QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
 
+# Persons list SLO sampling rate. That endpoint runs its ActorsQuery through `calculate()`,
+# not `run()`, so it emits no query-service SLO events at all. It is lower volume than the
+# query service and its slow tail is the point of the measurement, so it samples ten times
+# higher. Same weighting rule: divide counts by `properties.sample_rate`.
+PERSONS_LIST_SLO_SAMPLE_RATE = get_from_env("PERSONS_LIST_SLO_SAMPLE_RATE", 1.0 if TEST else 0.1, type_cast=float)
+
 ####
 # Livestream
 
@@ -1172,14 +1218,104 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
-HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 50000))
+HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
-HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 100000))
+HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
-# Empty by default — everyone gets the 50k tier. Opt-in via env override for teams needing 100k.
+# Empty by default — everyone gets the 500k tier. Opt-in via env override for teams needing 1M.
 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
     int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", ""))
 }
+
+# Trust-tiered per-team caps on workflow email ("team warming"). All workflow email shares one SES
+# account, so the complaint rate that account is judged on pools every team's sends. A team starts
+# at tier 0 and earns the next tier by sending cleanly over time, which bounds how much damage an
+# unproven team can do and keeps its early volume small enough that complaint feedback (which lags
+# by hours) arrives while total volume is still low.
+# The three lists are indexed by tier and must all be the same length. The top tier matches
+# HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED so a fully graduated team is no more limited than it was
+# before tiers existed. Adjacent tiers stay roughly 3x apart: published warmup ramps (SendGrid,
+# Mailgun, Oracle) grow 25-50% per step and warn against jumps above 2x, and a promotion is an
+# overnight allowance jump, so a 3x step with the utilization bar below approximates that ramp
+# while keeping the tier count small enough to reason about. Two deliberate exceptions at the
+# bottom: tier 0 is a 100/day probation tier for completely unproven domains (SendGrid trials
+# start at 100/day, Customer.io at 200), and its hourly cap is half the daily cap rather than the
+# usual fifth so a first real send does not crawl at 20 an hour. The 10x step off tier 0 is fine
+# at that absolute volume.
+WORKFLOWS_EMAIL_TIER_HOURLY_CAPS: list[int] = [
+    int(cap)
+    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_HOURLY_CAPS", "50,200,600,2000,6000,20000,60000,200000"))
+]
+WORKFLOWS_EMAIL_TIER_DAILY_CAPS: list[int] = [
+    int(cap)
+    for cap in get_list(
+        get_from_env("WORKFLOWS_EMAIL_TIER_DAILY_CAPS", "100,1000,3000,10000,30000,100000,300000,1000000")
+    )
+]
+WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS: list[int] = [
+    int(cap)
+    for cap in get_list(
+        get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "100,1000,3000,10000,30000,100000,300000,1000000")
+    )
+]
+
+# Promotion bar. A team must sit at its tier for this long, actually use the tier, and keep its
+# rates under the thresholds below before it moves up one step. Indexed by the tier the team is
+# promoted from, clamped to the last entry, so the dwell grows with the volume at stake and a full
+# climb takes the 4-6 weeks the industry treats as a complete warmup.
+WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER: list[int] = [
+    int(days) for days in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER", "3,3,3,5,5,7,7,7"))
+]
+# Trailing window the complaint and bounce rates are measured over for promotion. 30 days is how
+# the industry quotes these thresholds, and it matches the reputation surface in the workflows UI.
+WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS", 30))
+# Demotion reads a shorter window than promotion, so one incident stops demoting once it ages out
+# of the short window instead of holding the team down for the full promotion window.
+WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS", 7))
+# After a rate-based demotion, further rate-based demotions wait this long. Without it the daily
+# sweep re-reads the same dirty window every run and one incident cascades a team to the bottom.
+# Keep this at least as long as the demotion window: at that length the incident that caused the
+# last demotion has aged out of the window by the time demotions resume, so a second demotion can
+# only come from new evidence.
+WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS", 7))
+# A team above the lowest tier that sends nothing for this long drops one tier per period. Mailbox
+# providers keep about 30 days of reputation history, so a long-dormant allowance is unearned and a
+# comeback blast from a stale list is exactly what the caps exist to prevent. 0 disables decay.
+# The sweep tests inactivity as zero sends over WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS, not over this
+# value, so keep the two equal. A larger value decays teams that still sent inside the rate window,
+# and a smaller one waits for the rate window to clear before it decays.
+WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS", 30))
+WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE", 0.001))
+WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE", 0.02))
+# Rates are meaningless on tiny denominators: at the 0.1% complaint threshold one complaint per
+# 1,000 sends IS the line, so judging a window with fewer sends turns a single complaint into a
+# demotion. Below the floor a metric only counts through the absolute backstop next to it.
+WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS", 1000))
+WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP = int(get_from_env("WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP", 3))
+WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS", 200))
+# A team that has sent nothing has proven nothing, so promotion also needs real use of the current
+# tier: this many separate days on which the team sent at least this fraction of its daily cap.
+WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
+WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO = float(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO", 0.5))
+# app_metrics2 metric names that count as a per-workflow auto-pause for the tier decision. Empty
+# means the signal contributes nothing, so the decision rests on rates and staff suspensions.
+WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(
+    get_from_env("WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES", "")
+)
+
+# Rollout mode, shared by the batch audience cap and the send-time cap:
+#   "off"     - tiers are computed and stored, nothing reads them. Pre-tier behavior everywhere.
+#   "shadow"  - tiers are computed and stored, and every send that a cap would have delayed is
+#               logged, but no send is delayed and no audience is rejected.
+#   "enforce" - caps apply.
+# The email worker has its own copy of these two, EMAIL_TEAM_SENDING_CAP_MODE and
+# EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER in nodejs/src/cdp/config.ts, because it never reads
+# Django settings. Set both sides together: this pair drives the batch audience cap and what the
+# workflows UI shows, and the worker's pair drives the send-time cap.
+WORKFLOWS_EMAIL_TIER_MODE = get_from_env("WORKFLOWS_EMAIL_TIER_MODE", "off")
+# Narrows enforcement to teams created on or after this date (ISO 8601, e.g. "2026-01-01"), so the
+# caps can be turned on for new projects without touching established ones. Empty means all teams.
+WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER = get_from_env("WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER", "")
 
 # Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
 # "*" for all, empty to disable feature
@@ -1287,6 +1423,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "product_tour:read",
     "product_tour:write",
     "heatmap:read",
+    "heatmap:write",
     "element:read",
     "uploaded_media:write",
     "survey:read",
@@ -1306,6 +1443,35 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 # secret for routing LLM calls through the gateway. Unset = direct to the provider.
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+
+# Projected into gateway_credential.json: a JSON team_id -> tier map
+# ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
+# Parsed defensively rather than with type_cast=json.loads: that runs at settings
+# import, so a malformed value takes every process down at boot, while the
+# consumer is written to degrade to no overrides.
+try:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = json.loads(get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", "{}"))
+except ValueError:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
+
+# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
+# (404), which the CLI treats as "stay on the legacy gateway".
+WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
+# OAuth application client ids allowed to mint: llm_gateway:read is an internal
+# scope on every sandbox and agent token, so the scope alone does not identify the
+# wizard. Empty refuses every mint, and blanks are filtered because a list of
+# empty strings is truthy and would read as configured.
+WIZARD_GATEWAY_CLIENT_IDS = [
+    client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
+]
+WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
+# Wizard programs that may mint, each getting its own pinned product node and so
+# its own per-program budget and mint quota. The list is authoritative: a program
+# absent here is refused, not folded into a generic node, so listing a new program
+# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
+WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
+WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

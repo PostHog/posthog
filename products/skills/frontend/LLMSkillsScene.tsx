@@ -14,9 +14,10 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +34,7 @@ import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.sch
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
@@ -56,6 +57,7 @@ function buildSkillColumns(
     duplicateSkill: (name: string, newName: string) => void,
     deleteSkill: (name: string) => void,
     downloadSkillZip: (name: string) => void,
+    publishToCommunity: (skill: LLMSkillListApi) => void,
     options?: { showScoutOrigin?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
@@ -101,14 +103,35 @@ function buildSkillColumns(
             },
         },
         {
-            title: 'Latest author',
+            title: 'Owners',
+            key: 'owners',
+            width: 140,
+            render: function renderOwners(_, skill) {
+                if (!skill.owners.length) {
+                    return <span className="text-muted-alt text-sm">No owner</span>
+                }
+                return (
+                    <ProfileBubbles
+                        people={skill.owners.map((owner) => ({
+                            email: owner.email,
+                            name: fullName(owner) || owner.email,
+                        }))}
+                        limit={4}
+                    />
+                )
+            },
+        },
+        {
+            // Plain text, not a second avatar column: this is whoever published the latest version,
+            // which is a weaker signal than ownership and reads as ownership when given a face.
+            title: 'Last published by',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
                 return (
-                    <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by as any} size="md" showName />}
-                    </div>
+                    <span className="text-muted text-sm">
+                        {created_by ? fullName(created_by) || created_by.email : <i>-</i>}
+                    </span>
                 )
             },
         },
@@ -178,6 +201,19 @@ function buildSkillColumns(
                                         fullWidth
                                     >
                                         Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmSkill}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => publishToCommunity(skill)}
+                                        data-attr="llma-skill-dropdown-publish-community"
+                                        fullWidth
+                                    >
+                                        Publish to community
                                     </LemonButton>
                                 </AccessControlAction>
 
@@ -421,8 +457,15 @@ function ConnectToClaudeCodeModal(): JSX.Element {
 }
 
 export function LLMSkillsScene(): JSX.Element {
-    const { setFilters, deleteSkill, duplicateSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
-        useActions(llmSkillsLogic)
+    const {
+        setFilters,
+        deleteSkill,
+        duplicateSkill,
+        downloadSkillZip,
+        importSkill,
+        setConnectModalOpen,
+        publishToCommunity,
+    } = useActions(llmSkillsLogic)
     const {
         skills,
         skillsLoading,
@@ -435,6 +478,7 @@ export function LLMSkillsScene(): JSX.Element {
         activeTabKey,
         activeCategory,
         activeTabDescription,
+        githubLogin,
     } = useValues(llmSkillsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
@@ -446,12 +490,19 @@ export function LLMSkillsScene(): JSX.Element {
     // Discovery CTA: when a project has no skills of its own yet, point first-timers at the community catalog.
     const showCommunityDiscovery = communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search
 
+    const openPublishDialog = (skill: LLMSkillListApi): void => {
+        openPublishToCommunityDialog({ skillName: skill.name, githubLogin, onPublish: publishToCommunity })
+    }
+
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
+        () =>
+            buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, openPublishDialog, {
+                showScoutOrigin,
+            }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, publishToCommunity, githubLogin, showScoutOrigin]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
@@ -507,6 +558,15 @@ export function LLMSkillsScene(): JSX.Element {
                     />
                     <div className="text-muted-alt">{skillCountLabel}</div>
                     <div className="flex-1" />
+                    <span>
+                        <b>Owned by</b>
+                    </span>
+                    <MemberSelect
+                        defaultLabel="Any user"
+                        value={filters.owner_id ?? null}
+                        size="xsmall"
+                        onChange={(user) => setFilters({ owner_id: user?.id, page: 1 })}
+                    />
                     <span>
                         <b>Created by</b>
                     </span>

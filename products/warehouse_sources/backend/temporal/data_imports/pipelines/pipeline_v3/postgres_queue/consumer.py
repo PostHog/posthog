@@ -21,7 +21,9 @@ import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.db_errors import is_transient_db_error
 
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -82,9 +84,11 @@ STRANDED_RUN_ERROR = (
     "The next scheduled sync retries automatically. No action is needed."
 )
 
-# Errors that fail identically on every attempt. Substring-matched because they
-# surface as generic exceptions; keep entries specific so transients can't match.
-NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+
+# Permanent failures the customer can fix. These stop the schedule as well as the run: the loader
+# fails outside the workflow, so the finalization activity that would otherwise disable the schema
+# never runs, and every later run replays the same failure.
+DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     # delta-rs decimal precision overflow — the batch's data cannot fit the column
     "is too large to store in a Decimal128",
     # schema configured as incremental without a primary key — config error
@@ -92,6 +96,14 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+)
+
+# Errors that fail identically on every attempt. Substring-matched because they
+# surface as generic exceptions; keep entries specific so transients can't match.
+# The disable set above, plus the permanent failures that must not stop the schedule: a deleted row
+# has nothing left to disable, and a full object store is an infrastructure fix, not a sync setting.
+NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+    *DISABLE_SCHEMA_ERROR_PATTERNS,
     # the schema or job row was deleted mid-sync — no retry can bring it back
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
@@ -240,8 +252,29 @@ class DeltaBatchConsumerAdapter:
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
-            logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
-            capture_exception(e)
+            if is_transient_db_error(e):
+                logger.warning(
+                    "fail_run_job_status_update_app_db_not_ready",
+                    job_id=batch.job_id,
+                    run_uuid=batch.run_uuid,
+                    error=str(e),
+                )
+            else:
+                logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
+                capture_exception(e)
+
+        if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
+            try:
+                await sync_to_async(_disable_schema_after_permanent_failure)(
+                    schema_id=batch.schema_id,
+                    team_id=batch.team_id,
+                    reason=reason,
+                )
+            except Exception as e:
+                # The run is already failed and the message recorded; a failed disable only means
+                # the next run retries, so log it rather than crashing the consumer.
+                logger.exception("fail_run_disable_schema_failed", schema_id=batch.schema_id, run_uuid=batch.run_uuid)
+                capture_exception(e)
 
         workflow_run_id = batch.metadata.get("workflow_run_id")
         if workflow_run_id:
@@ -383,8 +416,16 @@ class DeltaBatchConsumerAdapter:
                     error=ref.reason or "run failed (reconciled from queue)",
                 )
             except Exception as e:
-                logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
-                capture_exception(e)
+                if is_transient_db_error(e):
+                    logger.warning(
+                        "reconcile_job_status_update_app_db_not_ready",
+                        job_id=ref.job_id,
+                        run_uuid=ref.run_uuid,
+                        error=str(e),
+                    )
+                else:
+                    logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                    capture_exception(e)
                 reconciled = False
 
             if reconciled:
@@ -426,6 +467,14 @@ class DeltaBatchConsumerAdapter:
         # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
         try:
             await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
+        except psycopg.OperationalError as e:
+            if conn.closed:
+                # A transient connection drop (network blip, server-side cull, pgbouncer bounce)
+                # leaves the connection closed. The engine reconnects on the next cycle.
+                logger.warning("stranded_run_reconcile_sweep_closed_connection", error=str(e))
+            else:
+                logger.exception("stranded_run_reconcile_sweep_failed")
+                capture_exception(e)
         except Exception as e:
             logger.exception("stranded_run_reconcile_sweep_failed")
             capture_exception(e)
@@ -475,8 +524,16 @@ class DeltaBatchConsumerAdapter:
                     error=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                logger.exception("stranded_run_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
-                capture_exception(e)
+                if is_transient_db_error(e):
+                    logger.warning(
+                        "stranded_run_job_status_update_app_db_not_ready",
+                        job_id=ref.job_id,
+                        run_uuid=ref.run_uuid,
+                        error=str(e),
+                    )
+                else:
+                    logger.exception("stranded_run_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                    capture_exception(e)
                 reconciled = False
 
             # Count only fully terminalized runs: on a failed job write the failed-run
@@ -558,8 +615,13 @@ class DeltaBatchConsumerAdapter:
             job_dead = await self._is_job_dead(batch)
         except Exception as e:
             # Fail open: an app-DB hiccup must never wedge the loader.
-            logger.exception("job_status_check_failed", batch_id=batch.id, job_id=batch.job_id)
-            capture_exception(e)
+            if is_transient_db_error(e):
+                logger.warning(
+                    "job_status_check_app_db_not_ready", batch_id=batch.id, job_id=batch.job_id, error=str(e)
+                )
+            else:
+                logger.exception("job_status_check_failed", batch_id=batch.id, job_id=batch.job_id)
+                capture_exception(e)
             return True
 
         if not job_dead:
@@ -699,6 +761,24 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
         # The job row itself was deleted between the check above and this write (e.g. its
         # source/schema was removed mid-sync) — nothing left to mark failed.
         pass
+
+
+def _disable_schema_after_permanent_failure(*, schema_id: str, team_id: int, reason: str) -> bool:
+    """Stop a schema whose load failed permanently. Returns whether it flipped.
+
+    Reads ``should_sync`` first so a run whose batches fail one after another pauses the Temporal
+    schedule once instead of per batch, and so a schema deleted mid-run is skipped rather than
+    raising out of ``update_should_sync``'s ``get``.
+    """
+    close_old_connections()
+
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).only("id", "should_sync").first()
+    if schema is None or not schema.should_sync:
+        return False
+
+    update_should_sync(schema_id=schema_id, team_id=team_id, should_sync=False, disable_error_message=reason)
+    logger.warning("fail_run_disabled_schema", schema_id=schema_id, reason=reason)
+    return True
 
 
 def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:

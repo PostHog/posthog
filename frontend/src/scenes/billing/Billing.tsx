@@ -59,6 +59,7 @@ export function Billing(): JSX.Element {
         showCreditCTAHero,
         showBillingHero,
         minimumBillingAccessLevel,
+        canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
@@ -76,10 +77,14 @@ export function Billing(): JSX.Element {
 
     useEffect(() => {
         if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
-            router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
+            // View-only members can't see the Overview tab, so land them on Usage instead
+            router.actions.replace(
+                urls.organizationBillingSection(canOnlyViewUsageAndSpend ? 'usage' : 'overview'),
+                searchParams
+            )
             return
         }
-    }, [featureFlags, location.pathname, searchParams])
+    }, [featureFlags, location.pathname, searchParams, canOnlyViewUsageAndSpend])
 
     useEffect(() => {
         if (billing) {

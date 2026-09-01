@@ -42,7 +42,7 @@ class _RecordingBackend:
 
     def __init__(self):
         self.files: dict[str, bytes | str] = {}
-        self.long_runs: list[str] = []
+        self.long_runs: dict[str, str] = {}
         self.attached = False
         self.health_waited = False
 
@@ -60,7 +60,7 @@ class _RecordingBackend:
         self.files[remote_path] = content
 
     def run_long(self, script, *, name, timeout: int = 1800, interval: int = 3) -> ExecResult:
-        self.long_runs.append(name)
+        self.long_runs[name] = script
         return ExecResult(0, "", "")
 
     def wait_http_ok(self, url_path, *, expect=200, timeout=600, interval=3) -> None:
@@ -103,7 +103,8 @@ class SwapFrontendOnlyTest(unittest.TestCase):
         self.assertIn(f"SECRET_KEY={_EXISTING_KEY}", override)
 
         # Ran the swap (collectstatic) then recreated web, then waited for health.
-        self.assertEqual(backend.long_runs, ["frontend", "up-web"])
+        self.assertEqual(list(backend.long_runs), ["frontend", "up-web"])
+        self.assertIn("STATIC_PRECOMPRESS=0", backend.long_runs["frontend"])
         self.assertTrue(backend.health_waited)
         self.assertEqual(url, backend.web_url)
 

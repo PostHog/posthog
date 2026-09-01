@@ -3,14 +3,20 @@ import type {
   ExtensionFactory,
   InlineExtension,
 } from "@earendil-works/pi-coding-agent";
+import {
+  HARNESS_EXTENSION_ENTRYPOINTS,
+  type HarnessExtensionName,
+} from "./entrypoints";
 import type { HogBrandingOptions } from "./hog-branding/extension";
 import { createHogBrandingExtension } from "./hog-branding/extension";
 import type { McpConfig } from "./mcp/config";
 import { createMcpExtension } from "./mcp/extension";
+import { createOrchestrationExtension } from "./orchestration/extension";
 import type { PosthogMcpPolicyOptions } from "./posthog-mcp-policy/extension";
 import { createPosthogMcpPolicyExtension } from "./posthog-mcp-policy/extension";
 import { createPosthogProviderExtension } from "./posthog-provider/extension";
 import type { PosthogProviderOptions } from "./posthog-provider/provider";
+import { createProductEngineerExtension } from "./product-engineer/extension";
 import { createWebAccessExtension } from "./web-access/extension";
 
 export type HarnessExtensionOptions = PosthogProviderOptions &
@@ -20,13 +26,15 @@ export type HarnessExtensionOptions = PosthogProviderOptions &
   };
 
 interface HarnessExtension {
-  name: string;
+  name: HarnessExtensionName;
   create: (options: HarnessExtensionOptions) => ExtensionFactory;
 }
 
 const EXTENSIONS: HarnessExtension[] = [
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
+  { name: "product-engineer", create: () => createProductEngineerExtension() },
+  { name: "orchestration", create: () => createOrchestrationExtension() },
   { name: "web-access", create: createWebAccessExtension },
   {
     name: "mcp",
@@ -52,8 +60,10 @@ export function harnessExtensionFiles(
   options: HarnessExtensionFilesOptions = {},
 ): string[] {
   const exclude = new Set(options.exclude ?? []);
-  return HARNESS_EXTENSION_NAMES.filter((name) => !exclude.has(name)).map(
-    (name) => fileURLToPath(new URL(`./${name}/index.js`, import.meta.url)),
+  return EXTENSIONS.filter(({ name }) => !exclude.has(name)).map(({ name }) =>
+    fileURLToPath(
+      new URL(`./${HARNESS_EXTENSION_ENTRYPOINTS[name]}.js`, import.meta.url),
+    ),
   );
 }
 

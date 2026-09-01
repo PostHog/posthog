@@ -26,12 +26,36 @@ class TestIsUnconditionallyFullyRolledOut(SimpleTestCase):
                 False,
             ),
             (
-                "multiple_groups",
+                "multiple_blanket_groups",
                 _flag(
                     {
                         "groups": [
                             {"properties": [], "rollout_percentage": 100},
                             {"properties": [], "rollout_percentage": 100},
+                        ]
+                    }
+                ),
+                True,
+            ),
+            (
+                "targeted_group_plus_blanket_group",
+                _flag(
+                    {
+                        "groups": [
+                            {"properties": [{"key": "email"}], "rollout_percentage": 100},
+                            {"properties": [], "rollout_percentage": 100},
+                        ]
+                    }
+                ),
+                True,
+            ),
+            (
+                "targeted_group_plus_partial_blanket_group",
+                _flag(
+                    {
+                        "groups": [
+                            {"properties": [{"key": "email"}], "rollout_percentage": 100},
+                            {"properties": [], "rollout_percentage": 50},
                         ]
                     }
                 ),

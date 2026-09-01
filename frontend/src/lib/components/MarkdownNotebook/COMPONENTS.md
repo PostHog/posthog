@@ -84,6 +84,11 @@ A `title` equal to the component's own label (e.g. code blocks default `title` t
 `EditComponent` is optional; if omitted, the component only has a view panel.
 Call `updateProps(partialProps)` from either component to update persisted markdown props.
 
+`ToolbarComponent` is optional and renders in the block's top row, in view mode as well as edit mode.
+The shell mounts it outside both panels, so it stays live while the block is collapsed and while the edit panel is closed.
+Use it for a control a reader needs with no editor on screen — a code cell's Run button is one.
+It receives `node`, the notebook's `notebookMode`, and `updateProps`.
+
 `exclusiveEditPanel` hides the view panel while the edit panel is open.
 Use it for expensive or stateful components that should not mount twice.
 
@@ -271,7 +276,7 @@ Generated charts and freeform widgets should use an isolated renderer based on t
 ## Reserved tags
 
 Do not reuse the tags of the default registry (`registry.tsx`): `Query`, `Image`, `Divider`, `Embed`, `Latex`, `Python`, `DuckSQL`, `HogQLSQL`, `RecordingPlaylist`, `FeatureFlag`, `Experiment`, `Survey`, `Person`, `Group`, `Cohort`, `Map`.
-The internal AI tag `Prompt` is also reserved (registered by the notebooks scene).
+The internal AI tag `Prompt` is also reserved (registered by the notebooks scene). Its `keepQuestion` boolean prop keeps the submitted question, with the submitting user's name, directly above the generated answer.
 `Image` and `Divider` are special: they serialize back to plain markdown (`![alt](src)` and `---`) rather than component-tag syntax.
 `Comment` is special too: its authorial-note flavor (`text` prop) serializes as a markdown `<!-- … -->` comment, while its discussion flavor (`ref` + `replies` props, a Google Docs-style thread anchored to an inline `<ref id="…">` highlight) serializes as a regular `<Comment … />` tag.
 The lowercase inline tags `<ref>` and `<mention>` are part of the inline grammar, not components — component tags must start with an uppercase letter.
