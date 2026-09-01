@@ -606,8 +606,9 @@ function TableCard({
                 )}
             </div>
             {table.method === 'POST' && (
-                <LemonField.Pure label="Request body (JSON)">
+                <LemonField.Pure label="Request body (JSON)" htmlFor={`custom-source-request-body-${index}`}>
                     <LemonTextArea
+                        id={`custom-source-request-body-${index}`}
                         placeholder='{"query": "search term"}'
                         value={table.request_body}
                         onChange={(value) => onUpdate({ request_body: value })}
@@ -616,11 +617,16 @@ function TableCard({
                         Sent as the JSON request body on every request to this endpoint. Use it for search or query APIs
                         that take their parameters in the body. Leave blank for none.
                     </p>
-                    {bodyInvalid && (
-                        <p className="m-0 mt-1 text-xs text-danger">
-                            Enter a valid JSON object. The body is left off until it parses.
-                        </p>
-                    )}
+                    {/* Persistently mounted so a screen reader announces the error as it appears — the
+                        name/path warnings above use the same region for the same reason. empty:hidden
+                        keeps it from adding spacing while the body is valid. */}
+                    <div aria-live="polite" className="empty:hidden">
+                        {bodyInvalid && (
+                            <p className="m-0 mt-1 text-xs text-danger">
+                                Enter a valid JSON object. The body is left off until it parses.
+                            </p>
+                        )}
+                    </div>
                 </LemonField.Pure>
             )}
             <LemonField.Pure label="Records JSONPath">
