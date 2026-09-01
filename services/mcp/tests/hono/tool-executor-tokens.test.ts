@@ -30,6 +30,8 @@ import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { estimateTokens } from '@/lib/estimate-tokens'
 
+import { toolFromPreBuilt } from '../shared/test-utils'
+
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
@@ -242,16 +244,9 @@ describe('ToolExecutor token estimates', () => {
         it('attributes the canonical event to the inner tool via the standard $mcp_tool_name', async () => {
             // Full catalog tools (real names, so the instructions builder resolves them),
             // with the target handler stubbed to keep dispatch offline + deterministic.
-            const tools = catalog.getPreBuiltEntries().map((entry) => {
-                const preBuilt = catalog.getToolByName(entry.name)!
-                return {
-                    ...preBuilt.build(),
-                    title: entry.title,
-                    description: entry.description ?? '',
-                    annotations: entry.annotations,
-                    scopes: [],
-                }
-            })
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
             const target = tools.find((t) => t.name === 'docs-search')! as any
             target.handler = vi.fn(async () => 'inner-ok')
             const state = makeState(tools as any, { useSingleExec: true })

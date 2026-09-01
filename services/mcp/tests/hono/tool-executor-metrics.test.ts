@@ -51,6 +51,8 @@ import {
     wrapError,
 } from '@/lib/errors'
 
+import { toolFromPreBuilt } from '../shared/test-utils'
+
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
 /** Extra-properties bag passed to the 5th arg of `trackToolCall` for a given tool. */
@@ -467,16 +469,9 @@ describe('ToolExecutor metrics', () => {
             // Mirror getFilteredTools: full tool objects with real schemas and
             // handlers, so exec's inner dispatch (schema validation, handler
             // call) behaves as in production.
-            const tools = catalog.getPreBuiltEntries().map((entry) => {
-                const preBuilt = catalog.getToolByName(entry.name)!
-                return {
-                    ...preBuilt.build(),
-                    title: entry.title,
-                    description: entry.description ?? '',
-                    annotations: entry.annotations,
-                    scopes: [],
-                }
-            })
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
             return makeState(tools as any, { useSingleExec: true })
         }
 
@@ -699,16 +694,9 @@ describe('ToolExecutor metrics', () => {
             })
 
             it('records the skill in direct tools mode too', async () => {
-                const tools = catalog.getPreBuiltEntries().map((entry) => {
-                    const preBuilt = catalog.getToolByName(entry.name)!
-                    return {
-                        ...preBuilt.build(),
-                        title: entry.title,
-                        description: entry.description ?? '',
-                        annotations: entry.annotations,
-                        scopes: [],
-                    }
-                })
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
 
                 await executor.handleToolCall(
                     { name: 'skill-get', arguments: { skill_name: 'conductor' } },
