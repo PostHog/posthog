@@ -367,7 +367,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
 
-        if reset_pipeline is not True:
+        # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
+        # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
+        # extraction has to re-pull every row to match that overwrite. Keeping the incremental cursor
+        # would extract only the rows after the stored watermark and collapse the table to that slice.
+        delta_rebuild_pending = schema.delta_revive_required is not None
+        if delta_rebuild_pending:
+            await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
+
+        if reset_pipeline is not True and not delta_rebuild_pending:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),

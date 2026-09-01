@@ -43,6 +43,27 @@ use super::{FullColumnsReason, GlobalRoot, Projection, ReadPath, UnanalyzableRea
 /// that projects an `elements_chain` read must carry it too.
 const ELEMENTS_CHAIN_PROPERTY: &str = "$elements_chain";
 
+/// Natives whose result depends on how a JSON number was spelled, rather than on its value.
+///
+/// A caller acting on [`Projection::Reads`] supplies the claimed paths through its own storage, and
+/// the seeder supplies them by having ClickHouse rebuild the blob from the kept keys. That rebuild
+/// re-prints every number it copies, so a whole-number float token arrives as an integer one:
+/// `{"n": 100.0}` becomes `{"n": 100}`, which the VM loads as `Num::Integer(100)` where live
+/// evaluation loads `Num::Float(100.0)`.
+///
+/// Most of the VM cannot see that. Equality unifies the two variants, arithmetic and ordering widen
+/// a mixed pair to `f64`, and the printer renders `Float(100.0)` and `Integer(100)` as the same
+/// text. The exceptions are the natives below, each of which branches on `Num::is_float` in a way
+/// that reaches its result: `typeof` answers `"float"` or `"integer"`, and `jsonStringify` keeps the
+/// decimal point only for the float variant. A condition calling either would seed a membership its
+/// live evaluation disagrees with, so the whole condition takes every column instead.
+///
+/// One residual is accepted rather than covered. `print_hog_value` renders an object carrying an
+/// `__hx_ast` key back to SQL, and that printer does distinguish the variants, so `toString` of a
+/// property whose value is shaped like a HogQL AST node is sensitive too. That needs a customer
+/// blob built to look like compiler output, which no filter the product writes can produce.
+const REPRESENTATION_SENSITIVE_NATIVES: [&str; 2] = ["typeof", "jsonStringify"];
+
 /// A ceiling on transfer steps one program may take, so a program the lattice argument does not
 /// cover cannot hang the caller. The fixpoint is reached far sooner: a merge point's stack can only
 /// move upward, one cell at a time, so the work is quadratic in the program length at worst and
@@ -196,7 +217,7 @@ pub(super) fn project(bytecode: &[Value], budget: &mut AnalysisBudget) -> Projec
     match outcome {
         Ok(reads) => Projection::Reads(reads),
         Err(Stop::Unanalyzable(reason)) => full_columns(reason),
-        Err(Stop::BareRoot(reason)) => Projection::FullColumns(reason),
+        Err(Stop::Unnarrowable(reason)) => Projection::FullColumns(reason),
     }
 }
 
@@ -204,11 +225,11 @@ fn full_columns(reason: UnanalyzableReason) -> Projection {
     Projection::FullColumns(FullColumnsReason::Unanalyzable(reason))
 }
 
-/// Why the interpreter stopped early. A bare root is an ordinary program the analysis understood
-/// and cannot narrow; everything else is the fail-closed arm.
+/// Why the interpreter stopped early. [`Stop::Unnarrowable`] is an ordinary program the analysis
+/// understood and cannot narrow; everything else is the fail-closed arm.
 enum Stop {
     Unanalyzable(UnanalyzableReason),
-    BareRoot(FullColumnsReason),
+    Unnarrowable(FullColumnsReason),
 }
 
 /// What an instruction does to control flow, after its own stack effect has been applied. Both
@@ -433,9 +454,18 @@ impl<'a> Interpreter<'a> {
             }
             InstrKind::Number(_) => push_opaque(stack),
             InstrKind::Counted(op, count) => self.counted(*op, *count, stack),
-            // Any callee name is projection-safe. A native consumes stack values and cannot reach
-            // the globals dict, which is what keeps `toDateTime(timestamp) > x` projectable.
-            InstrKind::CallGlobal { argc, .. } => reduce(stack, *argc),
+            // A native consumes stack values and cannot reach the globals dict, so it never widens
+            // the read set — which is what keeps `toDateTime(timestamp) > x` projectable. The
+            // exception is a native that reads a value's *spelling* rather than its value; see
+            // [`REPRESENTATION_SENSITIVE_NATIVES`].
+            InstrKind::CallGlobal { name, argc } => {
+                if REPRESENTATION_SENSITIVE_NATIVES.contains(&name.as_str()) {
+                    return Err(Stop::Unnarrowable(
+                        FullColumnsReason::RepresentationSensitiveCall,
+                    ));
+                }
+                reduce(stack, *argc)
+            }
             InstrKind::Bare(op) => self.bare(*op, stack),
             InstrKind::Branch { op, target } => branch(*op, *target, stack),
             // A callable or closure introduces a frame the model has no notion of, and `TRY`
@@ -583,10 +613,10 @@ impl<'a> Interpreter<'a> {
         if segments.is_empty() {
             match root {
                 GlobalRoot::Properties => {
-                    return Err(Stop::BareRoot(FullColumnsReason::BarePropertiesRoot))
+                    return Err(Stop::Unnarrowable(FullColumnsReason::BarePropertiesRoot))
                 }
                 GlobalRoot::Person | GlobalRoot::Pdi => {
-                    return Err(Stop::BareRoot(FullColumnsReason::BarePersonRoot))
+                    return Err(Stop::Unnarrowable(FullColumnsReason::BarePersonRoot))
                 }
                 _ => {}
             }
@@ -1044,18 +1074,49 @@ mod tests {
         assert_eq!(reads(tokens), ["properties.plan"]);
     }
 
-    /// A native call is projection-safe whatever its name, because it only consumes stack values.
-    /// Refusing them would make every `toDateTime(timestamp) > x` condition unprojectable.
+    /// An ordinary native call is projection-safe, because it only consumes stack values. Refusing
+    /// every native would make every `toDateTime(timestamp) > x` condition unprojectable.
     #[test]
     fn a_native_call_over_a_read_keeps_the_read_precise() {
+        assert_eq!(reads(call_over_timestamp("toDateTime")), ["timestamp"]);
+    }
+
+    /// A native that reads a number's spelling is the one call the read set cannot describe: the
+    /// paths are right, but supplying them from re-serialized JSON changes the answer. See
+    /// [`REPRESENTATION_SENSITIVE_NATIVES`]. Reported as an understood program rather than as a
+    /// failure, because nothing about it escaped the model.
+    #[test]
+    fn a_representation_sensitive_native_widens_to_every_column() {
+        for name in REPRESENTATION_SENSITIVE_NATIVES {
+            assert_eq!(
+                full_columns_reason(call_over_timestamp(name)),
+                FullColumnsReason::RepresentationSensitiveCall,
+                "{name}"
+            );
+        }
+    }
+
+    /// The refusal is on the call, not on the read under it: a program that never calls one of
+    /// these keeps its narrow answer however many other natives it uses.
+    #[test]
+    fn a_sensitive_native_name_only_matters_when_it_is_called() {
+        assert_eq!(reads(call_over_timestamp("toTypeOf")), ["timestamp"]);
+        assert_eq!(
+            reads(read(&["properties", "typeof"])),
+            ["properties.typeof"]
+        );
+    }
+
+    /// `name(timestamp) > '2026-01-01'`.
+    fn call_over_timestamp(name: &str) -> Vec<Value> {
         let mut tokens = read(&["timestamp"]);
         tokens.push(json!(2));
-        tokens.push(json!("toDateTime"));
+        tokens.push(json!(name));
         tokens.push(json!(1));
         tokens.push(json!(32));
         tokens.push(json!("2026-01-01"));
         tokens.push(json!(13));
-        assert_eq!(reads(tokens), ["timestamp"]);
+        tokens
     }
 
     /// A hostile count immediate must not reach an allocation. `u64::MAX` is a capacity-overflow

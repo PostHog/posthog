@@ -5280,6 +5280,18 @@ snapshots:
         hash: v1.k794b7964.769a69526cf676447319f587f24ed0d2670a137098867f8d3ee87ebda3415a70.3FGS0pbxxcrZUSto8SNCNHEkxaFXH6T8shqpdg5zzlQ
     products-mcp-analytics-routingbar--all-variants--light:
         hash: v1.k794b7964.7f57dacddb48fbad29a8614127d42d54425501b1f7755423d84316e1e937720e.thYPF2z3eMW5QvSe5SnvYtn35l6UCvUtsyx9EBLeqxk
+    products-notebooks-notebook-widget-trust-controls--gate--dark:
+        hash: v1.k794b7964.a51e3886b9b210b87ad0165be8e11217f7e6690c4c6fb3f055d91eb743297986.rTe9aGKWZkly97EDDu4Ml4H1iZL-bHzlkuJ4hhxLZGI
+    products-notebooks-notebook-widget-trust-controls--gate--light:
+        hash: v1.k794b7964.dba4c5816812fb18955fac3ef7e21d4e2f09ea489f3fd98610e7e2c08cd7b720.v_U6astxnykhOLozpJLNTYhnKqZ2UKlo63c2XV2dIg0
+    products-notebooks-notebook-widget-trust-controls--missing-build-hash--dark:
+        hash: v1.k794b7964.710a8f35d2bb0ff64962fa14422f9b19afedf525ecf888fa1a31d109866edc65.xPoRXj8l2nIWGfk_DEjMPUR3kIAoBAxMcW9uBlGeyGY
+    products-notebooks-notebook-widget-trust-controls--missing-build-hash--light:
+        hash: v1.k794b7964.0e2cc5104d4beb9dc308c92f194195156bd5fb48f6d8a1a278cce43e1313af67.eFnIkptK__hsvjhmXeAKmQxJBT1C3NZ6XXlRPLjHRA4
+    products-notebooks-notebook-widget-trust-controls--toolbar--dark:
+        hash: v1.k794b7964.a7394acbef2f45ccce1f0a9ad5d4dc09fa14cb337ffdc0b19642aef2728c65a3.VxLUiUKH_TDO-qiJRfaJ0r-HgJ7M2MAGbUDTd1kR32k
+    products-notebooks-notebook-widget-trust-controls--toolbar--light:
+        hash: v1.k794b7964.54adb15f34d6024fc6e441a77a81146a3eb7a31dfb689071b012df26ab133ab4.PjdDZ6fn1152SwEb7DfcTzJsZwNDQ25XzVL3EgjOiio
     products-posthog-ai-composer--default--dark:
         hash: v1.k794b7964.4ccf5eb666de2b3315dc3f142ded80b445748d58ce8ae2d7d154272d7b194b3b.E61uR16UwC5qC1XkQquxMh1z3bonN6IYLdYDyzcorTA
     products-posthog-ai-composer--default--light:
