@@ -165,6 +165,13 @@ WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
 WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
+
+class _AutoArchiveUnchanged:
+    pass
+
+
+_AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
+
 __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
@@ -7439,6 +7446,7 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
         system_role=channel.system_role,
         github_integration=channel.github_integration_id,
         repositories=channel.repositories,
+        auto_archive_after_days=channel.auto_archive_after_days,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
         starred=starred,
@@ -7667,9 +7675,11 @@ def update_channel(
     team_id: int,
     user_id: int | None,
     *,
+    can_manage_shared_auto_archive: bool,
     name: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
+    auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
     """Update a visible channel."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
@@ -7680,6 +7690,8 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
+    elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
+        return "auto_archive_forbidden"
     if name is not None and _is_general_channel(channel):
         return "general"
     update_fields: list[str] = []
@@ -7693,6 +7705,9 @@ def update_channel(
         channel.repositories = repositories
         channel.github_integration = github_integration if repositories else None
         update_fields.extend(["repositories", "github_integration"])
+    if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
+        channel.auto_archive_after_days = auto_archive_after_days
+        update_fields.append("auto_archive_after_days")
     if not update_fields:
         return _channel_to_dto(channel)
     try:
