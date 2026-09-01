@@ -116,7 +116,8 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self.iteration_budget_remaining is None:
+        # Fill only at creation: a later save must not silently refund an exhausted budget.
+        if self._state.adding and self.iteration_budget_remaining is None:
             self.iteration_budget_remaining = self.iteration_budget
         super().save(*args, **kwargs)
 
@@ -159,6 +160,11 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
             # Overwrite unconditionally: an explicit team_id that disagrees with the
             # pipeline's would file the row under the wrong tenant.
             self.team_id = pipeline.team_id
+            # A partial save that writes the pipeline must write the derived team with it,
+            # or the row keeps its old tenant while pointing at the new pipeline.
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None and not {"pipeline", "pipeline_id"}.isdisjoint(update_fields):
+                kwargs["update_fields"] = {*update_fields, "team"}
         for relation_name in self._pipeline_bound_relations:
             related = getattr(self, relation_name, None)
             if related is not None and related.pipeline_id != self.pipeline_id:

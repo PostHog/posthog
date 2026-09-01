@@ -13,6 +13,7 @@ from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 
@@ -37,6 +38,14 @@ class TestAutoresearchModels(BaseTest):
         run.save()
         assert run.team_id == other.team_id
 
+    def test_partial_save_of_the_pipeline_persists_the_derived_team(self) -> None:
+        other = self._other_team_pipeline()
+        run = AutoresearchTrainingRun.objects.for_team(self.team.pk).create(pipeline=self.pipeline)
+        run.pipeline = other
+        run.save(update_fields=["pipeline"])
+        run.refresh_from_db()
+        assert run.team_id == other.team_id
+
     def test_save_rejects_a_relation_from_another_pipeline(self) -> None:
         other = self._other_team_pipeline()
         foreign_run = AutoresearchTrainingRun.objects.for_team(other.team_id).create(pipeline=other)
@@ -58,11 +67,16 @@ class TestAutoresearchModels(BaseTest):
                 pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION, recipe_hash="b", model_recipe={}
             )
 
-    def test_iteration_budget_remaining_fills_from_the_budget(self) -> None:
+    def test_iteration_budget_remaining_fills_from_the_budget_only_at_creation(self) -> None:
         pipeline = AutoresearchPipeline.objects.for_team(self.team.pk).create(
             team_id=self.team.pk, name="p3", target_event="$pageview", iteration_budget=10
         )
         assert pipeline.iteration_budget_remaining == 10
+
+        pipeline.iteration_budget_remaining = None
+        pipeline.save()
+        pipeline.refresh_from_db()
+        assert pipeline.iteration_budget_remaining is None
 
     def test_admin_works_without_team_context(self) -> None:
         AutoresearchRun.objects.for_team(self.team.pk).create(
@@ -80,3 +94,20 @@ class TestAutoresearchModels(BaseTest):
             model_admin = admin_class(model, django_admin.site)
             list(model_admin.get_queryset(request))
             model_admin.get_form(request)()
+
+    def test_admin_locks_child_rows_to_their_pipeline(self) -> None:
+        request = RequestFactory().get("/admin/")
+        request.user = self.user
+        run = AutoresearchTrainingRun.objects.for_team(self.team.pk).create(pipeline=self.pipeline)
+        admins = (
+            (AutoresearchTrainingRun, admin_module.AutoresearchTrainingRunAdmin),
+            (AutoresearchModel, admin_module.AutoresearchModelAdmin),
+            (AutoresearchSuggestion, admin_module.AutoresearchSuggestionAdmin),
+        )
+        for model, admin_class in admins:
+            model_admin = admin_class(model, django_admin.site)
+            assert "pipeline" not in model_admin.get_readonly_fields(request)
+            assert "pipeline" in model_admin.get_readonly_fields(request, run)
+
+        model_admin = admin_module.AutoresearchModelAdmin(AutoresearchModel, django_admin.site)
+        assert model_admin.has_add_permission(request) is False

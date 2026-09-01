@@ -26,3 +26,8 @@ class TestAutoresearchAccess(BaseTest):
 
         _, kwargs = feature_enabled.call_args  # type: ignore[attr-defined]
         assert kwargs["groups"]["organization"] == "abc"
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"autoresearch"}))
+    @patch("products.autoresearch.backend.access.posthoganalytics.feature_enabled", return_value=False)
+    def test_honors_the_force_enabled_override(self, feature_enabled: object) -> None:
+        assert has_autoresearch_access(self.user, team_id=self.team.pk) is True
