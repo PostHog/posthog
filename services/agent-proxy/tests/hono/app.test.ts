@@ -35,7 +35,7 @@ function makeConfig(): Config {
 describe('app onError', () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        mockValidate.mockResolvedValue({ runId: 'run-123', taskId: 'task-abc', teamId: 42 })
+        mockValidate.mockResolvedValue({ runId: 'run-123', taskId: 'task-abc', teamId: 42, presenceGated: false })
     })
 
     it('logs unexpected route errors with request context and returns JSON 500', async () => {

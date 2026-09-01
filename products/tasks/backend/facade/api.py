@@ -2165,12 +2165,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
-        # Rollout stamps written once at dispatch by _capture_run_feature_flags; a PATCHable
-        # value would let a task controller bypass the org feature flags (for telemetry, that
-        # means injecting the internal OTLP capture token into their sandbox and re-enabling
-        # the run-log mirror with the rollout off).
+        # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
+        # creation; a PATCHable value would let a task controller bypass the org feature flags
+        # (for telemetry, that means injecting the internal OTLP capture token into their
+        # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        "stream_presence_gated",
         PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",

@@ -502,6 +502,27 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(self._read_notification_methods(), ["first", "second"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_presence_gated_ingest_accepts_events_without_mirroring_them(self) -> None:
+        self.task_run.state = {**(self.task_run.state or {}), "stream_presence_gated": True}
+        self.task_run.save(update_fields=["state", "updated_at"])
+        token = self._create_token()
+
+        with patch.object(TaskRun, "heartbeat_workflow"):
+            status, body = self._call_ingest(
+                token,
+                [
+                    {"seq": 1, "event": {"type": "notification", "notification": {"method": "first"}}},
+                    {"seq": 2, "event": {"type": "notification", "notification": {"method": "second"}}},
+                ],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(body["duplicate"], 0)
+        self.assertEqual(body["last_accepted_seq"], 2)
+        self.assertEqual(self._read_stream_events(), [])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_terminal_sequence_does_not_complete_without_completion_line(self) -> None:
         token = self._create_token()
         terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}

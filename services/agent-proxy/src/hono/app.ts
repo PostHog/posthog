@@ -122,6 +122,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
                 originProduct: 'unknown',
                 lastEventId,
                 startLatest,
+                presenceGated: claims.presenceGated,
             })
 
             // Race each generator chunk against the client-disconnect abort signal.
