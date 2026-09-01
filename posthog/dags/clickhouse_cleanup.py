@@ -1228,6 +1228,7 @@ def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: Click
             except Exception:
                 # One unreapable run must not shadow the later ones, or block them forever.
                 context.log.exception("failed to reap run %s", run_id)
+                _emit(MetricsClient(cluster), "clickhouse_cleanup_stranded_runs_unreapable", {})
                 continue
             reaped.append(run_id)
 
