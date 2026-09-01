@@ -18,6 +18,7 @@ import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
 import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
 import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
+import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -134,6 +135,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_TLS'
         | 'CDP_VALKEY_READ_FEATURES'
+        | 'CYCLOTRON_NODE_DATABASE_URL'
+        | 'CYCLOTRON_NODE_MAX_CONNECTIONS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -532,12 +535,17 @@ export function createCdpCoreServices(
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
+    const conversionWatchersService = new ConversionWatchersService(
+        config.CYCLOTRON_NODE_DATABASE_URL,
+        config.CYCLOTRON_NODE_MAX_CONNECTIONS
+    )
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
         capturedEventsService,
-        messageAssetsService
+        messageAssetsService,
+        conversionWatchersService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)

@@ -94,10 +94,10 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message-property filters only. Channel is one of these rather than a field of its own,
-            // so it composes with poster and text conditions instead of being matched separately.
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),
@@ -111,14 +111,6 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
         // Optional row column used as the masking / dedup key in place of distinct_id
         key_property: z.string().optional(),
-    }),
-    z.object({
-        type: z.literal('github-event'),
-        filters: z.object({
-            // Delivery-property filters only, on the same footing as slack-message: repository,
-            // event type and actor are all properties rather than fields of their own.
-            properties: z.array(z.any()).optional(),
-        }),
     }),
 ])
 
@@ -361,7 +353,7 @@ export const HogFlowSchema = z.object({
 
 export type RowScopedTrigger = Extract<
     HogFlow['trigger'],
-    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'slack-message' | 'github-event' }
+    { type: 'data-warehouse-table' | 'data-warehouse-view' | 'internal-event' }
 >
 
 /**
@@ -373,8 +365,7 @@ export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowS
     return (
         trigger?.type === 'data-warehouse-table' ||
         trigger?.type === 'data-warehouse-view' ||
-        trigger?.type === 'slack-message' ||
-        trigger?.type === 'github-event'
+        trigger?.type === 'internal-event'
     )
 }
 

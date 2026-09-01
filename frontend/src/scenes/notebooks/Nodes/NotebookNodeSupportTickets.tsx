@@ -4,7 +4,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ConversationsDisabledBanner } from 'products/conversations/frontend/components/ConversationsDisabledBanner'
+import { ConversationsDisabledBanner } from 'products/conversations/frontend/components/ConversationsDisabledBanner/ConversationsDisabledBanner'
 import {
     SupportTicketsTable,
     SupportTicketsTableFilters,

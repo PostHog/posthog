@@ -1,17 +1,8 @@
 //! Shared `MockSink` test helper for pipeline-level tests across the capture
-//! crate. Captures every `ProcessedEvent` sent through `send` / `send_batch`
-//! in an `Arc<Mutex<Vec<_>>>` so tests can assert on the exact stamped
-//! metadata the pipeline produced.
-//!
-//! Supports both construction patterns used across existing tests:
-//! - `Arc::new(MockSink::new())` + `sink.get_events()` (analytics tests)
-//! - `Arc::new(MockSink { events: events_captured.clone() })` + manual
-//!   `events_captured.lock()` (recordings tests that share the handle with
-//!   the sink before wrapping in `Arc<dyn Event>`)
+//! crate.
 
 use crate::api::CaptureError;
 use crate::outputs::PublishEvents;
-use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -32,26 +23,8 @@ impl MockSink {
 }
 
 #[async_trait]
-impl Event for MockSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().extend(events);
-        Ok(())
-    }
-}
-
-#[async_trait]
 impl PublishEvents for MockSink {
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
     }

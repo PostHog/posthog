@@ -124,7 +124,9 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 
 #### Step 8 · Call sites migrate to the table; `Event` retired
 
-- **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`, `otel/mod.rs`, `events/recordings.rs`) publish via `OutputRegistry::publish`, recording `capture_event_batch_size` at the call site; `State` and test mocks retype; then delete the v0 `Event` trait, the outputs facade, the Kafka `Event` bridge, and the single-event `kafka_send` path.
+- **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`, `otel/mod.rs`, `events/recordings.rs`) publish via `OutputRegistry::publish`, recording `capture_event_batch_size` at the call site; `State` and test mocks retype; then delete the v0 `Event` trait, its `Box<T>` blanket, the outputs facade, and the `Event` impls on Kafka, S3, print, noop, and the test mock.
+- **`State` drops its trait object.** `State.sink: Arc<dyn Event>` becomes `State.outputs: Arc<OutputRegistry>` — a concrete type, since `Output::single` already accepts any leaf. The substitution seam moves down to the leaf: `PublishEvents` and `Output::single` become `pub` so the `tests/` suites can stand their own capturing sinks in (`test_sink` is `cfg(test)`-gated and unreachable from there), and pipeline tests drive the real table and policy path instead of bypassing the outputs layer.
+- **`kafka_send` survives this step.** It is not reachable only from `Event::send`: `PublishEvents::publish_events` calls it on its one-event branch, and that is the production single-event path (recordings publishes one event per call). Deleting it means re-expressing that branch over `prepare_batch` + `Sink::publish` + `fold_results`, which adds a task spawn per single event and drops the `ack_wait_one` span — a behavior change, and this step is a mechanical move. Step 12 retires it with the prep hoist.
 - **Parity proof.** All endpoint/integration suites green; grep proves `Event` call-site-free before the deletion half.
 - **Size.** M/L. May split into per-call-site commits if the diff grows.
 
@@ -160,9 +162,9 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Files.** `outputs/mod.rs`, `outputs/registry.rs` (moved), `sinks/*`, `setup.rs`, all capturing test mocks.
 - **Size.** L.
 
-### Per-mode output tables (Step 15)
+### Per-mode output registries (Step 15)
 
-The deployment's output table is a concrete type — `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking rows) for Events/Ai pods, `SessionReplayOutputs` for Recordings pods — with required fields, so the narrow list of what a deployment must wire is the type itself. Handlers bound on sealed capability traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`); `State<T>` is generic over the table and `setup` instantiates the monomorphized router per `CaptureMode` (`router` for the analytics family, `session_replay_router` for recordings) — mounting an ingress on a table that cannot publish its family is a compile error. Rows share backends (one Kafka connection, one S3 client, one breaker controller), so per-row policy trees behave as the single pre-table output did. The runtime backstop for a pipeline without a row is an explicit fatal error, structurally dead while ingress mounting and table type derive from the same mode.
+The deployment's output registry is a concrete type — `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking rows) for Events/Ai pods, `SessionReplayOutputs` for Recordings pods — with required fields, so the narrow list of what a deployment must wire is the type itself. Handlers bound on sealed capability traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`); `State<T>` is generic over the registry and `setup` instantiates the monomorphized router per `CaptureMode` (`router` for the analytics family, `session_replay_router` for recordings) — mounting an ingress on a table that cannot publish its family is a compile error. Rows share backends (one Kafka connection, one S3 client, one breaker controller), so per-row policy trees behave as the single pre-table output did. The runtime backstop for a pipeline without a row is an explicit fatal error, structurally dead while ingress mounting and registry type derive from the same mode.
 
 ### Per-pipeline output overrides and boot verification (Step 18)
 
@@ -270,15 +272,15 @@ When all steps land, the five strata hold:
 | 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): lane decision moves to the pipeline layer` |
 | 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns the failover policy` |
-| 8a · Call sites on the table | pending | `refactor(capture): call sites publish through outputs` |
-| 8b · `Event` retired | pending | `refactor(capture): retire v0 Event trait` |
+| 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
+| 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
 | 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
 | 12 · Prep hoist; `PublishEvents` retired | pending | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
 | 13 · Typed addresses; AI pipeline | pending | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
 | 14 · Sinks realize namespaces | pending | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
-| 15 · Per-mode output tables | pending | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
+| 15 · Per-mode output registries | pending | `feat(capture): per-mode output registries; handlers bound by publish capabilities` |
 | 16 · AI ingress family | pending | `feat(capture): ai ingress is its own router family with its own capability` |
 | 17 · Topic tables injected into sinks | pending | `refactor(capture): topic tables are sink-side data, injected at construction` |
 | 18 · Per-pipeline output overrides; boot topic verification | pending | `feat(capture): per-pipeline output overrides and boot topic verification` |

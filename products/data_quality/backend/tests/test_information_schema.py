@@ -15,8 +15,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade.api import record_check_run
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 def _fail_queries_for_table(table_name: str):
@@ -36,7 +38,13 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         )
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
-        self.subject_uuid = uuid4()
+        self.subject = self._view("orders")
+        self.subject_uuid = self.subject.id
+
+    def _view(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
 
     def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
@@ -60,7 +68,6 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
     def _run_for(self, check: DataQualityCheck, **kwargs) -> DataQualityCheckRun:
         suite_run = DataQualitySuiteRun.objects.for_team(check.team_id).create(team=check.team, trigger="manual")
         defaults = {
-            "team": check.team,
             "quality_check": check,
             "suite_run": suite_run,
             "subject_type": check.subject_type,
@@ -71,7 +78,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             "status": CheckRunStatus.FAILED,
             "failed_row_count": 4,
         }
-        return DataQualityCheckRun.objects.for_team(check.team_id).create(**{**defaults, **kwargs})
+        return record_check_run(check.team_id, **{**defaults, **kwargs})
 
     def _query(self, sql: str, context: HogQLContext | None = None) -> list:
         return execute_hogql_query(sql, team=self.team, context=context or self._context()).results
@@ -161,9 +168,9 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_a_denied_subject_is_hidden_from_every_data_quality_table(self, _name: str, sql: str) -> None:
-        denied = self._check(subject_name="orders", saved_query_id=uuid4())
+        denied = self._check(subject_name="orders")
         self._run_for(denied)
-        allowed = self._check(subject_name="customers", saved_query_id=uuid4(), column_name="id")
+        allowed = self._check(subject_name="customers", saved_query_id=self._view("customers").id, column_name="id")
         self._run_for(allowed)
 
         rows = self._query(sql, context=self._context(denied_tables={"orders"}))
@@ -181,10 +188,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
     def test_a_denied_subject_renamed_since_its_last_run_stays_hidden(self, _name: str, sql: str) -> None:
         # The name on the check is only rewritten when the check runs, so matching denial against it
         # serves the subject's rows for the whole window between a rename and the next run.
-        renamed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
-        stale = self._check(subject_name="orders_legacy", saved_query_id=renamed.id)
+        stale = self._check(subject_name="orders_legacy")
         self._run_for(stale)
 
         rows = self._query(sql, context=self._context(denied_tables={"orders"}))
@@ -203,7 +207,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         # answers questions about the rows behind it.
         reader = self._check(
             subject_name="customers",
-            saved_query_id=uuid4(),
+            saved_query_id=self._view("customers").id,
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -224,14 +228,12 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         # A check row is not only a definition: last_status is the verdict of its last run, over
         # whatever that run read. Once the subject it read is deleted and its name taken by something
         # the caller may read, the definition stops naming anything denied while the verdict remains.
-        original = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+        original = self._view("orders_original")
         original_id = original.id
         original.delete()
         reader = self._check(
             subject_name="customers",
-            saved_query_id=self.subject_uuid,
+            saved_query_id=self._view("customers").id,
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -251,14 +253,12 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         # Deleting a warehouse object frees its name for anyone to take. Matched by the names in its
         # definition, the run that read the original would be served here the moment something the
         # caller can read answers to that name -- with its failed-row count over the original's rows.
-        original = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+        original = self._view("orders_original")
         original_id = original.id
         original.delete()
         reader = self._check(
             subject_name="customers",
-            saved_query_id=uuid4(),
+            saved_query_id=self._view("customers").id,
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -270,6 +270,104 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         )
 
         # A denial the caller still has, so the gate engages: an empty denied set skips it entirely.
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
+
+    def test_a_backing_table_reference_stays_hidden_after_its_view_is_renamed(self) -> None:
+        referenced_view = self._view("customers")
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=referenced_view.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{referenced_view.folder_path}/{referenced_view.normalized_name}",
+        )
+        referenced_view.table = backing_table
+        referenced_view.is_materialized = True
+        referenced_view.save(update_fields=["table", "is_materialized"])
+        check = self._check(
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM customers"},
+        )
+        self._run_for(
+            check,
+            check_config=check.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.TABLE), "subject_uuid": str(backing_table.id)}],
+        )
+        referenced_view.name = "customers_v2"
+        referenced_view.save(update_fields=["name"])
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"customers_v2"}),
+        )
+
+        assert rows == []
+
+    @parameterized.expand(
+        [
+            ("non_referencing", CheckType.NOT_NULL, {}, ["orders"]),
+            ("referencing", CheckType.CUSTOM_SQL, {"query": "SELECT 1 FROM customers"}, []),
+        ]
+    )
+    def test_a_run_predating_pinned_references_is_judged_by_its_type(
+        self, _name: str, check_type: str, config: dict, expected: list[str]
+    ) -> None:
+        # Nothing backfills the references of a run recorded before they were pinned, so a null column
+        # cannot be read as "touched nothing". A type that cannot reach past its own subject read only
+        # the subject already authorized here; one that can is withheld.
+        check = self._check(check_type=check_type, column_name="", config=config)
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            quality_check=check,
+            suite_run=suite_run,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.subject_uuid,
+            subject_name="orders",
+            check_type=check_type,
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            referenced_subjects=None,
+        )
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert [name for (name,) in rows] == expected
+
+    def test_a_run_whose_declared_subject_was_deleted_is_withheld_from_a_restricted_member(self) -> None:
+        # Deleting a subject takes its denial with it, so nothing left can show the caller was allowed
+        # it. Hidden until retention deletes the history, rather than served on the strength of a name
+        # anyone can now claim.
+        temp = self._view("temp_orders")
+        check = self._check(subject_name="temp_orders", saved_query_id=temp.id)
+        self._run_for(check)
+        temp.delete()
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
+
+    def test_a_run_referencing_an_unknown_subject_type_is_withheld(self) -> None:
+        # A future subject kind recorded before this gate learns it matches no readable branch, so it
+        # is contained in nothing and the run falls out -- the fail-closed answer, not the reverse.
+        check = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "SELECT 1"})
+        self._run_for(
+            check,
+            check_type=CheckType.CUSTOM_SQL,
+            referenced_subjects=[{"subject_type": "dashboard", "subject_uuid": str(self.subject_uuid)}],
+        )
+
         rows = self._query(
             "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
             context=self._context(denied_tables={"secrets"}),
