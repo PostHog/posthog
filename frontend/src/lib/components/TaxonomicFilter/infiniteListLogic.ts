@@ -519,7 +519,8 @@ export interface infiniteListLogicMeta {
         ) => TaxonomicDefinitionTypes[]
         contextFilteredPinnedItems: (
             pinnedFilterItems: TaxonomicDefinitionTypes[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[]
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            arg: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         isSoleSubstantiveGroup: (
             listGroupType: TaxonomicFilterGroupType,
@@ -562,7 +563,8 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
-            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+            excludedProperties: string[] | undefined
         ) => boolean
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
@@ -1134,11 +1136,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 ),
         ],
         contextFilteredPinnedItems: [
-            (s) => [s.pinnedFilterItems, s.taxonomicGroupTypes],
+            (s) => [
+                s.pinnedFilterItems,
+                s.taxonomicGroupTypes,
+                (_, props: InfiniteListLogicProps) => props.excludedProperties,
+            ],
             (
                 pinnedFilterItems: TaxonomicDefinitionTypes[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[]
-            ): TaxonomicDefinitionTypes[] => filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes),
+                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                excludedProperties: ExcludedProperties | undefined
+            ): TaxonomicDefinitionTypes[] =>
+                filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes, excludedProperties),
         ],
         // This list is the filter's only substantive (non-meta) group. There are no separate
         // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
@@ -1255,13 +1263,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         showNonCapturedEventOption: [
-            (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
+            (s) => [
+                s.allowNonCapturedEvents,
+                s.listGroupType,
+                s.searchQuery,
+                s.isLoading,
+                s.results,
+                s.excludedProperties,
+            ],
             (
                 allowNonCapturedEvents: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
-                results: TaxonomicDefinitionTypes[]
+                results: TaxonomicDefinitionTypes[],
+                excludedProperties: string[] | undefined
             ): boolean => {
                 if (!allowNonCapturedEvents) {
                     return false
@@ -1272,7 +1288,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 ) {
                     return false
                 }
-                if (searchQuery.trim().length === 0 || isLoading) {
+                const trimmedSearch = searchQuery.trim()
+                if (trimmedSearch.length === 0 || isLoading) {
+                    return false
+                }
+                // Offering an excluded name would let it be selected as a non-captured event,
+                // committing the value the exclusion forbids.
+                if (excludedProperties?.includes(trimmedSearch)) {
                     return false
                 }
                 // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them

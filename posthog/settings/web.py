@@ -964,12 +964,6 @@ SPECTACULAR_SETTINGS = {
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
-        # effective_restriction_level and effective_privilege_level are SerializerMethodFields
-        # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
-        # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
-        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
-        # effective_membership_level and level on OrganizationMember use the same int values.
-        "EffectiveMembershipLevelEnum": [(1, 1), (8, 8), (15, 15)],
         # descriptionContentType and thankYouMessageDescriptionContentType share values.
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name

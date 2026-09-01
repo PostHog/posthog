@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 
+import { STREAM_COMPLETED_TTL_SECONDS } from '@/lib/constants.js'
 import {
     TaskRunRedisStream,
     getStreamKey,
@@ -668,7 +669,7 @@ describe('redis-stream', () => {
             expect(data).toHaveLength(1)
         })
 
-        it('refreshes stream TTL on completion', async () => {
+        it('drops stream TTL to the drain window on completion', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.markComplete()
@@ -676,6 +677,20 @@ describe('redis-stream', () => {
             const exp = redis.getExpiryMs(streamKey)
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now())
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
+        })
+
+        it('drops stream TTL to the drain window when already completed', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            await stream.writeEvent({ type: 'msg' })
+            await redis.set(getCompletedKey(streamKey), '1')
+
+            await stream.markComplete()
+
+            const exp = redis.getExpiryMs(streamKey)
+            expect(exp).not.toBeNull()
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
         })
     })
 
@@ -774,7 +789,7 @@ describe('redis-stream', () => {
             expect((error as string).length).toBe(500)
         })
 
-        it('refreshes stream TTL when writing the error sentinel', async () => {
+        it('drops stream TTL to the drain window when writing the error sentinel', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.markError('oops')
@@ -782,6 +797,18 @@ describe('redis-stream', () => {
             const exp = redis.getExpiryMs(streamKey)
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now())
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
+        })
+
+        it('sets the completed key so later sequenced writes are rejected', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            await stream.markError('oops')
+
+            expect(redis.getStringValue(getCompletedKey(streamKey))).toBe('1')
+            await expect(stream.writeEventWithSequence({ type: 'late' }, 1)).rejects.toThrow(
+                TaskRunStreamAlreadyCompleted
+            )
         })
     })
 

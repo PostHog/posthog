@@ -9,7 +9,7 @@ import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { INBOX_TAB_KEYS, INBOX_TAB_LABEL, InboxTabKey } from '../../types'
 
 /**
- * Page tab bar: Reports / Scouts / Settings. The report sections (Review and merge / Needs a PR /
+ * Page tab bar: Reports / Scouts / Settings. The report sections (Review and merge / Needs decision /
  * Resolved) live inside the Reports tab, so no counts sit here.
  */
 export function InboxTabBar(): JSX.Element {
