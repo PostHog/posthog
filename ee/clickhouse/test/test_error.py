@@ -1,6 +1,7 @@
 import pytest
 
 from clickhouse_driver.errors import ServerException
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import (
@@ -261,3 +262,12 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
     if is_cluster:
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED
+
+
+def test_drf_validation_error_is_user_error():
+    # Query validation rules (e.g. funnels needing at least two steps) reject user input with a
+    # DRF ValidationError. It must classify as USER_ERROR so it does not fail the SLO or get
+    # captured as an exception.
+    assert (
+        classify_query_error(DRFValidationError("Funnels require at least two steps.")) == QueryErrorCategory.USER_ERROR
+    )
