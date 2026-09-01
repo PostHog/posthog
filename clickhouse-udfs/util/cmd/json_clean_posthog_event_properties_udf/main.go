@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,7 +28,13 @@ type pathRule struct {
 
 var eventPropertyRules = makeEventPropertyRules()
 
-const unparsablePropertiesKey = "$properties_unparsable"
+const (
+	// Leave headroom below ClickHouse's 1024-level JSON parser ceiling so destination casts cannot poison a Kafka block.
+	maxJSONDepth             = 1000
+	unparseablePropertiesKey = "$unparseable_properties"
+)
+
+var errMaxJSONDepth = errors.New("maximum JSON depth exceeded")
 
 var droppedEventPropertyKeys = map[string]struct{}{
 	"$ai_input":                          {},
@@ -51,7 +58,7 @@ var droppedEventPropertyKeys = map[string]struct{}{
 	"$unset":                             {},
 	"$transformations_succeeded":         {},
 	"$transformations_skipped":           {},
-	unparsablePropertiesKey:              {},
+	unparseablePropertiesKey:             {},
 }
 
 func makePathRules(paths ...string) *pathRule {
@@ -138,6 +145,7 @@ type processor struct {
 	info      map[string]entryInfo
 	index     map[mergeKey]*value
 	stringBuf bytes.Buffer
+	depth     int
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -150,9 +158,14 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	p.pos = 0
 	p.mutated = false
 	p.rawSafe = true
+	p.depth = 0
 
 	parsed, err := p.parseValue()
 	if err != nil {
+		if errors.Is(err, errMaxJSONDepth) {
+			writeUnparseableProperties(buf, rawLine)
+			return nil
+		}
 		return fmt.Errorf("json parse error: %w", err)
 	}
 	p.skipWS()
@@ -164,6 +177,10 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	cleaned, err := p.cleanEventProperties(parsed)
 	if err != nil {
 		p.recycle(parsed)
+		if errors.Is(err, errMaxJSONDepth) {
+			writeUnparseableProperties(buf, rawLine)
+			return nil
+		}
 		return fmt.Errorf("json clean error: %w", err)
 	}
 
@@ -253,6 +270,11 @@ func (p *processor) recycle(v *value) {
 }
 
 func (p *processor) parseValue() (*value, error) {
+	if err := p.enterJSONDepth(); err != nil {
+		return nil, err
+	}
+	defer p.leaveJSONDepth()
+
 	p.skipWS()
 	if p.pos >= len(p.data) {
 		return nil, fmt.Errorf("unexpected end of input")
@@ -573,6 +595,11 @@ func (p *processor) consumeLiteral(s string) bool {
 }
 
 func (p *processor) cleanNode(pathRules *pathRule, v *value) (*value, error) {
+	if err := p.enterJSONDepth(); err != nil {
+		return nil, err
+	}
+	defer p.leaveJSONDepth()
+
 	switch v.kind {
 	case kindObject:
 		if err := p.cleanObject(pathRules, v); err != nil {
@@ -591,7 +618,11 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value) (*value, error) {
 }
 
 func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
-	obj.entries = p.expandDottedEntries(obj.entries)
+	expanded, err := p.expandDottedEntries(obj.entries)
+	if err != nil {
+		return err
+	}
+	obj.entries = expanded
 
 	var unparsable bytes.Buffer
 	writeIdx := 0
@@ -636,7 +667,7 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
 		unparsable.WriteByte('}')
 		marker := p.newValue(kindString)
 		marker.s = unparsable.String()
-		obj.entries = append(obj.entries, entry{key: unparsablePropertiesKey, value: marker})
+		obj.entries = append(obj.entries, entry{key: unparseablePropertiesKey, value: marker})
 	}
 	p.deduplicateEntries(obj)
 	return nil
@@ -648,16 +679,18 @@ func (p *processor) retainUnprocessedEntries(obj *value, writeIdx, readIdx int) 
 	obj.entries = obj.entries[:writeIdx+remaining]
 }
 
-func (p *processor) expandDottedEntries(entries []entry) []entry {
+func (p *processor) expandDottedEntries(entries []entry) ([]entry, error) {
 	needsExpand := false
 	for _, entry := range entries {
 		if strings.IndexByte(entry.key, '.') >= 0 {
+			if p.depth+strings.Count(entry.key, ".")+1 > maxJSONDepth {
+				return nil, errMaxJSONDepth
+			}
 			needsExpand = true
-			break
 		}
 	}
 	if !needsExpand {
-		return entries
+		return entries, nil
 	}
 	p.mutated = true
 
@@ -680,7 +713,30 @@ func (p *processor) expandDottedEntries(entries []entry) []entry {
 	for key := range p.index {
 		delete(p.index, key)
 	}
-	return expanded
+	return expanded, nil
+}
+
+func (p *processor) enterJSONDepth() error {
+	p.depth++
+	if p.depth > maxJSONDepth {
+		p.depth--
+		return errMaxJSONDepth
+	}
+	return nil
+}
+
+func (p *processor) leaveJSONDepth() {
+	p.depth--
+}
+
+func writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
+	buf.Reset()
+	buf.Grow(len(raw) + len(unparseablePropertiesKey) + 8)
+	buf.WriteByte('{')
+	writeJSONString(buf, unparseablePropertiesKey)
+	buf.WriteByte(':')
+	writeJSONString(buf, borrowedString(raw))
+	buf.WriteByte('}')
 }
 
 func (p *processor) appendEntry(parent *value, entries *[]entry, key string, child *value) {

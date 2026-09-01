@@ -91,9 +91,9 @@ func TestProcessLinePreservesScalarPropertiesAndNormalizesComplexProperties(t *t
 
 func TestProcessLineQuarantinesInvalidExceptionList(t *testing.T) {
 	tests := map[string]string{
-		`{"$properties_unparsable":"spoofed","$exception_list":"[redacted]","kept":"value"}`: `{"$exception_list":[],"kept":"value","$properties_unparsable":"{\"$exception_list\":\"[redacted]\"}"}`,
-		`{"$exception_list":[1]}`:  `{"$exception_list":[],"$properties_unparsable":"{\"$exception_list\":[1]}"}`,
-		`{"$exception_list":true}`: `{"$exception_list":[],"$properties_unparsable":"{\"$exception_list\":true}"}`,
+		`{"$unparseable_properties":"spoofed","$exception_list":"[redacted]","kept":"value"}`: `{"$exception_list":[],"kept":"value","$unparseable_properties":"{\"$exception_list\":\"[redacted]\"}"}`,
+		`{"$exception_list":[1]}`:  `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":[1]}"}`,
+		`{"$exception_list":true}`: `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":true}"}`,
 	}
 
 	for input, want := range tests {
@@ -104,6 +104,26 @@ func TestProcessLineQuarantinesInvalidExceptionList(t *testing.T) {
 		if got.String() != want {
 			t.Fatalf("processLine(%s) = %s, want %s", input, got.String(), want)
 		}
+	}
+}
+
+func TestProcessLineQuarantinesExcessiveDepth(t *testing.T) {
+	tests := map[string]string{
+		"nested JSON": strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth),
+		"dotted key":  `{"` + strings.Repeat("x.", maxJSONDepth) + `x":1}`,
+	}
+
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			var got bytes.Buffer
+			if err := processLine([]byte(input), &got); err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
+			if got.String() != want {
+				t.Fatalf("processLine() = %s, want %s", got.String(), want)
+			}
+		})
 	}
 }
 
