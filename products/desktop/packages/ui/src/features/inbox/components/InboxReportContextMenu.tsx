@@ -1,6 +1,5 @@
 import {
   ArrowCounterClockwiseIcon,
-  ArrowSquareOutIcon,
   CheckCircleIcon,
   CopyIcon,
   EyeSlashIcon,
@@ -30,7 +29,6 @@ import {
   type ResolveReasonOptionValue,
 } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
-import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { ReviewerSearchList } from "@posthog/ui/features/inbox/components/ReviewerSearchList";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
@@ -39,7 +37,6 @@ import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInb
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
-import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
 import { Fragment, type ReactNode, useRef, useState } from "react";
 
 export function InboxReportContextMenu({
@@ -56,7 +53,6 @@ export function InboxReportContextMenu({
   const resolve = useInboxReportResolveAction(report, "context_menu");
   const dismiss = useInboxReportDismissAction(report, "context_menu");
   const restore = useInboxRestoreReport();
-  const openBrowserTab = useOpenBrowserTab();
   const { data: artefacts } = useInboxReportArtefacts(report.id, {
     enabled: open,
   });
@@ -73,7 +69,6 @@ export function InboxReportContextMenu({
     report.implementation_pr_merged !== true;
   const hasMenu =
     report.status !== "resolved" && !(isDismissed && report.refund != null);
-  const detailPath = `/inbox/reports/${report.id}`;
 
   if (!hasMenu) return <>{children}</>;
 
@@ -99,18 +94,10 @@ export function InboxReportContextMenu({
     }
     void dismiss.dismissWithReason(reason);
   };
-  const browserLinkItems = (
+  const copyLinkItem = (
     <>
       <ContextMenuSeparator />
       <ContextMenuGroup>
-        <ContextMenuItem onClick={() => navigateToInboxReportDetail(report.id)}>
-          <ArrowSquareOutIcon size={14} />
-          Open link
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => openBrowserTab(detailPath)}>
-          <ArrowSquareOutIcon size={14} />
-          Open link in new tab
-        </ContextMenuItem>
         <ContextMenuItem
           onClick={() => {
             fireAction("copy_link");
@@ -234,7 +221,7 @@ export function InboxReportContextMenu({
               </ContextMenuSub>
             </ContextMenuGroup>
           )}
-          {browserLinkItems}
+          {copyLinkItem}
         </ContextMenuContent>
       </ContextMenu>
       {resolve.dialog}

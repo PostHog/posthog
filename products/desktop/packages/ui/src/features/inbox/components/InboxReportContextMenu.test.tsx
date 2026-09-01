@@ -7,8 +7,6 @@ const mocks = vi.hoisted(() => ({
   copyLink: vi.fn(),
   createPr: vi.fn(),
   dismissWithReason: vi.fn(),
-  navigate: vi.fn(),
-  openBrowserTab: vi.fn(),
   openDismissDialog: vi.fn(),
   openResolveDialog: vi.fn(),
   resolveWithReason: vi.fn(),
@@ -60,20 +58,12 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
   },
 }));
 
-vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
-  useOpenBrowserTab: () => mocks.openBrowserTab,
-}));
-
 vi.mock("@posthog/ui/features/inbox/components/ReviewerSearchList", () => ({
   ReviewerSearchList: () => <div>Reviewer picker</div>,
 }));
 
 vi.mock("@posthog/ui/features/inbox/utils/copyInboxReportLink", () => ({
   copyInboxReportLink: mocks.copyLink,
-}));
-
-vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToInboxReportDetail: mocks.navigate,
 }));
 
 import { InboxReportContextMenu } from "./InboxReportContextMenu";
@@ -107,7 +97,7 @@ function menuItemText(): (string | null)[] {
   return screen.queryAllByRole("menuitem").map((item) => item.textContent);
 }
 
-const LINK_ITEMS = ["Open link", "Open link in new tab", "Copy link"];
+const LINK_ITEMS = ["Copy link"];
 
 describe("InboxReportContextMenu", () => {
   beforeEach(() => {
@@ -205,7 +195,7 @@ describe("InboxReportContextMenu", () => {
     expect(mocks.dismissWithReason).not.toHaveBeenCalled();
   });
 
-  it("wires restore and desktop link actions", async () => {
+  it("wires restore and copy link actions", async () => {
     const user = userEvent.setup();
     const report = makeReport({ status: "suppressed" });
     openMenu(report);
@@ -220,16 +210,6 @@ describe("InboxReportContextMenu", () => {
     };
     restoreOptions.onSuccess();
     expect(mocks.trackAction).toHaveBeenCalledWith("restore");
-
-    fireEvent.contextMenu(screen.getByText("Report one"));
-    await user.click(screen.getByText("Open link"));
-    expect(mocks.navigate).toHaveBeenCalledWith(report.id);
-
-    fireEvent.contextMenu(screen.getByText("Report one"));
-    await user.click(screen.getByText("Open link in new tab"));
-    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
-      "/inbox/reports/report-1",
-    );
 
     fireEvent.contextMenu(screen.getByText("Report one"));
     await user.click(screen.getByText("Copy link"));
