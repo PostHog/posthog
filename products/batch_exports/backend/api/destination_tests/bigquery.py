@@ -281,6 +281,16 @@ class BigQueryDatasetTestStep(DestinationTestStep):
             return False
         return True
 
+    def _missing_configuration(self) -> list[str]:
+        missing = []
+        if self.dataset_id is None:
+            missing.append("Dataset ID")
+        if self.project_id is None:
+            missing.append("BigQuery project")
+        if self.service_account_info is None and self.integration is None:
+            missing.append("credentials")
+        return missing
+
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from google.cloud.exceptions import NotFound
@@ -351,6 +361,18 @@ class BigQueryTableTestStep(DestinationTestStep):
         ):
             return False
         return True
+
+    def _missing_configuration(self) -> list[str]:
+        missing = []
+        if self.table_id is None:
+            missing.append("Table ID")
+        if self.dataset_id is None:
+            missing.append("Dataset ID")
+        if self.project_id is None:
+            missing.append("BigQuery project")
+        if self.service_account_info is None and self.integration is None:
+            missing.append("credentials")
+        return missing
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""

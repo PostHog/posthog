@@ -331,16 +331,22 @@ async def test_bigquery_verify_service_account_ownership_test_step_with_no_imper
 
 
 @pytest.mark.parametrize(
-    "step",
+    "step,expected_message",
     [
-        BigQueryImpersonateServiceAccountTestStep(),
-        BigQueryVerifyServiceAccountOwnershipTestStep(),
-        BigQueryTableTestStep(),
-        BigQueryProjectTestStep(),
-        BigQueryDatasetTestStep(),
+        (BigQueryImpersonateServiceAccountTestStep(), "The test step cannot run as it's not configured."),
+        (BigQueryVerifyServiceAccountOwnershipTestStep(), "The test step cannot run as it's not configured."),
+        (
+            BigQueryTableTestStep(),
+            "The test step cannot run because these fields are missing: Table ID, Dataset ID, BigQuery project, credentials.",
+        ),
+        (BigQueryProjectTestStep(), "The test step cannot run as it's not configured."),
+        (
+            BigQueryDatasetTestStep(),
+            "The test step cannot run because these fields are missing: Dataset ID, BigQuery project, credentials.",
+        ),
     ],
 )
-async def test_test_steps_fail_if_not_configured(step):
+async def test_test_steps_fail_if_not_configured(step, expected_message):
     result = await step.run()
     assert result.status == Status.FAILED
-    assert result.message == "The test step cannot run as it's not configured."
+    assert result.message == expected_message

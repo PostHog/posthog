@@ -122,6 +122,12 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
 // leave it out by default. It shows up prefilled under "Exclude events" and can be removed there.
 export const DEFAULT_EXCLUDE_EVENTS = ['$feature_flag_called']
 
+// Turn a form field key into a label for the "required fields" toast, e.g. `table_id` -> "Table ID".
+function humanizeFieldName(field: string): string {
+    const spaced = field.replace(/_id$/, ' ID').replace(/_/g, ' ')
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
 export function getDefaultConfiguration(service: string): Record<string, any> {
     const definition = DESTINATIONS[service as BatchExportService['type']]
     return {
@@ -1165,6 +1171,24 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     actions.setConfigurationValue('offset_hour', null)
                 }
             }
+        },
+        submitConfigurationFailure: () => {
+            // kea-forms blocks the submit and turns the offending fields red, but the Create button
+            // stays enabled and nothing points at what's wrong. Name the blocking fields and scroll
+            // the first one into view so the failed click isn't silent. A handler that threw (an API
+            // error, already toasted elsewhere) leaves configurationErrors empty, so nothing is named.
+            const blockingFields = Object.entries(values.configurationErrors ?? {})
+                .filter(([, message]) => typeof message === 'string')
+                .map(([field]) => humanizeFieldName(field))
+
+            if (blockingFields.length > 0) {
+                lemonToast.error(`Fill in the required fields: ${blockingFields.join(', ')}`)
+            }
+
+            setTimeout(
+                () => document.querySelector('.Field--error')?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+                1
+            )
         },
         deleteBatchExport: async () => {
             // TODO: support undo'ing a delete

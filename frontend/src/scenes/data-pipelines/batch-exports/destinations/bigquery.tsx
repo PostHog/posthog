@@ -10,7 +10,9 @@ import type { DestinationDefinition } from './types'
 export const bigqueryDefinition: DestinationDefinition = {
     type: 'BigQuery',
     usesIntegration: true,
-    defaults: () => ({}),
+    // Seed a real Table ID so the field holds what its "events" placeholder implies. An empty
+    // required field that reads as filled sends people straight into a failing save.
+    defaults: () => ({ table_id: 'events' }),
     requiredFields: () => ['integration_id', 'dataset_id', 'table_id'],
     // Credentials and project_id now live on the integration; json_config_file is a removed legacy field.
     configKeys: ['dataset_id', 'table_id', 'use_json_type'],

@@ -465,6 +465,21 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    describe('submit failure names the blocking fields', () => {
+        // A blocked submit used to be silent: kea-forms reddened the fields but the toast, and the
+        // scroll to the first error, were missing. Table ID is now seeded, so it must not appear.
+        it('toasts the empty required fields and leaves the seeded Table ID out', async () => {
+            await initLogic({ service: 'BigQuery', id: null })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'submitConfigurationFailure'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Dataset ID'))
+            expect(lemonToast.error).not.toHaveBeenCalledWith(expect.stringContaining('Table ID'))
+        })
+    })
+
     describe('S3 bucket name validation', () => {
         it.each([
             { bucket: 'MyBucket', error: 'Bucket name must be lowercase' },
@@ -792,7 +807,8 @@ describe('batchExportConfigFormLogic', () => {
             },
             {
                 service: 'BigQuery',
-                expected: { destination: 'BigQuery', paused: true, model: 'events' },
+                // table_id is seeded so the field holds what its "events" placeholder implies.
+                expected: { destination: 'BigQuery', paused: true, model: 'events', table_id: 'events' },
             },
         ])('returns correct defaults for $service', ({ service, expected }) => {
             const config = getDefaultConfiguration(service)
