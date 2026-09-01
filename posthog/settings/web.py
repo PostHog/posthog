@@ -613,7 +613,6 @@ SPECTACULAR_SETTINGS = {
             "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
             # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
-            "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
             # `severity` is shared by a data quality check, its overview projection, and the severity a
             # past run was judged at.
@@ -644,17 +643,6 @@ SPECTACULAR_SETTINGS = {
             # The metrics query's OTel metric-type filter; without a pinned name it
             # collides with the experiments MetricTypeEnum (funnel/ratio/...).
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
-            # Staff flags-cache warm-run status; 'state'/'scope' are collision-prone field names.
-            "FlagsWarmRunStateEnum": ["running", "completed", "cancelled"],
-            "FlagsWarmRunScopeEnum": ["all_teams", "teams_with_flags"],
-            "ManagedWarehouseReadinessStateEnum": [
-                "not_configured",
-                "waiting",
-                "backfilling",
-                "up_to_date",
-                "needs_attention",
-                "sync_paused",
-            ],
             # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
             # subset enums keep their own auto-resolved names.
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
@@ -669,17 +657,6 @@ SPECTACULAR_SETTINGS = {
             # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
             # schedule/github/api choice set — pin them to a single named enum.
             "LoopTriggerTypeEnum": ["schedule", "github", "api"],
-            "CustomPropertyDisplayTypeEnum": [
-                "text",
-                "link",
-                "number",
-                "currency",
-                "percent",
-                "date",
-                "datetime",
-                "boolean",
-                "select",
-            ],
             # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
             # palette color later would change the hash and silently rename the generated type.
             "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
@@ -708,17 +685,6 @@ SPECTACULAR_SETTINGS = {
                 "30day",
             ],
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
-            "EmailTemplateDesignOperationEnum": [
-                "update_content",
-                "update_column",
-                "update_row",
-                "update_body",
-                "add_content",
-                "remove_content",
-                "move_content",
-                "add_row",
-                "remove_row",
-            ],
             "PropertyFilterTypeEnum": [
                 "event",
                 "event_metadata",
@@ -752,7 +718,6 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "AssigneeTypeEnum": ["user", "role"],
-            "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
@@ -796,8 +761,6 @@ SPECTACULAR_SETTINGS = {
             # Same-value collisions: identical choice sets appear on fields with different names.
             # href_matching, text_matching, url_matching on ActionStep all share the same choices.
             "ActionStepMatchingEnum": ["contains", "regex", "exact"],
-            # Survey url/device match types keep the operator subset without starts_with/ends_with.
-            "SurveyMatchTypeEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
             "DetailModeValueEnum": ["minimal", "detailed"],
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             # runtime_adapter on TaskRunCreateRequestSerializer (full set) vs
@@ -809,11 +772,6 @@ SPECTACULAR_SETTINGS = {
             # `caches` list item share the same evaluation/definitions choice set. Pin to a
             # stable name so "cache" and "caches" don't collide into a hash name.
             "StaffCacheKindEnum": ["evaluation", "definitions"],
-            # Logs anomaly scan: `verdict` (per-bucket) and `kind` (per-issue) share the
-            # spike/drop/silence choice set; pin one stable name for both. `stage` would
-            # otherwise collide with EarlyAccessFeature's stage, so both sides get pinned.
-            "LogsAnomalyVerdictEnum": ["spike", "drop", "silence"],
-            "LogsAnomalyBaselineStageEnum": ["insufficient", "cold_start", "developing", "mature", None],
         }
     ),
 }

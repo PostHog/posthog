@@ -528,7 +528,16 @@ class SurveyQuestionsSchemaField(serializers.ListField):
     pass
 
 
-SURVEY_MATCH_TYPE_CHOICES = ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"]
+class SurveyMatchType(models.TextChoices):
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
+
+
+SURVEY_MATCH_TYPE_CHOICES = list(SurveyMatchType.values)
 
 
 class SurveyAppearanceSchemaSerializer(serializers.Serializer):
