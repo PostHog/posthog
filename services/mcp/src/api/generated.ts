@@ -48593,6 +48593,13 @@ export namespace Schemas {
       total_count: number;
       /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
       baseline_weeks: number;
+      /** Earliest bucket with data inside the fetched lookback. */
+      history_start: string;
+      /**
+         * When this series has enough history to carry a band, so a learning series can count down to it. Null once the band is drawn.
+         * @nullable
+         */
+      band_ready_at: string | null;
       /** One entry per display bucket across the whole window, oldest first, zero-filled. */
       buckets: LogsSeriesBandBucket[];
     }

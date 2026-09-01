@@ -59,6 +59,8 @@ class BandSeries:
     severity: str
     total_count: int
     baseline_weeks: int
+    history_start: dt.datetime
+    band_ready_at: dt.datetime | None
     buckets: list[BandBucket]
 
 
@@ -255,6 +257,8 @@ def _build_series(
         severity=key.severity,
         total_count=total_count,
         baseline_weeks=baseline_weeks,
+        history_start=earliest_slot,
+        band_ready_at=None if banded else earliest_slot + dt.timedelta(weeks=MIN_BASELINE_WEEKS_FOR_BAND),
         buckets=buckets,
     )
 

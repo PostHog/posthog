@@ -57,6 +57,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         series = result.series[0]
         assert (series.namespace, series.environment, series.severity) == ("ns", "prod", "error")
         assert series.baseline_weeks == 5
+        assert series.band_ready_at is None
         assert series.total_count == 25
         assert len(series.buckets) == 7 * 24
 
@@ -87,6 +88,8 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert len(result.series) == 1
         series = result.series[0]
         assert series.baseline_weeks == 1
+        assert series.history_start == WINDOW_START - dt.timedelta(weeks=1)
+        assert series.band_ready_at == WINDOW_START + dt.timedelta(weeks=1)
         assert all(bucket.lower is None and bucket.upper is None for bucket in series.buckets)
         assert series.total_count == 12
 
