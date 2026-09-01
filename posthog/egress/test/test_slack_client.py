@@ -1,8 +1,10 @@
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from prometheus_client import REGISTRY
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from slack_sdk.http_retry.request import HttpRequest
 from slack_sdk.http_retry.response import HttpResponse
@@ -66,3 +68,25 @@ def test_slack_web_client_records_each_retry_attempt() -> None:
         )
         is not None
     )
+
+
+# Slack signals a transient server failure as HTTP 200 with ok:false, so the built-in server-error
+# handler (which keys on 5xx) never retries it. Patch the backoff sleep so the retry is instant.
+@patch("slack_sdk.http_retry.handler.time.sleep")
+def test_slack_web_client_retries_transient_server_error(_mock_sleep) -> None:
+    client = SlackWebClient(token="xoxb-test", source="test", workspace_id="T123", app_id="posthog")
+    responses: list[dict[str, Any]] = [
+        {"status": 200, "headers": {}, "body": '{"ok": false, "error": "internal_error"}'},
+        {"status": 200, "headers": {}, "body": '{"ok": true, "channels": []}'},
+    ]
+    with patch.object(client, "_perform_urllib_http_request_internal", side_effect=responses):
+        assert client.conversations_list()["ok"] is True
+
+
+@patch("slack_sdk.http_retry.handler.time.sleep")
+def test_slack_web_client_gives_up_after_repeated_transient_errors(_mock_sleep) -> None:
+    client = SlackWebClient(token="xoxb-test", source="test", workspace_id="T123", app_id="posthog")
+    transient = {"status": 200, "headers": {}, "body": '{"ok": false, "error": "internal_error"}'}
+    with patch.object(client, "_perform_urllib_http_request_internal", side_effect=[transient] * 5):
+        with pytest.raises(SlackApiError):
+            client.conversations_list()
