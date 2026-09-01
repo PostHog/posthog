@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from django.apps import apps
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 
@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 
 logger = structlog.get_logger(__name__)
+
+access_cache = caches["organization_access"]
 
 ORGANIZATION_ACCESS_CACHE_TTL_SECONDS = 60
 _ORGANIZATION_ACCESS_CACHE_MISS = "missing"
@@ -48,7 +50,7 @@ def _access_cache_version_key(key: str) -> str:
 
 def _get_access_cache_value(key: str) -> Any:
     try:
-        return cache.get(key)
+        return access_cache.get(key)
     except Exception:
         logger.warning("organization_access_cache_get_failure", cache_key=key, exc_info=True)
         return None
@@ -56,14 +58,14 @@ def _get_access_cache_value(key: str) -> Any:
 
 def _set_access_cache_value(key: str, value: Any) -> None:
     try:
-        cache.set(key, value, timeout=ORGANIZATION_ACCESS_CACHE_TTL_SECONDS)
+        access_cache.set(key, value, timeout=ORGANIZATION_ACCESS_CACHE_TTL_SECONDS)
     except Exception:
         logger.warning("organization_access_cache_set_failure", cache_key=key, exc_info=True)
 
 
 def _delete_access_cache_value(key: str) -> None:
     try:
-        cache.delete(key)
+        access_cache.delete(key)
     except Exception:
         logger.warning("organization_access_cache_delete_failure", cache_key=key, exc_info=True)
 
