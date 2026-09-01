@@ -3,16 +3,20 @@ import { router } from 'kea-router'
 import { openSupportPage, setGetHelpAction } from 'lib/lemon-ui/LemonToast/getHelp'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 /** Points the error toast's "Get help" button at in-app support instead of the posthog.com fallback. */
 export function registerToastGetHelp(): void {
     setGetHelpAction(() => {
-        // Self-hosted instances have no support panel to open, so they keep the posthog.com page.
-        // Mirrors the gate the side panel puts its Support tab behind.
+        // In-app support here means the side panel, which is the surface that reads the billing plan:
+        // it offers a ticket only to plans entitled to one. Self-hosted has no Support tab, and a scene
+        // without a panel (onboarding, login) would fall through to the support modal, which asks for a
+        // message from every plan. Both keep the posthog.com page they have today.
         const isCloudOrDev =
             preflightLogic.findMounted()?.values.preflight?.cloud || process.env.NODE_ENV === 'development'
-        if (!isCloudOrDev) {
+        const sidePanelAvailable = sidePanelStateLogic.findMounted()?.values.sidePanelAvailable
+        if (!isCloudOrDev || !sidePanelAvailable) {
             openSupportPage()
             return
         }
