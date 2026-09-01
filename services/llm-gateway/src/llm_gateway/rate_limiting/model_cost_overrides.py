@@ -38,9 +38,6 @@ BASETEN_GLM_COST: Final[ModelCost] = {
     "supports_prompt_caching": True,
 }
 
-# Placeholder: the GLM 5.2 contract rate, pending Baseten listing GLM 5.3. The pin below
-# blocks any automatic correction, so confirm the real contract rate here BEFORE creating
-# the posthog-code-glm-53-model flag (see the README's GLM 5.3 go-live note).
 BASETEN_GLM53_COST: Final[ModelCost] = {
     "litellm_provider": "baseten",
     "mode": "chat",

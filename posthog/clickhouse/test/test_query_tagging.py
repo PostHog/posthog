@@ -590,6 +590,11 @@ class TestAddFallbackQueryTags(BaseTest):
         assert tags.product == Product.PRODUCT_ANALYTICS
         assert tags.feature is None
 
+    def test_missing_capabilities_kind_attributes_to_mcp_analytics(self):
+        tags = QueryTags(query_type="MCPMissingCapabilitiesQuery")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP_ANALYTICS
+
     def test_mcp_source_fills_product_only(self):
         tags = QueryTags(source="mcp")
         add_fallback_query_tags(tags)
