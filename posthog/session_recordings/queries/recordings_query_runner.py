@@ -11,7 +11,8 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.utils import gate_surfacing_score_order, start_url_from_first_url
+from posthog.session_recordings.url_utils import start_url_from_first_url
+from posthog.session_recordings.utils import gate_surfacing_score_order
 
 if TYPE_CHECKING:
     from posthog.models.user import User

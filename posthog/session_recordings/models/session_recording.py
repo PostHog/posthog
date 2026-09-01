@@ -13,7 +13,7 @@ from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.utils import start_url_from_first_url
+from posthog.session_recordings.url_utils import start_url_from_first_url
 
 logger = structlog.get_logger(__name__)
 
