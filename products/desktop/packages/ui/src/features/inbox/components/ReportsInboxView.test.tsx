@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   triageFocusEnabled: false,
   triageProps: null as {
     initialReportId?: string;
+    reports: SignalReport[];
     onExit: () => void;
   } | null,
   locationState: {} as {
@@ -128,6 +129,7 @@ vi.mock("@posthog/ui/features/inbox/components/InboxReportContextMenu", () => ({
 vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
   ReportTriageFocus: (props: {
     initialReportId?: string;
+    reports: SignalReport[];
     onExit: () => void;
   }) => {
     mocks.triageProps = props;
@@ -279,7 +281,10 @@ describe("ReportsInboxView", () => {
 
   it("returns to the same report in triage mode", () => {
     mocks.activeReports = [
-      activeReport("first-report", "First report"),
+      {
+        ...activeReport("merge-report", "Merge report"),
+        implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
+      },
       activeReport("second-report", "Second report"),
     ];
     mocks.searchQuery = "";
@@ -291,5 +296,8 @@ describe("ReportsInboxView", () => {
     render(<ReportsInboxView />);
 
     expect(mocks.triageProps?.initialReportId).toBe("second-report");
+    expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
+      "second-report",
+    ]);
   });
 });

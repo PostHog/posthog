@@ -2,11 +2,15 @@ import {
   ArrowSquareOutIcon,
   ArrowsOutSimpleIcon,
   ChatCircleIcon,
+  CheckCircleIcon,
   EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
-import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
+import {
+  canCreateImplementationPr,
+  canResolveReport,
+} from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   deriveReportVerdict,
@@ -30,6 +34,7 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
@@ -65,6 +70,7 @@ interface ReportVerdictBannerProps {
   report: SignalReport;
   variant?: ReportVerdictBannerVariant;
   prHotkey?: string;
+  resolveHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
@@ -83,6 +89,7 @@ export function ReportVerdictBanner({
   report,
   variant = "full",
   prHotkey,
+  resolveHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
@@ -202,6 +209,11 @@ export function ReportVerdictBanner({
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
     useInboxReportDismissAction(report, surface, triageId);
+  const {
+    dialog: resolveDialog,
+    isPending: resolvePending,
+    openDialog: openResolveDialog,
+  } = useInboxReportResolveAction(report, surface);
   const canDismissHere =
     report.status === "ready" ||
     report.status === "failed" ||
@@ -321,6 +333,33 @@ export function ReportVerdictBanner({
     handleOpenPr,
   ]);
 
+  useEffect(() => {
+    if (!resolveHotkey || !canResolveReport(report)) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== resolveHotkey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        (target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) ||
+        document.querySelector('[role="dialog"], [role="alertdialog"]')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      openResolveDialog();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openResolveDialog, report, resolveHotkey]);
+
   if (
     initialEngagementOnly &&
     (reportTasksLoading || engaged || hasPriorEngagement)
@@ -336,12 +375,26 @@ export function ReportVerdictBanner({
       className={buttonClass}
     >
       <EyeSlashIcon size={15} />
-      Dismiss…
+      {triageActions ? "Dismiss" : "Dismiss…"}
     </Button>
   );
 
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
+      {triageActions && canResolveReport(report) && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => openResolveDialog()}
+          loading={resolvePending}
+          disabled={resolvePending}
+          className={buttonClass}
+          data-attr="inbox-triage-resolve"
+        >
+          <CheckCircleIcon size={15} />
+          Resolve
+        </Button>
+      )}
       {triageActions && dismissButton}
       {report.status === "ready" && externalPrUrl ? (
         <Button
@@ -530,6 +583,7 @@ export function ReportVerdictBanner({
     return (
       <>
         {actionsRow}
+        {resolveDialog}
         {dismissDialog}
       </>
     );

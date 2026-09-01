@@ -1,8 +1,8 @@
-import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
+import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
 import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -98,11 +98,7 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     hasActiveFilters: false,
     triageEnabled: true,
     filterControl: <InboxReportFilters />,
-    scopeControl: (
-      <Button type="button" variant="outline" size="sm">
-        For you
-      </Button>
-    ),
+    scopeControl: <InboxScopeSelect />,
     renderReport: reportRow,
     onConfigureAgents: () => {},
     onEnterTriage: () => {},

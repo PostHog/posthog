@@ -53,7 +53,7 @@ const meta: Meta<typeof InboxDetailFrameView> = {
       <>
         <Button type="button" variant="outline" size="sm">
           <ChatCircleIcon />
-          Ask AI
+          Chat
         </Button>
         <Button type="button" variant="outline" size="sm">
           <CheckCircleIcon />
@@ -66,7 +66,7 @@ const meta: Meta<typeof InboxDetailFrameView> = {
       </>
     ),
     showMetadata: false,
-    summarySection: { Icon: FileTextIcon, title: "Summary" },
+    summarySection: { Icon: FileTextIcon, title: "Report summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,

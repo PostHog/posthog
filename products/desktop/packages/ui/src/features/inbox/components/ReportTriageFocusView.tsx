@@ -262,8 +262,12 @@ export function ReportTriageFocusView({
           </span>
         )}
         <span className="flex items-center gap-1">
+          <KeyHint>R</KeyHint>
+          resolve
+        </span>
+        <span className="flex items-center gap-1">
           <KeyHint>A</KeyHint>
-          archive
+          dismiss
         </span>
         <span className="flex items-center gap-1">
           <KeyHint>O</KeyHint>

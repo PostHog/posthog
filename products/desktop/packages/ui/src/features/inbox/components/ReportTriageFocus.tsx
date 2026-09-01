@@ -301,6 +301,7 @@ export function ReportTriageFocus({
               report={report}
               variant="triage-actions"
               prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
+              resolveHotkey={dismissOpen ? undefined : "r"}
               surface="triage"
               triageId={triageIdRef.current}
             />

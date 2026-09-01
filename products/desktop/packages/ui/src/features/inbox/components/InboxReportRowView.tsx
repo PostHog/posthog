@@ -58,7 +58,7 @@ export function InboxReportRowView({
           onOpen();
         }
       }}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--color-panel-solid) px-3 py-2 text-left transition-[background-color,border-color,opacity] duration-150 hover:border-(--gray-9) hover:bg-(--gray-2) focus-visible:border-(--gray-9) focus-visible:bg-(--gray-2) focus-visible:outline-none ${pr ? "border-(--gray-6) border-solid" : "border-(--gray-6) border-dashed"} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border bg-(--color-panel-solid) px-3 py-2 text-left transition-[background-color,border-color,box-shadow,opacity] duration-150 hover:border-(--gray-9) hover:bg-(--gray-3) hover:shadow-sm focus-visible:border-(--gray-9) focus-visible:bg-(--gray-3) focus-visible:outline-none focus-visible:ring-(--gray-8) focus-visible:ring-1 ${pr || report.status === "resolved" ? "border-(--gray-6) border-solid" : "border-(--gray-6) border-dashed"} ${isTerminal ? "opacity-55 hover:opacity-100 focus-visible:opacity-100" : ""}`}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium text-[14px] text-gray-12">
@@ -76,6 +76,7 @@ export function InboxReportRowView({
           </span>
         )}
         <span className="flex items-center gap-1.5 text-[12.5px] text-gray-10">
+          {pr && <span className="shrink-0 font-medium">{pr.repoSlug}</span>}
           <InboxMetaSourceStack sourceProducts={report.source_products} />
           <RelativeTimestamp
             timestamp={report.created_at}

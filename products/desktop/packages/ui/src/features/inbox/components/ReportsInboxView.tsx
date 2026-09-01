@@ -108,7 +108,7 @@ export function ReportsInboxView(): React.JSX.Element {
     ? serverCounts.reviewAndMerge
     : 0;
   const needsPrCount = showNeedsDecision ? serverCounts.needsPr : 0;
-  const triageReports = useMemo(
+  const activeReports = useMemo(
     () => [
       ...(showReviewAndMerge ? sections.reviewAndMerge : []),
       ...(showNeedsDecision ? sections.needsPr : []),
@@ -120,6 +120,7 @@ export function ReportsInboxView(): React.JSX.Element {
       showReviewAndMerge,
     ],
   );
+  const triageReports = showNeedsDecision ? sections.needsPr : [];
   const visibleReports = useMemo(() => {
     const visibleIds = new Set([
       ...(showReviewAndMerge
@@ -144,7 +145,7 @@ export function ReportsInboxView(): React.JSX.Element {
   ]);
 
   useTrackReportsInboxViewed({
-    reports: triageReports,
+    reports: activeReports,
     totalCount: reviewAndMergeCount + needsPrCount,
     isReady: isSuccess && !serverCounts.isLoading,
     sourceProductFilter,
@@ -209,7 +210,7 @@ export function ReportsInboxView(): React.JSX.Element {
   return (
     <ReportsInboxViewPresentation
       reports={visibleReports}
-      triageReportCount={reviewAndMergeCount + needsPrCount}
+      triageReportCount={needsPrCount}
       isLoading={isLoading}
       isFetchingNextPage={isFetchingNextPage}
       isEmpty={isEmpty}

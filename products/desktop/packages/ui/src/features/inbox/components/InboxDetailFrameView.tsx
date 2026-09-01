@@ -192,7 +192,7 @@ export function InboxDetailFrameView({
                   className="mb-5 h-auto w-full justify-start gap-0.5 border-(--gray-5) border-b"
                 >
                   <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
-                    <span className="font-medium text-[14px]">
+                    <span className="font-bold text-[14px]">
                       {summarySection.title}
                     </span>
                   </TabsTrigger>
@@ -208,7 +208,7 @@ export function InboxDetailFrameView({
               </Tabs>
             ) : (
               <div className="mb-5 flex items-center gap-2.5 border-(--gray-5) border-b pb-3">
-                <span className="font-semibold text-[14px] text-gray-12">
+                <span className="font-bold text-[14px] text-gray-12">
                   {summarySection.title}
                 </span>
                 <span className="flex-1" />
