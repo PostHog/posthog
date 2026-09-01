@@ -38,7 +38,7 @@ from posthog.constants import (
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
 )
 from posthog.dataclasses import frozen
-from posthog.event_usage import get_request_analytics_properties, groups
+from posthog.event_usage import AnalyticsProps, get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -1013,7 +1013,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         validated_data: dict,
         contexts: list[dict[str, Insight | Dashboard]],
         contexts_in_payload: bool,
-        analytics_props: dict,
+        analytics_props: AnalyticsProps,
     ) -> tuple[Subscription, bool]:
         contexts_changed = False
         with transaction.atomic():
