@@ -92,30 +92,3 @@ pub fn upload(args: &Args) -> Result<()> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-
-    #[derive(Parser)]
-    struct ProguardCli {
-        #[command(subcommand)]
-        command: crate::proguard::ProguardSubcommand,
-    }
-
-    fn parse(extra: &[&str]) -> Args {
-        let mut argv = vec![
-            "proguard",
-            "upload",
-            "--path",
-            "mapping.txt",
-            "--map-id",
-            "id",
-        ];
-        argv.extend_from_slice(extra);
-        let crate::proguard::ProguardSubcommand::Upload(args) =
-            ProguardCli::parse_from(argv).command;
-        args
-    }
-}
