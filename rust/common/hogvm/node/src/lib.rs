@@ -12,10 +12,13 @@
 //! can't support fails the execution with an `unsupported_ext_fn:<name>` error so the caller can
 //! fall back to the Node VM.
 
-// Workspace-standard allocator (jemalloc): the interpreter's small-allocation churn was a
-// measured ~33% of self-time under glibc malloc. Applies to this cdylib's Rust allocations,
-// same as every other PostHog Rust service.
-common_alloc::used!();
+// jemalloc: the interpreter's small-allocation churn was a measured ~33% of self-time under
+// glibc malloc. Not via `common_alloc`: node dlopens this cdylib after its other native modules,
+// and jemalloc's default initial-exec TLS then needs static TLS space the process may already
+// have spent, failing the load with "cannot allocate memory in static TLS block". The
+// `disable_initial_exec_tls` feature builds jemalloc with the global-dynamic TLS model instead.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod exec;
 mod ext_fns;

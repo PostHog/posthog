@@ -107,13 +107,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common-alloc"
-version = "0.1.0"
-dependencies = [
- "tikv-jemallocator",
-]
-
-[[package]]
 name = "convert_case"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -315,7 +308,6 @@ dependencies = [
 name = "hogvm-node"
 version = "0.1.0"
 dependencies = [
- "common-alloc",
  "hogvm",
  "maxminddb",
  "napi",
@@ -323,6 +315,7 @@ dependencies = [
  "napi-derive",
  "rayon",
  "serde_json",
+ "tikv-jemallocator",
 ]
 
 [[package]]
