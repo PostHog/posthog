@@ -1,8 +1,8 @@
 """The metric vocabulary the self-optimising loop reads.
 
-Kept in one place because two readers have to agree: the stub generator that writes a suggestion's
-evidence, and the outcome endpoint that reports what the change did. If they name different metrics,
-a proposal's "before" and "after" stop being comparable.
+Kept in one place because the two sides of a suggestion have to agree: whatever writes the evidence
+- a Scout, over the API - and the outcome endpoint that reports what the change did. If they name
+different metrics, a proposal's "before" and "after" stop being comparable.
 """
 
 # Every hog flow metric is mirrored under this app source with the version appended to the flow id,
@@ -30,6 +30,6 @@ GUARDRAIL_LABELS = {"email_blocked": "complaint rate", "email_bounced": "bounce 
 # the surfaces can say the number is missing rather than imply a zero.
 UNAVAILABLE_GUARDRAILS = ("unsubscribe rate",)
 
-# Below this many observations a rate is noise. Surfaces label it instead of presenting it as a
-# finding, and the stub generator won't propose off less than this without --force.
+# Below this many observations a rate is noise. Surfaces label it rather than presenting it as a
+# finding, and a producer has no business proposing off less than this.
 MIN_EVIDENCE_SAMPLE = 20
