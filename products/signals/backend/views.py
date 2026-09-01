@@ -491,7 +491,10 @@ _DISMISSAL_REASON_HELP_TEXT = (
 # Same bound as the stored dismissal artefact, so the state API and the generic artefacts
 # endpoint reject the same over-long repository values.
 _CORRECTED_REPOSITORY_MAX_LENGTH = DISMISSAL_REPOSITORY_MAX_LENGTH
-_CORRECTED_REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
+# Conservative GitHub-style character set (letters, digits, '.', '-', '_'). The correction is later
+# rendered inside markdown code spans in selection prompts and scout notes, so the shape check
+# rejects a backtick, newline, or other punctuation that could break out of the span.
+_CORRECTED_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
 class SignalReportBulkStateOutcome(models.TextChoices):
