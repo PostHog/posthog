@@ -144,11 +144,6 @@ class ReplayObservation(UUIDModel):
             # scanner IN list keeps Postgres off the (scanner, session_id) unique constraint, so without this
             # the read scans the whole team's history and filters session_id away.
             models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
-            models.Index(
-                fields=["workflow_id"],
-                name="rlo_workflow_id_idx",
-                condition=~models.Q(workflow_id=""),
-            ),
             # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
             # in-flight statuses only, since terminal rows dominate and are never counted.
             models.Index(
