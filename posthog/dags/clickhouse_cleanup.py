@@ -20,8 +20,8 @@ from math import ceil
 from django.conf import settings
 
 import dagster
+import psycopg2
 import pydantic
-import psycopg2.extensions
 from clickhouse_driver.client import Client
 from prometheus_client import Counter
 from psycopg2.extras import execute_values
@@ -989,7 +989,7 @@ def delete_orphaned_distinct_ids(
 def persist_deleted_persons(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    persons_database: dagster.ResourceParam[psycopg2.extensions.connection],
+    persons_database_url: dagster.ResourceParam[str],
     run: CleanupRun,
 ) -> CleanupRun:
     """Hand the swept persons to Postgres, before the step that makes them unrecoverable.
@@ -1002,6 +1002,12 @@ def persist_deleted_persons(
     if run.dry_run:
         context.log.info("dry run: skipping the write to %s", PG_CLEANUP_QUEUE_TABLE)
         return run
+
+    # Connected here rather than at resource init: a connect failure at init happens before the
+    # step exists, so no failure hook runs and the run's dictionaries are stranded. Failing
+    # inside the op is a step failure, which is what lets drop_assets_on_failure fire. It also
+    # keeps a dry run from dialing Postgres at all.
+    persons_database = psycopg2.connect(persons_database_url, connect_timeout=10)
 
     def read_page(client: Client, after: tuple[int, str] | None) -> list[tuple[int, str]]:
         # Reads the snapshot directly rather than the dictionary's query, so adding attributes to
@@ -1030,46 +1036,49 @@ def persist_deleted_persons(
     deleted_at = run.distinct_ids_deleted_at
     written = 0
     after: tuple[int, str] | None = None
-    with persons_database.cursor() as cursor:
-        cursor.execute("SET application_name = 'clickhouse_cleanup'")
-        # Bounded so a lock conflict on the queue fails the page instead of holding a transaction
-        # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
-        cursor.execute("SET statement_timeout = '120s'")
-        cursor.execute("SET lock_timeout = '10s'")
-        while True:
-            page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
-            if not page:
-                break
-            # A person can be deleted, drained, re-created and deleted again under the same uuid,
-            # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
-            # row untouched would drop that second deletion on the floor and leak its Postgres rows
-            # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
-            # retried op from rewriting rows that already hold these values: an unconditional
-            # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
-            # leave that many dead tuples for the persons writer to vacuum.
-            execute_values(
-                cursor,
-                f"""
-                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
-                VALUES %s
-                ON CONFLICT (team_id, person_uuid) DO UPDATE
-                SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
-                WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
-                   OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
-                """,
-                [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
-                page_size=1000,
-            )
-            # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
-            # the queued set, which is the page.
-            written += len(page)
-            # Commit per page: the upsert makes replays idempotent, and one transaction across
-            # millions of rows would hold WAL and xmin on the persons writer for the whole op.
-            persons_database.commit()
-            if len(page) < PERSIST_PAGE_SIZE:
-                break
-            last_team, last_person = page[-1]
-            after = (last_team, str(last_person))
+    try:
+        with persons_database.cursor() as cursor:
+            cursor.execute("SET application_name = 'clickhouse_cleanup'")
+            # Bounded so a lock conflict on the queue fails the page instead of holding a transaction
+            # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
+            cursor.execute("SET statement_timeout = '120s'")
+            cursor.execute("SET lock_timeout = '10s'")
+            while True:
+                page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
+                if not page:
+                    break
+                # A person can be deleted, drained, re-created and deleted again under the same uuid,
+                # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
+                # row untouched would drop that second deletion on the floor and leak its Postgres rows
+                # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
+                # retried op from rewriting rows that already hold these values: an unconditional
+                # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
+                # leave that many dead tuples for the persons writer to vacuum.
+                execute_values(
+                    cursor,
+                    f"""
+                    INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
+                    VALUES %s
+                    ON CONFLICT (team_id, person_uuid) DO UPDATE
+                    SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
+                    WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
+                       OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                    """,
+                    [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
+                    page_size=1000,
+                )
+                # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
+                # the queued set, which is the page.
+                written += len(page)
+                # Commit per page: the upsert makes replays idempotent, and one transaction across
+                # millions of rows would hold WAL and xmin on the persons writer for the whole op.
+                persons_database.commit()
+                if len(page) < PERSIST_PAGE_SIZE:
+                    break
+                last_team, last_person = page[-1]
+                after = (last_team, str(last_person))
+    finally:
+        persons_database.close()
 
     context.add_output_metadata({"queued_for_postgres": dagster.MetadataValue.int(written)})
     return run
