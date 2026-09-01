@@ -12,6 +12,14 @@ import {
 } from './timeBuckets'
 
 describe('timeBuckets', () => {
+    beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     describe('normalizeBucket', () => {
         // Guards the flat-zero-sparkline bug: however the query serializes the bucket, its
         // wall-clock digits must survive verbatim, even when the browser sits in a different
@@ -144,8 +152,12 @@ describe('timeBuckets', () => {
     })
 
     describe('resolveInterval', () => {
+        // Relative windows resolve against the clock, so a -7d window that sits inside one calendar
+        // month on most days straddles two at a month boundary. Pin the clock mid-month, or those
+        // cases invert on the 1st of every month.
         beforeEach(() => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
         })
 
         afterEach(() => {
@@ -168,7 +180,8 @@ describe('timeBuckets', () => {
 
     describe('intervalOptionsForWindow', () => {
         beforeEach(() => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
         })
 
         afterEach(() => {

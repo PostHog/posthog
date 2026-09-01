@@ -1,4 +1,9 @@
-import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
+import {
+  buildPrOutput,
+  isAnthropicModelId,
+  mergePrUrls,
+  readPrUrls,
+} from "@posthog/shared";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
@@ -9,6 +14,7 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "./adapters/acp-connection";
+import { machineClaudeAuth } from "./adapters/claude/machine-auth";
 import type { GatewayEnv } from "./adapters/claude/session/options";
 import {
   DEFAULT_CODEX_MODEL,
@@ -82,13 +88,17 @@ export class Agent {
     taskRunId: string,
     options: TaskExecutionOptions = {},
   ): Promise<InProcessAcpConnection> {
-    const gatewayConfig = await this._resolveGatewayConfig(options.gatewayUrl);
+    const claudeSubscription =
+      options.adapter === "claude" &&
+      options.claudeModelAccess === "own-subscription";
+    const gatewayConfig = claudeSubscription
+      ? null
+      : await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
-    // getTask and getUserNode are independent, so start both before building
-    // attribution rather than serializing two startup round trips.
+    const needsAttribution = !claudeSubscription && gatewayConfig !== null;
     const taskPromise =
-      this.posthogAPI && taskId !== "__preview__"
+      needsAttribution && this.posthogAPI && taskId !== "__preview__"
         ? this.posthogAPI.getTask(taskId).catch((error) => {
             this.logger.debug("Failed to fetch task attribution", error);
             return null;
@@ -97,8 +107,9 @@ export class Agent {
     // The node the gateway holds a person's spend limit against. Null (a
     // task-scoped credential) simply carries no user node, so the limit does
     // not apply rather than applying to the wrong person.
-    const userNodePromise =
-      this.posthogAPI?.getUserNode() ?? Promise.resolve(null);
+    const userNodePromise = needsAttribution
+      ? (this.posthogAPI?.getUserNode() ?? Promise.resolve(null))
+      : Promise.resolve(null);
     const [task, userNode] = await Promise.all([taskPromise, userNodePromise]);
 
     const attribution =
@@ -181,12 +192,23 @@ export class Agent {
           : (allowedModelIds[0] ?? sanitizedModel);
       }
     }
-    if (!sanitizedModel && options.adapter !== "codex") {
+    if (!sanitizedModel && options.adapter !== "codex" && !claudeSubscription) {
+      sanitizedModel = DEFAULT_GATEWAY_MODEL;
+    }
+    if (
+      claudeSubscription &&
+      sanitizedModel &&
+      !isAnthropicModelId(sanitizedModel)
+    ) {
+      this.logger.warn(
+        "Saved model is not available on the Claude subscription; using default",
+        { savedModel: sanitizedModel, fallback: DEFAULT_GATEWAY_MODEL },
+      );
       sanitizedModel = DEFAULT_GATEWAY_MODEL;
     }
 
     const claudeGatewayEnv: GatewayEnv | undefined =
-      options.adapter !== "codex" && gatewayConfig
+      options.adapter !== "codex" && !claudeSubscription && gatewayConfig
         ? {
             anthropicBaseUrl: gatewayConfig.gatewayUrl,
             anthropicAuthToken: gatewayConfig.apiKey,
@@ -221,6 +243,7 @@ export class Agent {
       posthogApiConfig: this.posthogApiConfig,
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
+      claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
       contextWiki: options.contextWiki,
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)

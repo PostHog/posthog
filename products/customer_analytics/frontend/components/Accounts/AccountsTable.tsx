@@ -52,6 +52,7 @@ import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansion
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
+import { accountsViewsLogic } from './accountsViewsLogic'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -734,6 +735,8 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 function useContextColumns(): Record<string, QueryContextColumn> {
     const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
+    const { setColumnWidth, reportColumnResize } = useActions(accountsViewsLogic)
     const relationshipUnassignRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -745,10 +748,16 @@ function useContextColumns(): Record<string, QueryContextColumn> {
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
+            const resizeHandlers = {
+                resizable: true,
+                onResize: (width: number) => setColumnWidth(key, width),
+                onResizeEnd: reportColumnResize,
+            }
             if (key === 'tag_names') {
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label="Tags" />,
-                    width: COLUMN_WIDTHS.tag_names,
+                    width: columnWidths[key] ?? COLUMN_WIDTHS.tag_names,
+                    ...resizeHandlers,
                     render: ({ record }) => <TagsCell record={record} isEditable={!accountEditorRestrictionReason} />,
                 }
                 continue
@@ -758,6 +767,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                 const display = displayByAlias[key]
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
+                    width: columnWidths[key],
+                    ...resizeHandlers,
                     render: ({ record }) => (
                         <CustomPropertyCell
                             record={record}
@@ -774,7 +785,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             if (relationshipDefinition) {
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={relationshipDefinition.name} />,
-                    width: COLUMN_WIDTHS.relationship,
+                    width: columnWidths[key] ?? COLUMN_WIDTHS.relationship,
+                    ...resizeHandlers,
                     render: ({ record }) => (
                         <RelationshipCell
                             record={record}
@@ -791,7 +803,8 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             const label = template?.label ?? key
             columns[key] = {
                 renderTitle: () => <SortableColumnHeader column={key} label={label} />,
-                width: template?.width,
+                width: columnWidths[key] ?? template?.width,
+                ...resizeHandlers,
                 render: template?.render ?? (({ record }) => <DefaultAccountCell record={record} column={key} />),
             }
         }
@@ -801,6 +814,9 @@ function useContextColumns(): Record<string, QueryContextColumn> {
         aliasToDefinition,
         aliasToRelationshipDefinition,
         displayByAlias,
+        columnWidths,
+        setColumnWidth,
+        reportColumnResize,
         relationshipUnassignRestrictionReason,
         accountEditorRestrictionReason,
     ])
@@ -906,6 +922,7 @@ function AccountsTableSkeleton({ expandable }: { expandable: boolean }): JSX.Ele
 
 export function AccountsTable(): JSX.Element {
     const { accountsDataTableQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
@@ -931,6 +948,8 @@ export function AccountsTable(): JSX.Element {
                 }}
                 context={{
                     columns: contextColumns,
+                    tableLayout: 'fixed',
+                    tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
                     expandable,
                     dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,

@@ -26,10 +26,14 @@ export function resolveFallbackModel(modelId: string): string | undefined {
 export function rerootedModelOptions(
   modelId: string | undefined,
   existingFallbackModel?: string,
+  machineAuth?: boolean,
 ):
   | { model: string; fallbackModel: string | undefined }
   | Record<string, never> {
   if (!modelId) return {};
+  if (machineAuth) {
+    return { model: modelId, fallbackModel: undefined };
+  }
   const fallbackModel =
     existingFallbackModel && existingFallbackModel !== modelId
       ? existingFallbackModel

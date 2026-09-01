@@ -81,7 +81,7 @@ describe('AccountMeetingsExpansion', () => {
                 resource_access_control: {
                     ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
                     customer_analytics: accessLevel,
-                },
+                } as NonNullable<typeof window.POSTHOG_APP_CONTEXT.resource_access_control>,
             }
             render(
                 <Provider>
