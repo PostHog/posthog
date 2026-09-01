@@ -2342,6 +2342,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Where the cost data for this model was sourced from.",
             "examples": ["openrouter", "manual", "custom", "passthrough"],
         },
+        "$ai_cost_passthrough": {
+            "label": "AI cost passthrough (LLM)",
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [True],
+        },
         "$ai_cost_model_provider": {
             "label": "AI cost model provider (LLM)",
             "description": "The provider used to look up the cost for this model.",
