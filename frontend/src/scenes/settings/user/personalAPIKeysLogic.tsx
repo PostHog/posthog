@@ -4,10 +4,10 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,6 +27,7 @@ import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
 import { AvailableFeature, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
+import { PersonalAPIKeyReveal } from './PersonalAPIKeyReveal'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
@@ -329,6 +330,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     if (!origKey) {
                         return values.keys
                     }
+
+                    // Rolling a key is a time-sensitive action. When the sensitive session has
+                    // expired, resolve re-authentication first so the roll resumes afterwards,
+                    // instead of the server returning a 403 that leaves the click with no result.
+                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
 
                     const rolledKey = await api.personalApiKeys.roll(id)
                     actions.showRollKeySuccessDialog(rolledKey, origKey.mask_value)
@@ -730,6 +736,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             const value = key.value
 
             if (!value) {
+                // The key exists but its one-time value never reached the browser, so the person
+                // has nothing to copy. Say so and point them at the only way to recover it.
+                lemonToast.error(
+                    'Your personal API key was created, but its value could not be shown. Roll the key to get a value you can copy.'
+                )
                 return
             }
 
@@ -737,47 +748,41 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 title: 'Personal API key ready',
                 width: 536,
                 zIndex: '1168',
-                content: (
-                    <>
-                        <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
-
-                        <CodeSnippet className="ph-no-capture" thing="personal API key">
-                            {value}
-                        </CodeSnippet>
-
-                        <LemonBanner type="warning" className="mt-4">
-                            For security reasons the value above <em>will never be shown again</em>.
-                            <br />
-                            Copy it to your destination right away.
-                        </LemonBanner>
-                    </>
-                ),
+                primaryButton: null,
+                content: (onClose) => <PersonalAPIKeyReveal label={key.label} value={value} onDone={onClose} />,
             })
         },
         showRollKeySuccessDialog: async ({ key, prevMaskedValue }) => {
             const value = key.value
 
             if (!value) {
+                lemonToast.error(
+                    'Your key was rolled, but its new value could not be shown. Roll it again to get a value you can copy.'
+                )
                 return
             }
 
             LemonDialog.open({
                 title: 'Personal API key rolled',
                 width: 536,
-                content: (
-                    <>
-                        <p className="mb-4">Your key "{key.label}" has been rolled:</p>
-
-                        <CodeSnippet className="ph-no-capture" thing="personal API key">
-                            {value}
-                        </CodeSnippet>
-
-                        <LemonBanner type="warning" className="mt-4">
-                            Your previous key{prevMaskedValue ? ` "${prevMaskedValue}"` : ''} is no longer valid.
-                        </LemonBanner>
-                    </>
+                primaryButton: null,
+                content: (onClose) => (
+                    <PersonalAPIKeyReveal
+                        label={key.label}
+                        value={value}
+                        rolledFromMaskValue={prevMaskedValue ?? null}
+                        onDone={onClose}
+                    />
                 ),
             })
+        },
+        rollKeyFailure: ({ errorObject }) => {
+            // The generic failure toast in initKea is suppressed for the re-auth 403, which is
+            // meant to be handled by the re-auth modal. If the roll still failed here (dismissed
+            // re-auth, or the server rejected it), say so instead of dropping the click silently.
+            if (errorObject?.code === 'sensitive_action_required_reauth') {
+                lemonToast.error('Could not roll your key. Confirm your identity, then try again.')
+            }
         },
         deleteKeySuccess: () => {
             lemonToast.success(`Personal API key deleted`)

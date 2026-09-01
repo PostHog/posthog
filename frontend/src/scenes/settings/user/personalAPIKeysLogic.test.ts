@@ -2,13 +2,18 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PersonalAPIKeyType } from '~/types'
 
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 
@@ -39,6 +44,10 @@ describe('personalAPIKeysLogic', () => {
                         },
                     ]
                 },
+                '/api/personal_api_keys/:id/roll/': () => [
+                    200,
+                    { id: 'key-to-roll', label: 'Roller', scopes: ['*'], value: 'phx_rolled' },
+                ],
             },
         })
 
@@ -132,5 +141,42 @@ describe('personalAPIKeysLogic', () => {
 
         expect(logic.values.editingKey.scopes).toContain('survey:write')
         expect(logic.values.editingKey.scopes).not.toContain('feature_flag:write')
+    })
+
+    it('surfaces an error when a created key arrives without a value to copy', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+
+        logic.actions.createKeySuccess({ id: 'x', label: 'X', scopes: ['*'] } as PersonalAPIKeyType)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('checks for re-authentication before rolling a key', async () => {
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
+        })
+        apiStatusLogic.mount()
+        timeSensitiveAuthenticationLogic.mount()
+        logic.actions.loadKeysSuccess([
+            { id: 'key-to-roll', label: 'Roller', scopes: ['*'], mask_value: 'phx_...abcd' } as PersonalAPIKeyType,
+        ])
+
+        await expectLogic(timeSensitiveAuthenticationLogic, () => {
+            logic.actions.rollKey('key-to-roll')
+        }).toDispatchActions(['checkReauthentication'])
+    })
+
+    it.each([
+        ['sensitive_action_required_reauth', 1],
+        ['server_error', 0],
+    ])('toasts a roll failure only for the re-auth 403 (code %s)', async (code, expectedToasts) => {
+        const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+
+        logic.actions.rollKeyFailure('failed', { code, status: code === 'server_error' ? 500 : 403 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorSpy).toHaveBeenCalledTimes(expectedToasts)
     })
 })
