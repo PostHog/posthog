@@ -55,6 +55,7 @@ export function DestinationsTab({ id }: DestinationsTabProps): JSX.Element {
                 selectedIds={attachedDestinationIds}
                 onToggle={toggleDestination}
                 onEdit={openForEdit}
+                metricsSourceId={id}
             />
 
             <LemonButton

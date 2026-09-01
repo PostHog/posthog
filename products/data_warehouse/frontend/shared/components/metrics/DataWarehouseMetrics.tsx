@@ -1,10 +1,17 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
+
+import { DestinationMetricSummary } from './DestinationMetricSummary'
 
 export const DATA_WAREHOUSE_APP_SOURCE = 'warehouse_source_sync'
 
@@ -57,6 +64,21 @@ export function DataWarehouseMetrics({ logicKey, sourceId, schemaId }: DataWareh
     })
 
     const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { destinations } = useValues(destinationLookupLogic)
+    const { loadDestinations } = useActions(destinationLookupLogic)
+
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION] && !schemaId
+
+    useEffect(() => {
+        if (showDestinations) {
+            loadDestinations()
+        }
+    }, [showDestinations, loadDestinations])
+
+    // With a single destination every row already went there, so a breakdown would repeat the
+    // totals above it.
+    const destinationBreakdown = showDestinations && destinations.length > 1 ? destinations : []
 
     const metricLabels = Object.fromEntries(
         DATA_WAREHOUSE_METRIC_KEYS.map((key) => [key, DATA_WAREHOUSE_METRICS_INFO[key].name])
@@ -88,6 +110,21 @@ export function DataWarehouseMetrics({ logicKey, sourceId, schemaId }: DataWareh
                 loading={appMetricsTrendsLoading}
                 metricLabels={metricLabels}
             />
+
+            {destinationBreakdown.length > 0 && (
+                <>
+                    <h3 className="mb-0 mt-2">By destination</h3>
+                    <div className="flex flex-row gap-2 flex-wrap justify-center">
+                        {destinationBreakdown.map((destination) => (
+                            <DestinationMetricSummary
+                                key={destination.id}
+                                sourceId={sourceId}
+                                destination={destination}
+                            />
+                        ))}
+                    </div>
+                </>
+            )}
         </div>
     )
 }

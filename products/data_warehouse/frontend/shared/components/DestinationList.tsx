@@ -1,6 +1,9 @@
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
 
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+
+import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DestinationIcon, destinationTypeLabel } from './DestinationIcon'
@@ -26,6 +29,11 @@ export interface DestinationListProps {
     onEdit: (destination: ExternalDataDestinationApi) => void
     /** Set to make every toggle read-only, e.g. while a table inherits its source's set. */
     toggleDisabledReason?: string
+    /**
+     * The source these destinations belong to. Set it to show what each one has been receiving.
+     * Left unset before the source exists, as in the creation wizard, where there is nothing yet.
+     */
+    metricsSourceId?: string
 }
 
 export function DestinationList({
@@ -35,6 +43,7 @@ export function DestinationList({
     onToggle,
     onEdit,
     toggleDisabledReason,
+    metricsSourceId,
 }: DestinationListProps): JSX.Element {
     // Turning the last one off would leave the source syncing nowhere, which is what disabling a
     // table is for. Pin it on rather than letting the save fail.
@@ -69,6 +78,35 @@ export function DestinationList({
                 </LemonTag>
             ),
         },
+        ...(metricsSourceId
+            ? [
+                  {
+                      title: 'Rows synced (7d)',
+                      key: 'rows_synced_sparkline',
+                      render: function RenderSparkline(_: unknown, destination: ExternalDataDestinationApi) {
+                          return (
+                              <AppMetricsSparkline
+                                  logicKey={`dwh-destination-sparkline-${destination.id}`}
+                                  loadOnChanges
+                                  successMetricNames={['rows_synced']}
+                                  metricLabels={{ rows_synced: 'Rows synced' }}
+                                  forceParams={{
+                                      appSource: DATA_WAREHOUSE_APP_SOURCE,
+                                      appSourceId: metricsSourceId,
+                                      // Runs record each destination on its own, without a schema,
+                                      // so one series covers every table on the source.
+                                      instanceId: destination.id,
+                                      metricName: ['rows_synced'],
+                                      breakdownBy: 'metric_name',
+                                      interval: 'day',
+                                      dateFrom: '-7d',
+                                  }}
+                              />
+                          )
+                      },
+                  },
+              ]
+            : []),
         {
             title: '',
             key: 'actions',
