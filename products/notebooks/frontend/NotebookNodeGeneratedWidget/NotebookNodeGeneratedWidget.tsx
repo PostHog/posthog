@@ -291,8 +291,10 @@ function ExpandedWidget({
                                 )
                             }
                             onRendered={() => {
+                                // A failed startup posts `error` before the load-driven `rendered`.
+                                // Clearing the error here would hide that warning. The reducer already
+                                // drops a stale error when a new document loads (refresh, generate, version switch).
                                 artifactAvailable()
-                                setRuntimeError(null)
                             }}
                         />
                     </div>
