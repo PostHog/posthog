@@ -97,7 +97,10 @@ class Command(BaseCommand):
                         "Old and new tokens both left in place; this integration needs manual repair."
                     )
                 if publication.unwritten:
-                    raise RuntimeError(f"Stripe secret store not updated: {', '.join(publication.unwritten)}")
+                    reason = type(publication.cause).__name__ if publication.cause else "unknown cause"
+                    raise RuntimeError(
+                        f"Stripe secret store not updated ({reason}): {', '.join(publication.unwritten)}"
+                    ) from publication.cause
 
                 revoke_team_oauth_tokens(
                     StripeIntegration._posthog_oauth_apps_for_revocation(),
@@ -107,7 +110,10 @@ class Command(BaseCommand):
             except Exception as e:
                 # write_posthog_secrets already drops a credential that never reached Stripe, and a
                 # partial write must keep both, so there is nothing to unwind here.
-                capture_exception(e, {"integration_id": integration.id, "team_id": integration.team_id})
+                context: dict[str, object] = {"integration_id": integration.id, "team_id": integration.team_id}
+                if e.__cause__ is not None:
+                    context["failure_reason"] = type(e.__cause__).__name__
+                capture_exception(e, context)
                 self.stdout.write(self.style.ERROR(f"  {label}: failed ({e})"))
                 failed.append(f"{label}: {e}")
                 continue

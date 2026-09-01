@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.integration import Integration, StripeIntegration
+from posthog.models.integration.stripe import StripeClientUnavailable, StripeSecretWritesFailed
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 
@@ -348,7 +349,8 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         assert OAuthAccessToken.objects.filter(application=self.new_app, scoped_teams__contains=[self.team.pk]).exists()
 
     @patch("stripe.StripeClient")
-    def test_a_write_that_never_reaches_stripe_leaves_no_credential(self, MockStripeClient) -> None:
+    @patch("posthog.management.commands.rotate_stripe_marketplace_tokens.capture_exception")
+    def test_a_write_that_never_reaches_stripe_leaves_no_credential(self, mock_capture, MockStripeClient) -> None:
         mock_client = MagicMock()
         mock_client.apps.secrets.create.side_effect = Exception("simulated Stripe API failure")
         MockStripeClient.return_value = mock_client
@@ -373,6 +375,40 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         assert not OAuthAccessToken.objects.filter(
             application=self.new_app, scoped_teams__contains=[self.team.pk]
         ).exists()
+
+        # The three total-failure paths must reach error tracking with a distinct cause, or they
+        # collapse into one fingerprint again. Writes-failed carries StripeSecretWritesFailed.
+        error, context = mock_capture.call_args.args
+        assert context["failure_reason"] == "StripeSecretWritesFailed"
+        assert isinstance(error.__cause__, StripeSecretWritesFailed)
+
+    @patch("stripe.StripeClient")
+    @patch("posthog.management.commands.rotate_stripe_marketplace_tokens.capture_exception")
+    def test_a_missing_stripe_client_reports_a_distinct_cause(self, mock_capture, MockStripeClient) -> None:
+        # No STRIPE_APP settings, so no Stripe client can be built. This path differs from a failed
+        # write and must report its own cause.
+        integration, stale_access, stale_refresh = self._create_integration_with_token(
+            self.team, "acct_no_client", self.old_app, created_by=self.user
+        )
+
+        out = StringIO()
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID=None,
+            STRIPE_APP_SECRET_KEY=None,
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=out)
+
+        assert "Failed: 1" in out.getvalue()
+        assert OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+        assert not OAuthAccessToken.objects.filter(
+            application=self.new_app, scoped_teams__contains=[self.team.pk]
+        ).exists()
+
+        error, context = mock_capture.call_args.args
+        assert context["failure_reason"] == "StripeClientUnavailable"
+        assert isinstance(error.__cause__, StripeClientUnavailable)
 
     @patch("stripe.StripeClient")
     def test_leaves_a_credential_shared_with_another_team(self, MockStripeClient) -> None:

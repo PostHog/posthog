@@ -36,16 +36,36 @@ STRIPE_POSTHOG_SECRET_NAMES = (
 )
 
 
+class StripeSecretPublicationError(Exception):
+    """Base for the reasons no PostHog secret reached Stripe's Secret Store."""
+
+
+class StripeMarketplaceOAuthAppUnavailable(StripeSecretPublicationError):
+    """The marketplace OAuth application is missing or points at the orchestrator."""
+
+
+class StripeClientUnavailable(StripeSecretPublicationError):
+    """No Stripe client could be built because the Stripe OAuth config is unset."""
+
+
+class StripeSecretWritesFailed(StripeSecretPublicationError):
+    """Every apps.secrets.create call against Stripe failed."""
+
+
 @frozen
 class StripeSecretPublication:
     """What one attempt to publish PostHog's credentials into Stripe's Secret Store produced.
 
     `access_token_id` is None when nothing reached Stripe, because the credential minted for
     that attempt is then unreachable by anyone and is dropped rather than left to expire.
+
+    `cause` names why no secret reached Stripe, so a caller can chain it and the three total
+    failure paths keep distinct fingerprints. It is None on a full or partial write.
     """
 
     access_token_id: int | None
     unwritten: tuple[str, ...]
+    cause: StripeSecretPublicationError | None = None
 
 
 def revoke_team_oauth_tokens(
@@ -157,11 +177,14 @@ class StripeIntegration:
 
         oauth_app = self._get_posthog_oauth_app()
         if not oauth_app:
+            cause: StripeSecretPublicationError = StripeMarketplaceOAuthAppUnavailable(
+                "Stripe marketplace OAuth application not found, cannot write secrets to Stripe"
+            )
             capture_exception(
-                Exception("Stripe marketplace OAuth application not found, cannot write secrets to Stripe"),
+                cause,
                 {"integration_id": self.integration.id, "team_id": self.integration.team_id},
             )
-            return StripeSecretPublication(access_token_id=None, unwritten=STRIPE_POSTHOG_SECRET_NAMES)
+            return StripeSecretPublication(access_token_id=None, unwritten=STRIPE_POSTHOG_SECRET_NAMES, cause=cause)
 
         access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
@@ -198,9 +221,11 @@ class StripeIntegration:
 
         client = self._stripe_client()
         if client is None:
-            return self._discard_unpublished(access_token, tuple(secrets))
+            cause = StripeClientUnavailable("Stripe client unavailable, Stripe OAuth config is unset")
+            return self._discard_unpublished(access_token, tuple(secrets), cause=cause)
 
         failed: list[str] = []
+        last_error: Exception | None = None
         for name, payload in secrets.items():
             try:
                 client.apps.secrets.create(
@@ -213,6 +238,7 @@ class StripeIntegration:
                 )
             except Exception as e:
                 failed.append(name)
+                last_error = e
                 capture_exception(
                     e,
                     {
@@ -222,16 +248,23 @@ class StripeIntegration:
                 )
 
         if len(failed) == len(secrets):
-            return self._discard_unpublished(access_token, tuple(failed))
+            cause = StripeSecretWritesFailed(f"Every Stripe secret write failed: {', '.join(failed)}")
+            cause.__cause__ = last_error
+            return self._discard_unpublished(access_token, tuple(failed), cause=cause)
 
         return StripeSecretPublication(access_token_id=access_token.pk, unwritten=tuple(failed))
 
     @staticmethod
-    def _discard_unpublished(access_token: OAuthAccessToken, unwritten: tuple[str, ...]) -> StripeSecretPublication:
+    def _discard_unpublished(
+        access_token: OAuthAccessToken,
+        unwritten: tuple[str, ...],
+        *,
+        cause: StripeSecretPublicationError | None = None,
+    ) -> StripeSecretPublication:
         """Drop a credential that never reached Stripe, so a retry cannot accumulate live tokens."""
         OAuthRefreshToken.objects.filter(access_token=access_token).delete()
         access_token.delete()
-        return StripeSecretPublication(access_token_id=None, unwritten=unwritten)
+        return StripeSecretPublication(access_token_id=None, unwritten=unwritten, cause=cause)
 
     def clear_posthog_secrets(self) -> None:
         """Best-effort clear of PostHog secrets from Stripe and revoke local OAuth tokens."""
