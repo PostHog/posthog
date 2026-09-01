@@ -259,7 +259,6 @@ impl MergeEntrance {
                 op_id: op_id.to_string(),
                 survivor: Some(pushed.unwrap_or_else(|| target_person.into())),
                 results,
-                survivor_created: target_was_born,
             });
         }
 
@@ -718,11 +717,5 @@ fn merge_response(
             .map(|s| survivor_to_proto(s, row.team_id))
             .or(delivered),
         results,
-        // Not always true: an unresolved target with an already-identified
-        // source both births and runs a saga, and the op row does not record
-        // which, so a resume answers the safe way and the caller runs its
-        // follow-up update. Costs that newborn its $creator_event_uuid,
-        // which only the inline path stamps.
-        survivor_created: false,
     })
 }

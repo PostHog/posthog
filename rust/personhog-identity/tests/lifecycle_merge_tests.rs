@@ -2183,10 +2183,8 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
         )]
     );
     // Establishment birthed the target while the classification loop sent
-    // the identified source to the saga, so the response reports no birth
-    // and the newborn carries no creating event. Only the inline settlement
-    // stamps one.
-    assert!(!response.survivor_created);
+    // the identified source to the saga; only the inline settlement stamps
+    // a creating event, so the newborn carries none.
     let born_properties: serde_json::Value = if survivor.properties.is_empty() {
         serde_json::json!({})
     } else {
@@ -2303,9 +2301,7 @@ async fn a_fully_unresolved_call_births_the_target_person() {
             .and_then(serde_json::Value::as_str),
         Some("11111111-2222-3333-4444-555555555555")
     );
-    // Born by this call and identified by the settlement flip, which is the
-    // pair the caller reads to decide it needs no follow-up update.
-    assert!(response.survivor_created);
+    // Born by this call, so the inline settlement stamped the creator.
     let op_count: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
         .bind(op_id)
         .fetch_one(&h.ctx.pool)
@@ -2357,7 +2353,6 @@ async fn attaching_an_unseen_target_onto_a_source_is_not_a_birth() {
 
     let survivor = response.survivor.as_ref().expect("survivor present");
     assert_eq!(survivor.id, source);
-    assert!(!response.survivor_created);
     let properties: serde_json::Value =
         serde_json::from_slice(&survivor.properties).expect("survivor properties are JSON");
     assert!(properties.get("$creator_event_uuid").is_none());
@@ -2431,7 +2426,6 @@ async fn a_resolved_target_does_not_gain_a_creator_event_uuid() {
         serde_json::from_slice(&survivor.properties).expect("survivor properties are JSON")
     };
     assert_eq!(properties.get("$creator_event_uuid"), None);
-    assert!(!response.survivor_created);
 
     h.ctx.cleanup().await.expect("cleanup");
 }

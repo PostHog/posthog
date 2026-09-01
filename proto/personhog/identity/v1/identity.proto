@@ -156,13 +156,16 @@ message MergePersonsRequest {
   // establish path); a resolved survivor's created_at is the min of the
   // target's and the sealed sources' own values, never this field.
   int64 created_at = 9;
-  // The uuid of the event that asked for this merge, recorded as
-  // $creator_event_uuid on a person the establish path births (only that
-  // branch, matching the Postgres backend) and carried onto every fence
-  // the seal step installs, where it is echoed on rejections as
-  // `x-person-fenced-creator`. Send the executing event's uuid, stable
-  // across retries — a per-delivery value would mis-aim the caller's
-  // fence classification.
+  // The uuid of the event that asked for this merge. It cannot be
+  // recovered from op_id: the op id is a one-way derivation, and one
+  // event can own several ops at once (a fold plan and its per-event
+  // fallback merges share this value but not op ids), so the two fields
+  // answer different questions — op_id names the operation, this names
+  // the event behind it. The seal step copies it onto each fence, and a
+  // fenced write's rejection echoes it as `x-person-fenced-creator`, so
+  // the caller holding the event can classify the fence. It is also
+  // recorded as $creator_event_uuid on a person the establish path
+  // births. Send the same value on every retry.
   string creator_event_uuid = 10;
 }
 
@@ -228,12 +231,10 @@ message MergePersonsResponse {
   optional personhog.types.v1.Person survivor = 2;
   // One result per requested source, same order as the request.
   repeated MergeSourceResult results = 3;
-  // True when this call created the survivor rather than resolving one
-  // that existed; a saga run reports false whether or not it created one.
-  // A newborn carries the event's properties but is identified only when
-  // some source settled attached or same-person, so a caller deciding to
-  // skip its follow-up update weighs both.
-  bool survivor_created = 4;
+  // 4 was survivor_created, a skip-the-follow-up-update hint retired
+  // when the caller stopped deciding writes client-side: the follow-up
+  // always runs and the leader answers it as a no-op.
+  reserved 4;
 }
 
 // PersonHogIdentity owns the identity graph: distinct id resolution,
