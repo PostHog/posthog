@@ -35,21 +35,21 @@ _MINT_TIMEOUT_SECONDS = 10
 _MIN_TTL_SECONDS = 3600
 _MAX_TTL_SECONDS = 86400
 
-# The gateway 400s a cap that is non-positive, over 6dp, or above its top-up
-# ceiling, so a bad knob falls back locally instead of 503ing every mint.
+# A bad knob or payload falls back locally instead of 503ing every mint. The
+# cap ceiling is a wizard-run backstop, well under the gateway's own.
 _DEFAULT_CAP_USD = Decimal("20")
-_MAX_CAP_USD = Decimal("10000")
+_MAX_CAP_USD = Decimal("30")
 _CAP_QUANTUM = Decimal("0.000001")
 
 WIZARD_PRODUCT = "wizard"
 
-# Payload: {"cap_usd": "200", "mints_per_day": 100}. A person flag: email,
+# Payload: {"cap_usd": "30", "mints_per_day": 100}. A person flag: email,
 # organization_id, and team_id ride as person properties so one flag can target
 # engineers by email and candidates by org id.
 WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG = "wizard-gateway-limit-override"
 
 # Above this a value only widens a fat-finger; the gateway's mint rate bounds the fleet.
-_MAX_MINTS_PER_DAY = 1000
+_MAX_MINTS_PER_DAY = 150
 
 
 @frozen

@@ -813,14 +813,14 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_limit_override_cap_reaches_the_mint(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.return_value = json.dumps({"cap_usd": "200"})
+        self.mock_limit_payload.return_value = json.dumps({"cap_usd": "30"})
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        assert mock_mint.call_args.kwargs["cap_usd"] == Decimal("200.000000")
+        assert mock_mint.call_args.kwargs["cap_usd"] == Decimal("30.000000")
         self.mock_limit_payload.assert_called_once_with(
             "wizard-gateway-limit-override",
             str(self.user.distinct_id),
