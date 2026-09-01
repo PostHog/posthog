@@ -60,6 +60,7 @@ export interface PiRpcBootstrap {
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   taskContext: TaskContext;
+  rtkExecutable?: string;
   extensions?: PiRuntimeExtension[];
   /** Local checkout of the org's context wiki, when one is mounted. */
   contextWikiPath?: string;
@@ -444,6 +445,7 @@ export type PiRpcClientOptions = Pick<RpcClientOptions, "cliPath" | "model"> & {
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   taskContext: TaskContext;
+  rtkExecutable?: string;
   extensions?: PiRuntimeExtension[];
   contextWikiPath?: string;
 };
@@ -456,6 +458,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     runtimeMcpServers,
     mcpToolPolicies,
     taskContext,
+    rtkExecutable,
     extensions,
     contextWikiPath,
     ...rpcOptions
@@ -478,6 +481,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       runtimeMcpServers,
       mcpToolPolicies,
       taskContext,
+      rtkExecutable,
       extensions,
       contextWikiPath,
     } satisfies PiRpcBootstrap,

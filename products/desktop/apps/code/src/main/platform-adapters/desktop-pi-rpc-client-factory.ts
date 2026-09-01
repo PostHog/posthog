@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +9,10 @@ import {
 import type { TaskContext } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
+import {
+  BUNDLED_RESOURCES_SERVICE,
+  type IBundledResources,
+} from "@posthog/platform/bundled-resources";
 import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
@@ -35,6 +40,8 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     @inject(MCP_SERVER_CONNECTION_SOURCE)
     private readonly mcpServerSource: McpServerConnectionSource,
     @inject(ROOT_LOGGER) private readonly rootLogger: RootLogger,
+    @inject(BUNDLED_RESOURCES_SERVICE)
+    private readonly bundledResources: IBundledResources,
   ) {}
 
   async create(
@@ -74,6 +81,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       model: input.model,
       sessionFile: input.sessionFile,
       taskContext,
+      rtkExecutable: this.getBundledRtkExecutable(),
       enrichment: {
         apiUrl: enrichmentApiUrl,
         publicApiUrl: access.apiHost,
@@ -90,6 +98,14 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       extensions: ["context-wiki"],
       contextWikiPath,
     });
+  }
+
+  private getBundledRtkExecutable(): string | undefined {
+    const binary = process.platform === "win32" ? "rtk.exe" : "rtk";
+    const executable = this.bundledResources.resolve(
+      `.vite/build/rtk/${binary}`,
+    );
+    return existsSync(executable) ? executable : undefined;
   }
 
   /**

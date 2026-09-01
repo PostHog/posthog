@@ -147,6 +147,7 @@ closeSync(3);
 writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
   extensions: bootstrap.extensions,
+  rtkExecutable: bootstrap.rtkExecutable,
   apiKey: bootstrap.providerOptions.apiKey,
 }));
 process.stdin.resume();
@@ -157,6 +158,7 @@ process.stdin.resume();
       taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
       extensions: ["repository-tools"],
+      rtkExecutable: "/bundle/rtk",
     });
 
     try {
@@ -166,6 +168,7 @@ process.stdin.resume();
           JSON.stringify({
             nodeMode: "1",
             extensions: ["repository-tools"],
+            rtkExecutable: "/bundle/rtk",
             apiKey: "proxy-key",
           }),
         );

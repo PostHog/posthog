@@ -48,6 +48,8 @@ const sessionFile = argumentValue("--session-file");
 const sessionManager = sessionFile
   ? SessionManager.open(sessionFile, undefined, cwd)
   : SessionManager.create(cwd);
+const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
+
 function requestMcpToolPermission(
   request: McpToolPermissionRequest,
 ): Promise<McpToolPermissionDecision> {
@@ -84,7 +86,6 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
 const runtimeExtensions = (bootstrap.extensions ?? []).map(
   (extension) => extensionFactories[extension],
 );
-const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
 runtimeExtensions.push(createPiTaskSystemPromptExtension(taskContext));
 if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
@@ -96,6 +97,7 @@ const runtime = await createHarnessRuntime({
   projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
+  rtkExecutable: bootstrap.rtkExecutable,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
   mcpToolPolicies: bootstrap.mcpToolPolicies,
   requestMcpToolPermission,

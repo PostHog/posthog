@@ -11,6 +11,8 @@ const SAFE_ENVIRONMENT_KEYS = [
   "NO_COLOR",
   "PATH",
   "PATHEXT",
+  "POSTHOG_RTK",
+  "RTK_DISABLED",
   "SHELL",
   "SystemRoot",
   "TEMP",

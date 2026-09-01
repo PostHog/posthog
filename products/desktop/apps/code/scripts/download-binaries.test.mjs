@@ -8,6 +8,7 @@ import {
   downloadBinary,
   downloadFile,
   MAX_DOWNLOAD_ATTEMPTS,
+  verifyChecksum,
 } from "./download-binaries.mjs";
 
 vi.mock("node:timers/promises", () => {
@@ -42,6 +43,7 @@ vi.mock("node:fs", () => {
     createWriteStream: vi.fn(() => ({})),
     existsSync: vi.fn(() => true),
     mkdirSync: vi.fn(),
+    readFileSync: vi.fn(() => Buffer.alloc(0)),
     realpathSync: vi.fn(() => "/not/the/entrypoint"),
     renameSync: vi.fn(),
     rmSync: vi.fn(),
@@ -72,6 +74,7 @@ describe("download binaries", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -182,6 +185,61 @@ describe("download binaries", () => {
         `codesign --force --sign - "${binaryPath}"`,
         { stdio: "pipe" },
       );
+    }
+  });
+
+  it("rejects an archive with an unexpected checksum", () => {
+    const checksum =
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    expect(() =>
+      verifyChecksum(Buffer.alloc(0), checksum, "rtk.tar.gz"),
+    ).not.toThrow();
+    expect(() =>
+      verifyChecksum(Buffer.from("modified"), checksum, "rtk.tar.gz"),
+    ).toThrow("Checksum mismatch for rtk.tar.gz");
+  });
+
+  it("uses the configured target for RTK", () => {
+    vi.stubEnv("npm_config_platform", "darwin");
+    vi.stubEnv("npm_config_arch", "x64");
+    const rtk = BINARIES.find((binary) => binary.name === "rtk");
+
+    expect(rtk?.getTarget()).toBe("x86_64-apple-darwin");
+  });
+
+  it("downloads RTK from its pinned release", async () => {
+    const rtk = BINARIES.find((binary) => binary.name === "rtk");
+    if (!rtk) {
+      throw new Error("RTK binary is missing");
+    }
+    const target = rtk.getTarget();
+    if (!target) {
+      return;
+    }
+
+    const destination = "/tmp/rtk-binaries";
+    const binaryName = process.platform === "win32" ? "rtk.exe" : "rtk";
+    const binaryPath = `${destination}/${binaryName}`;
+    let binaryChecks = 0;
+    existsSync.mockImplementation((path) => {
+      if (path !== binaryPath) {
+        return false;
+      }
+      binaryChecks += 1;
+      return binaryChecks > 1;
+    });
+    fetchMock.mockResolvedValue(okResponse());
+
+    await downloadBinary({ ...rtk, checksum: undefined }, destination);
+
+    const archiveSuffix = target.includes("windows") ? ".zip" : ".tar.gz";
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://github.com/rtk-ai/rtk/releases/download/v${rtk.version}/rtk-${target}${archiveSuffix}`,
+      { redirect: "follow" },
+    );
+    if (process.platform !== "win32") {
+      expect(chmodSync).toHaveBeenCalledWith(binaryPath, 0o755);
     }
   });
 

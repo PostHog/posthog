@@ -606,6 +606,37 @@ export function copyEnricherGrammars(): Plugin {
   };
 }
 
+let rtkCopied = false;
+
+export function copyRtkExecutable(): Plugin {
+  return {
+    name: "copy-rtk-executable",
+    writeBundle() {
+      const binaryName = targetPlatform() === "win32" ? "rtk.exe" : "rtk";
+      const source = join(__dirname, "resources", "codex-acp", binaryName);
+      const destination = join(__dirname, ".vite/build/rtk", binaryName);
+
+      if (rtkCopied && existsSync(destination)) {
+        return;
+      }
+      if (!existsSync(source)) {
+        console.warn(
+          `[copy-rtk-executable] RTK binary not found at ${source}. Run 'node scripts/download-binaries.mjs' first.`,
+        );
+        return;
+      }
+
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(source, destination);
+      if (targetPlatform() !== "win32") {
+        execSync(`chmod +x "${destination}"`);
+      }
+      signClaudeBinary(destination);
+      rtkCopied = true;
+    },
+  };
+}
+
 let codexAcpCopied = false;
 
 export function copyCodexAcpBinaries(): Plugin {

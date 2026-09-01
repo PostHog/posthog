@@ -33,6 +33,7 @@ import {
   createPosthogPlugin,
   mainAliases,
 } from "./vite.shared.mjs";
+import { copyRtkExecutable } from "./vite-main-plugins.mjs";
 import { autoServicesPlugin } from "./vite-plugin-auto-services";
 
 function getGitCommit(): string {
@@ -614,6 +615,7 @@ export default defineConfig(({ mode }) => {
       copyPosthogPlugin(isDev),
       copyDrizzleMigrations(),
       copyCodexAcpBinaries(),
+      copyRtkExecutable(),
       copyEnricherGrammars(),
       createPosthogPlugin(env, "posthog-code-main"),
     ].filter(Boolean),

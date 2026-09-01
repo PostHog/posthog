@@ -17,11 +17,13 @@ import { createPosthogMcpPolicyExtension } from "./posthog-mcp-policy/extension"
 import { createPosthogProviderExtension } from "./posthog-provider/extension";
 import type { PosthogProviderOptions } from "./posthog-provider/provider";
 import { createProductEngineerExtension } from "./product-engineer/extension";
+import { createRtkExtension, type RtkExtensionOptions } from "./rtk/extension";
 import { createWebAccessExtension } from "./web-access/extension";
 
 export type HarnessExtensionOptions = PosthogProviderOptions &
   HogBrandingOptions &
-  PosthogMcpPolicyOptions & {
+  PosthogMcpPolicyOptions &
+  RtkExtensionOptions & {
     runtimeMcpServers?: McpConfig["mcpServers"];
   };
 
@@ -35,6 +37,7 @@ const EXTENSIONS: HarnessExtension[] = [
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "product-engineer", create: () => createProductEngineerExtension() },
   { name: "orchestration", create: () => createOrchestrationExtension() },
+  { name: "rtk", create: createRtkExtension },
   { name: "web-access", create: createWebAccessExtension },
   {
     name: "mcp",
