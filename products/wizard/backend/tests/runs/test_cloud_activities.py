@@ -234,7 +234,33 @@ def test_clone_repository_rejects_access_revoked_after_creation(team, user) -> N
         async_to_sync(_run_clone_repository)(_worker(run))
 
     assert error.value.type == WIZARD_REPOSITORY_ACCESS_ERROR_TYPE
+    assert error.value.non_retryable is True
     clone.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) -> None:
+    run = _create_cloud_run(team.id, user.id)
+
+    with (
+        patch(
+            "products.wizard.backend.logic.runs.repository_access.repo_selection.resolve_team_github_integration_id",
+            return_value=456,
+        ),
+        patch(
+            "products.wizard.backend.logic.runs.repository_access.repo_selection.repository_accessible_via_integration",
+            return_value=True,
+        ),
+        patch(
+            "products.wizard.backend.temporal.activities.workspace.cloud_worker.clone_repository",
+            side_effect=WizardWorkerExecutionError("repository clone", 128),
+        ),
+        pytest.raises(ApplicationError) as error,
+    ):
+        async_to_sync(_run_clone_repository)(_worker(run))
+
+    assert error.value.type == WIZARD_WORKER_EXECUTION_ERROR_TYPE
+    assert not error.value.non_retryable
 
 
 @pytest.mark.parametrize(
