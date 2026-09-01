@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+from redis import exceptions as redis_exceptions
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
@@ -102,6 +103,23 @@ class TestRateLimit(BaseTest):
         labeled_products = {call.kwargs.get("product") for call in mock_counter.labels.call_args_list}
         self.assertIn("unknown", labeled_products)
         self.assertNotIn("totally-made-up-product", labeled_products)
+
+    @parameterized.expand(
+        [
+            ("connection_error", redis_exceptions.ConnectionError),
+            ("timeout_error", redis_exceptions.TimeoutError),
+        ]
+    )
+    def test_redis_unavailable_falls_through_without_a_slot(self, _name, redis_error):
+        # An unreachable Redis must not fail the caller's query. The limiter is only a throttling
+        # guard, so it lets the caller run without a slot and records the fall-through.
+        self.limit.redis_client = Mock()
+        self.limit.redis_client.eval.side_effect = redis_error("Redis is down")
+        with patch("posthog.clickhouse.client.limit.CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER") as mock_counter:
+            slot = self.limit.use(is_api=True, team_id=9, task_id=1)
+        self.assertIsNone(slot)
+        results = {call.kwargs.get("result") for call in mock_counter.labels.call_args_list}
+        self.assertIn("redis_unavailable", results)
 
     def test_rate_limits_no_inference(self):
         """
