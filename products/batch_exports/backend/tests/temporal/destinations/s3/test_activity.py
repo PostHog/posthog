@@ -50,8 +50,8 @@ async def test_get_s3_integration_rejects_wrong_kind(ateam):
 async def test_insert_into_s3_activity_fails_without_an_integration(activity_environment, ateam):
     """An export with no linked integration has no way to authenticate, so it fails without retrying.
 
-    Reachable if the integration row is deleted out from under the export, since the FK is
-    `SET_NULL`. The activity fails before touching ClickHouse, so no staged data is needed here.
+    Not sure if this is reachable in practice, but it tests the activity's error handling in case it
+    ever does occur.
     """
     insert_inputs = S3InsertInputs(
         bucket_name="my-bucket",
