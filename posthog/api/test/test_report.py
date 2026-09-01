@@ -118,6 +118,67 @@ class TestCspReport(BaseTest):
         mock_buffer.enqueue.assert_not_called()
         assert CSP_REPORT_REJECTED.labels(reason=expected_reason)._value.get() - rejected_before == 1
 
+    @parameterized.expand(
+        [
+            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI),
+            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO]),
+            ("crash", "application/reports+json", [CRASH_REPORT]),
+        ]
+    )
+    def test_cloud_drops_reports_from_non_posthog_documents(self, _name, content_type, payload):
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
+            patch("posthog.api.report.capture_internal") as mock_capture,
+            patch("posthog.api.report.csp_report_buffer") as mock_buffer,
+        ):
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}",
+                data=json.dumps(payload),
+                content_type=content_type,
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_batch_capture.assert_not_called()
+        mock_capture.assert_not_called()
+        mock_buffer.enqueue.assert_not_called()
+
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_cloud_keeps_posthog_and_unknown_reports_from_a_mixed_bundle(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        posthog_violation = {
+            **SINGLE_VIOLATION_REPORT_TO,
+            "body": {
+                **SINGLE_VIOLATION_REPORT_TO["body"],
+                "documentURL": "https://app.dev.posthog.dev/project/1",
+            },
+        }
+        unknown_origin_violation = {"type": "csp-violation", "body": {"effectiveDirective": "script-src"}}
+        posthog_crash = {**CRASH_REPORT, "url": "https://eu.posthog.com/project/1"}
+
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}",
+                data=json.dumps(
+                    [
+                        SINGLE_VIOLATION_REPORT_TO,
+                        posthog_violation,
+                        unknown_origin_violation,
+                        CRASH_REPORT,
+                        posthog_crash,
+                    ]
+                ),
+                content_type="application/reports+json",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert [event["properties"]["$current_url"] for event in events] == [
+            "https://app.dev.posthog.dev/project/1",
+            None,
+            "https://eu.posthog.com/project/1",
+        ]
+
     @patch("posthog.api.report.capture_batch_internal")
     def test_mixed_report_types_not_rejected_by_violation_count_cap(self, mock_batch_capture):
         # A reports+json bundle can legitimately carry non-CSP report types (deprecation,
