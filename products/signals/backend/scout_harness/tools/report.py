@@ -1447,8 +1447,19 @@ def _do_edit_report(
     # Ordered before autostart, because one edit can both rewrite the content and add a qualifying
     # reviewer. Autostart reads the selection as it stands and is idempotent, so running it first
     # would open the task against the repository the rewrite just replaced, with no second chance.
+    #
+    # Best-effort like autostart below: the Slack delivery was already enqueued above, so a raise here
+    # must not fail the already-committed edit. A failure returned to the agent triggers a retry, and a
+    # retry carrying reviewers or a note enqueues a second full delivery — the duplicate this reorder
+    # exists to prevent. Swallow and log; a stale inferred repo is corrected by the next edit.
     if updated_fields:
-        _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
+        try:
+            _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
+        except Exception:
+            logger.exception(
+                "signals_scout.edit_report: inferred repository refresh failed",
+                extra={"team_id": team.id, "report_id": report_id},
+            )
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.

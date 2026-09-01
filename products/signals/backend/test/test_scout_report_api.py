@@ -513,6 +513,33 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
 
+    def test_content_edit_survives_an_inferred_repository_refresh_failure(self) -> None:
+        # Repository inference runs after the Slack delivery is already enqueued. If it raises, failing
+        # the already-committed, already-enqueued edit would return an error the agent retries — and a
+        # retry can enqueue a second full delivery. The refresh is best-effort: swallow, keep the edit
+        # successful, and let the tally still run.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with (
+            patch(
+                "products.signals.backend.scout_harness.tools.report._refresh_inferred_repository",
+                side_effect=RuntimeError("repo cache unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "summary": "Rewritten summary"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The delivery was accepted before the refresh raised, and the tally still recorded the edit.
+        queue.assert_called_once()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
+
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
         # which is what `maybe_autostart_from_report_artefacts` reads to open a draft PR. Repo is normalized.
