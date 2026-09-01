@@ -61,6 +61,21 @@ pub fn to_string_representation(value: &Value) -> String {
     value.to_string()
 }
 
+#[derive(Clone, Copy)]
+pub struct PropertyMatchingContext {
+    team_timezone: Tz,
+    use_explicit_exact_matching: bool,
+}
+
+impl PropertyMatchingContext {
+    pub fn new(team_timezone: Tz, use_explicit_exact_matching: bool) -> Self {
+        Self {
+            team_timezone,
+            use_explicit_exact_matching,
+        }
+    }
+}
+
 pub fn to_f64_representation(value: &Value) -> Option<f64> {
     if value.is_number() {
         return value.as_f64();
@@ -162,8 +177,10 @@ pub fn match_property(
     property: &PropertyFilter,
     matching_property_values: &HashMap<String, Value>,
     partial_props: bool,
-    team_timezone: Tz,
+    context: PropertyMatchingContext,
 ) -> Result<bool, FlagMatchingError> {
+    let team_timezone = context.team_timezone;
+    let use_explicit_exact_matching = context.use_explicit_exact_matching;
     let lookup_key = lookup_key_for(property);
     let key: &str = lookup_key.as_ref();
 
@@ -209,9 +226,14 @@ pub fn match_property(
     match operator {
         OperatorType::Exact | OperatorType::IsNot => {
             let compute_exact_match = |value: &Value, override_value: &Value| -> bool {
+                if !use_explicit_exact_matching && is_truthy_or_falsy_property_value(value) {
+                    return is_truthy_property_value(value)
+                        == is_truthy_property_value(override_value);
+                }
+
                 match value {
                     Value::Array(values) if values.is_empty() => {
-                        matches_legacy_empty_exact_filter(override_value)
+                        is_truthy_property_value(override_value)
                     }
                     Value::Array(values) => {
                         let target = to_string_representation(override_value).to_lowercase();
@@ -638,11 +660,22 @@ pub fn match_property(
     }
 }
 
-fn matches_legacy_empty_exact_filter(value: &Value) -> bool {
+fn is_truthy_or_falsy_property_value(value: &Value) -> bool {
+    match value {
+        Value::Bool(_) => true,
+        Value::String(value) => {
+            value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
+        }
+        Value::Array(values) => values.iter().all(is_truthy_or_falsy_property_value),
+        _ => false,
+    }
+}
+
+fn is_truthy_property_value(value: &Value) -> bool {
     match value {
         Value::Bool(value) => *value,
         Value::String(value) => value.eq_ignore_ascii_case("true"),
-        Value::Array(values) => values.iter().all(matches_legacy_empty_exact_filter),
+        Value::Array(values) => values.iter().all(is_truthy_property_value),
         _ => false,
     }
 }
@@ -744,7 +777,12 @@ mod test_match_properties {
         matching_property_values: &HashMap<String, Value>,
         partial_props: bool,
     ) -> Result<bool, FlagMatchingError> {
-        super::match_property(property, matching_property_values, partial_props, Tz::UTC)
+        super::match_property(
+            property,
+            matching_property_values,
+            partial_props,
+            PropertyMatchingContext::new(Tz::UTC, true),
+        )
     }
 
     #[test]
@@ -911,6 +949,15 @@ mod test_match_properties {
     }
 
     fn match_exact_value(filter_value: Value, user_value: Value, operator: OperatorType) -> bool {
+        match_exact_value_with_semantics(filter_value, user_value, operator, true)
+    }
+
+    fn match_exact_value_with_semantics(
+        filter_value: Value,
+        user_value: Value,
+        operator: OperatorType,
+        use_explicit_exact_matching: bool,
+    ) -> bool {
         let property = PropertyFilter {
             key: "key".to_string(),
             value: Some(filter_value),
@@ -922,10 +969,11 @@ mod test_match_properties {
             extra: Default::default(),
         };
 
-        match_property(
+        super::match_property(
             &property,
             &HashMap::from([("key".to_string(), user_value)]),
             true,
+            PropertyMatchingContext::new(Tz::UTC, use_explicit_exact_matching),
         )
         .expect("expected match to exist")
     }
@@ -963,6 +1011,29 @@ mod test_match_properties {
             match_exact_value(filter_value, user_value, OperatorType::IsNot),
             !expected
         );
+    }
+
+    #[test_case(json!(false), json!("banana"); "arbitrary string remains false-like")]
+    #[test_case(json!(false), json!(0); "zero remains false-like")]
+    #[test_case(json!(false), Value::Null; "null remains false-like")]
+    #[test_case(json!(false), json!(""); "empty string remains false-like")]
+    #[test_case(json!(["false"]), json!("banana"); "boolean array keeps aggregate truthiness")]
+    fn test_match_properties_exact_legacy_behavior_without_rollout(
+        filter_value: Value,
+        user_value: Value,
+    ) {
+        assert!(match_exact_value_with_semantics(
+            filter_value.clone(),
+            user_value.clone(),
+            OperatorType::Exact,
+            false,
+        ));
+        assert!(!match_exact_value_with_semantics(
+            filter_value,
+            user_value,
+            OperatorType::IsNot,
+            false,
+        ));
     }
 
     #[test_case(json!(["true", "false"]), json!(true), true; "boolean strings contain bool true")]
@@ -4373,7 +4444,7 @@ mod test_match_properties {
             filter,
             &HashMap::from([("joined_at".to_string(), person_value)]),
             true,
-            tz,
+            PropertyMatchingContext::new(tz, true),
         )
         .expect("expected match to exist")
     }

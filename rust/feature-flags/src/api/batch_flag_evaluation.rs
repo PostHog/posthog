@@ -421,6 +421,10 @@ async fn handle_batch_flag_evaluation(
         .config
         .realtime_cohort_evaluation_team_ids
         .includes_team(request.team_id);
+    let use_explicit_exact_matching = state
+        .config
+        .exact_property_matching_team_ids
+        .includes_team(request.team_id);
 
     // Read the team's timezone from Postgres so naive datetime filter values (IS_DATE_* and
     // relative dates) are interpreted in the team's local time, matching live `/flags`
@@ -458,6 +462,7 @@ async fn handle_batch_flag_evaluation(
         )
         .with_cohort_membership_provider(state.cohort_membership_provider.clone())
         .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
+        .with_explicit_exact_matching(use_explicit_exact_matching)
         .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
         .with_rayon_dispatcher(state.rayon_dispatcher.clone())
         .with_parallel_eval_threshold(state.config.parallel_eval_threshold)

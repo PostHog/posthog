@@ -392,6 +392,10 @@ pub async fn evaluate_for_request(
             .config
             .realtime_cohort_evaluation_team_ids
             .includes_team(team_id),
+        use_explicit_exact_matching: state
+            .config
+            .exact_property_matching_team_ids
+            .includes_team(team_id),
         membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
         detailed_analysis: detailed_analysis.unwrap_or(false),
         only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),

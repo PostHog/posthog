@@ -35,7 +35,7 @@ use crate::metrics::consts::{
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
-use crate::properties::property_matching::match_property;
+use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
@@ -343,6 +343,7 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    use_explicit_exact_matching: bool,
     membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
@@ -421,6 +422,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            use_explicit_exact_matching: false,
             membership_stamp_policy: MembershipStampPolicy::default(),
             preloaded_cohorts: None,
             detailed_analysis: false,
@@ -462,6 +464,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_explicit_exact_matching(mut self, enable: bool) -> Self {
+        self.use_explicit_exact_matching = enable;
         self
     }
 
@@ -783,7 +790,7 @@ impl FeatureFlagMatcher {
                     target_properties,
                     &cohorts,
                     &current_matches,
-                    self.timezone,
+                    PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
                 )?;
                 cohort_matches.insert(cohort_id, match_result);
             }
@@ -1081,7 +1088,10 @@ impl FeatureFlagMatcher {
                         merged_person_props.as_ref(),
                         Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
-                        self.timezone,
+                        PropertyMatchingContext::new(
+                            self.timezone,
+                            self.use_explicit_exact_matching,
+                        ),
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -1701,7 +1711,16 @@ impl FeatureFlagMatcher {
                     // is unknowable under Pending.
                     let partial_props = filter.prop_type != PropertyType::Group
                         && self.flag_evaluation_state.person_properties_pending();
-                    if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
+                    if !match_property(
+                        filter,
+                        props,
+                        partial_props,
+                        PropertyMatchingContext::new(
+                            self.timezone,
+                            self.use_explicit_exact_matching,
+                        ),
+                    )
+                    .unwrap_or(false)
                     {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }

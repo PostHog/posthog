@@ -97,6 +97,7 @@ pub struct FeatureFlagEvaluationContext {
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     /// Whether to enable realtime cohort evaluation.
     pub enable_realtime_cohort_evaluation: bool,
+    pub use_explicit_exact_matching: bool,
     pub membership_stamp_policy: MembershipStampPolicy,
     /// Whether to include detailed condition analysis in flag evaluation results.
     pub detailed_analysis: bool,

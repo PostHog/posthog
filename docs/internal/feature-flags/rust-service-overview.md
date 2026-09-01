@@ -237,6 +237,12 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `ENABLE_METRICS`  | `false`          | Expose `/metrics` endpoint                        |
 | `SERVICE_MODE`    | `all`            | Fleet mode: `flags`, `definitions`, or `all`      |
 
+### Flag evaluation
+
+| Variable                           | Default | Purpose                                                                                                                      |
+| ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `EXACT_PROPERTY_MATCHING_TEAM_IDS` | `none`  | Team rollout gate for exact property matching without boolean truthiness coercion. Accepts `none`, `all`, IDs, and ID ranges |
+
 ### PostgreSQL
 
 | Variable                                  | Default                                             | Purpose                               |

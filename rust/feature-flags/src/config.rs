@@ -388,6 +388,10 @@ pub struct Config {
     #[envconfig(from = "SECRET_KEY", default = "")]
     pub secret_key: String,
 
+    // Keep this rollout team-scoped because `is_not` can expand an existing flag audience.
+    #[envconfig(from = "EXACT_PROPERTY_MATCHING_TEAM_IDS", default = "none")]
+    pub exact_property_matching_team_ids: TeamIdCollection,
+
     // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
     // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
     // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
@@ -1081,6 +1085,7 @@ impl Config {
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
             flags_secret_keys: String::new(),
             secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
+            exact_property_matching_team_ids: TeamIdCollection::None,
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             realtime_cohort_membership_stamp_policy: MembershipStampPolicy::default(),
             cohort_membership_cache_ttl_seconds: 60,
@@ -1324,6 +1329,10 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert_eq!(config.skip_writes, FlexBool(false));
+        assert_eq!(
+            config.exact_property_matching_team_ids,
+            TeamIdCollection::None
+        );
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
