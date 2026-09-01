@@ -111,7 +111,7 @@ export function AlertPreviewCard({
     if (isBreakdownPreview) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                Preview unavailable: this alert evaluates each breakdown value separately.
+                This alert monitors every breakdown value.
             </div>
         )
     } else if (isUnconfiguredAbsoluteThreshold) {
