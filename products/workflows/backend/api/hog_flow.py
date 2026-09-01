@@ -3601,12 +3601,14 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
     "description": (
-        "The numbers behind the proposal. Conventional keys: metric, current_value, target_value, "
-        "window, query, app_source_id. Two are required whenever a rate is claimed: `n`, the "
-        "denominator that rate was computed over, and `guardrails`, a list of "
-        "{metric, value, n} counter-metrics read over the same window. A rate with no denominator "
-        "lets a reviewer mistake noise for a result, and a target with no counter-metrics hides a "
-        "change that lifts one number by harming another."
+        "The numbers behind the proposal, read back by name. Four keys are required: `metric`, the "
+        "metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a "
+        "string); `n`, the denominator that value was computed over; and `guardrails`, a list of "
+        "{metric, value, n} counter-metrics read over the same window, empty only if none apply. "
+        "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
+        "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
+        "that lifts one number by harming another, and a number under a key of your own reads to a "
+        "person as no evidence at all."
     ),
 }
 
@@ -3697,13 +3699,25 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     def validate_evidence(self, value: Any) -> dict:
         if not isinstance(value, dict) or not value:
             return value or {}
-        claims_a_rate = value.get("current_value") is not None
-        if claims_a_rate and not isinstance(value.get("n"), int):
+        # The reading is read back by name, so a producer that carries its number under its own key
+        # (`current_open_rate`, say) renders as "no data" beside a "no sample size" warning — the
+        # panel telling a person to distrust a suggestion that was in fact well evidenced. Refusing
+        # here puts that mistake in front of the producer, which can fix it, instead of the reader.
+        if not isinstance(value.get("metric"), str) or not value["metric"].strip():
+            raise exceptions.ValidationError(
+                "Include `metric`, the name of the metric this suggestion is about, as a string."
+            )
+        if not isinstance(value.get("current_value"), int | float) or isinstance(value.get("current_value"), bool):
+            raise exceptions.ValidationError(
+                "Include `current_value`, the metric's current value as a number. Send a rate as a "
+                "fraction (0.0865), not as a string ('8.65%')."
+            )
+        if not isinstance(value.get("n"), int):
             raise exceptions.ValidationError(
                 "Include `n`, the number of observations behind current_value. A rate without its "
                 "denominator cannot be judged."
             )
-        if claims_a_rate and not isinstance(value.get("guardrails"), list):
+        if not isinstance(value.get("guardrails"), list):
             raise exceptions.ValidationError(
                 "Include `guardrails`: a list of {metric, value, n} counter-metrics read over the same "
                 "window, so a change that lifts the target by harming something else is visible. Send "
