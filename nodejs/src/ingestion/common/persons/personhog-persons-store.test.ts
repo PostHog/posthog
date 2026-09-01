@@ -13,7 +13,6 @@ import { mergeOpIdFromRequest } from './person-uuid'
 import {
     PersonhogPersonsStore,
     PersonhogUnsupportedFieldError,
-    derivedFenceWaitMs,
     personhogStoreFenceCounter,
     personhogStoreFlushCounter,
     personhogStoreShadowShedCounter,
@@ -165,59 +164,6 @@ describe('PersonhogPersonsStore', () => {
         await bound.flush()
         expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
         expect(repository.updatePersonProperties.mock.calls[0][0].setProperties).toEqual({ b: '2' })
-    })
-
-    it('a fold waits for a merge holding its person, then lands behind it', async () => {
-        personhogStoreFenceCounter.reset()
-        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-        repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-        const bound = store.forBatch(0)
-        await bound.fetchForUpdate(1, 'd1')
-
-        let releaseMerge: () => void = () => {}
-        let mergeStarted: () => void = () => {}
-        const merging = new Promise<void>((resolve) => {
-            mergeStarted = resolve
-        })
-        repository.mergePersons = jest.fn().mockImplementation(
-            () =>
-                new Promise((resolve) => {
-                    mergeStarted()
-                    releaseMerge = () => resolve({ survivor: null, results: [] })
-                })
-        )
-
-        const merge = bound.mergePersons({
-            teamId: 1,
-            targetDistinctId: 'd1',
-            sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-            eventOps: ops({}, '$identify'),
-            eventUuid: 'event-uuid',
-            allowIdentifiedSources: false,
-            mergeMode: createDefaultSyncMergeMode(),
-            createdAtMs: 3_600_000,
-        })
-        await merging
-        // The fence installs after the merge's own resolve; wait for it.
-        await new Promise((resolve) => setTimeout(resolve, 0))
-
-        // Folding now would put these ops behind a request already on the
-        // wire, where they would land after the merge rather than in it.
-        let folded = false
-        const fold = bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1').then(() => {
-            folded = true
-        })
-        await Promise.resolve()
-        expect(folded).toBe(false)
-
-        releaseMerge()
-        await merge
-        await fold
-        expect(folded).toBe(true)
-        // The wait has to end by release, not by the timeout: a fence left
-        // standing would still let this fold through, just seconds later.
-        const waits = (await personhogStoreFenceCounter.get()).values
-        expect(waits.map((wait) => wait.labels.outcome)).toEqual(['released'])
     })
 
     it('folds a batch of ops into one leader call per person and publishes nothing', async () => {
@@ -2127,66 +2073,6 @@ describe('PersonhogPersonsStore', () => {
             expect((narrowStore as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
         })
 
-        it('a round that deferred keeps going even when nothing is parked at the exit check', async () => {
-            // The loop keys off what the round left behind, not what is
-            // parked at this instant; reading the instant acks over ops a
-            // fold parked after the fence lifted.
-            const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
-            const bound = narrowStore.forBatch(0)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-            await bound.fetchForUpdate(1, 'd1')
-            await bound.applyEventOps({ ...person, id: '8', uuid: 'u8' }, ops({ $set: { a: '1' } }), 'other-1')
-            await bound.applyEventOps(person, ops({ $set: { plan: 'held' } }), 'd1')
-            await bound.applyEventOps({ ...person, id: '10', uuid: 'u10' }, ops({ $set: { c: '3' } }), 'other-2')
-
-            const releases = new Map<string, () => void>()
-            const written: { personId: string; setProperties: Record<string, unknown> }[] = []
-            repository.updatePersonProperties.mockImplementation(((request: {
-                personId: string
-                setProperties: Record<string, unknown>
-            }) => {
-                written.push({ personId: request.personId, setProperties: request.setProperties })
-                if (request.personId === '8' || request.personId === '10') {
-                    return new Promise((resolve) => {
-                        releases.set(request.personId, () => resolve({ person, updated: true }))
-                    })
-                }
-                return Promise.resolve({ person, updated: true })
-            }) as never)
-            let releaseMerge: () => void = () => {}
-            repository.mergePersons = jest.fn().mockImplementation(
-                () =>
-                    new Promise((resolve) => {
-                        releaseMerge = () => resolve({ survivor: person, results: [] })
-                    })
-            )
-
-            const flushing = bound.flush()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            const merging = bound.mergePersons(mergeReq())
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            releases.get('8')?.()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            // The merge settles and drops its fence while 10 still holds the
-            // round open, then a later event folds fresh ops onto 7. At the
-            // exit check 7 is unfenced, not in flight, and has segments.
-            releaseMerge()
-            await merging
-            await bound.applyEventOps(person, ops({ $set: { plan: 'after-merge' } }), 'd1')
-            expect((narrowStore as any).fences.has('1:7')).toBe(false)
-            expect((narrowStore as any).entries.get('1:7')?.segments).toHaveLength(1)
-
-            releases.get('10')?.()
-            await flushing
-
-            expect((narrowStore as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
-            expect(written.filter((call) => call.personId === '7').at(-1)?.setProperties).toEqual({
-                plan: 'after-merge',
-            })
-        })
-
         it('a merge waits for a redirect already writing to its survivor', async () => {
             const bound = store.forBatch(0)
             // An external merge destroyed lane 9's person, so its redirect
@@ -2231,63 +2117,6 @@ describe('PersonhogPersonsStore', () => {
         })
     })
 
-    it('a merge whose redirect meets another merge’s fence refuses instead of waiting', async () => {
-        // Two merges cross: the second holds a fence on person 7, and the
-        // first is redirecting a lane that resolves to 7. Waiting here would
-        // be waiting under a fence of our own.
-        personhogStoreFlushCounter.reset()
-        const bound = store.forBatch(0)
-        let laneMergedAway = false
-        repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
-            Promise.resolve(
-                keys.map((key) => {
-                    // 'anon-a' names person 9 until the leader loses it, and
-                    // the survivor it redirects to is the person the other
-                    // merge holds.
-                    const id = key.distinctId.endsWith('-b') || laneMergedAway ? '7' : '9'
-                    return { teamId: 1, distinctId: key.distinctId, person: { ...person, id } }
-                })
-            )) as never)
-        repository.mergePersons = jest
-            .fn()
-            .mockImplementation((request: { targetDistinctId: string }) =>
-                request.targetDistinctId === 'd-b'
-                    ? new Promise(() => {})
-                    : Promise.resolve({ survivor: person, results: [] })
-            ) as never
-        repository.updatePersonProperties.mockImplementation((() => {
-            laneMergedAway = true
-            return Promise.reject(new NoRowsUpdatedError('merged away'))
-        }) as never)
-
-        const mergeReq = (suffix: string) => ({
-            teamId: 1,
-            targetDistinctId: `d-${suffix}`,
-            sources: [{ distinctId: `anon-${suffix}`, eventUuid: `event-${suffix}` }],
-            eventOps: ops({}, '$identify'),
-            eventUuid: `event-${suffix}`,
-            allowIdentifiedSources: false,
-            mergeMode: createDefaultSyncMergeMode(),
-            createdAtMs: 3_600_000,
-        })
-
-        // Fences person 7 and never returns, so the fence stands throughout.
-        // The catch is unreachable while that promise never settles, and is
-        // here so a broken premise surfaces as the assertion below rather
-        // than as an unhandled rejection.
-        void bound.mergePersons(mergeReq('b')).catch(() => {})
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        // Asserted rather than assumed: everything after this depends on the
-        // fence already standing, and without the check a tick that turned
-        // out to be too short would fail somewhere less obvious.
-        expect((store as any).fences.has('1:7')).toBe(true)
-        await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'stale' } }), 'anon-a')
-
-        await expect(bound.mergePersons(mergeReq('a'))).rejects.toThrow(PersonMergeCallFailedError)
-        const outcomes = (await personhogStoreFlushCounter.get()).values.map((value) => value.labels.outcome)
-        expect(outcomes).toContain('redirect_fenced_during_merge')
-    })
-
     describe('parity with the Postgres backend', () => {
         const mergeReq = () => ({
             teamId: 1,
@@ -2298,35 +2127,6 @@ describe('PersonhogPersonsStore', () => {
             allowIdentifiedSources: false,
             mergeMode: createDefaultSyncMergeMode(),
             createdAtMs: 3_600_000,
-        })
-
-        it('folds onto the survivor when the merge that destroyed the person already released', async () => {
-            // A caller resolves its person, a merge destroys it and releases,
-            // and only then does the fold arrive. No fence is left to wait
-            // on, so nothing but the memo can tell the person is gone.
-            const bound = store.forBatch(0)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            repository.fetchPersonById.mockImplementation(((_t: number, id: string) =>
-                Promise.resolve({ ...person, id })) as never)
-            const stale = (await bound.fetchForUpdate(1, 'anon-1'))!
-            expect(stale.id).toBe('9')
-
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor: { ...person, id: '7' },
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-            })
-            await bound.mergePersons(mergeReq())
-            expect((store as any).fences.size).toBe(0)
-
-            const [projected] = await bound.applyEventOps(stale, ops({ $set: { plan: 'after' } }), 'anon-1')
-
-            // The ops belong to the survivor, and the id must not be pointed
-            // back at the person the merge destroyed.
-            expect(projected.id).toBe('7')
-            expect((store as any).entries.has('1:9')).toBe(false)
-            expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
         })
 
         it.each([
@@ -2578,38 +2378,6 @@ describe('PersonhogPersonsStore', () => {
             expect(written).toEqual(['8', '7'])
         })
 
-        it('a fence appearing mid-redirect is waited out before the write', async () => {
-            const bound = store.forBatch(0)
-            await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'pre' } }), 'anon-2')
-            repository.updatePersonProperties
-                .mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
-                .mockResolvedValue({ person, updated: true } as never)
-            // The redirect's entry check sees no fence; a merge fences the
-            // SURVIVOR while the resolve is in flight. Writing under it
-            // would land pre-merge ops after the saga's own writes.
-            let fenceRelease: (() => void) | undefined
-            repository.resolvePersonsByDistinctIds.mockImplementation(() => {
-                if (!fenceRelease) {
-                    fenceRelease = (store as any).fencePersons(['1:7']).release
-                }
-                return Promise.resolve([{ teamId: 1, distinctId: 'anon-2', person: { ...person, id: '7' } }]) as never
-            })
-
-            const flushing = bound.flush()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            // The redirect saw the survivor's fence and parked; nothing has
-            // written to 7 yet.
-            expect(
-                repository.updatePersonProperties.mock.calls.filter(([request]) => request.personId === '7')
-            ).toHaveLength(0)
-
-            fenceRelease?.()
-            await flushing
-            expect(
-                repository.updatePersonProperties.mock.calls.filter(([request]) => request.personId === '7')
-            ).toHaveLength(1)
-        })
-
         it('a stale finalizer cannot retire a recreated lane', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
@@ -2731,46 +2499,6 @@ describe('PersonhogPersonsStore', () => {
             await merging
             await flushing
             expect((store as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
-        })
-
-        it('a redirect waits out the person\u2019s fence before writing anywhere', async () => {
-            const bound = store.forBatch(0)
-            await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'pre' } }), 'anon-2')
-
-            // The write is captured before any fence exists, and the merge
-            // fences and reconciles while it is on the wire. Without the fence
-            // wait the redirect resolves mid-merge and writes pre-merge ops
-            // raw to the survivor.
-            let fenceRelease: () => void = () => {}
-            repository.updatePersonProperties.mockImplementationOnce((() => {
-                fenceRelease = (store as any).fencePersons(['1:9']).release
-                ;(store as any).reconcileMergedPersons(1, [{ personKey: '1:9', distinctKey: '1:anon-2' }], '1:7', 0)
-                return Promise.reject(new NoRowsUpdatedError('merged away'))
-            }) as never)
-            repository.updatePersonProperties.mockResolvedValue({ person, updated: true } as never)
-            let resolveCalls = 0
-            let resolvedDuringFence = false
-            repository.resolvePersonsByDistinctIds.mockImplementation(() => {
-                resolveCalls += 1
-                resolvedDuringFence = resolvedDuringFence || (store as any).fences.has('1:9')
-                return Promise.resolve([{ teamId: 1, distinctId: 'anon-2', person: { ...person, id: '7' } }]) as never
-            })
-
-            const flushing = bound.flush()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            // The redirect is parked on the fence: no resolve has run yet.
-            expect(resolveCalls).toBe(0)
-            fenceRelease()
-            await flushing
-
-            expect(resolvedDuringFence).toBe(false)
-            // Reconcile leaves a lane a write already owns, so these ops
-            // survive and travel to the survivor as they stand.
-            const redirected = repository.updatePersonProperties.mock.calls
-                .map(([request]) => request)
-                .filter((request) => request.personId === '7')
-            expect(redirected[0].setProperties).toEqual({ plan: 'pre' })
-            expect(redirected[0].setOnceProperties).toEqual({})
         })
 
         it('the create found branch reads the leader before its doc becomes a baseline', async () => {
@@ -2906,47 +2634,6 @@ describe('PersonhogPersonsStore', () => {
             createdAtMs: 3_600_000,
         })
 
-        it('fences a source person this pod never touched', async () => {
-            const bound = store.forBatch(0)
-            // The memo has never seen anon-1; only the merge's own resolve
-            // can discover its person. Without that, a first-touch fold
-            // landing mid-merge races the request unfenced.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            let releaseMerge: () => void = () => {}
-            repository.mergePersons = jest.fn().mockImplementation(
-                () =>
-                    new Promise((resolve) => {
-                        releaseMerge = () =>
-                            resolve({
-                                survivor: person,
-                                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-                            })
-                    })
-            )
-            const merging = bound.mergePersons(mergeReq())
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            let foldSettled = false
-            const fold = bound
-                .applyEventOps({ ...person, id: '9' }, ops({ $set: { raced: 'yes' } }), 'anon-2')
-                .then(() => {
-                    foldSettled = true
-                })
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(foldSettled).toBe(false)
-
-            releaseMerge()
-            await merging
-            await fold
-            // The fold waited the merge out, so reconcile never saw its lane.
-            // It writes as the post-merge write it is, raw through the
-            // redirect path.
-            const lane = (store as any).entries.get('1:9')
-            expect(lane.segments.at(-1).set).toEqual({ raced: 'yes' })
-        })
-
         it('a prefetch response crossing a merge fills nothing', async () => {
             const boundPrefetch = store.forBatch(0)
             const bound = store.forBatch(1)
@@ -3059,123 +2746,28 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('round-2 coverage', () => {
-        it('a fold fails rather than proceeding past a fence whose merge never settles', async () => {
-            jest.useFakeTimers()
-            try {
-                personhogStoreFenceCounter.reset()
-                const bound = store.forBatch(0)
-                repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                    { teamId: 1, distinctId: 'd1', person },
-                ] as never)
-                repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-                await bound.fetchForUpdate(1, 'd1')
-                repository.mergePersons = jest.fn().mockImplementation(() => new Promise(() => {}))
-                void bound.mergePersons({
-                    teamId: 1,
-                    targetDistinctId: 'd1',
-                    sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                    eventOps: ops({}, '$identify'),
-                    eventUuid: 'event-uuid',
-                    allowIdentifiedSources: false,
-                    mergeMode: createDefaultSyncMergeMode(),
-                    createdAtMs: 3_600_000,
-                })
-                // The fence installs after the merge's own resolve.
-                await jest.advanceTimersByTimeAsync(0)
-
-                // Folding past the fence would land ops the saga is still
-                // deciding, with a precedence nothing can repair. Failing
-                // costs a round trip and loses nothing.
-                const fold = bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-                const settled = fold.then(
-                    () => 'folded' as const,
-                    () => 'failed' as const
-                )
-                await jest.advanceTimersByTimeAsync(200_000)
-                expect(await settled).toBe('failed')
-                const waits = (await personhogStoreFenceCounter.get()).values
-                expect(waits.map((wait) => wait.labels.outcome)).toContain('timeout')
-                // The store's only give-up site. Nothing else throws on a
-                // fence that never releases, so a wait that stops reporting
-                // here is a wait that stops giving up.
-                expect(waits.map((wait) => wait.labels.outcome)).toContain('wait_deadline_exceeded')
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('the fence-wait ceiling stays above the merge deadline times its retries', () => {
-            // The load-bearing relation of the derivation: the ceiling must
-            // exceed a legitimately slow merge's whole transport-retried
-            // hold, or every waiter gives up mid-hold and the leak alarm
-            // fires on healthy merges.
-            expect(derivedFenceWaitMs(35_000)).toBeGreaterThan(35_000 * 3)
-            expect(derivedFenceWaitMs(60_000)).toBeGreaterThan(60_000 * 3)
-        })
-
-        it('a fold waits out a legitimately slow merge instead of failing at the old ceiling', async () => {
-            // A merge under its transport-retried deadline can hold its
-            // fence far past thirty seconds while succeeding; a lower wait
-            // ceiling would convert that slow saga into a batch failure.
-            jest.useFakeTimers()
-            try {
-                const bound = store.forBatch(0)
-                repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                    { teamId: 1, distinctId: 'd1', person },
-                ] as never)
-                repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-                await bound.fetchForUpdate(1, 'd1')
-                repository.mergePersons = jest.fn().mockImplementation(
-                    () =>
-                        new Promise((resolve) =>
-                            setTimeout(
-                                () =>
-                                    resolve({
-                                        survivor: { ...person },
-                                        results: [
-                                            { sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' },
-                                        ],
-                                    }),
-                                50_000
-                            )
-                        )
-                )
-                void bound.mergePersons({
-                    teamId: 1,
-                    targetDistinctId: 'd1',
-                    sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                    eventOps: ops({}, '$identify'),
-                    eventUuid: 'event-uuid',
-                    allowIdentifiedSources: false,
-                    mergeMode: createDefaultSyncMergeMode(),
-                    createdAtMs: 3_600_000,
-                })
-                await jest.advanceTimersByTimeAsync(0)
-
-                const fold = bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-                const settled = fold.then(
-                    () => 'folded' as const,
-                    () => 'failed' as const
-                )
-                await jest.advanceTimersByTimeAsync(60_000)
-                expect(await settled).toBe('folded')
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('a flush exhausts its rounds rather than acking over lanes a merge never released', async () => {
+        it('a flush exhausts its rounds rather than acking over a lane whose writer never settles', async () => {
             // Degraded to a return, the rounds guard would let the batch
             // commit offsets over segments that exist only in this process.
-            // The driving case is a fence present at every capture but
-            // released at every wait, the timing a merge storm produces.
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-            ;(store as any).fences.set('1:7', new Set([new Promise<void>(() => {})]))
-            ;(store as any).awaitFences = () => Promise.resolve()
+            jest.useFakeTimers()
+            try {
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const entry = (store as any).entries.get('1:7')
+                entry.inFlight = true
+                entry.directWriteSettled = new Promise<void>(() => {})
 
-            await expect(bound.flush()).rejects.toThrow(/flush cannot complete/)
-            expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+                const flushing = bound.flush()
+                const settled = flushing.then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(await settled).toMatch(/flush cannot complete/)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('a merged verdict with no survivor releases the dead ids to re-resolve', async () => {
@@ -3351,51 +2943,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.mergePersons(mergeReq())
 
             expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
-        })
-
-        it('a fold waits out a second merge fence installed behind the first', async () => {
-            const bound = store.forBatch(0)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-            await bound.fetchForUpdate(1, 'd1')
-
-            const releases: (() => void)[] = []
-            repository.mergePersons = jest.fn().mockImplementation(
-                () =>
-                    new Promise((resolve) => {
-                        releases.push(() => resolve({ survivor: person, results: [] }))
-                    })
-            )
-            const mergeA = bound.mergePersons(mergeReq(['anon-1']))
-            // The fence installs after merge A's own resolve; wait for it.
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            // The fold parks on merge A's fence…
-            let fenceHeldWhenFoldLanded: boolean | undefined
-            const fold = bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1').then(() => {
-                fenceHeldWhenFoldLanded = (store as any).fences.has('1:7')
-            })
-            // …and merge B then installs its own fence over the same person.
-            const mergeB = bound.mergePersons(mergeReq(['anon-2']))
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            let foldSettled = false
-            void fold.finally(() => {
-                foldSettled = true
-            })
-            releases[0]()
-            await mergeA
-            // A macrotask boundary drains the fold's whole microtask chain,
-            // so this observation cannot pass on scheduling depth: if the
-            // fold were going to land off A's release alone, it has by now.
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            // Merge A releasing proves only that A settled; B still holds
-            // the person, so the fold must still be parked.
-            expect(foldSettled).toBe(false)
-
-            releases[1]()
-            await mergeB
-            await fold
-            expect(fenceHeldWhenFoldLanded).toBe(false)
         })
 
         it('a successful redirect repoints the lane\u2019s distinct id at the survivor', async () => {
@@ -4125,10 +3672,10 @@ describe('PersonhogPersonsStore', () => {
             expect(order).toEqual(['write', 'merge'])
         })
 
-        it('merges anyway when the fence holding a lane belongs to this saga', async () => {
-            // A previous delivery parked mid-saga and still holds the fence.
-            // Only a retry under the same op id resumes it, and that retry is
-            // the merge below — so the lane waits rather than blocking it.
+        it('a drain bounce on a lifecycle fence does not stop the merge', async () => {
+            // A lifecycle op holds the person, often this request's own from
+            // an interrupted delivery. Calling the saga is what settles
+            // either case, and the lane's ops land later via the redirect.
             personhogStoreFenceCounter.reset()
             repository.updatePersonProperties.mockRejectedValue(
                 new PersonhogFencedError('PERSON_MERGING', '7', sagaOpId()) as never
@@ -4142,81 +3689,7 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.mergePersons).toHaveBeenCalledTimes(1)
             expect((store as any).entries.get('1:7')?.segments ?? []).toHaveLength(1)
             const outcomes = (await personhogStoreFenceCounter.get()).values.map((v) => v.labels.outcome)
-            expect(outcomes).toContain('own_saga_holds_person')
-        })
-
-        it('a same-event sibling fence drops the merge like a foreign one, labeled as ours', async () => {
-            // The fence is our own event's, under an op id this delivery
-            // cannot reconstruct. Proceeding would fold the person with its
-            // lane unwritten and deferring could loop forever, so it takes
-            // the claim-race drop with the sibling attribution.
-            personhogStoreFenceCounter.reset()
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_MERGING', '7', 'an-underivable-op-id', 'event-uuid') as never
-            )
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { plan: 'buffered' } }), 'd1')
-
-            await expect(bound.mergePersons(request())).rejects.toBeInstanceOf(PersonClaimedByLifecycleOpError)
-
-            expect(repository.mergePersons).not.toHaveBeenCalled()
-            const outcomes = (await personhogStoreFenceCounter.get()).values.map((v) => v.labels.outcome)
-            expect(outcomes).toContain('sibling_op_holds_person')
-            expect(outcomes).not.toContain('foreign_lifecycle_op')
-        })
-
-        it('a fence that is ours by op id is own even when the creator also matches', async () => {
-            // The common production shape: an earlier delivery's fence under
-            // the base derivation carries our creator too. Ownership must win
-            // over the sibling classification, or every genuine own fence
-            // would defer instead of driving its operation forward.
-            personhogStoreFenceCounter.reset()
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_MERGING', '7', sagaOpId(), 'event-uuid') as never
-            )
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { plan: 'buffered' } }), 'd1')
-
-            await bound.mergePersons(request())
-
-            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
-            const outcomes = (await personhogStoreFenceCounter.get()).values.map((v) => v.labels.outcome)
-            expect(outcomes).toContain('own_saga_holds_person')
-            expect(outcomes).not.toContain('sibling_op_deferred')
-        })
-
-        it("a fence naming another event's creator stays foreign", async () => {
-            // Carrying a creator is not enough; only this request's own
-            // event may drive the fenced op forward.
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_MERGING', '7', 'a-different-op', 'another-event-uuid') as never
-            )
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { plan: 'buffered' } }), 'd1')
-
-            await expect(bound.mergePersons(request())).rejects.toBeInstanceOf(PersonClaimedByLifecycleOpError)
-            expect(repository.mergePersons).not.toHaveBeenCalled()
-        })
-
-        it('a foreign lifecycle op drops the merge as a claim race', async () => {
-            // Somebody else is rewriting this person. Merging around them
-            // would fold a document being changed underneath us, so the batch
-            // fails and redelivery retries once they are done.
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_DELETING', '7', 'a-different-op') as never
-            )
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { plan: 'buffered' } }), 'd1')
-
-            // Surfaced as the claim error both backends share, so the merge
-            // service drops the merge with a race warning instead of acking
-            // it silently or failing a batch that would only contend again.
-            await expect(bound.mergePersons(request())).rejects.toBeInstanceOf(PersonClaimedByLifecycleOpError)
-            expect(repository.mergePersons).not.toHaveBeenCalled()
+            expect(outcomes).toContain('premerge_lane_fenced')
         })
 
         it('redirects a vanished person without waiting on its own fence', async () => {
@@ -4246,115 +3719,11 @@ describe('PersonhogPersonsStore', () => {
             expect((await personhogStoreFenceCounter.get()).values).toEqual([])
         })
 
-        it('keeps a person fenced until the last merge holding it releases', async () => {
-            // A person can be one merge's source and another's target.
-            // Tracking a single holder lets whichever releases first unfence a
-            // person the other is still rewriting.
-            let releaseSlow: () => void = () => {}
-            const slowMerging = new Promise<void>((resolve) => {
-                releaseSlow = resolve
-            })
-            repository.mergePersons = jest
-                .fn()
-                .mockImplementationOnce(() => slowMerging.then(() => merged()))
-                .mockImplementationOnce(() => Promise.resolve(merged()))
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-            const bound = store.forBatch(0)
-            // Resolved, not folded: a lane would make the second merge defer
-            // behind the first and fail before it could release anything.
-            await bound.fetchForUpdate(1, 'd1')
-
-            const slow = bound.mergePersons(request())
-            const quick = bound.mergePersons({ ...request(), eventUuid: 'other-event' })
-            await quick
-
-            // The quick merge has released. The slow one still holds the
-            // person, so a fold must not proceed.
-            let folded = false
-            const fold = bound.applyEventOps(person, ops({ $set: { late: '1' } }), 'd1').then(() => {
-                folded = true
-            })
-            await new Promise((resolve) => setImmediate(resolve))
-            expect(folded).toBe(false)
-
-            releaseSlow()
-            await slow
-            await fold
-            expect(folded).toBe(true)
-        })
-
-        it('waits again when the merge it waited out handed the id to a person another merge holds', async () => {
-            // A fold parks on one merge, which repoints the id to a person a
-            // second merge already holds. Resuming against the original key
-            // would fold into that second request, where reconcile sweeps the
-            // ops into a discard they do not belong to.
-            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
-                Promise.resolve(
-                    keys.map(({ distinctId }) => ({
-                        teamId: 1,
-                        distinctId,
-                        person: {
-                            ...person,
-                            id: { other: '9', 'other-src': '11' }[distinctId] ?? '7',
-                        },
-                    }))
-                )) as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person } as never)
-
-            let releaseSecond: () => void = () => {}
-            const secondRunning = new Promise<void>((resolve) => {
-                releaseSecond = resolve
-            })
-            let releaseFirst: () => void = () => {}
-            const firstRunning = new Promise<void>((resolve) => {
-                releaseFirst = resolve
-            })
-            repository.mergePersons = jest
-                .fn()
-                .mockImplementationOnce(() => secondRunning.then(() => merged()))
-                .mockImplementationOnce(() =>
-                    firstRunning.then(() => ({
-                        // Hands d1 to person 9, which the first merge holds.
-                        survivor: { ...person, id: '9' },
-                        results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '7' }],
-                    }))
-                )
-            const bound = store.forBatch(0)
-
-            // Holds 9 and 11 only: its source must not name person 7, or it
-            // would satisfy the fold's wait for the wrong reason.
-            const holdingNine = bound.mergePersons({
-                ...request(),
-                eventUuid: 'hold-nine',
-                targetDistinctId: 'other',
-                sources: [{ distinctId: 'other-src', eventUuid: 'hold-nine-uuid' }],
-            })
-            const repointing = bound.mergePersons(request())
-            await new Promise((resolve) => setImmediate(resolve))
-
-            let folded = false
-            const fold = bound.applyEventOps(person, ops({ $set: { late: '1' } }), 'd1').then(() => {
-                folded = true
-            })
-
-            releaseFirst()
-            await repointing
-            await new Promise((resolve) => setImmediate(resolve))
-            // d1 now names person 9, and person 9 is still held.
-            expect(folded).toBe(false)
-
-            releaseSecond()
-            await holdingNine
-            await fold
-            expect(folded).toBe(true)
-        })
-
-        it('fails rather than merging around a lane that is mid-redirect', async () => {
-            // Between a direct write finding its person gone and the redirect
-            // registering, the lane is in flight with nothing a merge can wait
-            // on. Skipping it would fold a person whose buffered ops are
-            // unaccounted for, so the merge fails instead.
+        it('a lane mid-redirect does not stop the merge', async () => {
+            // Between a direct write finding its person gone and the
+            // redirect resolving, the lane is in flight. Its ops land on
+            // the survivor through the redirect, so the merge proceeds
+            // without them rather than failing the batch.
             let releaseResolve: () => void = () => {}
             const resolving = new Promise<void>((resolve) => {
                 releaseResolve = resolve
@@ -4386,8 +3755,8 @@ describe('PersonhogPersonsStore', () => {
             // the merge then sails past a lane that is not yet in flight.
             await reachedRedirect
 
-            await expect(bound.mergePersons(request())).rejects.toBeInstanceOf(PersonMergeCallFailedError)
-            expect(repository.mergePersons).not.toHaveBeenCalled()
+            await expect(bound.mergePersons(request())).resolves.toBeDefined()
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
 
             releaseResolve()
             await flushing.catch(() => undefined)
@@ -4448,52 +3817,6 @@ describe('PersonhogPersonsStore', () => {
 
             await expect(bound.mergePersons(request())).rejects.toBeInstanceOf(PersonMergeCallFailedError)
             expect(repository.mergePersons).not.toHaveBeenCalled()
-        })
-
-        it('fails the merge when a foreign fence defers a pre-merge write', async () => {
-            // Reading a deferral as success would send the merge with this
-            // lane still buffered, folding a person whose changes have not
-            // landed. Reachable through the gap between claiming a lane and
-            // reaching a concurrency slot, which one slot makes deterministic.
-            const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
-            const bound = narrowStore.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-            await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { b: '2' } }), 'anon-1')
-
-            // Holds the first write open so the second is still queued when
-            // the foreign merge arrives.
-            let releaseFirstWrite: () => void = () => {}
-            const firstWriting = new Promise<void>((resolve) => {
-                releaseFirstWrite = resolve
-            })
-            let started = 0
-            repository.updatePersonProperties.mockImplementation(((call: { personId: string }) => {
-                started += 1
-                return started === 1
-                    ? firstWriting.then(() => ({ person: { ...person, id: call.personId }, updated: true }))
-                    : Promise.resolve({ person: { ...person, id: call.personId }, updated: true })
-            }) as never)
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-
-            const merging = bound.mergePersons(request())
-            await new Promise((resolve) => setImmediate(resolve))
-
-            // A second merge fences a person whose lane the first has claimed
-            // but not written. The handler is attached here rather than after
-            // the await below, since a rejection nobody is listening for takes
-            // the process down.
-            const foreign = bound
-                .mergePersons({
-                    ...request(),
-                    eventUuid: 'foreign-event',
-                    targetDistinctId: 'anon-1',
-                    sources: [{ distinctId: 'anon-2', eventUuid: 'foreign-uuid' }],
-                })
-                .catch(() => undefined)
-            releaseFirstWrite()
-
-            await expect(merging).rejects.toBeInstanceOf(PersonMergeCallFailedError)
-            await foreign
         })
     })
 })

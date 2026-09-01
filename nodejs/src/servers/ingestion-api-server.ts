@@ -39,7 +39,7 @@ import {
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
-import { PersonhogPersonsStore, derivedFenceWaitMs } from '~/ingestion/common/persons/personhog-persons-store'
+import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
     RoutingPersonsStore,
@@ -402,12 +402,6 @@ export class IngestionApiServer implements NodeServer {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
-                // Derived rather than configured separately: a local fence
-                // is held for a sibling merge call's whole duration, so the
-                // wait ceiling must exceed the merge deadline times its
-                // transport-retry attempts or the leak alarm fires on
-                // legitimately slow merges.
-                fenceWaitMs: derivedFenceWaitMs(this.config.PERSONHOG_MERGE_TIMEOUT_MS),
             })
             personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)
         }

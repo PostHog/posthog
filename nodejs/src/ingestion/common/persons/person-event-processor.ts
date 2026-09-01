@@ -8,7 +8,6 @@ import { PersonContext } from './person-context'
 import { PersonMergeService, mergeMoveLimitDroppedCounter } from './person-merge-service'
 import { PersonMergeLimitExceededError, PersonMergeUnknownOutcomeError } from './person-merge-types'
 import { PersonPropertyService } from './person-property-service'
-import { PersonhogFenceTimeoutError } from './personhog-persons-store'
 
 /**
  * Main orchestrator for person processing operations.
@@ -45,13 +44,6 @@ export class PersonEventProcessor {
                     await this.propertyService.updatePersonProperties(personFromMerge)
                 return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
             } catch (error) {
-                // A fence wait that ran out its full ceiling is not a
-                // transient the fallback below can outwait: the ceiling
-                // already covers a whole merge, and a second one here would
-                // put a single event past the consumer's poll interval.
-                if (error instanceof PersonhogFenceTimeoutError) {
-                    throw error
-                }
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }

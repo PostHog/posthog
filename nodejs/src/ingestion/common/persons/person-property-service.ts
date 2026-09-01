@@ -1,6 +1,5 @@
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { defaultRetryConfig, promiseRetry } from '~/common/utils/retries'
-import { PersonhogFenceTimeoutError } from '~/ingestion/common/persons/personhog-persons-store'
 import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
@@ -28,11 +27,7 @@ export class PersonPropertyService {
             defaultRetryConfig.MAX_RETRIES_DEFAULT,
             defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
             undefined,
-            // The fence-wait ceiling already covers a whole merge with its
-            // transport retries, so retrying a timeout here only stacks
-            // ceilings past the consumer's poll interval and turns the
-            // intended redelivery into an eviction.
-            [PersonPropertiesSizeViolationError, PersonhogFenceTimeoutError]
+            [PersonPropertiesSizeViolationError]
         )
     }
 

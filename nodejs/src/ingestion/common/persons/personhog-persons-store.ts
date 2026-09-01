@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter, Gauge } from 'prom-client'
 
-import { GRPC_DEFAULT_ATTEMPTS } from '~/common/personhog/grpc-retry'
 import { SEMANTIC_REFUSAL_METADATA_KEY, SEMANTIC_REFUSAL_OP_ID_REUSED } from '~/common/personhog/identity'
 import { grpcErrorType } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
@@ -62,7 +61,7 @@ export const personhogStoreDestroyedMarksGauge = new Gauge({
 
 export const personhogStoreFenceCounter = new Counter({
     name: 'personhog_store_fence_waits_total',
-    help: 'Fence encounters across folds and merge-side writes, by outcome',
+    help: 'Lifecycle-fence and in-flight-lane encounters on merge-side drain writes, by outcome',
     labelNames: ['outcome'],
 })
 
@@ -119,29 +118,6 @@ export interface PersonhogPersonsStoreOptions {
      * merge-mode policy decides the event's fate.
      */
     syncMergeMoveLimit: number
-    /**
-     * The ceiling on any wait for a local fence, derived by the caller (see
-     * the wiring in ingestion-api-server) to exceed the merge deadline
-     * times its transport-retry attempts, because a fence is held by a
-     * sibling merge call for that call's whole duration. Compound worst
-     * cases are deliberately not covered: expiry there is a safe
-     * redelivery, and a ceiling that large would collide with the
-     * consumer's poll interval.
-     */
-    fenceWaitMs: number
-}
-
-/**
- * The fence-wait ceiling for a given merge deadline: the deadline times
- * the transport-retry attempts the repository actually makes, plus a
- * margin for the other work a fence is held across (in-flight write
- * settles, one wave of pre-merge lane writes, the survivor refresh).
- * Compound degradations beyond that margin deliberately expire into a
- * safe redelivery, because a ceiling large enough for them would collide
- * with the consumer's poll interval.
- */
-export function derivedFenceWaitMs(mergeTimeoutMs: number): number {
-    return mergeTimeoutMs * GRPC_DEFAULT_ATTEMPTS + 15_000
 }
 
 /**
@@ -171,7 +147,6 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     maxConcurrentUpdates: 10,
     updateAllProperties: false,
     syncMergeMoveLimit: 10_000,
-    fenceWaitMs: derivedFenceWaitMs(35_000),
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -209,19 +184,6 @@ const CREATE_EVENT_NAME = '$create_person'
 
 /** The event name stamped on direct diff updates, which carry no originating event. */
 const DIRECT_UPDATE_EVENT_NAME = '$direct_update'
-
-/**
- * A wait ran out its deadline while the person was still fenced; callers
- * share one deadline across a chain of waits, so this is not necessarily
- * one fence outlasting the fence-wait ceiling. Fails the batch rather
- * than folding against a person the merge is still deciding.
- */
-export class PersonhogFenceTimeoutError extends Error {
-    constructor(personKey: string, waitedMs: number) {
-        super(`merge fence on ${personKey} still held when the wait's deadline expired, after ${waitedMs}ms`)
-        this.name = 'PersonhogFenceTimeoutError'
-    }
-}
 
 /**
  * A person field this backend cannot express. The leader's update RPC carries
@@ -270,7 +232,8 @@ const REDIRECT_REFRESH_INTERVAL_MS = 100
  * How many wait-and-redirect rounds a flush spends on lanes parked behind
  * merges before failing the pass rather than acking over unwritten ops.
  */
-const FLUSH_MAX_MERGE_WAIT_ROUNDS = 3
+const FLUSH_MAX_WAIT_ROUNDS = 3
+const FLUSH_WAIT_ROUND_MS = 1_000
 
 type RedirectOutcome = 'written' | 'gone' | 'size_violation'
 
@@ -365,15 +328,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         (personKey) => this.entries.get(personKey)?.inFlight === true
     )
     /**
-     * Every merge currently holding each person, so a fold can wait them
-     * out rather than accumulating ops behind a sent request. Set-valued
-     * because a person can be one merge's source and another's target,
-     * staying fenced until its last holder releases.
-     */
-    private fences: Map<string, Set<Promise<void>>> = new Map()
-    /**
      * Redirects in flight, keyed by the person being written TO; the lane
-     * itself sits under its vanished person's key, so a merge fencing the
+     * itself sits under its vanished person's key, so a merge draining the
      * survivor needs this registry to wait it out. Set-valued because one
      * pass can redirect several lanes to one survivor.
      */
@@ -597,56 +553,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         distinctId: string,
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[]]> {
-        // Resolving the id can read, so this yields even when nothing is
-        // fenced. What has to stay indivisible is the pair below: the held
-        // check and the fold run with no await between them, so a merge
-        // cannot take the person after the check says it is free.
+        // A merge can destroy the person between this resolve and the
+        // lane's flush; the tombstone redirect then carries the ops to the
+        // survivor, which is where a racing write lands under Postgres too.
         const target = await this.personNow(person, distinctId, batchId)
-        // Folding onto a person a merge is holding would put operations
-        // behind a request already on the wire, where they would land after
-        // the merge instead of taking part in it.
-        if (this.isHeldByOther(`${target.team_id}:${target.id}`)) {
-            return this.foldAfterFences(target, ops, distinctId, batchId)
-        }
         return this.foldEventOps(target, ops, distinctId, batchId)
-    }
-
-    /**
-     * Waits a held person out and folds onto whoever owns the id
-     * afterwards, repeating because a merge repoints the id to a survivor
-     * that may itself be held. Folding onto a held person would land the
-     * ops inside that merge's request.
-     */
-    private async foldAfterFences(
-        person: InternalPerson,
-        ops: EventOps,
-        distinctId: string,
-        batchId: number
-    ): Promise<[InternalPerson, PersonMessage[]]> {
-        // One deadline for every hop, so a fast-merging lineage delays this
-        // event without outlasting the poll interval.
-        const deadline = Date.now() + this.options.fenceWaitMs
-        let target = person
-        for (;;) {
-            await this.awaitFences(`${target.team_id}:${target.id}`, undefined, deadline)
-            const settled = await this.personNow(target, distinctId, batchId)
-            if (!this.isHeldByOther(`${settled.team_id}:${settled.id}`)) {
-                return this.foldEventOps(settled, ops, distinctId, batchId)
-            }
-            // `awaitFences` gives up on the deadline, but only while a fence
-            // is up when it runs. A fence released just before it and
-            // reinstalled just after leaves it returning immediately every
-            // pass, and resolving the id now reads, so without a check here
-            // the loop spends unbounded reads never reaching a free person.
-            if (Date.now() >= deadline) {
-                personhogStoreFenceCounter.inc({ outcome: 'fold_deadline_exceeded' })
-                throw new PersonhogFenceTimeoutError(
-                    `${settled.team_id}:${settled.id}`,
-                    Date.now() - (deadline - this.options.fenceWaitMs)
-                )
-            }
-            target = settled
-        }
     }
 
     /**
@@ -654,75 +565,6 @@ export class PersonhogPersonsStore implements PersonsStore {
      * building the holder list, because every fold asks and almost every
      * answer is no.
      */
-    private isHeldByOther(personKey: string, ownFence?: Promise<void>): boolean {
-        const held = this.fences.get(personKey)
-        if (held === undefined) {
-            return false
-        }
-        if (ownFence === undefined) {
-            return held.size > 0
-        }
-        for (const fence of held) {
-            if (fence !== ownFence) {
-                return true
-            }
-        }
-        return false
-    }
-
-    /** The merges holding this person, excluding the caller's own. */
-    private heldBy(personKey: string, ownFence?: Promise<void>): Promise<void>[] {
-        const held = this.fences.get(personKey)
-        if (held === undefined) {
-            return []
-        }
-        return [...held].filter((fence) => fence !== ownFence)
-    }
-
-    /**
-     * Waits out every merge holding the person, including fences installed
-     * behind them, except that a caller holding a fence of its own never
-     * waits (the refusal below says why). Callers pass one deadline for a
-     * whole chain because rounds nest inside repointing hops and redirect
-     * retries, where per-round budgets would multiply.
-     */
-    private async awaitFences(personKey: string, ownFence: Promise<void> | undefined, deadline: number): Promise<void> {
-        const startedAt = Date.now()
-        for (;;) {
-            const held = this.heldBy(personKey, ownFence)
-            if (held.length === 0) {
-                return
-            }
-            if (ownFence !== undefined) {
-                // A fence holder never waits on somebody else's fence,
-                // because two merges whose person sets cross would each
-                // block on a fence only the other can release. Refusing
-                // unwinds this merge and drops its fences, and the step's
-                // retry runs once the other merge has settled.
-                personhogStoreFlushCounter.inc({ outcome: 'redirect_fenced_during_merge' })
-                throw new CountedRedirectError(
-                    `person ${personKey} is held by another merge; failing rather than waiting under our own fence`
-                )
-            }
-            if (Date.now() >= deadline) {
-                // The ceiling covers a merge's single-call transport bound
-                // (see fenceWaitMs), so getting here means a fence outlived
-                // its call — a leak — or the compound worst case of
-                // conflict-salted retries each transport-degraded, where
-                // failing to redelivery is the deliberate line. The elapsed
-                // time is measured, not reported as the ceiling, since the
-                // deadline is shared across waits.
-                personhogStoreFenceCounter.inc({ outcome: 'wait_deadline_exceeded' })
-                throw new PersonhogFenceTimeoutError(personKey, Date.now() - startedAt)
-            }
-            await this.awaitFence(
-                personKey,
-                Promise.all(held).then(() => undefined),
-                deadline
-            )
-        }
-    }
-
     /**
      * The person this distinct id belongs to now, because a merge may have
      * destroyed the copy the caller resolved earlier, and folding onto that
@@ -771,57 +613,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             // the state that merge left instead of folding onto a person it
             // may have just destroyed.
             await this.fetchForUpdate(person.team_id, distinctId, batchId)
-        }
-    }
-
-    private async awaitFence(personKey: string, fence: Promise<void>, expiresAt: number): Promise<void> {
-        let timer: NodeJS.Timeout | undefined
-        const expired = new Promise<'timeout'>((resolve) => {
-            // Whatever is left of the caller's deadline, since this runs
-            // inside loops that would otherwise multiply a fresh one.
-            timer = setTimeout(() => resolve('timeout'), Math.max(0, expiresAt - Date.now()))
-        })
-        try {
-            const outcome = await Promise.race([fence.then(() => 'released' as const), expired])
-            personhogStoreFenceCounter.inc({ outcome })
-        } finally {
-            clearTimeout(timer)
-        }
-    }
-
-    /**
-     * Holds a set of persons for the duration of a merge. Callers release
-     * from a `finally`, since a fence left standing makes every later fold
-     * for those persons wait out the full ceiling.
-     */
-    private fencePersons(personKeys: string[]): { release: () => void; fence: Promise<void> } {
-        let release: () => void = () => {}
-        const fence = new Promise<void>((resolve) => {
-            release = resolve
-        })
-        for (const personKey of personKeys) {
-            const held = this.fences.get(personKey)
-            if (held === undefined) {
-                this.fences.set(personKey, new Set([fence]))
-                continue
-            }
-            held.add(fence)
-        }
-        return {
-            fence,
-            release: () => {
-                for (const personKey of personKeys) {
-                    const held = this.fences.get(personKey)
-                    if (held === undefined) {
-                        continue
-                    }
-                    held.delete(fence)
-                    if (held.size === 0) {
-                        this.fences.delete(personKey)
-                    }
-                }
-                release()
-            },
         }
     }
 
@@ -886,22 +677,19 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     async mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
         // The memo's view of the named ids, captured before the fresh
-        // resolve moves any edges: a fence has to cover what this pod
-        // BELIEVES as well as what identity says, or a lane keyed on a
-        // stale belief goes unguarded.
+        // resolve moves any edges: the drain covers what this pod BELIEVES
+        // as well as what identity says, or a lane keyed on a stale belief
+        // misses the fold.
         const memoOf = (distinctId: string) => this.memo.resolutionOf(`${request.teamId}:${distinctId}`)
         const memoSourceKeys = request.sources.map((source) => memoOf(source.distinctId))
         const memoTargetKey = memoOf(request.targetDistinctId)
-        // Resolve every named id in one batched call, the way the saga will:
-        // a source person this pod has never touched still needs its fence,
-        // or a first-touch fold lands mid-merge and races the request.
-        const fresh = await this.resolveForFence(
+        const fresh = await this.resolveForDrain(
             request.teamId,
             [request.targetDistinctId, ...request.sources.map((source) => source.distinctId)],
             batchId
         )
         // A source may name two persons, the memo's belief and identity's
-        // answer, and both are fenced.
+        // answer, and both drain.
         const sourceKeys = request.sources.flatMap((source, index) => [
             ...new Set(
                 [fresh.get(source.distinctId), memoSourceKeys[index]].filter(
@@ -917,54 +705,32 @@ export class PersonhogPersonsStore implements PersonsStore {
                 ...sourceKeys,
             ]),
         ]
-        // Held for the whole call, including reconciliation, so a fold that
-        // was waiting resumes against the merged world rather than into a
-        // request that has already gone.
-        let releaseFence: (() => void) | undefined
-        // Ownership is tested against this promise's identity, never against
-        // the key set: a person can be held by several merges, so "the key is
-        // mine" would let a write proceed under another merge's fence too.
-        let ownFence: Promise<void> | undefined
-        try {
-            const fenced = this.fencePersons(personKeys)
-            releaseFence = fenced.release
-            ownFence = fenced.fence
-            // A write claimed before the fence went up may already be on the
-            // wire, and landing after the fold would overwrite what the merge
-            // decided. Claims arm their settle promise, so a writer is
-            // visible here even before it reaches its concurrency slot.
-            const inFlightWrites = [
-                ...personKeys.map((personKey) => this.entries.get(personKey)?.directWriteSettled),
-                ...personKeys.flatMap((personKey) => [...(this.redirectsInFlight.get(personKey) ?? [])]),
-            ].filter((settled): settled is Promise<void> => settled !== undefined)
-            if (inFlightWrites.length > 0) {
-                await Promise.all(inFlightWrites)
-            }
-            // Every op id this request could be running under, conflict
-            // suffixes included, derived before the writes because they may
-            // bounce off a fence this same saga holds from an earlier
-            // parked delivery. Only the op id tells that from somebody
-            // else's.
-            const sagaOpIds = this.sagaOpIdCandidates(request)
-            // Written behind the fence, so the saga folds people whose
-            // buffered changes already landed with their own precedence, and
-            // the lanes are empty when it applies the merge event's own.
-            await this.writeLanesBeforeMerge(personKeys, sagaOpIds, request, ownFence)
-            const result = await this.runMerge(
-                request,
-                batchId,
-                new Map(
-                    request.sources.flatMap((source, index) =>
-                        memoSourceKeys[index] != null
-                            ? [[source.distinctId, memoSourceKeys[index]] as [string, string]]
-                            : []
-                    )
+        // Claims arm their settle promise, so a writer already on the wire
+        // is visible here even before it reaches its concurrency slot;
+        // waiting lets the drain capture its lane instead of skipping it.
+        const inFlightWrites = [
+            ...personKeys.map((personKey) => this.entries.get(personKey)?.directWriteSettled),
+            ...personKeys.flatMap((personKey) => [...(this.redirectsInFlight.get(personKey) ?? [])]),
+        ].filter((settled): settled is Promise<void> => settled !== undefined)
+        if (inFlightWrites.length > 0) {
+            await Promise.all(inFlightWrites)
+        }
+        // Best-effort: a lane the drain cannot write right now (bounced on
+        // a leader fence, or claimed by a redirect) lands after the merge
+        // through the tombstone redirect instead of inside the fold.
+        await this.writeLanesBeforeMerge(personKeys)
+        const result = await this.runMerge(
+            request,
+            batchId,
+            new Map(
+                request.sources.flatMap((source, index) =>
+                    memoSourceKeys[index] != null
+                        ? [[source.distinctId, memoSourceKeys[index]] as [string, string]]
+                        : []
                 )
             )
-            return { ...result, survivor: this.memo.snapshot(result.survivor) }
-        } finally {
-            releaseFence?.()
-        }
+        )
+        return { ...result, survivor: this.memo.snapshot(result.survivor) }
     }
 
     /**
@@ -972,7 +738,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * `distinctId -> personKey`. Results are recorded as checking-class
      * reads, so reconcile's memo fallback sees them too.
      */
-    private async resolveForFence(
+    private async resolveForDrain(
         teamId: number,
         distinctIds: string[],
         batchId: number
@@ -995,7 +761,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // their buffered ops landing after the fold unordered. Wrapped
             // because an unwrapped error reaches the merge service's
             // catch-all, which would ack the event with the merge lost.
-            personhogStoreMergeCacheCounter.inc({ action: 'fence_resolve_failed' })
+            personhogStoreMergeCacheCounter.inc({ action: 'drain_resolve_failed' })
             throw new PersonMergeCallFailedError(
                 `personhog merge fence resolve failed: ${error instanceof Error ? error.message : String(error)}`,
                 error
@@ -1024,96 +790,47 @@ export class PersonhogPersonsStore implements PersonsStore {
      * writers, and passing it down keeps these writes from parking behind
      * this very merge.
      */
-    private async writeLanesBeforeMerge(
-        personKeys: string[],
-        sagaOpIds: Set<string>,
-        request: MergePersonsRequest,
-        ownFence: Promise<void> | undefined
-    ): Promise<void> {
-        // `writeEntry` defers rather than throwing when a foreign fence
-        // covers the person, so deferrals have to be counted to be seen.
-        const pass = { deferrals: 0 }
+    private async writeLanesBeforeMerge(personKeys: string[]): Promise<void> {
         const captured: CapturedLane[] = []
-        // Every fenced person's lane, whichever distinct id opened it: the
-        // merge is about to destroy some of these persons, so a lane
-        // skipped here is a lost write. Filtering by the merge's named ids
-        // would drop properties Postgres keeps, since the reference
-        // backend's cache reaches a person's pending update through any of
-        // its ids.
+        // Every named person's lane, whichever distinct id opened it.
+        // Filtering by the merge's named ids would drop properties Postgres
+        // keeps, since the reference backend's cache reaches a person's
+        // pending update through any of its ids.
         for (const personKey of personKeys) {
             const entry = this.entries.get(personKey)
             if (!entry || entry.segments.length === 0) {
                 continue
             }
-            // Still in flight after the wait above means a redirect owns
-            // the lane, which no handle this merge waited on covers, and
-            // waiting is impossible because the settle promise is cleared
-            // precisely so redirects can wait on merge fences without
-            // closing a loop. So the merge defers and its batch redelivers
-            // rather than folding a person whose ops are unaccounted for.
+            // A redirect owns the lane; its ops land on the survivor after
+            // the merge rather than inside the fold.
             if (entry.inFlight) {
-                pass.deferrals += 1
                 personhogStoreFenceCounter.inc({ outcome: 'premerge_lane_in_flight' })
                 continue
             }
-            // Claimed as a flush claims, so a second merge fencing one of
-            // these persons has a promise to wait on rather than folding
-            // around a lane still on the wire.
             this.claimForWrite(entry)
             captured.push({ personKey, entry, segments: entry.segments.length })
         }
         if (captured.length === 0) {
-            this.failOnDeferredLanes(pass)
             return
         }
         const limit = pLimit(this.options.maxConcurrentUpdates)
         const outcomes = await Promise.allSettled(
-            captured.map(({ personKey, entry, segments }) =>
-                limit(() => this.writeEntry(personKey, entry, segments, pass, ownFence))
-            )
+            captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
         )
         for (const outcome of outcomes) {
             if (outcome.status !== 'rejected') {
                 continue
             }
             const error = outcome.reason
-            // A leader fence on one of these persons is the one refusal this
-            // call can answer, and who holds it decides the answer, in three
-            // classes. Ownership is decided by the op id alone: only the
-            // operation this request derives can be driven forward by
-            // calling the saga, and one event legitimately owns several
-            // operations (a fold and its trigger event's sequential merge,
-            // a redelivered fold that re-batched differently), so a creator
-            // match must not widen "own".
+            // A lifecycle op holds the person, often this request's own op
+            // from an earlier interrupted delivery. Calling the saga is
+            // what settles either case: an own op resumes under its op id,
+            // a foreign one answers an unsettled conflict the batch
+            // redelivers behind, and the sweeper re-drives any abandoned
+            // holder. The lane's ops stay and land through the redirect.
             if (error instanceof PersonhogFencedError) {
-                if (error.fencingOpId !== undefined && sagaOpIds.has(error.fencingOpId)) {
-                    // Our own saga holds the person, so the merge goes ahead:
-                    // calling it is what drives that operation to completion.
-                    // The lane is left as it is, because a merge fences only
-                    // sources, and both source outcomes are covered already: a
-                    // destroyed one is marked by reconcile and reaches the
-                    // survivor, a skipped one drops before the fold.
-                    personhogStoreFenceCounter.inc({ outcome: 'own_saga_holds_person' })
-                    continue
-                }
-                // Any other holder takes the claim-race route the saga
-                // reports as skipped_conflict: drop the merge with a
-                // warning and keep the event's property updates. That
-                // includes a same-event sibling operation, which cannot be
-                // driven forward from here (only a retry under its own op
-                // id resumes it) and may never settle by itself, so
-                // deferring to redelivery could loop without bound.
-                const sibling =
-                    error.fencingCreatorEventUuid !== undefined &&
-                    error.fencingCreatorEventUuid.toLowerCase() === request.eventUuid.toLowerCase()
-                personhogStoreFenceCounter.inc({
-                    outcome: sibling ? 'sibling_op_holds_person' : 'foreign_lifecycle_op',
-                })
-                throw new PersonClaimedByLifecycleOpError(
-                    `merge: person ${error.personId} is held by lifecycle op ${error.fencingOpId ?? 'unknown'}` +
-                        (sibling ? ' (a sibling operation of this same event)' : ''),
-                    request.teamId
-                )
+                personhogStoreFenceCounter.inc({ outcome: 'premerge_lane_fenced' })
+                continue
             }
             // Any other failure leaves the merge unattempted. The typed
             // wrapper is what makes the merge service fail the batch;
@@ -1123,41 +840,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error
             )
         }
-        this.failOnDeferredLanes(pass)
-    }
-
-    /**
-     * Fails the merge when any lane it must write went unwritten, which would
-     * leave ops buffered while the saga folds their person. Redelivery replays
-     * the batch once whatever held the lane lets go.
-     */
-    private failOnDeferredLanes(pass: { deferrals: number }): void {
-        if (pass.deferrals === 0) {
-            return
-        }
-        throw new PersonMergeCallFailedError(
-            `personhog pre-merge write left ${pass.deferrals} lane(s) unwritten`,
-            undefined
-        )
-    }
-
-    /**
-     * Every op id `runMerge` could send: the plain derivation and the
-     * conflict suffixes its retries carry, all derived from the event, so a
-     * fence held by any of them belongs to this request's own saga even
-     * across deliveries. The fence's creator event uuid cannot replace this
-     * ownership test, because an event can own several operations.
-     */
-    private sagaOpIdCandidates(request: MergePersonsRequest): Set<string> {
-        const moveLimit = moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit)
-        const sources = request.sources.map((source) => source.distinctId)
-        const candidates = new Set([mergeOpIdFromRequest(request.teamId, request.eventUuid, sources, moveLimit)])
-        for (let attempt = 1; attempt < defaultRetryConfig.MAX_RETRIES_DEFAULT; attempt++) {
-            candidates.add(
-                mergeOpIdFromRequest(request.teamId, `${request.eventUuid}#conflict${attempt}`, sources, moveLimit)
-            )
-        }
-        return candidates
     }
 
     private async runMerge(
@@ -1681,46 +1363,45 @@ export class PersonhogPersonsStore implements PersonsStore {
     private async flushPass(): Promise<FlushResult[]> {
         // Success here is what lets the batch ack, so the pass must not
         // return while any lane still holds unwritten segments: a lane
-        // parked behind a merge is waited out and written, or the pass
-        // fails and the batch redelivers. One deadline across every round,
-        // since per-round budgets would add up.
-        const waitDeadline = Date.now() + this.options.fenceWaitMs
+        // another writer has claimed is waited out and rewritten, or the
+        // pass fails and the batch redelivers.
         for (let round = 0; ; round++) {
             const pass = { deferrals: 0 }
-            await this.writeEligibleLanes(round === 0, pass)
-            // The loop keys off what THIS round left behind, not what is
-            // parked at this instant: a fence releasing while other writes
-            // were still in flight leaves a deferred lane neither fenced nor
-            // in flight — invisible to a parked-only predicate — and a
-            // return here would ack over its unwritten ops.
+            await this.writeEligibleLanes(pass)
             if (pass.deferrals === 0) {
                 // No FlushResults: the leader's changelog is the ClickHouse
                 // person feed, so a flush publishes nothing — writing the
                 // segments is the whole job.
                 return []
             }
-            if (round >= FLUSH_MAX_MERGE_WAIT_ROUNDS) {
+            if (round >= FLUSH_MAX_WAIT_ROUNDS) {
                 personhogStoreFlushCounter.inc({ outcome: 'parked_exhausted' })
                 throw new Error(
-                    `flush cannot complete: ${pass.deferrals} lanes deferred behind merges that did not settle`
+                    `flush cannot complete: ${pass.deferrals} lanes deferred behind writes that did not settle`
                 )
             }
-            // Wait out whatever is still fenced, concurrently because the
-            // fences overlap. Settled rather than raced, so one lane's
-            // timeout does not leave the others rejecting unobserved.
-            const waited = await Promise.allSettled(
-                [...this.entries]
-                    .filter(([, entry]) => entry.segments.length > 0)
-                    .map(([personKey]) => this.awaitFences(personKey, undefined, waitDeadline))
-            )
-            const failed = waited.find((wait) => wait.status === 'rejected')
-            if (failed !== undefined) {
-                throw failed.reason
+            // Wait for the in-flight writers to settle before retrying,
+            // bounded so a wedged writer exhausts the rounds instead of
+            // hanging the flush past the consumer's poll budget.
+            const settles = [...this.entries.values()]
+                .filter((entry) => entry.segments.length > 0)
+                .map((entry) => entry.directWriteSettled)
+                .filter((settled): settled is Promise<void> => settled !== undefined)
+            let timer: NodeJS.Timeout | undefined
+            try {
+                await Promise.race([
+                    Promise.allSettled(settles),
+                    new Promise<void>((resolve) => {
+                        timer = setTimeout(resolve, FLUSH_WAIT_ROUND_MS)
+                    }),
+                ])
+            } finally {
+                clearTimeout(timer)
             }
         }
     }
 
-    private async writeEligibleLanes(countDeferrals: boolean, pass: { deferrals: number }): Promise<void> {
+    private async writeEligibleLanes(pass: { deferrals: number }): Promise<void> {
         // A pass records the segment count, marks the lane in flight, and
         // truncates exactly that many on success, so a failure leaves the
         // entry as it was with no claim to strand. No await in this block:
@@ -1730,24 +1411,10 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (entry.segments.length === 0) {
                 continue
             }
+            // Another writer holds the lane; returning now would ack over
+            // its unwritten ops, so the round loop waits it out.
             if (entry.inFlight) {
-                // A backstop the fence check below currently subsumes, since
-                // capture is synchronous and passes serialize. Kept because
-                // the deferral is what stops a flush resolving over segments
-                // a failed merge hands back, which must not depend on the two
-                // guards staying in step.
                 pass.deferrals += 1
-                continue
-            }
-            // A fenced person's merge is on the wire, and writing its lane
-            // now could hit the tombstone and redirect to the survivor
-            // before reconcile has decided the person's fate. The drain
-            // loop writes it once the merge settles.
-            if (this.fences.has(personKey)) {
-                pass.deferrals += 1
-                if (countDeferrals) {
-                    personhogStoreFlushCounter.inc({ outcome: 'deferred_fenced' })
-                }
                 continue
             }
             this.claimForWrite(entry)
@@ -1755,9 +1422,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const limit = pLimit(this.options.maxConcurrentUpdates)
         const outcomes = await Promise.allSettled(
-            captured.map(({ personKey, entry, segments }) =>
-                limit(() => this.writeEntry(personKey, entry, segments, pass))
-            )
+            captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
         )
         const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
         if (failed) {
@@ -1795,38 +1460,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEntry(
-        personKey: string,
-        entry: OpsLaneEntry,
-        segments: number,
-        pass?: { deferrals: number },
-        /**
-         * The fence this write's own merge installed, since parking behind
-         * it would be parking behind itself. Tested by identity, never by
-         * key, so a second merge on the same person still holds this write
-         * back.
-         */
-        ownFence?: Promise<void>
-    ): Promise<void> {
-        // A merge can fence the person between capture and this write's
-        // pLimit slot, so the fence is re-checked at the moment writing
-        // starts. A fenced lane defers to the drain loop, which writes it
-        // once the merge has released.
-        if (this.isHeldByOther(personKey, ownFence)) {
-            // A merge's own pre-merge write is not a flush, and conflating
-            // the two would file the signal that a merge is contending under
-            // flush pressure.
-            if (ownFence !== undefined) {
-                personhogStoreFenceCounter.inc({ outcome: 'premerge_write_deferred' })
-            } else {
-                personhogStoreFlushCounter.inc({ outcome: 'deferred_fenced_at_start' })
-            }
-            if (pass) {
-                pass.deferrals += 1
-            }
-            this.releaseWritten(personKey, entry)
-            return
-        }
+    private async writeEntry(personKey: string, entry: OpsLaneEntry, segments: number): Promise<void> {
         try {
             // What this pass still owes, decremented as segments leave the
             // lane by being written or dropped. Array length is no
@@ -1838,15 +1472,10 @@ export class PersonhogPersonsStore implements PersonsStore {
             // ack over. Terminates: every iteration writes the remainder,
             // drops a unit, enters the redirect phase once, or throws.
             let viaRedirect = false
-            // Opened once for the lane, not once per redirect: a size
-            // rejection re-enters the redirect for every dropped unit, and a
-            // fresh deadline each time would let one lane hold a flush for a
-            // multiple of the ceiling.
-            const fenceDeadline = Date.now() + this.options.fenceWaitMs
             while (progress.remaining > 0) {
                 try {
                     if (viaRedirect) {
-                        const outcome = await this.redirectToSurvivor(entry, progress, fenceDeadline, ownFence)
+                        const outcome = await this.redirectToSurvivor(entry, progress)
                         personhogStoreFlushCounter.inc({
                             outcome: { written: 'redirected', gone: 'not_found', size_violation: 'size_violation' }[
                                 outcome
@@ -2077,24 +1706,12 @@ export class PersonhogPersonsStore implements PersonsStore {
      * ends throw instead: an id still naming the vanished person is
      * identity lag, and a survivor that vanishes restarts the loop.
      */
-    private async redirectToSurvivor(
-        entry: OpsLaneEntry,
-        progress: { remaining: number },
-        fenceDeadline: number,
-        ownFence?: Promise<void>
-    ): Promise<RedirectOutcome> {
+    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<RedirectOutcome> {
         // Each pass re-resolves against the person the previous one failed
         // to write, so consecutive merges on one lineage converge rather
-        // than dropping. A lane can arrive here mid-merge, where writing
-        // would land pre-merge ops raw, so a flush-issued redirect waits
-        // the fence out while a merge-issued one refuses (`awaitFences`
-        // owns that split), all under the caller's one deadline.
-        const ownKey = `${entry.teamId}:${entry.personId}`
-        await this.awaitFences(ownKey, ownFence, fenceDeadline)
+        // than dropping. A write landing under a live leader fence bounces
+        // there and the batch redelivers behind the holder.
         let vanished = entry.personId
-        // Fence waits and identity re-reads are bounded separately, because
-        // they answer different questions and one counter would let a run of
-        // fences spend the allowance the re-reads need.
         // The furthest leader version any of this redirect's writes reached,
         // carried across attempts and throws: it becomes the floor under the
         // survivor's dropped baseline, so a read issued before those writes
@@ -2111,26 +1728,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                     CALLER_TAG
                 )
                 survivorId = resolved?.person?.id
-                // The top-of-redirect fence check is one moment; a merge can
-                // fence either person after it. Writing under a live fence
-                // lands pre-merge ops after the saga's own writes, so a
-                // fence found now sends this back through the same wait or
-                // refusal, and the attempt restarts with a fresh resolve.
-                const fencedKey = [
-                    `${entry.teamId}:${vanished}`,
-                    ...(survivorId !== undefined ? [`${entry.teamId}:${survivorId}`] : []),
-                ].find((key) => this.isHeldByOther(key, ownFence))
-                if (fencedKey !== undefined) {
-                    // Bounded in time, not in rounds: the shared fenceDeadline
-                    // throws out of awaitFences on its own, so a second
-                    // counted bound here was one mechanism answering a
-                    // question the deadline already answers. The attempt is
-                    // handed back so contention cannot spend the allowance
-                    // meant for identity lag.
-                    await this.awaitFences(fencedKey, ownFence, fenceDeadline)
-                    attempt -= 1
-                    continue
-                }
                 if (survivorId === undefined || survivorId === vanished) {
                     // Identity has not caught up with the merge the leader
                     // already applied. Refresh before concluding the person
