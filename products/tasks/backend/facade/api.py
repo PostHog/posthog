@@ -7230,6 +7230,26 @@ def _temporal_workflow_url(workflow_id: str | None) -> str | None:
     return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
 
 
+def _slack_queue_workflow_id(slack_workspace_id: str | None, channel: str, thread_ts: str) -> str | None:
+    """The per-conversation queue workflow (`slack-app-mention-…`) that fronts every
+    per-message mention workflow. A message can stall or be deduped there before any
+    run exists, so the debug view links it at the thread level."""
+    from posthog.temporal.ai.slack_app.slack_app_mention import (  # noqa: PLC0415 — keeps temporalio off the import path
+        slack_app_mention_queue_workflow_id,
+    )
+
+    if not slack_workspace_id:
+        return None
+    return slack_app_mention_queue_workflow_id(slack_workspace_id, channel, thread_ts)
+
+
+def _admin_change_url(app_label: str, model_name: str, pk: Any, *, build_url) -> str:
+    """Django admin change-page URL, built from the stable admin URL layout instead of
+    `reverse` — the admin URLconf is only mounted when ``ADMIN_PORTAL_ENABLED``, and this
+    endpoint only serves PostHog Cloud US, where the portal is always on."""
+    return build_url(f"/admin/{app_label}/{model_name}/{pk}/change/")
+
+
 def _slack_repo_research_dto(
     team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_task_view_url
 ) -> contracts.SlackThreadContextRepoResearchDTO | None:
@@ -7293,14 +7313,27 @@ def resolve_slack_thread_context(
         .first()
     )
     if mapping is None:
+        # No run may exist because the message is still stuck (or was deduped) in the
+        # per-conversation queue workflow, so derive its handle anyway. Only possible
+        # when the team maps to a single Slack workspace — with several, the guess
+        # could point at another workspace's workflow.
+        workspace_ids = list(
+            Integration.objects.filter(team_id=team_id, kind="slack")
+            .values_list("integration_id", flat=True)
+            .distinct()[:2]
+        )
+        workspace_id = workspace_ids[0] if len(workspace_ids) == 1 else None
+        queue_workflow_id = _slack_queue_workflow_id(workspace_id, channel, thread_ts)
         return contracts.SlackThreadContextResult(
             outcome="no_mapping",
             no_mapping_thread=contracts.SlackThreadContextThreadDTO(
                 url=url,
                 channel=channel,
                 thread_ts=thread_ts,
-                slack_workspace_id=None,
+                slack_workspace_id=workspace_id,
                 mentioning_slack_user_id=None,
+                queue_workflow_id=queue_workflow_id,
+                queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
             ),
         )
 
@@ -7345,9 +7378,11 @@ def resolve_slack_thread_context(
                 repo_research=_slack_repo_research_dto(
                     task.team_id, state, repo_research_runs_by_id, build_task_view_url=build_url
                 ),
+                admin_url=_admin_change_url("tasks", "taskrun", run.id, build_url=build_url),
             )
         )
 
+    queue_workflow_id = _slack_queue_workflow_id(mapping.slack_workspace_id, channel, thread_ts)
     context = contracts.SlackThreadContextDTO(
         thread=contracts.SlackThreadContextThreadDTO(
             url=url,
@@ -7355,6 +7390,9 @@ def resolve_slack_thread_context(
             thread_ts=thread_ts,
             slack_workspace_id=mapping.slack_workspace_id,
             mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+            queue_workflow_id=queue_workflow_id,
+            queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
+            mapping_admin_url=_admin_change_url("slack_app", "slackthreadtaskmapping", mapping.id, build_url=build_url),
         ),
         task=contracts.SlackThreadContextTaskDTO(
             id=str(task.id),
@@ -7364,6 +7402,7 @@ def resolve_slack_thread_context(
             origin_product=task.origin_product,
             created_at=task.created_at,
             url=task_url,
+            admin_url=_admin_change_url("tasks", "task", task.id, build_url=build_url),
         ),
         runs=run_dtos,
     )

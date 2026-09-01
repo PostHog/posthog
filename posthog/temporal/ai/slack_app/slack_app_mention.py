@@ -48,6 +48,15 @@ SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
 SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH = "slack-app-mention-child-timeout"
 
 
+def slack_app_mention_queue_workflow_id(slack_team_id: str, channel: str, thread_ts: str) -> str:
+    """Conversation-scoped queue workflow ID: one per thread (or DM thread).
+
+    Also derivable after the fact from a ``SlackThreadTaskMapping`` row, which is how
+    the slack-thread debug endpoint reconstructs the queue workflow for a thread.
+    """
+    return f"slack-app-mention-{slack_team_id}:{channel}:{thread_ts}"
+
+
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:
     """Conversation-scoped workflow ID: one per thread (or DM thread).
 
@@ -61,7 +70,7 @@ def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflow
     anchor = event.get("thread_ts") or event.get("ts")
     if not channel or not anchor:
         return None
-    return f"slack-app-mention-{inputs.slack_team_id}:{channel}:{anchor}"
+    return slack_app_mention_queue_workflow_id(inputs.slack_team_id, channel, anchor)
 
 
 @workflow.defn(name="slack-app-mention")

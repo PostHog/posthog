@@ -4458,6 +4458,21 @@ export interface SlackThreadContextThreadApi {
      * @nullable
      */
     mentioning_slack_user_id: string | null
+    /**
+     * Temporal workflow id of the per-conversation mention queue (`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's messages before any run exists. Null when the workspace id cannot be resolved.
+     * @nullable
+     */
+    queue_workflow_id: string | null
+    /**
+     * Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.
+     * @nullable
+     */
+    queue_workflow_url: string | null
+    /**
+     * Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.
+     * @nullable
+     */
+    mapping_admin_url: string | null
 }
 
 /**
@@ -4481,6 +4496,11 @@ export interface SlackThreadContextTaskApi {
     created_at: string
     /** Absolute URL to the task detail page in the PostHog app. */
     url: string
+    /**
+     * Absolute URL to the Task row in Django admin.
+     * @nullable
+     */
+    admin_url: string | null
 }
 
 /**
@@ -4577,6 +4597,11 @@ export interface SlackThreadContextRunApi {
     log_url: string | null
     /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
     repo_research: SlackThreadContextRepoResearchApi | null
+    /**
+     * Absolute URL to the TaskRun row in Django admin (includes a log download action).
+     * @nullable
+     */
+    admin_url: string | null
 }
 
 /**

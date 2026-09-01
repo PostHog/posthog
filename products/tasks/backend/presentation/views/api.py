@@ -949,6 +949,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "thread_ts": thread.thread_ts,
                         "slack_workspace_id": thread.slack_workspace_id,
                         "mentioning_slack_user_id": thread.mentioning_slack_user_id,
+                        "queue_workflow_id": thread.queue_workflow_id,
+                        "queue_workflow_url": thread.queue_workflow_url,
                     },
                 },
                 status=status.HTTP_404_NOT_FOUND,

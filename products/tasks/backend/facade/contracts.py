@@ -493,6 +493,7 @@ class SlackThreadContextRunDTO:
     task_view_url: str
     log_url: str | None
     repo_research: SlackThreadContextRepoResearchDTO | None = None
+    admin_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -504,6 +505,9 @@ class SlackThreadContextThreadDTO:
     thread_ts: str
     slack_workspace_id: str | None
     mentioning_slack_user_id: str | None
+    queue_workflow_id: str | None = None
+    queue_workflow_url: str | None = None
+    mapping_admin_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +521,7 @@ class SlackThreadContextTaskDTO:
     origin_product: str
     created_at: datetime | None
     url: str
+    admin_url: str | None = None
 
 
 @dataclass(frozen=True)

@@ -66,11 +66,25 @@ export function SlackTaskContextScene(): JSX.Element {
 
             {submissionError ? (
                 <LemonBanner type="error">
-                    {submissionError.status === 403
-                        ? 'This endpoint is restricted to PostHog-internal debugging (team 2).'
-                        : submissionError.status === 404
-                          ? 'No Slack → task mapping found for that thread.'
-                          : submissionError.detail || 'Request failed.'}
+                    {submissionError.status === 403 ? (
+                        'This endpoint is restricted to PostHog-internal debugging (team 2).'
+                    ) : submissionError.status === 404 ? (
+                        <div className="space-y-1">
+                            <div>No Slack → task mapping found for that thread.</div>
+                            {submissionError.queueWorkflowId ? (
+                                <div className="text-sm font-normal">
+                                    The message may still be queued (or was dropped) before a task was created. Check
+                                    the mention queue workflow:{' '}
+                                    <WorkflowLink
+                                        id={submissionError.queueWorkflowId}
+                                        url={submissionError.queueWorkflowUrl ?? null}
+                                    />
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        submissionError.detail || 'Request failed.'
+                    )}
                 </LemonBanner>
             ) : null}
 
@@ -107,6 +121,21 @@ function SlackTaskContextResult({
                                 {thread.url}
                             </Link>,
                         ],
+                        [
+                            'Mention queue workflow',
+                            thread.queue_workflow_id ? (
+                                <WorkflowLink
+                                    key="queue-wf"
+                                    id={thread.queue_workflow_id}
+                                    url={thread.queue_workflow_url}
+                                />
+                            ) : (
+                                <span key="empty" className="text-muted">
+                                    Not derivable (mapping has no workspace id).
+                                </span>
+                            ),
+                        ],
+                        ['Django admin', <AdminLink key="mapping-admin" url={thread.mapping_admin_url} />],
                     ]}
                 />
             </section>
@@ -129,6 +158,7 @@ function SlackTaskContextResult({
                                     {task.url}
                                 </Link>,
                             ],
+                            ['Django admin', <AdminLink key="task-admin" url={task.admin_url} />],
                         ]}
                     />
                 </section>
@@ -172,6 +202,7 @@ function SlackTaskContextRunCard({ run, index }: { run: SlackThreadContextRunApi
                             {run.task_view_url}
                         </Link>,
                     ],
+                    ['Django admin', <AdminLink key="run-admin" url={run.admin_url} />],
                     [
                         'Task-processing workflow',
                         <WorkflowLink
@@ -308,6 +339,17 @@ function RepoResearchBlock({ research }: { research: SlackThreadContextRepoResea
                 ]}
             />
         </div>
+    )
+}
+
+function AdminLink({ url }: { url: string | null | undefined }): JSX.Element {
+    if (!url) {
+        return <span className="text-muted">—</span>
+    }
+    return (
+        <Link to={url} target="_blank">
+            {url}
+        </Link>
     )
 }
 
