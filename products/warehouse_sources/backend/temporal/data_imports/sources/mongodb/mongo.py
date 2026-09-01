@@ -578,6 +578,18 @@ def _is_no_cursor_timeout_unsupported(error: OperationFailure) -> bool:
     return any(marker in message for marker in _NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS)
 
 
+# A find() against a MongoDB view returns the view pipeline's output, which has no `_id` when the
+# pipeline drops it (a $group on another key, a $project that excludes `_id`). The importer keys
+# every collection on `_id`: primary key, incremental cursor, and Delta merge dedup all read it, so
+# an `_id`-less document can't be synced and retrying never recovers. Raise this instead of the bare
+# `doc["_id"]` KeyError, and match it in the source's get_non_retryable_errors.
+MONGO_DOCUMENT_MISSING_ID_ERROR = (
+    "PostHog couldn't import this MongoDB collection because one of its documents has no _id field. "
+    "PostHog uses _id as the primary key for every collection. This usually means the collection is a "
+    "view whose pipeline removes _id. Sync the underlying collection instead, or add _id to the view."
+)
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -660,6 +672,8 @@ def mongo_source(
                 while True:
                     try:
                         for doc in cursor:
+                            if "_id" not in doc:
+                                raise ValueError(MONGO_DOCUMENT_MISSING_ID_ERROR)
                             last_id = doc["_id"]
                             rows_since_cursor_opened += 1
 

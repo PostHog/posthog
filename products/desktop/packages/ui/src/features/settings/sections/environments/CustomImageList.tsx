@@ -37,7 +37,7 @@ export function CustomImageList({
   onOpen,
 }: CustomImageListProps) {
   return (
-    <div className="flex flex-col divide-y divide-(--gray-4) overflow-hidden rounded-(--radius-3) border border-(--gray-5)">
+    <div className="flex flex-col divide-y divide-border overflow-hidden rounded-(--radius-3) border border-border">
       {images.map((image) => {
         const used = usedBy(image.id);
         return (

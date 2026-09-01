@@ -6,6 +6,7 @@ cross the product boundary. A subject that no longer resolves marks the check or
 denormalized name is refreshed on every run so renames self-heal.
 """
 
+from collections.abc import Iterable
 from uuid import UUID
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
@@ -13,7 +14,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
 
 from ..facade.enums import SubjectType
-from .contracts import SubjectRef
+from .contracts import SubjectIdentity, SubjectRef
 
 _WAREHOUSE_OBJECT_SUBJECT_TYPES = {
     WAREHOUSE_OBJECT_TABLE: SubjectType.TABLE,
@@ -73,6 +74,32 @@ def _resolve_view(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
         queryable_name=saved_query.name,
         exists=True,
     )
+
+
+def resolve_subject_names(team_id: int, subjects: Iterable[SubjectIdentity]) -> dict[SubjectIdentity, str]:
+    """The current name of every subject that still resolves, keyed by identity. Two queries.
+
+    Authorization has to read the name the subject carries *now*, because denial is computed from
+    the names that exist today. The name denormalized onto a check is only rewritten when the check
+    runs, so a subject renamed since would otherwise stop matching its own denial. A subject that no
+    longer resolves is absent rather than empty, so a caller can tell the two apart.
+    """
+    wanted = set(subjects)
+    view_ids = [subject.subject_uuid for subject in wanted if subject.subject_type == SubjectType.VIEW]
+    table_ids = [UUID(subject.subject_uuid) for subject in wanted if subject.subject_type == SubjectType.TABLE]
+
+    names: dict[SubjectIdentity, str] = {
+        SubjectIdentity(subject_type=SubjectType.VIEW.value, subject_uuid=saved_query_id): name
+        for saved_query_id, name in data_modeling_facade.saved_query_names(team_id, view_ids).items()
+    }
+    for table_id, name in warehouse_facade.queryable_table_names(team_id, table_ids).items():
+        names[SubjectIdentity(subject_type=SubjectType.TABLE.value, subject_uuid=str(table_id))] = name
+    return names
+
+
+def subject_identity(subject_type: str, subject_uuid: str | UUID) -> SubjectIdentity:
+    """The identity of a subject as a row records it, from whichever form the caller holds."""
+    return SubjectIdentity(subject_type=str(subject_type), subject_uuid=str(subject_uuid))
 
 
 def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUID, column_name: str) -> str | None:

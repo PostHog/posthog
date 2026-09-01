@@ -672,6 +672,20 @@ const MCPToolDescriptionsQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
+const integer = z.coerce.number().int()
+
+const MCPMissingCapabilitiesQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPMissingCapabilitiesQuery').default('MCPMissingCapabilitiesQuery'),
+    limit: integer.describe('Page size; defaults to 100, capped at 500.').optional(),
+    offset: integer
+        .describe(
+            "Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain."
+        )
+        .optional(),
+    search: z.string().describe('Case-insensitive substring match over the report text.').optional(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
@@ -724,5 +738,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tool-descriptions',
         schema: MCPToolDescriptionsQuery,
         kind: 'MCPToolDescriptionsQuery',
+    }),
+    'query-mcp-missing-capabilities': createQueryWrapper({
+        name: 'query-mcp-missing-capabilities',
+        schema: MCPMissingCapabilitiesQuery,
+        kind: 'MCPMissingCapabilitiesQuery',
     }),
 }

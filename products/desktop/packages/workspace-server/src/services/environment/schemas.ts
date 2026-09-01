@@ -6,7 +6,7 @@ const setupSchema = z.object({
   script: z.string().optional(),
 });
 
-export const environmentActionSchema = z.object({
+const environmentActionSchema = z.object({
   name: z.string().min(1),
   icon: z.string().optional(),
   command: z.string().min(1),
@@ -47,7 +47,6 @@ export const updateEnvironmentInput = repoPathWithIdInput.extend({
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
-export type EnvironmentAction = z.infer<typeof environmentActionSchema>;
 export type CreateEnvironmentInput = z.infer<typeof createEnvironmentInput>;
 export type UpdateEnvironmentInput = z.infer<typeof updateEnvironmentInput>;
 

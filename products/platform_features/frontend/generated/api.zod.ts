@@ -36,6 +36,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -88,6 +94,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -140,6 +152,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -177,6 +195,30 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+})
+
+/**
+ * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
+ */
+export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
+})
+
+/**
+ * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
+ */
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlMax = 1024
+
+export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    root_redirect_url: zod
+        .url()
+        .max(proxyRecordsPartialUpdateBodyRootRedirectUrlMax)
+        .nullish()
+        .describe(
+            'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
+        ),
 })
 
 /**

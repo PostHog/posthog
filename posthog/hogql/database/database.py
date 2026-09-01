@@ -150,6 +150,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
+from posthog.hogql.editor_assist_metrics import HOGQL_DATABASE_BUILD_DURATION_SECONDS, HOGQL_DATABASE_BUILD_TOTAL
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -1030,8 +1031,6 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
         include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
-        from django.db.models import Prefetch  # noqa: PLC0415
-
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaEndpointTable,
@@ -1048,8 +1047,8 @@ class Database(BaseModel):
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
-            ExternalDataJob,
             ExternalDataSource,
+            latest_completed_job_prefetch,
         )
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -1101,16 +1100,16 @@ class Database(BaseModel):
         warehouse_table_names = self.get_warehouse_table_names()
         views = [] if self._is_direct_query() else self.get_view_names()
 
+        direct_query_source_ids = [self._connection_id] if self._is_direct_query() and self._connection_id else None
         warehouse_tables_query = (
             DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
-                Prefetch(
+                latest_completed_job_prefetch(
+                    context.team_id,
                     "external_data_source__jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
-                        "-created_at"
-                    )[:1],
                     to_attr="latest_completed_job",
-                ),
+                    source_ids=direct_query_source_ids,
+                )
             )
             # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
             # orphan can't shadow the live table sharing its name in the SQL editor catalog.
@@ -1371,23 +1370,27 @@ class Database(BaseModel):
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
+        trigger: str = "direct",
     ) -> Database:
         if timings is None:
             timings = HogQLTimings()
 
-        sources = Database._fetch_sources(
-            team_id,
-            team=team,
-            user=user,
-            user_access_control=user_access_control,
-            modifiers=modifiers,
-            timings=timings,
-            connection_id=connection_id,
-            bypass_warehouse_access_control=bypass_warehouse_access_control,
-        )
-        return Database._build_from_sources(
-            sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
-        )
+        HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+            sources = Database._fetch_sources(
+                team_id,
+                team=team,
+                user=user,
+                user_access_control=user_access_control,
+                modifiers=modifiers,
+                timings=timings,
+                connection_id=connection_id,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+            )
+        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
+            return Database._build_from_sources(
+                sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+            )
 
     @staticmethod
     def _fetch_sources(
@@ -2398,7 +2401,6 @@ class Database(BaseModel):
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-
     if source is None:
         return table_name
 
@@ -2763,7 +2765,6 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
-
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
@@ -2776,7 +2777,6 @@ def _should_include_connection_table(
     *,
     connection_id: str,
 ) -> bool:
-
     source = warehouse_table.external_data_source
     if source is None or source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return False

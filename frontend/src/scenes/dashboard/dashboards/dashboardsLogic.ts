@@ -6,6 +6,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -237,45 +238,51 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setTagSearch: (search: string) => ({ search }),
         setShowTagPopover: (visible: boolean) => ({ visible }),
     }),
-    reducers({
-        tableSorting: [
-            DEFAULT_SORTING,
-            { persist: true },
-            {
-                tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
-            },
-        ],
-        currentTab: [
-            DashboardsTab.All as DashboardsTab,
-            {
-                setCurrentTab: (_, { tab }) => tab,
-            },
-        ],
+    reducers(() => {
+        const filtersPersistence = buildUserScopedPersistenceConfig('dashboard_list_filters__')
+        return {
+            tableSorting: [
+                DEFAULT_SORTING,
+                { persist: true },
+                {
+                    tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
+                },
+            ],
+            currentTab: [
+                DashboardsTab.All as DashboardsTab,
+                {
+                    setCurrentTab: (_, { tab }) => tab,
+                },
+            ],
 
-        filters: [
-            DEFAULT_FILTERS,
-            {
-                setFilters: (state, { filters }) =>
-                    objectClean({
-                        ...state,
-                        ...filters,
-                    }),
-                setSearch: (state, { search }) => ({ ...state, search }),
-            },
-        ],
-        tagSearch: [
-            '',
-            {
-                setTagSearch: (_, { search }) => search,
-                setShowTagPopover: (state, { visible }) => (visible ? state : ''),
-            },
-        ],
-        showTagPopover: [
-            false,
-            {
-                setShowTagPopover: (_, { visible }) => visible,
-            },
-        ],
+            filters: [
+                DEFAULT_FILTERS,
+                filtersPersistence,
+                {
+                    setFilters: (state, { filters }) =>
+                        objectClean({
+                            ...state,
+                            ...filters,
+                        }),
+                    setSearch: (state, { search }) => ({ ...state, search }),
+                    setCurrentTab: (state, { tab }) =>
+                        tab === DashboardsTab.Yours ? { ...state, createdBy: DEFAULT_FILTERS.createdBy } : state,
+                },
+            ],
+            tagSearch: [
+                '',
+                {
+                    setTagSearch: (_, { search }) => search,
+                    setShowTagPopover: (state, { visible }) => (visible ? state : ''),
+                },
+            ],
+            showTagPopover: [
+                false,
+                {
+                    setShowTagPopover: (_, { visible }) => visible,
+                },
+            ],
+        }
     }),
 
     loaders({
@@ -435,14 +442,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
-            if (router.values.searchParams['tab'] === tab) {
+            const searchParams: Record<string, any> = { ...router.values.searchParams, tab }
+            if (values.currentTab === DashboardsTab.Yours) {
+                delete searchParams['created_by']
+            }
+            if (objectsEqual(searchParams, router.values.searchParams)) {
                 return
             }
 
-            router.actions.push(router.values.location.pathname, {
-                ...router.values.searchParams,
-                tab,
-            })
+            router.actions.push(router.values.location.pathname, searchParams)
         },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''
@@ -510,6 +518,32 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             if (values.currentTab !== tab) {
                 actions.setCurrentTab(tab)
+            }
+
+            const hasFilterParams = ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some(
+                (key) => key in searchParams
+            )
+            if (tab === DashboardsTab.Yours && values.filters.createdBy !== DEFAULT_FILTERS.createdBy) {
+                actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
+            }
+            if (!hasFilterParams) {
+                const { search: _search, ...filtersWithoutSearch } = values.filters
+                const { search: _defaultSearch, ...defaultsWithoutSearch } = DEFAULT_FILTERS
+                let filtersToRestore: Partial<DashboardsFilters> = filtersWithoutSearch
+                let defaultFilters: Partial<DashboardsFilters> = defaultsWithoutSearch
+                if (tab === DashboardsTab.Yours) {
+                    const { createdBy: _createdBy, ...filtersWithoutCreatedBy } = filtersToRestore
+                    const { createdBy: _defaultCreatedBy, ...defaultsWithoutCreatedBy } = defaultFilters
+                    filtersToRestore = filtersWithoutCreatedBy
+                    defaultFilters = defaultsWithoutCreatedBy
+                }
+                if (!objectsEqual(filtersToRestore, defaultFilters)) {
+                    actions.setFilters(filtersToRestore)
+                }
+                if (values.filters.search) {
+                    actions.setSearch(values.filters.search)
+                }
+                return
             }
 
             // Apply non-search filters before search so the setSearch listener's server fetch

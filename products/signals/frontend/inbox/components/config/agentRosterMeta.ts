@@ -54,10 +54,11 @@ export interface AgentRosterDefinition {
      */
     manageUrl?: string
     /**
-     * The emission pipeline runs an actionability gate on this source's records, and that gate
-     * reads the steering keys on `SignalSourceConfig.config` (see `sourceSteeringModalLogic`).
-     * Sources without a gate must not offer the steering form: the keys would be stored but
-     * nothing would read them.
+     * An actionability gate runs on this source's records and reads the steering keys on
+     * `SignalSourceConfig.config` (see `sourceSteeringModalLogic`). Either the emission pipeline's
+     * gate, or, for a source that emits directly, the one listing it in the backend's
+     * `DIRECT_STEERABLE_SOURCES`. Sources without a gate must not offer the steering form: the keys
+     * would be stored but nothing would read them.
      */
     steerable?: boolean
     /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
@@ -81,6 +82,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 detail: 'Each type below is a separate trigger, so turning one off leaves the others watching.',
                 entityNoun: 'signal types',
                 entityNounSingular: 'signal type',
+                steerable: true,
                 docsUrl: 'https://posthog.com/docs/error-tracking',
                 docsLabel: 'Error tracking',
             },
@@ -132,6 +134,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Health checks',
                 watches: 'Missing events, proxy gaps, and outdated SDKs',
                 detail: 'Checks your setup for missing events, an outdated SDK, proxy problems, failed warehouse syncs, and missing source maps.',
+                steerable: true,
                 docsUrl: urls.health(),
                 docsLabel: 'Health checks',
             },

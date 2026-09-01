@@ -8,7 +8,8 @@ import { Label } from 'lib/ui/Label/Label'
 
 import { Experiment } from '~/types'
 
-import { isLaunched } from '../experimentsLogic'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import { ManualCalculatorMetricType } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 

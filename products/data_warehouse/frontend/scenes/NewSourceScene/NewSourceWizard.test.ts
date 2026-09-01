@@ -18,6 +18,7 @@ describe('NewSourceWizard', () => {
             ['toggle switched off is respected', { direct_query_enabled: false }, 'Postgres', false],
             ['pure direct source omits the flag', { access_method: 'direct' }, 'Postgres', undefined],
             ['motherduck is direct-capable', { access_method: 'direct' }, 'Motherduck', undefined],
+            ['trino is direct-capable', { access_method: 'direct' }, 'Trino', undefined],
             ['non-direct-capable source omits the flag', {}, 'Stripe', undefined],
         ])('%s', (_description, sourceValues, connectorName, expected) => {
             expect(resolveCreateDirectQueryEnabled(sourceValues, connectorName)).toEqual(expected)

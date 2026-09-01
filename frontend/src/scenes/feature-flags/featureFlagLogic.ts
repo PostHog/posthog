@@ -123,6 +123,12 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import {
+    ScheduleOccurrence,
+    expandScheduleOccurrences,
+    hasDeniedApprovalRequest,
+    isSchedulePaused,
+} from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
@@ -309,13 +315,7 @@ export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): nu
 // applier skips it at fire time. It reads as terminal in the UI and sorts with history.
 // Recurring schedules are excluded because each occurrence is re-gated with a fresh request.
 export function isScheduleDeniedApproval(sc: ScheduledChangeType): boolean {
-    return (
-        !sc.is_recurring &&
-        !sc.recurrence_interval &&
-        !sc.cron_expression &&
-        (sc.change_request?.state === ScheduledChangeRequestState.Rejected ||
-            sc.change_request?.state === ScheduledChangeRequestState.Expired)
-    )
+    return !sc.is_recurring && !sc.recurrence_interval && !sc.cron_expression && hasDeniedApprovalRequest(sc)
 }
 
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
@@ -332,6 +332,10 @@ export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, Pai
         disableCron: '59 23 * * 5',
     },
 }
+
+/** Resolution state of the schedule creation form: unknown while schedules first load,
+ * then collapsed behind a button when the flag already has a plan to read. */
+export type ScheduleFormState = 'loading' | 'collapsed' | 'expanded'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
@@ -909,13 +913,18 @@ export interface featureFlagLogicValues {
     roleBasedAccessEnabled: boolean
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
+    scheduleFormCollapsible: boolean
+    scheduleFormManuallyExpanded: boolean | null
+    scheduleFormState: ScheduleFormState
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
     schedulePreset: PairedPresetKey | null
+    scheduleTimelineOccurrences: ScheduleOccurrence[]
     scheduledChange: ScheduledChangeType
     scheduledChangeLoading: boolean
     scheduledChangeOperation: ScheduledChangeOperationType
     scheduledChanges: ScheduledChangeType[]
+    scheduledChangesLoaded: boolean
     scheduledChangesLoading: boolean
     selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
@@ -1335,6 +1344,9 @@ export interface featureFlagLogicActions {
             version: number | null
         }
     }
+    resetScheduleFormExpanded: () => {
+        value: true
+    }
     restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => {
         featureFlag: Partial<FeatureFlagType>
     }
@@ -1544,6 +1556,9 @@ export interface featureFlagLogicActions {
     }
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
+    }
+    setScheduleFormExpanded: (expanded: boolean) => {
+        expanded: boolean
     }
     setSchedulePayload: (
         filters: FeatureFlagType['filters'] | null,
@@ -1943,6 +1958,17 @@ export interface featureFlagLogicMeta {
             pausedRecurringSchedules: ScheduledChangeType[],
             upcomingOneTimeSchedules: ScheduledChangeType[]
         ) => ScheduledChangeType[]
+        scheduleTimelineOccurrences: (
+            scheduledChanges: ScheduledChangeType[],
+            featureFlag: FeatureFlagType
+        ) => ScheduleOccurrence[]
+        scheduleFormCollapsible: (activeSchedules: ScheduledChangeType[]) => boolean
+        scheduleFormState: (
+            scheduleFormManuallyExpanded: boolean | null,
+            scheduleFormCollapsible: boolean,
+            scheduledChangesLoading: boolean,
+            scheduledChangesLoaded: boolean
+        ) => ScheduleFormState
         emailDomain: (user: UserType | null) => string
         templates: (emailDomain: string) => Array<{
             description: string
@@ -2032,6 +2058,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ copyDependencyRequirements }),
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
+        resetScheduleFormExpanded: true,
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
@@ -2456,6 +2484,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        // Null until the user opens or closes the form; the default is derived from
+        // whether the flag already has active schedules (see scheduleFormState).
+        scheduleFormManuallyExpanded: [
+            null as boolean | null,
+            {
+                setScheduleFormExpanded: (_, { expanded }) => expanded,
+                // A create adds to the plan, so the form returns to the default that the plan
+                // implies. Without this the form stays open for the rest of the mount, and the
+                // "Schedule a change" button stays hidden behind it.
+                createScheduledChangeSuccess: () => null,
+                resetScheduleFormExpanded: () => null,
+            },
+        ],
+        // Distinguishes the first load from refetches, so the schedule header only
+        // shows a skeleton once per mount instead of on every reload after a mutation.
+        scheduledChangesLoaded: [
+            false,
+            {
+                loadScheduledChangesSuccess: () => true,
+                loadScheduledChangesFailure: () => true,
             },
         ],
         schedulePayload: [
@@ -3360,6 +3410,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         createPairedSchedule: async () => {
             const resetScheduleForm = (): void => {
+                actions.resetScheduleFormExpanded()
                 actions.setSchedulePreset(null)
                 actions.setScheduleDateMarker(null)
                 actions.setIsRecurring(false)
@@ -4452,9 +4503,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         pausedRecurringSchedules: [
             (s) => [s.scheduledChanges],
             (scheduledChanges: ScheduledChangeType[]) =>
-                scheduledChanges.filter(
-                    (sc) => !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression) && !sc.executed_at
-                ),
+                scheduledChanges.filter((sc) => isSchedulePaused(sc) && !sc.executed_at),
         ],
         upcomingOneTimeSchedules: [
             (s) => [s.scheduledChanges],
@@ -4481,6 +4530,43 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 pausedRecurring: ScheduledChangeType[],
                 upcomingOneTime: ScheduledChangeType[]
             ) => [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
+        ],
+        scheduleTimelineOccurrences: [
+            // Raw scheduled changes, not activeSchedules: the expansion owns occurrence
+            // eligibility (executed, paused, denied) so its filters stay live and tested.
+            (s) => [s.scheduledChanges, s.featureFlag],
+            (scheduledChanges: ScheduledChangeType[], featureFlag: FeatureFlagType): ScheduleOccurrence[] =>
+                expandScheduleOccurrences(scheduledChanges, featureFlag, dayjs()),
+        ],
+        // The form can collapse only when there is a plan to read; the close button uses this too.
+        scheduleFormCollapsible: [
+            (s) => [s.activeSchedules],
+            (activeSchedules: ScheduledChangeType[]): boolean => activeSchedules.length > 0,
+        ],
+        scheduleFormState: [
+            (s) => [
+                s.scheduleFormManuallyExpanded,
+                s.scheduleFormCollapsible,
+                s.scheduledChangesLoading,
+                s.scheduledChangesLoaded,
+            ],
+            (
+                scheduleFormManuallyExpanded: boolean | null,
+                scheduleFormCollapsible: boolean,
+                scheduledChangesLoading: boolean,
+                scheduledChangesLoaded: boolean
+            ): ScheduleFormState => {
+                if (scheduleFormManuallyExpanded !== null) {
+                    // A manual collapse holds only while a plan remains to read. When the last
+                    // schedule goes, the form must open again, because the empty state tells the
+                    // user to use the form above it.
+                    return scheduleFormManuallyExpanded || !scheduleFormCollapsible ? 'expanded' : 'collapsed'
+                }
+                if (scheduledChangesLoading && !scheduledChangesLoaded) {
+                    return 'loading'
+                }
+                return scheduleFormCollapsible ? 'collapsed' : 'expanded'
+            },
         ],
         emailDomain: [
             (s) => [s.user],

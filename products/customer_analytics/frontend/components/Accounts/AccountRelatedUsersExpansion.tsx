@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
@@ -14,9 +14,9 @@ import { AccountsEvents } from './constants'
 
 export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
-    const { membersResponse, membersResponseLoading, page } = useValues(logic)
+    const { membersResponse, membersResponseLoading, page, searchTerm } = useValues(logic)
     const { user } = useValues(userLogic)
-    const { setPage } = useActions(logic)
+    const { setPage, setSearchTerm } = useActions(logic)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -77,29 +77,43 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
     }
 
     return (
-        <LemonTable<AccountOrganizationMember>
-            size="small"
-            embedded
-            dataSource={membersResponse?.results ?? []}
-            rowKey="id"
-            loading={membersResponseLoading}
-            columns={columns}
-            pagination={{
-                controlled: true,
-                pageSize: PAGE_SIZE,
-                currentPage: page,
-                useUrl: false,
-                entryCount: membersResponse?.count ?? 0,
-                onForward: () => setPage(page + 1),
-                onBackward: () => setPage(page - 1),
-            }}
-            emptyState={
-                !externalId
-                    ? 'This account has no linked organization.'
-                    : membersResponse === null
-                      ? 'Failed to load related users.'
-                      : 'No users related to this account yet.'
-            }
-        />
+        <div className="flex flex-col gap-2">
+            <LemonInput
+                type="search"
+                value={searchTerm}
+                onChange={setSearchTerm}
+                placeholder="Search users by name or email..."
+                maxLength={200}
+                size="small"
+                className="min-w-64"
+                data-attr="customer-analytics-account-users-search"
+            />
+            <LemonTable<AccountOrganizationMember>
+                size="small"
+                embedded
+                dataSource={membersResponse?.results ?? []}
+                rowKey="id"
+                loading={membersResponseLoading}
+                columns={columns}
+                pagination={{
+                    controlled: true,
+                    pageSize: PAGE_SIZE,
+                    currentPage: page,
+                    useUrl: false,
+                    entryCount: membersResponse?.count ?? 0,
+                    onForward: () => setPage(page + 1),
+                    onBackward: () => setPage(page - 1),
+                }}
+                emptyState={
+                    !externalId
+                        ? 'This account has no linked organization.'
+                        : membersResponse === null
+                          ? 'Failed to load related users.'
+                          : searchTerm
+                            ? 'No users match your search.'
+                            : 'No users related to this account yet.'
+                }
+            />
+        </div>
     )
 }

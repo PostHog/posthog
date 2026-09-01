@@ -41,8 +41,8 @@ from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, 
 from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
+from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
     get_declared_field_names,
@@ -531,6 +532,72 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         mock_sync_discover.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.get_schemas",
+        return_value=[
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "bigint", False)],
+                source_catalog="hive",
+                source_schema="analytics",
+                source_table_name="events",
+            )
+        ],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_direct_trino_connection(self, _mock_validate, _mock_get_schemas):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Trino",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Lakehouse",
+                "payload": {
+                    "host": "trino.example.com",
+                    "port": 443,
+                    "catalog": "hive",
+                    "schema": "analytics",
+                    "auth_type": {"selection": "password", "user": "posthog", "password": "secret"},
+                    "use_ssl": True,
+                    "verify_ssl": True,
+                    "schemas": [{"name": "analytics.events", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        schema = ExternalDataSchema.objects.get(source=source, name="analytics.events")
+        assert source.direct_engine == "trino"
+        assert source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        assert schema.table is not None
+        assert schema.table.url_pattern == DIRECT_TRINO_URL_PATTERN
+        assert schema.table.options == {
+            "direct_trino_catalog": "hive",
+            "direct_trino_schema": "analytics",
+            "direct_trino_table": "events",
+        }
+
+    def test_create_trino_rejects_warehouse_mode(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Trino",
+                "created_via": "web",
+                "access_method": "warehouse",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Trino is available only as a direct connection."}
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -1303,7 +1370,6 @@ class TestExternalDataSource(APIBaseTest):
         # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
         # atomic block. If it raised there it would 500 the request with the rows already
         # committed. Guard that a raising reconcile is swallowed and the response stays 200.
-        from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
             SourceSchema as _SourceSchema,
@@ -1318,11 +1384,10 @@ class TestExternalDataSource(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
+
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -2581,13 +2646,17 @@ class TestExternalDataSource(APIBaseTest):
         source_types = {option["source_type"] for option in payload}
 
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
-        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse"}.issubset(source_types))
+        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
         self.assertNotIn("Stripe", source_types)
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
         self.assertEqual(clickhouse["label"], "ClickHouse")
         self.assertIsNotNone(clickhouse["icon_path"])
         self.assertTrue(clickhouse["icon_path"].endswith("clickhouse.png"))
+
+        trino = next(option for option in payload if option["source_type"] == "Trino")
+        self.assertEqual(trino["label"], "Trino")
+        self.assertEqual(trino["icon_path"], "/static/services/trino.svg")
 
         for option in payload:
             self.assertTrue(option["label"])
@@ -4832,9 +4901,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-            },
+            {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -4850,9 +4917,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-            },
+            {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -5516,6 +5581,28 @@ class TestExternalDataSource(APIBaseTest):
             self.assertFalse(
                 ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
             )
+
+    def test_list_last_run_at_is_newest_completed_job(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        never_completed = self._create_external_data_source()
+        for created_at, job_status in [
+            ("2024-07-01T12:00:00.000Z", ExternalDataJob.Status.COMPLETED),
+            ("2024-07-01T18:00:00.000Z", ExternalDataJob.Status.COMPLETED),
+            ("2024-07-02T06:00:00.000Z", ExternalDataJob.Status.FAILED),
+        ]:
+            with freeze_time(created_at):
+                ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=job_status)
+        with freeze_time("2024-07-02T06:00:00.000Z"):
+            ExternalDataJob.objects.create(
+                team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        assert response.status_code == status.HTTP_200_OK
+        last_run_at = {row["id"]: row["last_run_at"] for row in response.json()["results"]}
+        assert last_run_at == {str(source.pk): "2024-07-01T18:00:00+00:00", str(never_completed.pk): None}
 
     def test_source_jobs(self):
         source = self._create_external_data_source()

@@ -187,9 +187,17 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(len(envelope["media"]), _MEDIA_MAX_FIGURES)
         self.assertIn("1 figure(s) omitted", envelope["stderr"])
 
-    def _run_duckdb(self, code: str, inputs=None, output_name=None) -> dict:
+    def _run_duckdb(self, code: str, inputs=None, output_name=None, variables=None) -> dict:
         return self.session.run_node(
-            {"node": {"type": "duckdb", "code": code, "output_name": output_name}, "inputs": inputs or []}
+            {
+                "node": {
+                    "type": "duckdb",
+                    "code": code,
+                    "output_name": output_name,
+                    "variables": variables or {},
+                },
+                "inputs": inputs or [],
+            }
         )
 
     def test_duckdb_node_joins_a_hogql_frame_with_a_local_frame(self):
@@ -339,3 +347,96 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run("3 + 3")
 
         self.assertLessEqual(len(json.dumps(envelope["frames"])), 300_000)
+
+
+class TestKernelSessionNotebookVariables(SimpleTestCase):
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.session = KernelSession(data_dir=self._dir.name)
+
+    def _run(self, code: str, variables=None, inputs=None) -> dict:
+        return self.session.run_node(
+            {
+                "node": {"type": "python", "code": code, "output_name": None, "variables": variables or {}},
+                "inputs": inputs or [],
+            }
+        )
+
+    def test_variables_are_readable_as_globals(self):
+        envelope = self._run("print(f'{country}-{lookback_days}')", {"country": "US", "lookback_days": 30})
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("US-30", envelope["stdout"])
+
+    def test_a_rebound_variable_is_reset_on_the_next_run(self):
+        # The Variables block is the authority: a value one cell assigned must not leak into the
+        # next run, or the notebook silently disagrees with what the block shows.
+        self._run("country = 'DE'", {"country": "US"})
+        envelope = self._run("print(country)", {"country": "US"})
+        self.assertIn("US", envelope["stdout"])
+
+    def test_an_input_frame_wins_a_name_collision(self):
+        # The notebook forbids the collision, but a shadowed variable degrades better than a
+        # dataframe that vanished from under the code that reads it.
+        path = os.path.join(self._dir.name, "frames", "shared.arrow")
+        table = pa.table({"a": [1]})
+        with pa.OSFile(path, "wb") as sink:
+            with pa.ipc.new_file(sink, table.schema) as writer:
+                writer.write_table(table)
+        envelope = self._run(
+            "print(type(shared).__name__)",
+            {"shared": "not-a-frame"},
+            [{"name": "shared", "kind": "hogql", "path": path}],
+        )
+        self.assertIn("DataFrame", envelope["stdout"])
+
+    def test_a_variable_the_notebook_stopped_declaring_is_removed(self):
+        # Deleting or renaming a variable must take the global with it. Otherwise a cell that
+        # reads the old name keeps working, so the notebook says the variable is gone while
+        # the kernel still answers with its last value.
+        self._run("print(country)", {"country": "US"})
+        envelope = self._run("print('ok', 'country' in globals())", {})
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("ok False", envelope["stdout"])
+
+    def test_a_renamed_variable_leaves_no_global_under_the_old_name(self):
+        self._run("pass", {"country": "US"})
+        envelope = self._run("print('old' , 'country' in globals(), 'new', region)", {"region": "EU"})
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("old False new EU", envelope["stdout"])
+
+    def test_a_variable_a_cell_reassigned_is_reset_not_deleted(self):
+        # Still declared, so the notebook's value wins again on the next run.
+        self._run("country = 'DE'", {"country": "US"})
+        envelope = self._run("print(country)", {"country": "US"})
+        self.assertIn("US", envelope["stdout"])
+
+    def test_a_run_without_variables_is_unaffected(self):
+        envelope = self._run("print('no variables here')")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("no variables here", envelope["stdout"])
+
+
+class TestKernelSessionDuckdbVariables(SimpleTestCase):
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.session = KernelSession(data_dir=self._dir.name)
+
+    def _run_duckdb(self, code: str, variables=None) -> dict:
+        return self.session.run_node(
+            {"node": {"type": "duckdb", "code": code, "variables": variables or {}}, "inputs": []}
+        )
+
+    def test_a_parameter_binds_as_a_value(self):
+        envelope = self._run_duckdb("select $country as country", {"country": "US"})
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["first_page"], [["US"]])
+
+    def test_a_value_carrying_sql_stays_one_value(self):
+        # The whole point of binding: the driver never parses the value, so an injection
+        # payload comes back as data rather than an extra result branch.
+        payload = "US' UNION ALL SELECT version() --"
+        envelope = self._run_duckdb("select $country as country", {"country": payload})
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["first_page"], [[payload]])

@@ -94,6 +94,11 @@ export interface OrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -197,6 +202,11 @@ export interface PatchedOrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -468,6 +478,194 @@ export interface PaginatedOrganizationPersonalAPIKeyListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationPersonalAPIKeyApi[]
+}
+
+/**
+ * * `waiting` - Waiting
+ * * `issuing` - Issuing
+ * * `valid` - Valid
+ * * `warning` - Warning
+ * * `erroring` - Erroring
+ * * `deleting` - Deleting
+ * * `timed_out` - Timed Out
+ */
+export type ProxyRecordStatusEnumApi = (typeof ProxyRecordStatusEnumApi)[keyof typeof ProxyRecordStatusEnumApi]
+
+export const ProxyRecordStatusEnumApi = {
+    Waiting: 'waiting',
+    Issuing: 'issuing',
+    Valid: 'valid',
+    Warning: 'warning',
+    Erroring: 'erroring',
+    Deleting: 'deleting',
+    TimedOut: 'timed_out',
+} as const
+
+export interface ProxyRecordApi {
+    /** Unique identifier for the proxy record. */
+    readonly id: string
+    /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
+    domain: string
+    /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
+    readonly target_cname: string
+    /**
+     * HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.
+     * @nullable
+     */
+    readonly root_redirect_url: string | null
+    /** Whether this managed proxy supports a redirect from its root URL. */
+    readonly root_redirect_supported: boolean
+    /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
+     *
+     * * `waiting` - Waiting
+     * * `issuing` - Issuing
+     * * `valid` - Valid
+     * * `warning` - Warning
+     * * `erroring` - Erroring
+     * * `deleting` - Deleting
+     * * `timed_out` - Timed Out */
+    readonly status: ProxyRecordStatusEnumApi
+    /**
+     * Human-readable status message with details about errors or warnings, if any.
+     * @nullable
+     */
+    readonly message: string | null
+    /** When this proxy record was created. */
+    readonly created_at: string
+    /** When this proxy record was last updated. */
+    readonly updated_at: string
+    /** ID of the user who created this proxy record. */
+    readonly created_by: number
+}
+
+export interface ProxyRecordListResponseApi {
+    results: ProxyRecordApi[]
+    /** Maximum number of proxy records allowed for this organization's current plan. */
+    max_proxy_records: number
+}
+
+export interface PatchedProxyRecordUpdateApi {
+    /**
+     * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
+     * @maxLength 1024
+     * @nullable
+     */
+    root_redirect_url?: string | null
+}
+
+/**
+ * * `healthy` - healthy
+ * * `warn` - warn
+ * * `fail` - fail
+ */
+export type DiagnosticReportSummaryStatusEnumApi =
+    (typeof DiagnosticReportSummaryStatusEnumApi)[keyof typeof DiagnosticReportSummaryStatusEnumApi]
+
+export const DiagnosticReportSummaryStatusEnumApi = {
+    Healthy: 'healthy',
+    Warn: 'warn',
+    Fail: 'fail',
+} as const
+
+export interface DiagnosticReportSummaryApi {
+    /** Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.
+     *
+     * * `healthy` - healthy
+     * * `warn` - warn
+     * * `fail` - fail */
+    status: DiagnosticReportSummaryStatusEnumApi
+    /**
+     * Check id of the most actionable failure, if any. Null when status is healthy.
+     * @nullable
+     */
+    primary_issue: string | null
+    /**
+     * One-sentence next action the customer should take. Null when nothing's wrong.
+     * @nullable
+     */
+    next_action: string | null
+}
+
+/**
+ * * `passed` - passed
+ * * `warned` - warned
+ * * `failed` - failed
+ * * `skipped` - skipped
+ */
+export type DiagnosticCheckResultStatusEnumApi =
+    (typeof DiagnosticCheckResultStatusEnumApi)[keyof typeof DiagnosticCheckResultStatusEnumApi]
+
+export const DiagnosticCheckResultStatusEnumApi = {
+    Passed: 'passed',
+    Warned: 'warned',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `dns` - dns
+ * * `config` - config
+ * * `wait` - wait
+ * * `retry` - retry
+ */
+export type DiagnosticRemediationTypeEnumApi =
+    (typeof DiagnosticRemediationTypeEnumApi)[keyof typeof DiagnosticRemediationTypeEnumApi]
+
+export const DiagnosticRemediationTypeEnumApi = {
+    Dns: 'dns',
+    Config: 'config',
+    Wait: 'wait',
+    Retry: 'retry',
+} as const
+
+export interface DiagnosticDnsRecordApi {
+    /** DNS record name (the hostname the record is set on). */
+    name: string
+    /** DNS record type, e.g. CNAME, CAA, A. */
+    type: string
+    /** DNS record value to set. */
+    value: string
+}
+
+export interface DiagnosticRemediationApi {
+    /** Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.
+     *
+     * * `dns` - dns
+     * * `config` - config
+     * * `wait` - wait
+     * * `retry` - retry */
+    type: DiagnosticRemediationTypeEnumApi
+    /** One-line, action-oriented summary of what to do. */
+    summary: string
+    /** DNS records the customer should add (empty when remediation is not DNS-based). */
+    records: DiagnosticDnsRecordApi[]
+}
+
+export interface DiagnosticCheckResultApi {
+    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+    id: string
+    /** Human-readable check name. */
+    name: string
+    /** passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.
+     *
+     * * `passed` - passed
+     * * `warned` - warned
+     * * `failed` - failed
+     * * `skipped` - skipped */
+    status: DiagnosticCheckResultStatusEnumApi
+    /** Customer-facing explanation of the check's outcome. */
+    detail: string
+    /** Concrete remediation steps when the check failed; null when there's nothing actionable. */
+    remediation?: DiagnosticRemediationApi | null
+}
+
+export interface DiagnosticReportApi {
+    /** When this diagnostic report was generated (UTC). */
+    ran_at: string
+    /** Top-level outcome and recommended next action. */
+    summary: DiagnosticReportSummaryApi
+    /** Per-check results in execution order. */
+    checks: DiagnosticCheckResultApi[]
 }
 
 export type RoleApiMembersItem = { [key: string]: unknown }

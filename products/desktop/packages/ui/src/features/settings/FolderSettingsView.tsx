@@ -188,7 +188,7 @@ export function FolderSettingsView() {
             </Card>
           </Flex>
 
-          <Box className="border-gray-6 border-t" />
+          <Box className="border-border border-t" />
 
           <Flex direction="column" gap="3">
             <Heading className="text-base">Danger zone</Heading>

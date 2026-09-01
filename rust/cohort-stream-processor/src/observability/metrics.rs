@@ -363,12 +363,14 @@ pub const COHORT_STREAM_ROUTE_ERRORS: &str = "cohort_stream_route_errors_total";
 /// Events accumulated per consume → route cycle (histogram).
 pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_size";
 
-/// Membership changes produced to `cohort_membership_changed_shadow`, labelled by `status`
+/// Membership changes produced to the membership output topic, labelled by `status`
 /// (counter). Counted only after a fully-acked flush.
 pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_emitted_total";
 /// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter).
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
-/// Produce failures to `cohort_membership_changed_shadow` (counter).
+/// Produce failures on the membership output topic (counter). Not every failure loses data: most
+/// paths hold or reschedule the offset for replay. Sweep stage 2 and merge drop the change,
+/// because their state is already committed.
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
 /// Sweep cycles that fired, labelled by `loop`

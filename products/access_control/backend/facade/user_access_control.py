@@ -119,6 +119,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # scanner's "and then…" automations) — configured via the same single
     # replay_scanner rule rather than a separate resource.
     "vision_action": "replay_scanner",
+    # Vision alerts follow the same rule: configured via the scanner's access level.
+    "vision_alert": "replay_scanner",
 }
 
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
@@ -171,7 +173,7 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
             field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
 
-    return field_access_map
+    return field_access_map  # ty: ignore[invalid-return-type]
 
 
 def resource_to_display_name(resource: APIScopeObject) -> str:
@@ -275,6 +277,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
@@ -331,6 +336,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionaction", "visionactionrun"):
         return "vision_action"
+    if name in ("visionalertconfiguration", "visionalertevent"):
+        return "vision_alert"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -555,6 +562,7 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        filters = self._db_filters(filters)
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None
@@ -572,6 +580,18 @@ class UserAccessControl:
                 **filters, organization_member=None, role__in=self._user_role_ids
             )
         )
+
+    @staticmethod
+    def _db_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """Replace `team__organization_id` with `team_id__in` (the org's teams) for the DB query.
+        The org id is a posthog_team column, so as a join predicate it forces a scan over every
+        org's rows. A team_id predicate uses the index on ee_accesscontrol."""
+        organization_id = filters.get("team__organization_id")
+        if organization_id is None:
+            return filters
+        db_filters = {k: v for k, v in filters.items() if k != "team__organization_id"}
+        db_filters["team_id__in"] = Team.objects.filter(organization_id=organization_id).values("id")
+        return db_filters
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it

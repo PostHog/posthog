@@ -55,6 +55,24 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
     )
 
 
+def saved_query_names(team_id: int, saved_query_ids: Iterable[UUID | str]) -> dict[str, str]:
+    """The current name of each saved query that still resolves. One query; anything gone is absent.
+
+    The bulk form of ``get_saved_query_summary`` for a caller that only needs names, so authorizing
+    a page of stored references costs one query rather than one per reference. Soft-deleted rows are
+    excluded for the same reason: ``soft_delete`` rewrites ``name`` to a tombstone.
+    """
+    ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
+    if not ids:
+        return {}
+    rows = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=ids)
+        .exclude(deleted=True)
+        .values_list("id", "name")
+    )
+    return {str(saved_query_id): name for saved_query_id, name in rows}
+
+
 def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str | None:
     """The S3 Delta table a materialized view's rows live in, for a consumer that reads them directly.
 

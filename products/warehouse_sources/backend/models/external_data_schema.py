@@ -1284,6 +1284,29 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
+@frozen
+class DirectSchemaReconciliation:
+    active_schemas: list[ExternalDataSchema]
+    stale_schemas: list[ExternalDataSchema]
+
+
+def get_schemas_for_direct_reconciliation(
+    source_id: str | uuid.UUID,
+    team_id: int,
+    current_schema_names: list[str],
+) -> DirectSchemaReconciliation:
+    candidates = list(
+        ExternalDataSchema.objects.filter(
+            models.Q(team_id=team_id, source_id=source_id),
+            models.Q(deleted=False) | models.Q(table__deleted=False),
+        ).select_related("table")
+    )
+    active = [schema for schema in candidates if schema.deleted is False]
+    current_names = set(current_schema_names)
+    stale = [schema for schema in candidates if schema.name not in current_names]
+    return DirectSchemaReconciliation(active_schemas=active, stale_schemas=stale)
+
+
 def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:
     for schema in old_schemas:
         new_label = new_schemas.get(schema.name)

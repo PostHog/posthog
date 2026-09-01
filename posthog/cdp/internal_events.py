@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 # Single source of truth for the managed-alert event boundary. Also used as a Postgres regex
 # filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
 # POSIX-compatible (no (?:...) groups).
-MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$"
+MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match)$"
 LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 

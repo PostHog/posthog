@@ -1,6 +1,6 @@
 """Open a new user's first agent session."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -18,6 +18,7 @@ from products.signals.backend.facade.api import enable_onboarding_signal_sources
 from products.tasks.backend.facade.api import (
     create_and_run_task,
     desktop_users_in_team,
+    ensure_personal_channel_id,
     find_general_channel_id,
     organization_has_context,
 )
@@ -48,6 +49,7 @@ ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
+ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
 
 ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
 
@@ -144,35 +146,70 @@ def _session_enabled(team: Team, user: User) -> bool:
         return False
 
 
-def _teaching_canvas(team_id: int, channel_id: UUID, user: User) -> TeachingCanvas | None:
+def onboarding_test_tools_enabled(team: Team, user: User) -> bool:
+    if settings.DEBUG:
+        return True
+
+    distinct_id = user.distinct_id
+    if not distinct_id:
+        return False
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                ONBOARDING_TEST_TOOLS_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("onboarding_test_tools_flag_check_failed", team_id=team.id)
+        return False
+
+
+def _teaching_canvas(team_id: int, channel_id: UUID, user: User, *, refresh: bool) -> TeachingCanvas | None:
     """Best-effort: a session without the tour beats no session."""
     try:
-        return ensure_teaching_canvas(team_id, channel_id, user)
+        return ensure_teaching_canvas(team_id, channel_id, user, refresh=refresh)
     except Exception:
         logger.warning("onboarding_teaching_canvas_failed", team_id=team_id, exc_info=True)
         return None
 
 
-def start_onboarding_session(team: Team, user: User) -> UUID | None:
+def start_onboarding_session(
+    team: Team,
+    user: User,
+    *,
+    facts_override: OnboardingFacts | None = None,
+    homepage_override: str = "",
+    force: bool = False,
+    channel_id: UUID | None = None,
+) -> UUID | None:
     """Create the session a new user lands in. ``None`` when no session was started."""
-    if not _session_enabled(team, user):
+    if not force and not _session_enabled(team, user):
         logger.info("onboarding_session_skipped", team_id=team.id, reason="flag_disabled")
         return None
 
-    channel_id = find_general_channel_id(team.id)
+    if channel_id is None:
+        channel_id = find_general_channel_id(team.id)
     if channel_id is None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
         return None
 
-    started = _started_session_id(team.id, user.id)
+    started = None if force else _started_session_id(team.id, user.id)
     if started is not None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")
         return started
 
-    origin_key = _origin_key(user.id)
+    origin_key = f"{ONBOARDING_ORIGIN_KEY_PREFIX}_test:{user.id}:{uuid4()}" if force else _origin_key(user.id)
 
-    teaching = _teaching_canvas(team.id, channel_id, user)
-    facts, homepage = gather_onboarding_facts(team, user)
+    teaching = _teaching_canvas(team.id, channel_id, user, refresh=force)
+    facts, homepage = (
+        (facts_override, homepage_override) if facts_override is not None else gather_onboarding_facts(team, user)
+    )
     prompt = load_onboarding_prompt()
     missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
     prompt_template = prompt.prompt
@@ -248,3 +285,40 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         groups=groups(team.organization, team),
     )
     return created.task_id
+
+
+def start_onboarding_test_session(
+    team: Team,
+    user: User,
+    *,
+    company_domain: str,
+    joining_existing_organization: bool,
+    has_events: bool,
+    signal_reports_waiting: int,
+    other_members: list[str],
+    sources_enabled: list[str],
+    sources_watching: list[str],
+    sources_newly_enabled: bool,
+) -> UUID | None:
+    """Runs in the requester's personal space, so repeated tests leave #general alone."""
+    domain = normalize_target(company_domain) if company_domain else None
+    research = research_domain(domain) if domain and not joining_existing_organization else None
+    facts = OnboardingFacts(
+        org_has_context=joining_existing_organization,
+        research=research,
+        has_events=has_events,
+        signal_reports_waiting=signal_reports_waiting,
+        other_members=prose_list(other_members),
+        sources_enabled=tuple(sources_enabled),
+        sources_watching=tuple(sources_watching),
+        sources_newly_enabled=sources_newly_enabled,
+    )
+    homepage = research.markdown or "" if research and research.outcome == "scraped" else ""
+    return start_onboarding_session(
+        team,
+        user,
+        facts_override=facts,
+        homepage_override=homepage,
+        force=True,
+        channel_id=ensure_personal_channel_id(team.id, user.id),
+    )

@@ -18,7 +18,7 @@ const {
     computeTargets,
     allKnownTargets,
     buildContext,
-    parseCargoLockCrates,
+    parseRustAffectedCrates,
     compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
@@ -26,12 +26,10 @@ const {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
-    parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
     parseWorkspacePackageGlobs,
-    reverseClosure,
     semgrepDomain,
     tripwireDomain,
     ALL,
@@ -41,11 +39,10 @@ const {
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
-    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
-const { parseTachModules, tachDependents } = require('./turbo-discover')
+const { tachDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
@@ -56,12 +53,8 @@ const CONTEXT = {
         ['.semgrep/rules/devex/ts-rule.yaml', JAVASCRIPT],
         ['.semgrep/rules/devex/generic-rule.yaml', UNIVERSAL],
     ]),
-    rustGraph: {
-        dependsOn: new Map([
-            ['shared', []],
-            ['consumer', ['shared']],
-            ['unrelated', []],
-        ]),
+    rustInventory: {
+        crateNames: new Set(['shared', 'consumer', 'unrelated']),
         byDir: [
             { dir: 'consumer', name: 'consumer' },
             { dir: 'unrelated', name: 'unrelated' },
@@ -78,59 +71,41 @@ const CONTEXT = {
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
 
-// A graph that declares all three products, so their importer sets are bounded.
-// The base CONTEXT deliberately declares none, which covers the case where a
-// product sits outside `tach check` and has to keep widening.
+// A graph the tach map walked all three products into, so their importer sets
+// are known. The base CONTEXT deliberately holds none, which covers the case
+// where a product sits outside the map and has to keep widening. Keys and
+// values are product directory names, the shape productGraphFromTachMap emits.
 const TACH_DECLARED_CONTEXT = {
     ...CONTEXT,
     tachGraph: {
-        graph: parseTachModules(`
-[[modules]]
-path = "products.alpha"
-depends_on = []
-layer = "modules"
-
-[[modules]]
-path = "products.beta"
-depends_on = ["products.gamma"]
-layer = "modules"
-
-[[modules]]
-path = "products.gamma"
-depends_on = []
-layer = "modules"
-`),
+        graph: new Map([
+            ['alpha', []],
+            ['beta', ['gamma']],
+            ['gamma', []],
+        ]),
         tachDependents,
     },
 }
 
 // PROTO_TREES names the crates that compile each tree, so the crate half of
-// this graph has to carry their real names. The dependent and the bystander are
-// synthetic, which is what keeps the closure assertions off the real crate
-// graph.
+// this inventory has to carry their real names. The dependent and the
+// bystander are synthetic, which is what keeps the assertions off the real
+// crate workspace.
+const PROTO_CRATES = [
+    'cymbal-proto',
+    'ingestion-worker-proto',
+    'kafka-assigner-proto',
+    'personhog-proto',
+    'personhog-consumer',
+    'prometheus-rw-proto',
+    'usage-ingestion-proto',
+    'unrelated',
+]
 const PROTO_CONTEXT = {
     ...CONTEXT,
-    rustGraph: {
-        dependsOn: new Map([
-            ['cymbal-proto', []],
-            ['ingestion-worker-proto', []],
-            ['kafka-assigner-proto', []],
-            ['personhog-proto', []],
-            ['personhog-consumer', ['personhog-proto']],
-            ['prometheus-rw-proto', []],
-            ['usage-ingestion-proto', []],
-            ['unrelated', []],
-        ]),
-        byDir: [
-            { dir: 'cymbal-proto', name: 'cymbal-proto' },
-            { dir: 'ingestion-worker-proto', name: 'ingestion-worker-proto' },
-            { dir: 'kafka-assigner-proto', name: 'kafka-assigner-proto' },
-            { dir: 'personhog-proto', name: 'personhog-proto' },
-            { dir: 'personhog-consumer', name: 'personhog-consumer' },
-            { dir: 'prometheus-rw-proto', name: 'prometheus-rw-proto' },
-            { dir: 'usage-ingestion-proto', name: 'usage-ingestion-proto' },
-            { dir: 'unrelated', name: 'unrelated' },
-        ],
+    rustInventory: {
+        crateNames: new Set(PROTO_CRATES),
+        byDir: PROTO_CRATES.map((name) => ({ dir: name, name })),
     },
 }
 
@@ -149,19 +124,22 @@ const WORKSPACE_CONTEXT = {
 // runs against.
 test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
-        'bin/start',
-        // Read by pytest, jest, and playwright alike, so no one domain holds it.
-        '.test_quarantine.json',
+        // Runs in backend, frontend, nodejs, and rust CI alike.
+        'bin/download-mmdb',
+        // The stack every suite tests against, the rust integration suites
+        // included.
+        'docker-compose.base.yml',
         // Trees that steer what every suite runs or what it runs against: the
-        // Depot copies of the workflows, the toolchain, the service configs the
-        // stack mounts, and the markdownlint config every tree's prose obeys.
-        '.depot/workflows/ci-backend.yml',
+        // Depot shadow of an action every workflow uses, the toolchain, the
+        // service configs the stack mounts, and the markdownlint config every
+        // tree's prose obeys.
+        '.depot/actions/pnpm-install/action.yml',
         '.flox/env/manifest.toml',
         'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
         '.config/.markdownlint-cli2.jsonc',
         // A workflow nobody has placed in a domain keeps the old radius.
-        '.github/workflows/ci-e2e-playwright.yml',
+        '.github/workflows/ci-security.yaml',
     ]
     for (const file of tripwireFiles) {
         assert.equal(isTripwire(file), true, `${file} should be a tripwire`)
@@ -211,10 +189,14 @@ test('a lockfile claims its own toolchain rather than every lane', () => {
 
 // Every consumer of a proto commits the stubs generated from it, so the set is
 // enumerable rather than open-ended: tonic for the crate, and checked-in
-// personhog stubs for python and nodejs. The rust half is the crate that
-// compiles the tree plus the dependents the closure adds, not every crate.
+// personhog stubs for python and nodejs. The rust half is the determinator's
+// answer for the diff (the crate that compiles the tree plus its dependents),
+// not every crate.
 test('a proto claims the consumers that generate from it rather than every lane', () => {
-    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], PROTO_CONTEXT)
+    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], {
+        ...PROTO_CONTEXT,
+        rustAffectedCrates: ['personhog-proto', 'personhog-consumer'],
+    })
     for (const target of [
         'py:core',
         'py:product:alpha',
@@ -241,12 +223,20 @@ test('a proto claims the consumers that generate from it rather than every lane'
 // The narrowing the per-tree table buys: a tree nothing outside rust/ generates
 // from used to serialize against every python lane in the repo.
 test('a proto tree with no stubs outside rust claims neither python nor nodejs', () => {
-    assert.deepEqual(computeTargets(['proto/cymbal/resolution/v1/resolution.proto'], PROTO_CONTEXT), [
-        'rust:crate:cymbal-proto',
-    ])
-    assert.deepEqual(computeTargets(['proto/kafka_assigner/v1/service.proto'], PROTO_CONTEXT), [
-        'rust:crate:kafka-assigner-proto',
-    ])
+    assert.deepEqual(
+        computeTargets(['proto/cymbal/resolution/v1/resolution.proto'], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['cymbal-proto'],
+        }),
+        ['rust:crate:cymbal-proto']
+    )
+    assert.deepEqual(
+        computeTargets(['proto/kafka_assigner/v1/service.proto'], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['kafka-assigner-proto'],
+        }),
+        ['rust:crate:kafka-assigner-proto']
+    )
 })
 
 // buf's lint and breaking-change settings sit at the root and govern every
@@ -276,9 +266,9 @@ test('an undeclared proto tree or a renamed proto crate widens', () => {
 
     const renamed = {
         ...PROTO_CONTEXT,
-        rustGraph: {
-            ...PROTO_CONTEXT.rustGraph,
-            dependsOn: new Map([...PROTO_CONTEXT.rustGraph.dependsOn].filter(([crate]) => crate !== 'personhog-proto')),
+        rustInventory: {
+            ...PROTO_CONTEXT.rustInventory,
+            crateNames: new Set([...PROTO_CONTEXT.rustInventory.crateNames].filter((c) => c !== 'personhog-proto')),
         },
     }
     assert.deepEqual(computeTargets(['proto/personhog/types/v1/person.proto'], renamed), allKnownTargets(renamed))
@@ -463,20 +453,87 @@ test('single-language root configuration claims that language', () => {
 // suite runs on. The narrowing above stops here: these keep the full set, but
 // by decision rather than for want of a rule.
 test('stack and image configuration at the root stays universal', () => {
-    for (const file of [
-        '.env.development',
-        '.env.services',
-        '.envrc',
-        '.dockerignore',
-        'depot.json',
-        'owners.yaml',
-        'otel-collector-config.dev.yaml',
-    ]) {
+    for (const file of ['.env.development', '.env.services', '.envrc', 'otel-collector-config.dev.yaml']) {
         assert.equal(tripwireDomain(file), UNIVERSAL, file)
         assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
     }
-    // A product's own ownership file is not the root one and keeps its lane.
-    assert.notDeepEqual(computeTargets(['products/alpha/owners.yaml'], CONTEXT), EVERYTHING)
+})
+
+// No suite's outcome depends on ownership data jointly with a second PR: the
+// root owners.yaml is a fallback, so nothing can become unowned, and the other
+// readers are review-routing bots. Two ownership edits still serialize against
+// each other on the shared lane.
+test('ownership data shares one lane instead of every lane', () => {
+    for (const file of [
+        'owners.yaml',
+        'tools/owners/posthog_owners/matcher.py',
+        '.github/CODEOWNERS',
+        '.github/owners.yaml',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['ownership'], file)
+    }
+    // A product's own ownership file keeps its product lane.
+    assert.notDeepEqual(computeTargets(['products/alpha/owners.yaml'], CONTEXT), ['ownership'])
+})
+
+// Every quarantine reader (pytest, jest, playwright, and turbo-discover's
+// product-skip input) sits inside the two language families; no rust suite
+// consumes the list, so a flaky-test quarantine no longer serializes rust PRs.
+test('the quarantine list claims the fullstack lanes and no rust crate', () => {
+    const targets = computeTargets(['.test_quarantine.json'], CONTEXT)
+    assert.equal(targets.includes('py:core'), true)
+    assert.equal(targets.includes('fe:core'), true)
+    assert.equal(
+        targets.some((target) => target.startsWith('rust:crate:')),
+        false
+    )
+    assert.notDeepEqual(targets, EVERYTHING)
+})
+
+// paths-filter decides which jobs run inside a single run's own diff, so no
+// run's outcome depends on it jointly with another queue entry. Its own CI and
+// its .depot shadow share the lane.
+test('the paths-filter action and its CI share the ci-tooling lane', () => {
+    for (const file of [
+        '.github/actions/paths-filter/src/filter.ts',
+        '.github/actions/paths-filter/dist/index.js',
+        '.github/workflows/ci-paths-filter.yml',
+        '.depot/actions/paths-filter/src/filter.ts',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['ci-tooling'], file)
+    }
+})
+
+// pnpm patches resolve inside the JS workspace the way pnpm-lock.yaml does,
+// and depot.json is billing and cache routing that fails its own PR's builds
+// alone.
+test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
+    assert.deepEqual(computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
+})
+
+// The schema-impact pair feeds turbo-discover's backend product selection, the
+// same radius the snob selector holds.
+test('the schema selection scripts claim the python lanes', () => {
+    for (const file of ['.github/scripts/schema-impact.js', '.github/scripts/schema_usage_scan.py']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+})
+
+// Called by the rust smoke build and the rust image CD; the image map is also
+// parsed by rust-compute-affected in the rust and nodejs PR checks.
+test('the rust image builder and image map span rust plus deploy', () => {
+    for (const file of ['.github/workflows/_rust-build-images.yml', '.github/rust-images.yml']) {
+        const targets = computeTargets([file], CONTEXT)
+        assert.equal(targets.includes('deploy'), true, file)
+        assert.equal(
+            targets.some((target) => target.startsWith('rust:crate:')),
+            true,
+            file
+        )
+        assert.equal(targets.includes('fe:core'), false, file)
+        assert.equal(targets.includes('py:core'), false, file)
+    }
 })
 
 // cargo-dist packages the CLI, which ci-cli.yml builds from services/mcp
@@ -490,10 +547,263 @@ test('a single-language workflow claims that language rather than everything', (
         computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
         computeTargets(['.oxlintrc.json'], CONTEXT)
     )
+    for (const file of [
+        '.github/workflows/ci-backend.yml',
+        '.github/workflows/ci-python.yml',
+        '.github/workflows/ci-clickhouse-multinode-migrations.yml',
+        // The backend test-timing pair and the IDOR coverage check run only in
+        // ci-backend and its timing workflow.
+        '.github/scripts/optimize_test_durations.py',
+        '.github/scripts/test_optimize_test_durations.py',
+        '.github/scripts/check-idor-model-coverage.py',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+})
+
+// Suites that run the backend and the frontend together used to widen to every
+// lane, which serialized them against rust and the standalone trees no E2E or
+// image build can touch.
+test('a full-stack suite claims both language families and no rust crate', () => {
+    for (const file of [
+        '.github/workflows/ci-e2e-playwright.yml',
+        '.github/workflows/ci-hog.yml',
+        '.github/workflows/container-images-ci.yml',
+        '.github/workflows/cd-sandbox-base-image.yml',
+        '.github/workflows/ci-recording-rasterizer-container.yml',
+        '.github/scripts/report_test_timings.py',
+        'Dockerfile.playwright',
+        'Dockerfile.sandbox',
+    ]) {
+        const targets = computeTargets([file], CONTEXT)
+        for (const target of ['py:core', 'py:product:alpha', 'fe:core', 'node:ingestion', 'svc:mcp']) {
+            assert.equal(targets.includes(target), true, `${target} (from ${file})`)
+        }
+        assert.equal(
+            targets.some((target) => target.startsWith('rust:crate:')),
+            false,
+            file
+        )
+        assert.notDeepEqual(targets, EVERYTHING, file)
+    }
+})
+
+// No required pull-request or merge-queue check runs a release or CD workflow,
+// so no queue combination tests it either way and one shared lane is the
+// honest radius.
+test('release and CD workflows share the deploy lane', () => {
+    for (const file of [
+        '.github/workflows/container-images-cd.yml',
+        '.github/workflows/cd-mcp-image.yml',
+        '.github/workflows/rust-docker-build.yml',
+        '.github/workflows/release-cli.yml',
+        '.github/workflows/publish-hogli.yml',
+        'Dockerfile.llm-analytics',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['deploy'], file)
+    }
+})
+
+// The hobby smoke test is the only suite that reads the install scripts, so
+// the scripts and the two workflows that run them have to share one lane: a
+// script change and the workflow change that runs it must not merge in
+// parallel.
+test('the hobby scripts and their smoke test share one lane', () => {
+    for (const file of [
+        '.github/workflows/ci-hobby.yml',
+        '.github/workflows/ci-hobby-installer.yml',
+        'bin/hobby-installer/go.mod',
+        'bin/hobby-ci.py',
+        'bin/deploy-hobby',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['hobby'], file)
+    }
+    // A bin file read across language families keeps the old radius.
+    assert.deepEqual(computeTargets(['bin/download-mmdb'], CONTEXT), EVERYTHING)
+})
+
+// The bot, report, and sync workflows gate no required check, so a break costs
+// a bot action rather than a merge. Each one shares the lane with the script
+// and config it runs, which is the pair that has to stay serialized.
+test('automation workflows share one lane with their scripts and config', () => {
+    for (const file of [
+        '.github/workflows/auto-assign-reviewers.yml',
+        '.github/scripts/assign-reviewers.js',
+        '.github/workflows/weekly-flaky-report.yml',
+        '.github/scripts/weekly-flaky-report.mjs',
+        '.github/scripts/weekly-report-common.mjs',
+        '.github/auto-assign-labels.json',
+        '.github/renovate.json5',
+        '.github/workflows/stale.yaml',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['repo-automation'], file)
+    }
+})
+
+// The dev stack is exercised only by the dev-setup check and the sandbox
+// selftests, so its process lists, launchers, and helpers share one lane with
+// those workflows instead of serializing the whole queue.
+test('the dev stack and its selftests share the dev-env lane', () => {
+    for (const file of [
+        '.github/workflows/ci-dev-setup.yml',
+        '.github/workflows/dev-sandbox-selftest.yml',
+        'bin/mprocs.yaml',
+        'bin/start',
+        'bin/start-rust-service',
+        'bin/dev-sandbox',
+        'bin/check_hosts',
+        'bin/docker-dev',
+        'bin/helpers/_utils.sh',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['dev-env'], file)
+    }
+})
+
+// The unified app image backs E2E, hobby, and production, so its baked-in
+// entrypoints claim all three radii and stay clear of the rust crates.
+test('app-image entrypoints claim the fullstack, hobby, and deploy lanes', () => {
+    for (const file of [
+        'bin/docker-server',
+        'bin/migrate',
+        'bin/celery-queues.env',
+        'bin/start-backend',
+        'Dockerfile',
+        'Dockerfile.node',
+        '.dockerignore',
+    ]) {
+        const targets = computeTargets([file], CONTEXT)
+        for (const target of ['py:core', 'fe:core', 'node:ingestion', 'hobby', 'deploy']) {
+            assert.equal(targets.includes(target), true, `${target} (from ${file})`)
+        }
+        assert.equal(
+            targets.some((target) => target.startsWith('rust:crate:')),
+            false,
+            file
+        )
+    }
+})
+
+// A docs-check change has to overlap the docs PRs it can break against, which
+// claim the prose lane.
+test('docs suites and their scripts claim the prose lane', () => {
+    for (const file of ['.github/workflows/docs-preview-trigger.yml', '.github/scripts/check-docs-links.js']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['prose'], file)
+    }
+    // The survey check compares docs against frontend sources, so it spans
+    // both.
+    const survey = computeTargets(['.github/workflows/ci-survey-sdk-check.yml'], CONTEXT)
+    assert.equal(survey.includes('prose'), true)
+    assert.equal(survey.includes('fe:core'), true)
+    assert.equal(survey.includes('py:core'), false)
+})
+
+// A rule may list several domains for a file read on both sides of a split;
+// the file claims every listed domain's lanes.
+test('a multi-domain rule claims the union of its domains', () => {
+    const deltalite = computeTargets(['.github/workflows/ci-deltalite-python.yml'], CONTEXT)
+    assert.equal(deltalite.includes('py:core'), true)
+    assert.equal(
+        deltalite.some((target) => target.startsWith('rust:crate:')),
+        true
+    )
+    assert.equal(deltalite.includes('fe:core'), false)
+    // The separation gate path-filters Django, sqlx, and nodejs migrations, so
+    // it spans all three families and matches what the same change spelled as
+    // files would claim.
     assert.deepEqual(
-        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT),
+        computeTargets(['.github/workflows/ci-migrations-service-separation-check.yml'], CONTEXT),
+        computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)
+    )
+})
+
+// The schema codegen pipeline turns schema.json into the generated artifacts
+// both families read, which is the product-surface radius.
+test('the schema codegen scripts claim the product-surface lanes', () => {
+    assert.deepEqual(
+        computeTargets(['bin/build-schema-python.sh'], CONTEXT),
+        computeTargets(['frontend/src/products.json'], CONTEXT)
+    )
+})
+
+// A Depot shadow is kept apples-to-apples with its canonical by the
+// shadow-drift check and posts non-blocking statuses, so it can only affect
+// what the canonical affects. The narrowing direction is the guard: a shadow
+// of something no rule has placed must stay on the .github blanket rather
+// than fall through unclaimed.
+test('a depot shadow resolves through its canonical workflow rules', () => {
+    assert.deepEqual(
+        computeTargets(['.depot/workflows/ci-backend.yml'], CONTEXT),
+        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT)
+    )
+    assert.deepEqual(
+        computeTargets(['.depot/workflows/ci-backend-update-test-timing.yml'], CONTEXT),
         computeTargets(['mypy.ini'], CONTEXT)
     )
+    assert.deepEqual(computeTargets(['.depot/actions/pnpm-install/action.yml'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['.depot/workflows/some-new-shadow.yml'], CONTEXT), EVERYTHING)
+    // Shadow markdown is prose like any other.
+    assert.deepEqual(computeTargets(['.depot/actions/paths-filter/README.md'], CONTEXT), ['prose'])
+})
+
+// The guard is the narrowing direction: a service workflow whose directory is
+// gone must widen rather than claim a lane no other PR can reach.
+test('a service suite workflow claims its service lane and widens without it', () => {
+    assert.deepEqual(computeTargets(['.github/workflows/ci-oauth-proxy.yml'], CONTEXT), ['svc:oauth-proxy'])
+    assert.deepEqual(computeTargets(['.github/workflows/ci-llm-gateway.yml'], CONTEXT), EVERYTHING)
+})
+
+test('desktop workflows claim the desktop product lanes and widen without the product', () => {
+    const withDesktop = { ...CONTEXT, products: [...CONTEXT.products, 'desktop'] }
+    for (const file of ['.github/workflows/desktop-ci.yml', '.github/workflows/desktop-release.yml']) {
+        assert.deepEqual(computeTargets([file], withDesktop), ['fe:product:desktop', 'py:product:desktop'], file)
+    }
+    assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
+})
+
+// The Proto CI workflow gates buf lint and the stub drift checks over every
+// tree, which is the same radius the root buf configuration gets.
+test('the proto workflow claims every proto tree rather than everything', () => {
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-proto.yml'], PROTO_CONTEXT),
+        computeTargets(['proto/buf.yaml'], PROTO_CONTEXT)
+    )
+})
+
+test('the cli workflow and the reusable release plan share the cli lane', () => {
+    for (const file of ['.github/workflows/ci-cli.yml', '.github/workflows/release.yml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['cli/src/main.rs'], CONTEXT), file)
+    }
+})
+
+test('the hogbox preview workflows keep the hogbox tooling lane', () => {
+    for (const file of ['.github/workflows/hogbox-preview-env.yml', '.github/workflows/hogbox-preview-cleanup.yml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['tools:hogbox-preview'], file)
+    }
+})
+
+test('the mcp ui-apps workflow claims the product-surface readers', () => {
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-mcp-ui-apps.yml'], CONTEXT),
+        computeTargets(['frontend/src/products.json'], CONTEXT)
+    )
+})
+
+// The skills build renders templates that import product Python, and the
+// embedded-payload job regenerates products/*/frontend/generated/, so the
+// workflow spans both language families. Its paths filter never matches
+// .agents/, so that lane stays out.
+test('the agent-skills workflow claims both language families', () => {
+    const targets = computeTargets(['.github/workflows/ci-agent-skills.yml'], CONTEXT)
+    assert.equal(targets.includes('agents'), false)
+    assert.equal(targets.includes('py:core'), true)
+    assert.equal(targets.includes('fe:core'), true)
+    assert.deepEqual(targets, computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT))
+})
+
+test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
+    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
+    }
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound
@@ -606,6 +916,41 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.oxlintrc.json',
         'mypy.ini',
         '.github/workflows/ci-rust.yml',
+        '.github/workflows/ci-e2e-playwright.yml',
+        '.github/workflows/container-images-cd.yml',
+        '.github/workflows/ci-hobby.yml',
+        '.github/workflows/ci-oauth-proxy.yml',
+        '.github/workflows/ci-agent-skills.yml',
+        '.github/workflows/hogbox-preview-env.yml',
+        '.github/workflows/ci-cli.yml',
+        'bin/hobby-ci.py',
+        'Dockerfile.llm-analytics',
+        '.github/workflows/stale.yaml',
+        '.github/workflows/ci-dev-setup.yml',
+        '.github/workflows/ci-deltalite-python.yml',
+        '.github/workflows/docs-preview-trigger.yml',
+        '.github/workflows/terragrunt-posthog.yaml',
+        '.github/workflows/ci-livestream.yml',
+        '.github/scripts/check-agents-md-symlinks.sh',
+        '.github/ISSUE_TEMPLATE/bug_report.yml',
+        'bin/docker-server',
+        'bin/mprocs.yaml',
+        'bin/build-schema-python.sh',
+        'bin/update-bots-list',
+        '.depot/workflows/ci-backend.yml',
+        'tools/snob_backend_test_selection_shadow.py',
+        'tools/playwright_area_map.json',
+        '.prettierignore',
+        '.trunk/trunk.yaml',
+        'owners.yaml',
+        '.github/CODEOWNERS',
+        '.test_quarantine.json',
+        '.github/actions/paths-filter/src/filter.ts',
+        'Dockerfile',
+        '.dockerignore',
+        'patches/dayjs@1.11.11.patch',
+        'depot.json',
+        '.github/workflows/_rust-build-images.yml',
     ]
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)
@@ -620,7 +965,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
 // every crate or service has to fall back to the sentinel rather than upload a
 // set that is missing lanes.
 test('an incomplete context falls back to the ALL sentinel', () => {
-    assert.equal(allKnownTargets({ ...CONTEXT, rustGraph: null }), null)
+    assert.equal(allKnownTargets({ ...CONTEXT, rustInventory: null }), null)
     assert.equal(allKnownTargets({ ...CONTEXT, services: null }), null)
     assert.equal(computeTargets(['some-new-toplevel/thing.go'], { ...CONTEXT, services: null }), ALL)
 })
@@ -691,6 +1036,8 @@ test('editor and agent configuration shares one lane', () => {
         '.husky/pre-commit',
         '.claude/settings.json',
         '.greptile/config.json',
+        '.trunk/trunk.yaml',
+        '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
         '.cursorignore',
         '.editorconfig',
@@ -718,16 +1065,44 @@ test('globs match across directories only through **', () => {
     assert.equal(globToRegExp('pnpm-lock.yaml').test('nested/pnpm-lock.yaml'), false)
 })
 
-test('a changed rust crate pulls in the crates that depend on it', () => {
-    assert.deepEqual(computeTargets(['rust/shared/src/lib.rs'], CONTEXT), ['rust:crate:consumer', 'rust:crate:shared'])
-    // A leaf crate must not drag in its own dependencies, only its dependents.
-    assert.deepEqual(computeTargets(['rust/consumer/src/main.rs'], CONTEXT), ['rust:crate:consumer'])
-    assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs'], CONTEXT), ['rust:crate:unrelated'])
+// The determinator's answer is the affected set (the changed crates plus
+// their dependents), so it is used as it stands rather than closed over again.
+// The script holds no crate dependency edges of its own.
+test('a rust change takes its crate set from the determinator answer', () => {
+    assert.deepEqual(
+        computeTargets(['rust/shared/src/lib.rs'], { ...CONTEXT, rustAffectedCrates: ['consumer', 'shared'] }),
+        ['rust:crate:consumer', 'rust:crate:shared']
+    )
+    assert.deepEqual(
+        computeTargets(['rust/unrelated/src/main.rs'], { ...CONTEXT, rustAffectedCrates: ['unrelated'] }),
+        ['rust:crate:unrelated']
+    )
 })
 
-test('an unresolvable rust crate graph reports every crate instead of narrowing', () => {
-    const noGraph = { ...CONTEXT, rustGraph: null }
-    assert.equal(computeTargets(['rust/shared/src/lib.rs'], noGraph), ALL)
+// Without the answer the script cannot name the dependents of the changed
+// crate, and a set missing a dependent is the direction that breaks master.
+test('a rust change without a determinator answer claims every crate', () => {
+    assert.deepEqual(computeTargets(['rust/shared/src/lib.rs'], CONTEXT), [
+        'rust:crate:consumer',
+        'rust:crate:shared',
+        'rust:crate:unrelated',
+    ])
+})
+
+// An answer that omits a crate the changed paths sit in means the determinator
+// and this script disagree about the workspace, and a lane list built from
+// half of that disagreement could be the narrow half.
+test('an answer that omits a seeded crate widens to every crate', () => {
+    assert.deepEqual(computeTargets(['rust/consumer/src/main.rs'], { ...CONTEXT, rustAffectedCrates: ['shared'] }), [
+        'rust:crate:consumer',
+        'rust:crate:shared',
+        'rust:crate:unrelated',
+    ])
+})
+
+test('an unresolvable rust crate inventory reports every crate instead of narrowing', () => {
+    const noInventory = { ...CONTEXT, rustInventory: null }
+    assert.equal(computeTargets(['rust/shared/src/lib.rs'], noInventory), ALL)
 })
 
 test('a rust path outside every known crate widens', () => {
@@ -740,19 +1115,33 @@ test('a rust path outside every known crate widens', () => {
 test('a crate that builds an npm package claims the lanes importing it', () => {
     const bindingContext = {
         ...CONTEXT,
-        rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
+        rustInventory: { ...CONTEXT.rustInventory, nativeBindings: new Set(['consumer']) },
     }
-    // Reached through the closure rather than directly: `shared` is not itself a
-    // binding, but what it compiles into ships inside one.
-    const viaDependency = computeTargets(['rust/shared/src/lib.rs'], bindingContext)
+    // Reached through the answer's closure rather than directly: `shared` is
+    // not itself a binding, but what it compiles into ships inside one.
+    const viaDependency = computeTargets(['rust/shared/src/lib.rs'], {
+        ...bindingContext,
+        rustAffectedCrates: ['consumer', 'shared'],
+    })
     assert.equal(viaDependency.includes('node:ingestion'), true)
 
-    const direct = computeTargets(['rust/consumer/src/lib.rs'], bindingContext)
+    const direct = computeTargets(['rust/consumer/src/lib.rs'], {
+        ...bindingContext,
+        rustAffectedCrates: ['consumer'],
+    })
     assert.equal(direct.includes('node:ingestion'), true)
 
     // A crate no binding depends on keeps its own lane.
-    const unrelated = computeTargets(['rust/unrelated/src/main.rs'], bindingContext)
+    const unrelated = computeTargets(['rust/unrelated/src/main.rs'], {
+        ...bindingContext,
+        rustAffectedCrates: ['unrelated'],
+    })
     assert.deepEqual(unrelated, ['rust:crate:unrelated'])
+
+    // The every-crate fallback covers the bindings, so it reaches their
+    // consumers too.
+    const widened = computeTargets(['rust/shared/src/lib.rs'], bindingContext)
+    assert.equal(widened.includes('node:ingestion'), true)
 })
 
 // The cargo lockfile, the manifest, and the sqlx offline data resolve nothing
@@ -763,7 +1152,7 @@ test('a crate that builds an npm package claims the lanes importing it', () => {
 test('the cargo workspace tripwires claim the rust lanes rather than every lane', () => {
     const bindingContext = {
         ...CONTEXT,
-        rustGraph: { ...CONTEXT.rustGraph, nativeBindings: new Set(['consumer']) },
+        rustInventory: { ...CONTEXT.rustInventory, nativeBindings: new Set(['consumer']) },
     }
     for (const file of ['rust/Cargo.lock', 'rust/Cargo.toml', 'rust/.sqlx/query-0a1b.json']) {
         const targets = computeTargets([file], bindingContext)
@@ -779,11 +1168,11 @@ test('the cargo workspace tripwires claim the rust lanes rather than every lane'
     }
 })
 
-// The seeds are the crates the determinator named; computeTargets owns the
-// closure over them. Without it, a resolution change in a crate every other
-// crate depends on would claim one lane.
-test('a narrowed lockfile change still claims the dependents of the crates it named', () => {
-    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: ['shared'] })
+// The determinator's answer already holds the dependents of the crates the
+// resolution moved, so the lockfile takes it as it stands. Without it, a
+// lockfile touch claims every crate (the case above this one pins).
+test('a narrowed lockfile change claims the crates the determinator named', () => {
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, rustAffectedCrates: ['consumer', 'shared'] })
     assert.deepEqual(
         targets.filter((target) => target.startsWith('rust:crate:')),
         ['rust:crate:consumer', 'rust:crate:shared']
@@ -795,7 +1184,7 @@ test('a narrowed lockfile change still claims the dependents of the crates it na
 // lockfile-only change set would otherwise reach the empty-set guard and widen
 // past the rust lanes entirely. This pins the fallback against that.
 test('a determinator answer naming no crate claims every crate, not every lane', () => {
-    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: [] })
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, rustAffectedCrates: [] })
     assert.deepEqual(
         targets.filter((target) => target.startsWith('rust:crate:')),
         ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated']
@@ -813,21 +1202,21 @@ test('an unusable determinator answer reads as unknown', () => {
         ['output that is not JSON', 'shared,consumer'],
         ['JSON that is not a list', '{"crates":["shared"]}'],
         ['a list holding something other than a name', '["shared", 7]'],
-        ['a crate the graph does not hold', '["shared", "ghost"]'],
+        ['a crate the inventory does not hold', '["shared", "ghost"]'],
     ]) {
-        assert.equal(parseCargoLockCrates(raw, CONTEXT.rustGraph), null, `${name} should read as unknown`)
+        assert.equal(parseRustAffectedCrates(raw, CONTEXT.rustInventory), null, `${name} should read as unknown`)
     }
 })
 
-test('a determinator answer the graph agrees with is used as it stands', () => {
-    assert.deepEqual(parseCargoLockCrates('["shared"]', CONTEXT.rustGraph), ['shared'])
+test('a determinator answer the inventory agrees with is used as it stands', () => {
+    assert.deepEqual(parseRustAffectedCrates('["shared"]', CONTEXT.rustInventory), ['shared'])
 })
 
-// The determinator's workspace and this script's crate graph are built from the
-// same manifests by different code, so a name in one and not the other means one
-// of them is wrong. Reads the real graph, which is the only place that can drift.
-test('the crate graph holds every crate the determinator can name', () => {
-    const { rustGraph } = buildContext(REPO_ROOT)
+// The determinator's workspace and this script's crate inventory are built from
+// the same manifests by different code, so a name in one and not the other means
+// one of them is wrong. Reads the real repo, which is the only place that can drift.
+test('the crate inventory holds every crate the determinator can name', () => {
+    const { rustInventory } = buildContext(REPO_ROOT)
     const members = fs
         .readFileSync(path.join(REPO_ROOT, 'rust/Cargo.toml'), 'utf8')
         .split(/^\s*\[/m)
@@ -836,31 +1225,8 @@ test('the crate graph holds every crate the determinator can name', () => {
         .split(',')
         .map((entry) => entry.trim().replace(/^"|"$/g, ''))
         .filter(Boolean)
-    const missing = members.filter((dir) => !rustGraph.byDir.some((crate) => crate.dir === dir))
-    assert.deepEqual(missing, [], 'these workspace members are absent from the crate graph')
-})
-
-// The two lists below are the same rule written twice, once for the merge queue
-// and once for CI's selective builds. Nothing but this test stops them drifting,
-// and the failure is silent in both directions: an edge the queue drops lets two
-// conflicting PRs merge in parallel.
-test('the runtime spawn edges match the determinator package rules', () => {
-    const rulesToml = fs.readFileSync(path.join(REPO_ROOT, 'rust/affected-services/determinator-rules.toml'), 'utf8')
-    const names = (block, key) => {
-        const match = block.match(new RegExp(`${key}\\s*=\\s*\\[([^\\]]*)\\]`))
-        return match ? [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort() : []
-    }
-    const packageRules = rulesToml
-        .split(/^\s*\[\[package-rule\]\]\s*$/m)
-        .slice(1)
-        .map((block) => ({ onAffected: names(block, 'on-affected'), markChanged: names(block, 'mark-changed') }))
-
-    const fromScript = [...RUNTIME_SPAWN_EDGES]
-        .map(([spawner, spawned]) => ({ onAffected: [...spawned].sort(), markChanged: [spawner] }))
-        .sort((a, b) => a.markChanged[0].localeCompare(b.markChanged[0]))
-    const fromRules = packageRules.sort((a, b) => a.markChanged[0].localeCompare(b.markChanged[0]))
-
-    assert.deepEqual(fromScript, fromRules)
+    const missing = members.filter((dir) => !rustInventory.byDir.some((crate) => crate.dir === dir))
+    assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
 })
 
 // The consumer lanes are declared rather than derived, so a second dependent
@@ -1020,76 +1386,6 @@ test('rust migration sets claim the suites that read their schema', () => {
     ])
 })
 
-test('reverseClosure walks transitively and excludes unrelated nodes', () => {
-    const graph = new Map([
-        ['base', []],
-        ['mid', ['base']],
-        ['top', ['mid']],
-        ['island', []],
-    ])
-    assert.deepEqual(reverseClosure(['base'], graph).sort(), ['base', 'mid', 'top'])
-    assert.deepEqual(reverseClosure(['island'], graph), ['island'])
-})
-
-// Guards the prost14 = { package = "prost" } shape: treating any renamed
-// dependency as unparseable knocked out the whole rust graph, collapsing every
-// rust PR into ALL.
-test('renamed dependencies resolve to the real crate without failing the graph', () => {
-    const crateNames = new Set(['shared', 'consumer'])
-    const toml = `
-[package]
-name = "consumer"
-
-[dependencies]
-prost14 = { package = "prost", version = "0.14" }
-aliased = { package = "shared", path = "../shared" }
-shared.workspace = true
-serde = "1"
-`
-    assert.deepEqual(parseCrateDependencies(toml, crateNames).sort(), ['shared'])
-})
-
-// Cargo spells dependency sections four ways. The [dependencies.<name>] form
-// carries the name in the header, and reading only body keys silently dropped
-// the edge (rust/personhog-stateright depends on personhog-coordination this
-// way), which let a shared crate and its dependent get disjoint targets and
-// merge in parallel.
-test('dependency sections are parsed in every header form Cargo allows', () => {
-    const crateNames = new Set(['shared', 'other', 'renamed-crate'])
-    const cases = [
-        ['plain table', '[dependencies]\nshared = { path = "../shared" }\n', ['shared']],
-        ['dev table', '[dev-dependencies]\nshared.workspace = true\n', ['shared']],
-        ['build table', '[build-dependencies]\nshared = "1"\n', ['shared']],
-        ['dependency-per-table', '[dependencies.shared]\npath = "../shared"\nversion = "0.1"\n', ['shared']],
-        ['dev dependency-per-table', '[dev-dependencies.other]\npath = "../other"\n', ['other']],
-        [
-            'target-scoped table',
-            '[target.\'cfg(not(target_env = "msvc"))\'.dependencies]\nshared = { version = "1" }\n',
-            ['shared'],
-        ],
-        [
-            'dependency-per-table with a rename',
-            '[dependencies.alias]\npackage = "renamed-crate"\npath = "../renamed-crate"\n',
-            ['renamed-crate'],
-        ],
-        // The workspace table declares versions for every member, not this
-        // crate's own edges.
-        ['workspace table excluded', '[workspace.dependencies]\nshared = { path = "shared" }\n', []],
-    ]
-    for (const [label, toml, expected] of cases) {
-        assert.deepEqual(parseCrateDependencies(toml, crateNames).sort(), expected, label)
-    }
-})
-
-// Attribute keys inside a [dependencies.<name>] table would be read as
-// dependency names if the body were scanned, inventing an edge to any crate
-// that happens to share a name with a Cargo attribute.
-test('attributes inside a dependency-per-table are not read as crate names', () => {
-    const crateNames = new Set(['shared', 'path', 'features'])
-    const toml = '[dependencies.shared]\npath = "../shared"\nfeatures = ["a"]\n'
-    assert.deepEqual(parseCrateDependencies(toml, crateNames), ['shared'])
-})
-
 test('an isolated product change stays narrow and names its tach dependents', () => {
     assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], CONTEXT), [
         'py:product:alpha',
@@ -1196,18 +1492,11 @@ test('a contract with no product-relative inputs yields no matcher', () => {
 // targets, and in the real graph a 31-product cycle makes the transitive
 // closure the whole backend.
 test('the cascade names direct importers and stops before the next hop', () => {
-    const toml = `
-[[modules]]
-path = "products.beta"
-depends_on = ["products.alpha"]
-layer = "modules"
-
-[[modules]]
-path = "products.gamma"
-depends_on = ["products.beta"]
-layer = "modules"
-`
-    const context = { ...CONTEXT, tachGraph: { graph: parseTachModules(toml), tachDependents } }
+    const graph = new Map([
+        ['beta', ['alpha']],
+        ['gamma', ['beta']],
+    ])
+    const context = { ...CONTEXT, tachGraph: { graph, tachDependents } }
     assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], context), [
         'py:product:alpha',
         'py:product:beta',
@@ -1217,6 +1506,15 @@ layer = "modules"
 // The base CONTEXT keeps an empty tach graph, so no product is declared in it.
 // A product `tach check` does not constrain has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
+// The tach map is read from the head tree, so a file the PR deleted has no
+// importer edge left; alpha's known importers are not enough to bound its lane.
+test('a deleted product python file widens to every backend target', () => {
+    const file = 'products/alpha/backend/facade/api.py'
+    const context = { ...TACH_DECLARED_CONTEXT, deletedFiles: new Set([file]) }
+    assert.equal(computeTargets([file], context).includes('py:core'), true)
+    assert.equal(computeTargets([file], TACH_DECLARED_CONTEXT).includes('py:core'), false)
+})
+
 test('a product absent from the tach graph widens to every backend target', () => {
     const targets = computeTargets(['products/gamma/backend/api.py'], CONTEXT)
     assert.equal(targets.includes('py:core'), true)
@@ -1226,7 +1524,7 @@ test('a product absent from the tach graph widens to every backend target', () =
 })
 
 // The lane only has to answer whether another PR can reference the symbols this
-// one changed, and tach.toml answers exactly that. Isolation is the stronger,
+// one changed, and the tach map answers exactly that. Isolation is the stronger,
 // separate claim that the product's own suite is sufficient, which lets CI
 // skip the full Django suite, and which products/architecture.md says tach
 // cannot prove. A product can be too unsealed for that and still be bounded
@@ -1419,7 +1717,7 @@ test('the vendored workspace files claim only the product lane', () => {
 })
 
 // delta stands in for products/desktop: an app imported from another
-// repository that pytest.ini ignores and tach.toml never declares. Its
+// repository that pytest.ini ignores and the tach map never walks. Its
 // vendored .py files read as backend to the layout rules, so without the
 // detachment check they claim every backend lane for suites that never run on
 // them.
@@ -1500,22 +1798,36 @@ test('backend-coupled and unrecognized tools stay in the backend lanes', () => {
     }
 })
 
-// These steer what every suite runs, so they cannot sit in one domain's lane.
-test('CI-steering scripts directly under tools/ widen', () => {
-    assert.deepEqual(computeTargets(['tools/playwright_spec_selection.py'], CONTEXT), EVERYTHING)
-    assert.deepEqual(computeTargets(['tools/snob_backend_test_selection_shadow.py'], CONTEXT), EVERYTHING)
+// Each selection script decides which of one suite's tests run on a PR, so an
+// under-selection can only mask conflicts that suite's lanes already
+// serialize. A root-level tools/ file nobody has classified still widens.
+test('test-selection scripts claim the lanes of the suite they select for', () => {
+    for (const file of [
+        'tools/snob_backend_test_selection_shadow.py',
+        'tools/test_selection_verdict.py',
+        'tools/dagster_test_selection.py',
+        'tools/testmon_high_fanout_files.txt',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+    const playwright = computeTargets(['tools/playwright_spec_selection.py'], CONTEXT)
+    assert.deepEqual(playwright, computeTargets(['tools/playwright_area_map.json'], CONTEXT))
+    assert.equal(playwright.includes('fe:core'), true)
+    assert.equal(playwright.includes('py:core'), true)
+    assert.notDeepEqual(playwright, EVERYTHING)
+    assert.deepEqual(computeTargets(['tools/some_new_steering_script.py'], CONTEXT), EVERYTHING)
 })
 
 // Both are tripwires rather than falling through to the tools/ rule, which
 // would give them the python product lanes and nothing else. openapi-codegen
 // generates the frontend types from the backend serializers, so it claims both
-// sides of the fe/py split, and owners is read by both suites.
+// sides of the fe/py split, and owners sits on the shared ownership lane.
 test('cross-domain tools are tripwires rather than backend-only', () => {
     assert.deepEqual(
         computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
-    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), ['ownership'])
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the
@@ -1528,11 +1840,15 @@ test('a change set of nothing but markdown reports the prose lane', () => {
 // touched a markdown file, even with their code in unrelated trees. The prose
 // lane must not reintroduce that by riding along with real lanes.
 test('markdown alongside code contributes no lane of its own', () => {
-    assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs', 'README.md'], CONTEXT), ['rust:crate:unrelated'])
+    assert.deepEqual(
+        computeTargets(['rust/unrelated/src/main.rs', 'README.md'], { ...CONTEXT, rustAffectedCrates: ['unrelated'] }),
+        ['rust:crate:unrelated']
+    )
 })
 
-// hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
-// those paths and on .agents/, so this markdown is a build input, not prose.
+// hogli build:skills zips products/*/skills/* (which ci-agent-skills.yml
+// gates) and syncs .agents/skills/, so this markdown is a build input, not
+// prose.
 // Skill markdown is a build input for the Python skill build (and sometimes the product backend).
 // No frontend suite reads these files, so they should claim the backend lane but not the frontend lane.
 test('skill markdown keeps the lane of the tree that builds it', () => {

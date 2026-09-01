@@ -598,10 +598,8 @@ class PostHogPreviewStack:
         # so settings import is fine; collectstatic itself needs no live DB.
         import pathlib
 
-        # Upload and collectstatic are separately timed: together they're ~260s,
-        # a third of the whole wait, and they were one opaque block — the dist
-        # is chunked over the exec API, so "slow upload" and "slow collectstatic"
-        # need very different fixes.
+        # Time upload and collectstatic separately because the exec transfer and
+        # static processing require different fixes.
         with timing.span("frontend-dist-upload"):
             tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
             self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
@@ -613,7 +611,8 @@ class PostHogPreviewStack:
             f"cd {self.repo_dir} && "
             "rm -rf frontend/dist && mkdir -p frontend/dist staticfiles && "
             "tar xzf frontend/dist.tgz -C frontend/dist --strip-components=1 && "
-            f"{compose} run --rm -T -e STATIC_COLLECTION=1 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
+            f"{compose} run --rm -T "
+            "-e STATIC_COLLECTION=1 -e STATIC_PRECOMPRESS=0 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
             "web python manage.py collectstatic --noinput"
         )
         self.backend.run_long(script, name="frontend", timeout=900)

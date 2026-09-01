@@ -77,6 +77,12 @@ SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
 # Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+# Per-product per-run cap overrides as a JSON object of ai_product to dollars. A product
+# entry beats the team override and the default: run cost tracks the kind of work, and
+# implementation runs regularly outspend every other stage.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", '{"signals_implementation": "15"}'
+)
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
@@ -212,6 +218,12 @@ GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queu
 SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("SIGNUP_ENRICHMENT_TASK_QUEUE", "general-purpose-task-queue")
 )
+# Defaults to the general-purpose fleet so dispatch always has a live worker. Routing canvas
+# builds to a dedicated, separately-scalable worker takes two steps in order: deploy a worker
+# fleet polling "canvas-build-task-queue" (a charts change), then set this env on the
+# dispatching services. Setting it first strands builds on a pollerless queue until the
+# workflow execution timeout closes them.
+CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")

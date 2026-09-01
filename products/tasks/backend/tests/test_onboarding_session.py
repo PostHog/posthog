@@ -17,7 +17,12 @@ from posthog.temporal.oauth import MCP_READ_SCOPES
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
-from products.tasks.backend.facade.onboarding import _origin_key, _session_enabled, start_onboarding_session
+from products.tasks.backend.facade.onboarding import (
+    _origin_key,
+    _session_enabled,
+    onboarding_test_tools_enabled,
+    start_onboarding_session,
+)
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Task, TaskClientProvenance
 
@@ -52,6 +57,13 @@ class TestOnboardingSessionIdempotency(TestCase):
             [call.args[0] for call in feature_enabled.call_args_list],
             ["code-spaces-layout", "project-bluebird"],
         )
+
+    @override_settings(DEBUG=False)
+    def test_onboarding_test_tools_use_their_feature_flag(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            self.assertTrue(onboarding_test_tools_enabled(self.team, self.user))
+
+        self.assertEqual(feature_enabled.call_args.args[0], "posthog-desktop-onboarding-test-tools")
 
     def _start(self, create_side_effect) -> tuple[UUID | None, int]:
         with (

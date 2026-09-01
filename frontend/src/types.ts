@@ -39,6 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -365,6 +366,8 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisi
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    /** Settings an organization admin enforces, which the member cannot change back. */
+    notification_locks?: OrganizationNotificationLockApi[]
     active_realtime_notification_types?: readonly string[]
     requires_credential_review?: boolean
     events_column_config: ColumnConfig
@@ -593,6 +596,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
+    read_only_mcp_access?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -1176,6 +1180,8 @@ export enum PropertyFilterType {
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    /** Customer analytics account relationship — the key is the relationship definition id */
+    AccountRelationship = 'account_relationship',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1213,6 +1219,11 @@ export interface EventMetadataPropertyFilter extends BasePropertyFilter {
 
 export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.RevenueAnalytics
+    operator: PropertyOperator
+}
+
+export interface AccountRelationshipPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.AccountRelationship
     operator: PropertyOperator
 }
 
@@ -2140,6 +2151,10 @@ export interface SessionRecordingType {
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
     matches_filters?: boolean
+    /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+    total_size?: number | null
+    /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+    event_count?: number | null
 }
 
 export interface SessionRecordingUpdateType {
@@ -3078,6 +3093,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
     Metric = 'Metric',
     ActionsPie = 'ActionsPie',
+    ActionsDonut = 'ActionsDonut',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
@@ -4779,6 +4795,15 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '1'
+    | '2'
+    | '3'
+    | '4'
+    | '5'
+    | '6'
+    | '7'
+    | '8'
+    | '9'
     | 'escape'
     | 'enter'
     | 'space'
@@ -4853,6 +4878,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    AccountRelationship = 'account_relationship',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5904,6 +5930,7 @@ export const API_SCOPE_OBJECTS = [
     'signal_scout',
     'signal_scout_internal',
     'signal_scout_report',
+    'signal_scratchpad_internal',
     'stamphog',
     'streamlit_app',
     'subscription',
@@ -5919,6 +5946,7 @@ export const API_SCOPE_OBJECTS = [
     'user',
     'user_interview',
     'vision_action',
+    'vision_alert',
     'visual_review',
     'warehouse_objects',
     'warehouse_table',
@@ -7604,7 +7632,7 @@ export type ReplayTemplateType = {
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 
 export type ReplayTemplateVariableType = {
-    type: 'event' | 'flag' | 'pageview' | 'person-property' | 'snapshot_source'
+    type: 'event' | 'pageview' | 'person-property' | 'snapshot_source'
     name: string
     key: string
     touched?: boolean

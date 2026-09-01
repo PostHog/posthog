@@ -10,6 +10,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -105,12 +107,68 @@ function NotSeeingIt(): JSX.Element {
     )
 }
 
+function VerificationCodeEntry(): JSX.Element {
+    const { verificationCode, verificationCodeError, validatedEmailTokenLoading } = useValues(verifyEmailLogic)
+    const { setVerificationCode, submitVerificationCode } = useActions(verifyEmailLogic)
+
+    return (
+        <form
+            className="flex w-full flex-col gap-2.5"
+            // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
+            // the browser blocks an Enter-key submit on a partial code and shows no feedback.
+            noValidate
+            onSubmit={(e) => {
+                e.preventDefault()
+                if (!validatedEmailTokenLoading) {
+                    submitVerificationCode()
+                }
+            }}
+        >
+            <VerificationCodeInput
+                value={verificationCode}
+                onChange={setVerificationCode}
+                onComplete={() => {
+                    if (!validatedEmailTokenLoading) {
+                        submitVerificationCode()
+                    }
+                }}
+                disabled={validatedEmailTokenLoading}
+                data-attr="verify-email-code"
+                status={verificationCodeError ? 'danger' : 'default'}
+            />
+            {verificationCodeError && (
+                <p className="m-0 text-sm text-danger" role="alert">
+                    {verificationCodeError}
+                </p>
+            )}
+            <LemonButton
+                type="primary"
+                size="large"
+                center
+                fullWidth
+                htmlType="submit"
+                loading={validatedEmailTokenLoading}
+                disabledReason={
+                    isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
+                }
+                data-attr="verify-email-code-submit"
+            >
+                Verify email
+            </LemonButton>
+        </form>
+    )
+}
+
 export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
+    const { view, uuid, newlyRequestedVerificationLinkLoading, user } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
+    // The address that received the code. This is the new address if an email change is pending,
+    // else the account address. Without a session, for example on a fresh signup, the page uses the
+    // address the signup or login form stored in this browser. It stays unset in a different browser.
+    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
 
     if (view === 'success') {
         return (
@@ -169,7 +227,7 @@ export function VerifyEmailForm(): JSX.Element {
                                     loading={newlyRequestedVerificationLinkLoading}
                                     onClick={() => requestVerificationLink(uuid)}
                                 >
-                                    Email me a new link
+                                    Resend verification email
                                 </LemonButton>
                             )}
                             <LemonButton
@@ -228,9 +286,20 @@ export function VerifyEmailForm(): JSX.Element {
                         Check your inbox
                     </h1>
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours.
+                        {verificationEmail ? (
+                            <>
+                                We sent a 6-digit code to <strong>{verificationEmail}</strong>.
+                                <br />
+                                It's valid for 30 minutes.
+                            </>
+                        ) : (
+                            <>We sent you a 6-digit code. It's valid for 30 minutes.</>
+                        )}
                     </p>
-                    <NotSeeingIt />
+                    <VerificationCodeEntry />
+                    <div className="mt-3">
+                        <NotSeeingIt />
+                    </div>
                 </div>
             </AuthSceneCard>
         </AuthScene>

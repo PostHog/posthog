@@ -9,11 +9,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
@@ -60,17 +59,21 @@ class TestDataQualityRunAPI(APIBaseTest):
             return self.client.post(self.url, body, format="json")
 
     def _deny_orders(self) -> None:
+        self._deny(self.orders)
+
+    def _deny(self, *views: DataWarehouseSavedQuery) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_view",
-            resource_id=str(self.orders.id),
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
+        for view in views:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(view.id),
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
         warehouse_ac = patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
@@ -137,6 +140,25 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand([("named",), ("swept",)])
+    def test_a_denied_subject_renamed_since_its_last_run_is_still_not_run_against(self, case: str) -> None:
+        # This route is the one that actually executes the query, so matching denial against the name
+        # stamped on the check would run it against the denied view for the whole window after a
+        # rename, and hand the pass/fail and row counts back through the suite report.
+        denied = self._check(self.orders, subject_name="orders_legacy")
+        self._deny_orders()
+
+        with patch(START_SUITE) as connect:
+            body = {"check_ids": [str(denied.id)]} if case == "named" else {}
+            response = self.client.post(self.url, body, format="json")
+
+        if case == "named":
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["status"] == "empty"
+        connect.assert_not_called()
+
     def test_the_sweep_is_gated_on_the_feature_flag(self) -> None:
         with patch(FLAG, return_value=False):
             assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
@@ -182,6 +204,50 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert self.client.get(f"{self.url}{denied.id}/").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(f"{self.url}{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
 
+    def test_history_withholds_a_suite_whose_run_read_a_denied_subject(self) -> None:
+        # The run sits on the allowed subject, so its own uuid clears the filter. What it read is in
+        # the identities it pinned, and the counters report on those rows too.
+        suite_run = self._suite_reading(self.orders)
+        self._check(self.orders)
+        self._deny_orders()
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_history_withholds_a_suite_whose_subject_was_recreated_under_the_same_name(self) -> None:
+        # Deleting "orders" frees its name, so a member can create their own and make the name resolve
+        # for them again. Matched by name, the suite reporting on the run that read the original would
+        # list, carrying its counters over rows the member still cannot read.
+        secrets = self._make_view("secrets")
+        suite_run = self._suite_reading(self.orders)
+        self._deny(self.orders, secrets)
+        self.orders.delete()
+        self._make_view("orders")
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def _suite_reading(self, read: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
+        """A suite whose one run sits on the allowed "customers" but read another subject."""
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite_run,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": f"SELECT 1 FROM {read.name}"},
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(read.id)}],
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+        )
+        return suite_run
+
     def _sweep_covering(self, view: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A multi-subject sweep whose counters include one check run against this view."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
@@ -220,6 +286,67 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert {row["subject_name"] for row in listed.json()["results"]} == {"customers"}
         assert {row["subject_uuid"] for row in health.json()} == {str(self.customers.id)}
 
+    def test_the_overview_hides_a_check_that_reads_a_denied_subject(self) -> None:
+        # The parent is allowed, but the config names "orders" and the status answers questions
+        # about its rows, so listing the check is a directory entry for a table the member cannot read.
+        self._check(
+            self.customers,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        self._deny_orders()
+
+        listed = self.client.get(self.checks_url)
+        health = self.client.get(f"{self.checks_url}health/")
+
+        assert listed.json()["results"] == []
+        assert health.json() == []
+
+    def test_the_overview_hides_a_check_whose_last_run_read_a_recreated_subject(self) -> None:
+        # Deleting the denied "orders" empties the denial set and frees its name, so the config now
+        # names something the member may read. The status beside it is still the verdict of a run
+        # against the original, which is what the identities the run pinned still answer for.
+        reader = self._check(
+            self.customers,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+            last_status=CheckRunStatus.FAILED,
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
+            quality_check=reader,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config=reader.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(self.orders.id)}],
+            check_fingerprint=reader.fingerprint,
+            status=CheckRunStatus.FAILED,
+        )
+        self._deny_orders()
+        self.orders.delete()
+        self._make_view("orders")
+
+        listed = self.client.get(self.checks_url)
+        health = self.client.get(f"{self.checks_url}health/")
+
+        assert listed.json()["results"] == []
+        assert health.json() == []
+
+    def test_the_overview_hides_a_denied_subject_renamed_since_its_last_run(self) -> None:
+        # subject_name is only rewritten when the check runs, so matching denial against it serves
+        # the subject's checks for the whole window between a rename and the next run.
+        self._check(self.orders, subject_name="orders_legacy")
+        self._deny_orders()
+
+        listed = self.client.get(self.checks_url)
+
+        assert listed.json()["results"] == []
+
     def test_the_overview_leaves_out_orphans_but_keeps_their_history(self) -> None:
         # An orphan has no subject page to link to, nothing to run, and no rollup to sit under, so
         # showing it in the project list would be a dead row.
@@ -252,6 +379,36 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert rows["stripe_charges"]["subject_schema_id"] == str(schema.id)
         # A view on no DAG has no node page; the row renders its name as plain text.
         assert rows["customers"]["subject_node_id"] is None
+
+    def test_the_overview_authorizes_a_definition_once_however_many_checks_share_it(self) -> None:
+        # The overview lists every check in the project unpaginated, so authorizing a definition per
+        # row costs a query per row for every relationships check and a HogQL parse per custom_sql
+        # one. The verdict depends on the definition alone, so the extra rows must cost nothing.
+        target = self._make_view("targets")
+        config = {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(target.id), "to_column": "id"}
+        self._deny_orders()
+        self._sharing_checks(config, count=1)
+        # Warms the instance settings and team config the first request of any test would pay for.
+        self.client.get(self.checks_url)
+
+        with capture_db_queries() as one_check:
+            assert self.client.get(self.checks_url).status_code == status.HTTP_200_OK
+        self._sharing_checks(config, count=5)
+        with capture_db_queries() as six_checks:
+            listed = self.client.get(self.checks_url)
+
+        assert len(listed.json()["results"]) == 6
+        assert len(six_checks.captured_queries) == len(one_check.captured_queries)
+
+    def _sharing_checks(self, config: dict, count: int) -> None:
+        """Checks on the allowed subject that all read the same second subject."""
+        for _ in range(count):
+            self._check(
+                self.customers,
+                check_type=CheckType.RELATIONSHIPS,
+                column_name=f"customer_{uuid4().hex[:8]}",
+                config=config,
+            )
 
     def test_resolving_where_subjects_live_does_not_grow_with_the_project(self) -> None:
         # The overview lists every check in the project, so a query per row is a query per table in

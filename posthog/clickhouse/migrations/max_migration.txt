@@ -1,1 +1,1 @@
-0304_logs34_pattern_columns
+0310_add_cleanup_snapshot_tables

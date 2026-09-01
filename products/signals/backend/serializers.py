@@ -330,7 +330,7 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
             "slack_notification_min_priority": {
                 "help_text": (
                     "Minimum report priority that triggers a Slack notification. P0 is highest. "
-                    "Null means notify on every priority (and reports without a priority judgment)."
+                    "Null means notify on every priority. When set, reports without a priority judgment do not notify."
                 )
             },
         }
@@ -357,7 +357,9 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
         choices=AutonomyPriority.choices,
         required=False,
         allow_null=True,
-        help_text="P0 is highest. Null = notify for every priority.",
+        help_text=(
+            "P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify."
+        ),
     )
 
 
@@ -539,6 +541,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
+    channel_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The space (task channel) this report is assigned to, or null when unassigned. "
+            "The general view lists every report regardless of this value."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -568,6 +578,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
+            "channel_id",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -933,7 +944,7 @@ _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
     + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
-    "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
+    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."
 )
 

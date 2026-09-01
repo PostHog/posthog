@@ -1,0 +1,18 @@
+name: schema_constraints
+description: Primary/unique/foreign-key/check constraints. Snapshot with change events.
+interval: 1h
+scope: database
+kind: snapshot
+prefers_reader: true
+key: [schemaname, relname, conname]
+query: |
+  SELECT n.nspname AS schemaname, t.relname, c.conname, c.contype::text AS contype,
+         pg_get_constraintdef(c.oid, true) AS definition,
+         c.convalidated AS is_validated, c.condeferrable AS is_deferrable,
+         CASE WHEN c.confrelid <> 0 THEN (SELECT fn.nspname || '.' || fc.relname FROM pg_class fc JOIN pg_namespace fn ON fn.oid = fc.relnamespace WHERE fc.oid = c.confrelid) END AS referenced_table,
+         (SELECT string_agg(a.attname, ',' ORDER BY k.ord) FROM unnest(c.conkey) WITH ORDINALITY k(attnum, ord)
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum) AS columns
+  FROM pg_constraint c
+  JOIN pg_class t ON t.oid = c.conrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')

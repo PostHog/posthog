@@ -27,6 +27,21 @@ describe("mcpServersSchema", () => {
     ]);
   });
 
+  it("keeps a server description so pi can surface it in tool search", () => {
+    const result = mcpServersSchema.safeParse([
+      {
+        type: "http",
+        name: "Linear",
+        url: "https://mcp.linear.app/mcp",
+        description: "Manage Linear issues, projects, and workflows.",
+      },
+    ]);
+    expect(result.success).toBe(true);
+    expect(result.data?.[0].description).toBe(
+      "Manage Linear issues, projects, and workflows.",
+    );
+  });
+
   it("accepts a valid SSE server", () => {
     const result = mcpServersSchema.safeParse([
       {

@@ -46,8 +46,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
             name=SchemaExternalDataSourceType.PLAIN,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Plain",
-            releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag="dwh_plain",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Plain API key to automatically pull your Plain customer support data into the PostHog Data warehouse.
 
 You can create an API key in your [Plain workspace settings](https://app.plain.com/settings/api-keys).
