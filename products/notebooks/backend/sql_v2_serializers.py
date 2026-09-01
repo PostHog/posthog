@@ -472,11 +472,11 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
     )
-    next_hourly_price = serializers.FloatField(
+    hourly_price = serializers.FloatField(
         help_text=(
-            "What the next sandbox will cost per hour in USD, at this region's rates. Prices the configured "
-            "shape, like cpu_cores and memory_gb above. A running kernel keeps the shape it started with "
-            "until it restarts, so this is not necessarily what the live sandbox is costing now."
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. "
+            "Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the "
+            "kernel config endpoint restarts a live kernel, so this tracks the running sandbox."
         )
     )
     preset_key = serializers.CharField(
@@ -527,16 +527,22 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
     )
-    restart_required = serializers.BooleanField(
+    restarted = serializers.BooleanField(
         help_text=(
-            "True when a kernel is currently active: config applies at sandbox provision time, so the "
-            "running kernel keeps its old resources until restarted (restarting loses materialized dataframes)."
+            "True when this call restarted a live kernel to apply a new size. Restarting discards every "
+            "materialized dataframe, so cells that referenced one must run again."
         )
     )
-    next_hourly_price = serializers.FloatField(
+    restart_required = serializers.BooleanField(
         help_text=(
-            "What the next sandbox will cost per hour in USD, at this region's rates. Reflects the config just "
-            "saved, so when restart_required is true the running kernel is still on its old shape and rate."
+            "True when a kernel is live and still needs a restart for this config to take effect, which "
+            "happens for an idle timeout change. A resize restarts on its own, so it reports False here."
+        )
+    )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What the configured shape costs per hour in USD while the sandbox is alive, at this region's rates. "
+            "A resize restarts a live kernel, so this is the running sandbox's rate unless restart_required is true."
         )
     )
     preset_key = serializers.CharField(
