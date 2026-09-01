@@ -17,12 +17,7 @@ import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'p
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
-import {
-    AlertThresholdLine,
-    getBreakdownPreviewSummary,
-    shouldUseLogScale,
-    thresholdReferenceLines,
-} from './AlertPreviewCard.utils'
+import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'
 import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
 const handleChartError = makeChartErrorHandler('alerts-preview-chart')
@@ -64,34 +59,11 @@ function AlertPreviewChart({
     )
 }
 
-function BreakdownAlertPreview({ previews }: { previews: TrendsAlertPreviewSeries[] }): JSX.Element {
-    const summary = getBreakdownPreviewSummary(previews)
-
-    if (summary === null) {
-        return (
-            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                No breakdown data available to preview.
-            </div>
-        )
-    }
-
-    return (
-        <div className="flex min-h-24 items-center rounded border border-border bg-bg-light px-3 text-sm">
-            Across {summary.valueCount} breakdown values, the latest {summary.relative ? 'changes' : 'values'} range
-            from{' '}
-            <strong className="mx-1">
-                {humanFriendlyNumber(summary.lowestValue)}–{humanFriendlyNumber(summary.highestValue)}
-            </strong>
-            . The alert fires if any value breaches the threshold.
-        </div>
-    )
-}
-
 export interface AlertPreviewCardProps {
     alertForm: AlertFormType
     trendsValues: number[] | null
     trendsLabels?: string[] | null
-    trendsBreakdownValues?: number[][] | null
+    isBreakdown?: boolean
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
@@ -103,7 +75,7 @@ export function AlertPreviewCard({
     alertForm,
     trendsValues,
     trendsLabels,
-    trendsBreakdownValues,
+    isBreakdown,
     funnelPreview,
     hogqlPreview,
     checkPreview,
@@ -118,15 +90,7 @@ export function AlertPreviewCard({
               alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
           )
         : null
-    const trendsBreakdownPreviews = trendsBreakdownValues?.map((values) =>
-        deriveTrendsAlertPreviewSeries(
-            values,
-            undefined,
-            alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
-            alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
-        )
-    )
-    const isBreakdownPreview = isTrendsAlertConfig(config) && trendsBreakdownPreviews !== undefined
+    const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
     const referenceLines = thresholdReferenceLines(alertForm)
     const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
     const checkPreviewValues = checkPreview?.values
@@ -171,7 +135,11 @@ export function AlertPreviewCard({
             </div>
         )
     } else if (isBreakdownPreview) {
-        body = <BreakdownAlertPreview previews={trendsBreakdownPreviews} />
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                Preview unavailable for breakdown alerts.
+            </div>
+        )
     } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
         body = (
             <AlertPreviewChart
@@ -218,7 +186,8 @@ export function AlertPreviewCard({
     if (checkPreview !== undefined) {
         previewTooltip = 'Values recorded by recent alert evaluations.'
     } else if (isBreakdownPreview) {
-        previewTooltip = 'Summary of the latest values across every breakdown value this alert monitors.'
+        previewTooltip =
+            'This alert evaluates every breakdown value. The preview cannot show one value as representative.'
     }
 
     return (

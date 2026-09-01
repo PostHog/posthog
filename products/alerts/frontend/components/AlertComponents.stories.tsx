@@ -450,26 +450,6 @@ function PreviewLogScaleStory(): JSX.Element {
     )
 }
 
-function PreviewBreakdownStory(): JSX.Element {
-    return (
-        <div className="max-w-md border rounded bg-surface-primary p-4">
-            <AlertPreviewCard
-                alertForm={buildTrendsAlertForm({
-                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 50 } } },
-                })}
-                trendsValues={[20, 30, 40]}
-                trendsLabels={PREVIEW_LABELS}
-                trendsBreakdownValues={[
-                    [20, 30, 40],
-                    [10, 20, 120],
-                ]}
-                funnelPreview={null}
-                hogqlPreview={null}
-            />
-        </div>
-    )
-}
-
 const meta: Meta = {
     title: 'Products/Alerts/Shared components',
     parameters: {
@@ -493,7 +473,6 @@ export const EditorLoading: Story = {
     render: () => <EditorLoadingStory />,
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
-export const PreviewBreakdown: Story = { render: () => <PreviewBreakdownStory /> }
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }

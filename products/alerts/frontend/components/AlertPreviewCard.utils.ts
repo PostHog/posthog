@@ -5,7 +5,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import type { TrendsAlertPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 
 export interface AlertThresholdLine {
     value: number
@@ -58,24 +57,4 @@ export function shouldUseLogScale(values: number[], referenceLines: AlertThresho
     const largestValue = Math.max(...values, ...positiveThresholds)
     const smallestThreshold = Math.min(...positiveThresholds)
     return largestValue / smallestThreshold >= 1000
-}
-
-export function getBreakdownPreviewSummary(
-    previews: TrendsAlertPreviewSeries[]
-): { valueCount: number; lowestValue: number; highestValue: number; relative: boolean } | null {
-    const latestValues = previews.flatMap((preview) => {
-        const latestValue = preview.values.at(-1)
-        return latestValue === undefined ? [] : [latestValue]
-    })
-
-    if (latestValues.length === 0) {
-        return null
-    }
-
-    return {
-        valueCount: latestValues.length,
-        lowestValue: Math.min(...latestValues),
-        highestValue: Math.max(...latestValues),
-        relative: previews[0].relative,
-    }
 }
