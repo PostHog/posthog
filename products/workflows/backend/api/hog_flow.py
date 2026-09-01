@@ -3912,8 +3912,12 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_at", "updated_at", "status"]
 
     def filter_optimisation_enabled(self, queryset, name: str, value: bool):
-        # An opt-in someone turned off keeps its row, so "on" is a row that is still enabled.
-        return queryset.filter(optimisation__enabled=value) if value else queryset.exclude(optimisation__enabled=True)
+        # An opt-in someone turned off keeps its row, so "on" is a row that is still enabled. Archived
+        # workflows drop out: their metrics are history, and a suggestion about one changes nothing
+        # that runs, so a producer should never spend a read on them.
+        if not value:
+            return queryset.exclude(optimisation__enabled=True)
+        return queryset.filter(optimisation__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
 
 
 class HogFlowPagination(LimitOffsetPagination):
