@@ -21,7 +21,6 @@ import type {
     DataWarehouseExpressionApi,
     DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
-    DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
@@ -41,7 +40,6 @@ import type {
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseExpressionListApi,
-    PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
     PaginatedDataWarehouseSavedQueryMinimalListApi,
@@ -77,7 +75,6 @@ import type {
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
     WarehouseExpressionsListParams,
-    WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
@@ -1326,20 +1323,6 @@ export const warehouseColumnAnnotationsDestroy = async (
     })
 }
 
-export const getWarehouseDagListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/warehouse_dag/`
-}
-
-/**
- * Return this team's DAG as a set of edges and nodes
- */
-export const warehouseDagList = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getWarehouseDagListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getWarehouseExpressionsListUrl = (projectId: string, params?: WarehouseExpressionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1465,48 +1448,6 @@ export const warehouseExpressionsDestroy = async (
     return apiMutator<void>(getWarehouseExpressionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getWarehouseModelPathsListUrl = (projectId: string, params?: WarehouseModelPathsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/warehouse_model_paths/?${stringifiedParams}`
-        : `/api/projects/${projectId}/warehouse_model_paths/`
-}
-
-export const warehouseModelPathsList = async (
-    projectId: string,
-    params?: WarehouseModelPathsListParams,
-    options?: RequestInit
-): Promise<PaginatedDataWarehouseModelPathListApi> => {
-    return apiMutator<PaginatedDataWarehouseModelPathListApi>(getWarehouseModelPathsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getWarehouseModelPathsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_model_paths/${id}/`
-}
-
-export const warehouseModelPathsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<DataWarehouseModelPathApi> => {
-    return apiMutator<DataWarehouseModelPathApi>(getWarehouseModelPathsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1666,9 +1607,8 @@ export const getWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id
 /**
  * Return the ancestors of this saved query.
  *
- * By default, we return the immediate parents. The `level` parameter can be used to
- * look further back into the ancestor tree. If `level` overshoots (i.e. points to only
- * ancestors beyond the root), we return an empty list.
+ * By default, we return every ancestor. The `level` parameter bounds how many hops back
+ * to walk, so 1 gives the immediate parents.
  */
 export const warehouseSavedQueriesAncestorsCreate = async (
     projectId: string,
@@ -1730,9 +1670,8 @@ export const getWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, 
 /**
  * Return the descendants of this saved query.
  *
- * By default, we return the immediate children. The `level` parameter can be used to
- * look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
- * descendants further than a leaf), we return an empty list.
+ * By default, we return every descendant. The `level` parameter bounds how many hops
+ * forward to walk, so 1 gives the immediate children.
  */
 export const warehouseSavedQueriesDescendantsCreate = async (
     projectId: string,

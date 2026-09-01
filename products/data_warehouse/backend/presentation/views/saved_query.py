@@ -51,11 +51,12 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS, get_incremental_config
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    Graph,
+    Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
@@ -1878,61 +1879,28 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the ancestors of this saved query.
 
-        By default, we return the immediate parents. The `level` parameter can be used to
-        look further back into the ancestor tree. If `level` overshoots (i.e. points to only
-        ancestors beyond the root), we return an empty list.
+        By default, we return every ancestor. The `level` parameter bounds how many hops back
+        to walk, so 1 gives the immediate parents.
         """
         up_to_level = request.data.get("level", None)
-
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
-        lquery = f"*{{1,}}.{saved_query_id}"
-
-        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
-
-        if not paths:
-            return response.Response({"ancestors": []})
-
-        ancestors: set[str | uuid.UUID] = set()
-        for model_path in paths:
-            if up_to_level is None:
-                start = 0
-            else:
-                start = (int(up_to_level) * -1) - 1
-
-            ancestors = ancestors.union(map(try_convert_to_uuid, model_path.path[start:-1]))
-
+        ancestors = _related_saved_queries(
+            saved_query, upstream=True, max_depth=None if up_to_level is None else int(up_to_level)
+        )
         return response.Response({"ancestors": ancestors})
 
     @action(methods=["POST"], detail=True)
     def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the descendants of this saved query.
 
-        By default, we return the immediate children. The `level` parameter can be used to
-        look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
-        descendants further than a leaf), we return an empty list.
+        By default, we return every descendant. The `level` parameter bounds how many hops
+        forward to walk, so 1 gives the immediate children.
         """
         up_to_level = request.data.get("level", None)
-
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
-
-        lquery = f"*.{saved_query_id}.*{{1,}}"
-        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
-
-        if not paths:
-            return response.Response({"descendants": []})
-
-        descendants: set[str | uuid.UUID] = set()
-        for model_path in paths:
-            start = model_path.path.index(saved_query_id) + 1
-            if up_to_level is None:
-                end = len(model_path.path)
-            else:
-                end = start + up_to_level
-
-            descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
-
+        descendants = _related_saved_queries(
+            saved_query, upstream=False, max_depth=None if up_to_level is None else int(up_to_level)
+        )
         return response.Response({"descendants": descendants})
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
@@ -2014,36 +1982,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the count of immediate upstream and downstream dependencies for this saved query."""
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
-
-        # Count immediate upstream (parents) - get unique parents from all paths to this node
-        upstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}"
+        return response.Response(
+            {
+                "upstream_count": len(_related_saved_queries(saved_query, upstream=True, max_depth=1)),
+                "downstream_count": len(_related_saved_queries(saved_query, upstream=False, max_depth=1)),
+            }
         )
-        upstream_ids: set[str] = set()
-        for path in upstream_paths:
-            if len(path.path) >= 2:
-                # Get the immediate parent (second to last in path)
-                parent_id = path.path[-2]
-                upstream_ids.add(parent_id)
-
-        # Count immediate downstream (children) - get unique children that reference this node
-        downstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}.*"
-        )
-        downstream_ids: set[str] = set()
-        for path in downstream_paths:
-            # Find position of current view in path
-            try:
-                idx = path.path.index(saved_query_id)
-                if idx + 1 < len(path.path):
-                    # Get immediate child (next node after current)
-                    child_id = path.path[idx + 1]
-                    downstream_ids.add(child_id)
-            except ValueError:
-                continue
-
-        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
 
     @action(methods=["GET"], detail=True, required_scopes=["warehouse_view:read"])
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -2062,8 +2006,35 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return response.Response({"run_history": run_history})
 
 
-def try_convert_to_uuid(s: str) -> uuid.UUID | str:
-    try:
-        return str(uuid.UUID(s))
-    except ValueError:
-        return s
+def _related_saved_queries(
+    saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None
+) -> set[uuid.UUID | str]:
+    """Walk the data modeling graph from a saved query and identify what it reaches.
+
+    A saved query can hold a node in more than one DAG, so the walk starts from each of its
+    nodes and unions the results. Edges never cross DAGs, so one team-wide edge load covers
+    every start point. Results identify a query by its id and a source table by its name,
+    which is the shape the lineage endpoints have always returned.
+    """
+    node_ids = {
+        str(node_id)
+        for node_id in Node.objects.filter(team=saved_query.team, saved_query=saved_query).values_list("id", flat=True)
+    }
+    if not node_ids:
+        return set()
+
+    # Keep table nodes: the source tables a query reads from are part of its lineage.
+    graph = Graph(team_id=saved_query.team_id, exclude_table_sources=False, exclude_table_targets=False)
+    walk = graph.get_upstream if upstream else graph.get_downstream
+
+    reached: set[str] = set()
+    for node_id in node_ids:
+        reached |= walk(node_id, max_depth)
+    reached -= node_ids
+
+    return {
+        query_id if query_id is not None else name
+        for query_id, name in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
+            "saved_query_id", "name"
+        )
+    }

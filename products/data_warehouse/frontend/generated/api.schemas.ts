@@ -1106,29 +1106,6 @@ export interface PatchedDataWarehouseExpressionApi {
     connection_id?: string | null
 }
 
-export interface DataWarehouseModelPathApi {
-    readonly id: string
-    readonly path: readonly string[]
-    team: number
-    /** @nullable */
-    table?: string | null
-    /** @nullable */
-    saved_query?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedDataWarehouseModelPathListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseModelPathApi[]
-}
-
 /**
  * * `Cancelled` - Cancelled
  * * `Modified` - Modified
@@ -5111,17 +5088,6 @@ export type WarehouseExpressionsListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type WarehouseSavedQueriesListParams = {

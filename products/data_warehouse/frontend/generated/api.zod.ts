@@ -739,9 +739,8 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Return the ancestors of this saved query.
  *
- * By default, we return the immediate parents. The `level` parameter can be used to
- * look further back into the ancestor tree. If `level` overshoots (i.e. points to only
- * ancestors beyond the root), we return an empty list.
+ * By default, we return every ancestor. The `level` parameter bounds how many hops back
+ * to walk, so 1 gives the immediate parents.
  */
 export const warehouseSavedQueriesAncestorsCreateBodyNameMax = 128
 
@@ -943,9 +942,8 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
 /**
  * Return the descendants of this saved query.
  *
- * By default, we return the immediate children. The `level` parameter can be used to
- * look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
- * descendants further than a leaf), we return an empty list.
+ * By default, we return every descendant. The `level` parameter bounds how many hops
+ * forward to walk, so 1 gives the immediate children.
  */
 export const warehouseSavedQueriesDescendantsCreateBodyNameMax = 128
 
