@@ -11,6 +11,7 @@ jest.mock('@posthog/hogvm-node', () => ({
     registerProgram: jest.fn(),
     releaseProgram: jest.fn(),
     executeRegisteredSync: jest.fn(),
+    executeRegisteredBatch: jest.fn(),
 }))
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
@@ -301,6 +302,50 @@ describe('RustVmExecutor', () => {
 
             expect(mockHogvmNode.registerProgram).not.toHaveBeenCalled()
             expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+        })
+
+        it('batches through executeRegisteredBatch, registering the program once across flushes', async () => {
+            mockHogvmNode.executeRegisteredBatch.mockImplementation((_handle, events) =>
+                Promise.resolve(events.map(() => rustResult()))
+            )
+
+            const invocation = versioned()
+            const first = await executor.executeBatched(invocation, [])
+            const second = await executor.executeBatched(invocation, [])
+
+            expect(mockHogvmNode.registerProgram).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeBatch).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeRegisteredBatch).toHaveBeenCalledTimes(2)
+            expect(mockHogvmNode.executeRegisteredBatch).toHaveBeenLastCalledWith(0, [invocation.state.globals], {
+                parallel: true,
+                maxSteps: 1_000_000,
+            })
+            expect(first!.error).toBeUndefined()
+            expect(second!.error).toBeUndefined()
+        })
+
+        it('batch falls back to executeBatch when the addon lacks executeRegisteredBatch', async () => {
+            // Version-skew guard: an addon built before the registered batch binding must keep
+            // executing batches unregistered, not throw on every batched invocation.
+            mockHogvmNode.executeBatch.mockResolvedValue([rustResult()])
+            const executeRegisteredBatch = mockHogvmNode.executeRegisteredBatch
+            // @ts-expect-error - simulating an older addon build without the registered batch binding
+            delete mockHogvmNode.executeRegisteredBatch
+            try {
+                const invocation = versioned()
+                const result = await executor.executeBatched(invocation, [])
+
+                expect(result).not.toBeNull()
+                expect(result!.error).toBeUndefined()
+                expect(mockHogvmNode.registerProgram).not.toHaveBeenCalled()
+                expect(mockHogvmNode.executeBatch).toHaveBeenCalledWith(
+                    invocation.hogFunction.bytecode,
+                    [invocation.state.globals],
+                    { parallel: true, maxSteps: 1_000_000 }
+                )
+            } finally {
+                mockHogvmNode.executeRegisteredBatch = executeRegisteredBatch
+            }
         })
     })
 })

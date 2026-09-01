@@ -71,6 +71,12 @@ export interface HogvmNodeModule {
     /** Drop a registered program and free its slot. Releasing an unknown handle is a no-op. */
     releaseProgram?(handle: number): void
     executeRegisteredSync?(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
+    /** `executeBatch` against a registered program, skipping the per-batch bytecode crossing. */
+    executeRegisteredBatch?(
+        handle: number,
+        events: unknown[],
+        options?: { parallel?: boolean; maxSteps?: number }
+    ): Promise<RustExecResult[]>
 }
 
 let cachedModule: HogvmNodeModule | null | undefined = undefined

@@ -75,9 +75,13 @@ export function executeRegisteredSync(
     options?: ExecuteSyncOptions
 ): HogExecResult
 
-/** Batch variant: one napi crossing for many events, amortizing the marshalling overhead. */
-export function executeRegisteredBatchSync(
+/**
+ * `executeBatch` against a program registered with `registerProgram`: one napi crossing for many
+ * events, off the JS event loop, with no per-batch bytecode marshal or decode. Same per-event
+ * `marshal_error:` salvage as `executeBatch`.
+ */
+export function executeRegisteredBatch(
     handle: number,
     events: unknown[],
-    options?: ExecuteSyncOptions
-): HogExecResult[]
+    options?: ExecuteBatchOptions
+): Promise<HogExecResult[]>

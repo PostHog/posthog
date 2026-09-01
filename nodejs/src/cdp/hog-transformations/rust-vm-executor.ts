@@ -28,8 +28,8 @@ import { RustVmBatchScheduler } from './rust-vm-batch-scheduler'
  * (`executeRegisteredSync`, against a program registered with the addon once per bytecode version
  * so the per-event cost is the globals crossing rather than re-marshalling and re-decoding
  * bytecode); `executeBatched` enqueues into a {@link RustVmBatchScheduler} that coalesces
- * same-program invocations into one `executeBatch` FFI crossing per tick, executed off the JS
- * event loop.
+ * same-program invocations into one `executeRegisteredBatch` FFI crossing per tick (or
+ * `executeBatch` when the program can't be registered), executed off the JS event loop.
  */
 
 export const rustVmExecution = new Counter({
@@ -58,8 +58,15 @@ export const rustVmProgramRegistrations = new Counter({
  */
 export const MAX_REGISTERED_PROGRAMS = 500
 
+/** The slice of a hog function the executor needs to register and execute its program. */
+interface RegisterableHogFunction {
+    id: string
+    updated_at?: string
+    bytecode: unknown[]
+}
+
 export class RustVmExecutor {
-    private scheduler: RustVmBatchScheduler
+    private scheduler: RustVmBatchScheduler<RegisterableHogFunction>
 
     /**
      * Registered-program handles, keyed by hog function id. `updatedAt` is the version guard: a
@@ -78,13 +85,24 @@ export class RustVmExecutor {
     private handles: LRUCache<string, { updatedAt: string; handle: number }>
 
     constructor(private options: { mmdbPath: string }) {
-        this.scheduler = new RustVmBatchScheduler((program, events) => {
+        this.scheduler = new RustVmBatchScheduler((hogFunction, events) => {
             const module_ = this.getModule()
             if (!module_) {
                 // Unreachable in practice: executeBatched checks the module before enqueueing.
                 return Promise.reject(new Error('Rust HogVM native module unavailable'))
             }
-            return module_.executeBatch(program, events, { parallel: true, maxSteps: RUST_MAX_STEPS })
+            // Resolve the handle at dispatch time, in the same synchronous span as the FFI call:
+            // `handleFor` re-registers an evicted program, and nothing can release the handle
+            // between here and the call below.
+            const { executeRegisteredBatch } = module_
+            const handle = executeRegisteredBatch ? this.handleFor(module_, hogFunction) : null
+            if (handle === null || !executeRegisteredBatch) {
+                return module_.executeBatch(hogFunction.bytecode, events, {
+                    parallel: true,
+                    maxSteps: RUST_MAX_STEPS,
+                })
+            }
+            return executeRegisteredBatch(handle, events, { parallel: true, maxSteps: RUST_MAX_STEPS })
         })
         this.handles = new LRUCache({
             max: MAX_REGISTERED_PROGRAMS,
@@ -105,10 +123,7 @@ export class RustVmExecutor {
      * one we can't tell an edited program from the one we registered, and serving a stale handle
      * would silently run outdated bytecode. The caller executes those unregistered instead.
      */
-    private handleFor(
-        module_: HogvmNodeModule,
-        hogFunction: { id: string; updated_at?: string; bytecode: unknown[] }
-    ): number | null {
+    private handleFor(module_: HogvmNodeModule, hogFunction: RegisterableHogFunction): number | null {
         // The addon is built and shipped separately from this code, so a binary that predates the
         // registry bindings simply won't have them. Fall back to unregistered execution instead of
         // throwing — and therefore falling back to the Node VM — on every single invocation.
@@ -210,10 +225,11 @@ export class RustVmExecutor {
 
     /**
      * Execute one transformation invocation via the batching scheduler: same-program invocations
-     * in flight during the same tick share one `executeBatch` call, off the JS event loop.
-     * Returns null when the Node VM must run it instead — same fallback contract as `execute`,
-     * with a batch event that failed JS→JSON conversion (`marshal_error:`) treated like the sync
-     * path's boundary throw: that event alone falls back, having never executed.
+     * in flight during the same tick share one `executeRegisteredBatch` call (or `executeBatch`
+     * when the program can't be registered), off the JS event loop. Returns null when the Node VM
+     * must run it instead — same fallback contract as `execute`, with a batch event that failed
+     * JS→JSON conversion (`marshal_error:`) treated like the sync path's boundary throw: that
+     * event alone falls back, having never executed.
      */
     public async executeBatched(
         invocation: CyclotronJobInvocationHogFunction,
@@ -227,7 +243,7 @@ export class RustVmExecutor {
 
         let rust: RustExecResult
         try {
-            rust = await this.scheduler.execute(invocation.hogFunction.bytecode, invocation.state.globals)
+            rust = await this.scheduler.execute(invocation.hogFunction, invocation.state.globals)
         } catch (error) {
             // A rejected batch never delivered results, so nothing executed — safe to fall back.
             return this.fallback('fallback_exception', invocation, sensitiveValues, error)

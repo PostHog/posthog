@@ -34,8 +34,8 @@ use napi_derive::napi;
 use serde_json::Value;
 
 pub use exec::{
-    build_program, run_batch, run_batch_program, run_batch_salvaged, HogExecResult,
-    MARSHAL_ERROR_PREFIX,
+    build_program, run_batch, run_batch_program, run_batch_program_salvaged, run_batch_salvaged,
+    HogExecResult, MARSHAL_ERROR_PREFIX,
 };
 
 #[napi(object)]
@@ -254,18 +254,66 @@ pub fn execute_registered_sync(
     results.into_iter().next().expect("one result per event")
 }
 
-/// Batch variant: one napi crossing for many events, amortizing the marshalling overhead.
-#[napi]
-pub fn execute_registered_batch_sync(
-    handle: u32,
-    events: Vec<Value>,
-    options: Option<ExecuteSyncOptions>,
-) -> Vec<HogExecResult> {
-    let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
-    match get_registered(handle) {
-        Ok(program) => exec::run_batch_program(&program, &events, false, max_steps),
-        Err(e) => error_results(&e, events.len()),
+#[cfg(not(feature = "noop"))]
+pub struct ExecuteRegisteredBatchTask {
+    program: Result<hogvm::Program, String>,
+    events: Vec<Result<Value, String>>,
+    parallel: bool,
+    max_steps: Option<usize>,
+}
+
+#[cfg(not(feature = "noop"))]
+impl Task for ExecuteRegisteredBatchTask {
+    type Output = Vec<HogExecResult>;
+    type JsValue = Vec<HogExecResult>;
+
+    fn compute(&mut self) -> NapiResult<Self::Output> {
+        let events = std::mem::take(&mut self.events);
+        Ok(match &self.program {
+            Ok(program) => {
+                exec::run_batch_program_salvaged(program, events, self.parallel, self.max_steps)
+            }
+            Err(e) => error_results(e, events.len()),
+        })
     }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> NapiResult<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// `executeBatch` against a program registered with `registerProgram`: one napi crossing for many
+/// events, off the JS event loop, with no per-batch bytecode marshal or decode. Same per-event
+/// `marshal_error:` salvage as `executeBatch`.
+#[cfg(not(feature = "noop"))]
+#[napi(ts_return_type = "Promise<Array<HogExecResult>>")]
+pub fn execute_registered_batch(
+    env: Env,
+    handle: u32,
+    events: Vec<JsUnknown>,
+    options: Option<ExecuteBatchOptions>,
+) -> AsyncTask<ExecuteRegisteredBatchTask> {
+    // Clone the program out on the JS thread so the task owns it: releasing the handle after this
+    // call (an eviction or an edit) cannot pull the program out from under the running batch.
+    let program = get_registered(handle);
+    // Same strict per-event conversion as `execute_batch`, for the same reasons.
+    let events = events
+        .into_iter()
+        .map(|event| {
+            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+            unsafe { Value::from_napi_value(env.raw(), event.raw()) }.map_err(|e| e.reason)
+        })
+        .collect();
+    let (parallel, max_steps) = match options {
+        Some(o) => (o.parallel.unwrap_or(false), o.max_steps.map(|m| m as usize)),
+        None => (false, None),
+    };
+    AsyncTask::new(ExecuteRegisteredBatchTask {
+        program,
+        events,
+        parallel,
+        max_steps,
+    })
 }
 
 #[cfg(test)]
