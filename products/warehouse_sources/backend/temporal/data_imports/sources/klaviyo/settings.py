@@ -483,8 +483,9 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own computed performance statistics per campaign message over the last 365 "
-            "days, replaced in full on every sync. Conversion statistics use the conversion metric "
-            "recorded in the conversion_metric_id column"
+            "days, replaced in full on every sync. Needs a value-tracking conversion metric (such as "
+            "Placed Order); set one on the source if your account has none. Conversion statistics use "
+            "the conversion metric recorded in the conversion_metric_id column"
         ),
     ),
     "flow_values_reports": KlaviyoEndpointConfig(
@@ -500,8 +501,9 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own computed performance statistics per flow message over the last 365 days, "
-            "replaced in full on every sync. Conversion statistics use the conversion metric recorded "
-            "in the conversion_metric_id column"
+            "replaced in full on every sync. Needs a value-tracking conversion metric (such as Placed "
+            "Order); set one on the source if your account has none. Conversion statistics use the "
+            "conversion metric recorded in the conversion_metric_id column"
         ),
     ),
     # Series reports carry the same statistics as the values reports above, but bucketed weekly over
@@ -527,8 +529,10 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
-            "days, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
-            "returning them"
+            "days, one row per flow message per week. Needs a value-tracking conversion metric (such "
+            "as Placed Order); set one on the source if your account has none. Conversion statistics "
+            "use the conversion metric recorded in the conversion_metric_id column. Weeks stay in the "
+            "table after Klaviyo stops returning them"
         ),
     ),
     # Form and segment reports need no conversion metric, so they sync even for keys scoped only to

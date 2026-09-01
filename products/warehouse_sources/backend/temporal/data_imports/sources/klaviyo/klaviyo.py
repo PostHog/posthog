@@ -22,9 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
 
-# Klaviyo's reporting API requires a conversion metric on every values report. Placed Order is the
-# metric its own reporting defaults to, so it's the fallback when the source doesn't name one.
-DEFAULT_CONVERSION_METRIC_NAME = "Placed Order"
+# Klaviyo's reporting API only accepts a value-tracking metric (one that carries a monetary
+# $value, like an order metric) as a values report's conversion metric; engagement metrics such as
+# opens and clicks are rejected. Klaviyo has no "account default" flag to read and its /metrics
+# response has no eligibility field, so resolution prefers these names its ecommerce integrations
+# give the order metric, most likely first, before falling back to the account's first metric.
+CONVERSION_METRIC_NAME_PREFERENCES = ("Placed Order", "Ordered Product")
 # Accounts have tens of metrics, so the fallback lookup stays bounded rather than walking forever.
 MAX_CONVERSION_METRIC_PAGES = 20
 
@@ -36,6 +39,15 @@ CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data
 
 class KlaviyoRetryableError(Exception):
     pass
+
+
+class KlaviyoConversionMetricError(Exception):
+    """A values report can't run because no eligible conversion metric is available.
+
+    Raised instead of returning empty so the run fails visibly rather than finalizing green with
+    zero rows. The outcome is deterministic — the same metric resolves on every retry — so it is
+    registered as a non-retryable error that pauses the table with an actionable message.
+    """
 
 
 @dataclasses.dataclass
@@ -437,26 +449,36 @@ def _resolve_conversion_metric_id(
     """Pick the metric that conversion statistics in the values reports are attributed to.
 
     Klaviyo requires a conversion metric on every values report but has no "account default" to
-    read, so fall back to the Placed Order metric its own reporting defaults to, then to whatever
-    metric the account defines first. A user who wants a different one sets it on the source.
+    read, so prefer a value-tracking metric by name (see CONVERSION_METRIC_NAME_PREFERENCES), then
+    fall back to whatever metric the account defines first. A user who wants a different one, or
+    whose account has no value-tracking metric, sets one on the source.
     """
     url = f"{KLAVIYO_BASE_URL}/metrics"
     first_metric_id: str | None = None
+    # Best preferred-name match so far; a lower rank is a stronger preference.
+    best_preferred_id: str | None = None
+    best_preferred_rank: int | None = None
 
     for _ in range(MAX_CONVERSION_METRIC_PAGES):
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
             if first_metric_id is None:
                 first_metric_id = item["id"]
-            if item.get("attributes", {}).get("name") == DEFAULT_CONVERSION_METRIC_NAME:
-                return item["id"]
+            name = item.get("attributes", {}).get("name")
+            if name in CONVERSION_METRIC_NAME_PREFERENCES:
+                rank = CONVERSION_METRIC_NAME_PREFERENCES.index(name)
+                if rank == 0:
+                    return item["id"]  # top preference, nothing can beat it
+                if best_preferred_rank is None or rank < best_preferred_rank:
+                    best_preferred_rank = rank
+                    best_preferred_id = item["id"]
 
         next_url = data.get("links", {}).get("next")
         if not next_url:
             break
         url = next_url
 
-    return first_metric_id
+    return best_preferred_id or first_metric_id
 
 
 def _series_rows(
@@ -503,10 +525,10 @@ def _get_values_report_rows(
     if report.requires_conversion_metric:
         metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
         if not metric_id:
-            logger.warning(
-                f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
+            raise KlaviyoConversionMetricError(
+                f"Klaviyo needs a conversion metric to sync {config.name}, but the account has none. "
+                f"Set a conversion metric ID on the source, then re-enable this table."
             )
-            return
 
     attributes: dict[str, Any] = {
         "statistics": report.statistics,
@@ -556,11 +578,11 @@ def _get_values_report_rows(
             and exc.response.status_code == 400
             and CONVERSION_METRIC_INELIGIBLE_DETAIL in exc.response.text
         ):
-            logger.warning(
-                f"Klaviyo: conversion metric {metric_id} isn't eligible for values reporting on "
-                f"{config.name}; set a different conversion metric ID on the source, skipping"
-            )
-            return
+            raise KlaviyoConversionMetricError(
+                f"Klaviyo rejected conversion metric {metric_id} for {config.name}: it isn't eligible "
+                f"for values reporting. Set an eligible conversion metric ID on the source, then "
+                f"re-enable this table."
+            ) from exc
         raise
 
 
