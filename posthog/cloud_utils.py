@@ -59,6 +59,10 @@ def is_hobby_url(url: object) -> bool:
     if parsed_url.scheme not in ("http", "https") or hostname is None:
         return False
 
+    # Browsers report `location.host` as `localhost.` for `http://localhost./`, and an FQDN
+    # trailing dot must not defeat the localhost, loopback, and Cloud-domain checks below.
+    hostname = hostname.rstrip(".")
+
     if hostname == "localhost" or hostname.endswith(".localhost"):
         return False
 

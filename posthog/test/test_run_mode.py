@@ -87,6 +87,12 @@ class TestCloudUtilsRunMode(SimpleTestCase):
             ("ipv6_loopback", "http://[::1]:8010/project/1", False),
             ("hobby", "https://posthog.example.com/project/1", True),
             ("similar_domain", "https://notposthog.com/project/1", True),
+            # Browsers can report a trailing-dot host (`localhost.`, `us.posthog.com.`); it must
+            # not defeat the localhost, loopback, and Cloud-domain checks.
+            ("cloud_trailing_dot", "https://eu.posthog.com./project/1", False),
+            ("deployed_dev_trailing_dot", "https://app.dev.posthog.dev./project/1", False),
+            ("localhost_trailing_dot", "http://localhost.:8010/project/1", False),
+            ("ipv4_loopback_trailing_dot", "http://127.0.0.1./project/1", False),
             ("missing", None, False),
             ("malformed", "https://[", False),
         ]
