@@ -130,6 +130,19 @@ class TestSizeLint:
         assert "warning" in worktree.output
         assert "warning" not in commits.output
 
+    def test_an_unresolvable_base_is_rejected_rather_than_disabling_the_check(self, repo: Path) -> None:
+        # Explicit files bypass change detection, which is the code that normally rejects
+        # a bad ref. Without its own check a typo would read as "no base" and silently
+        # turn crossing detection off.
+        _git(repo, "checkout", "-qb", "feature")
+        _write(repo, "posthog/big.py", CROSSED_AT + 100)
+        _commit_on_branch(repo)
+
+        result = runner.invoke(cli, ["lint:size", "--against", "no-such-ref", "posthog/big.py"])
+
+        assert result.exit_code != 0
+        assert "no-such-ref" in result.output
+
     def test_cli_reports_findings_without_failing(self, repo: Path, tmp_path: Path) -> None:
         # The check is advisory, and preflight reads a soft check as a warning only when
         # it exits 0 with output on stdout.

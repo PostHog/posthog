@@ -200,6 +200,10 @@ def _report(finding: Finding) -> None:
     help="Also write the findings as JSON to this path (used by the CI report poster).",
 )
 def cmd_lint_size(files: tuple[str, ...], against: str | None, committed: bool, report_path: str | None) -> None:
+    # Explicit files skip changed_files, which is what would otherwise reject a bad ref.
+    # Without this a typo reads as "no base available" and quietly turns crossings off.
+    if against is not None and _git("rev-parse", "--verify", "--quiet", f"{against}^{{commit}}").returncode != 0:
+        raise click.UsageError(f"git ref {against!r} could not be resolved")
     paths = list(files) if files else changed_files(against)
     in_scope = [
         path
