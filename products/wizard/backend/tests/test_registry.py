@@ -68,11 +68,19 @@ def test_program_serialization_round_trip() -> None:
         ("unexpected_field", {**AUDIT_PROGRAM_PAYLOAD, "unexpected": "value"}),
         ("invalid_command", {**AUDIT_PROGRAM_PAYLOAD, "command": ["--override"]}),
         ("duplicate_environments", {**AUDIT_PROGRAM_PAYLOAD, "supported_environments": ["local", "local"]}),
+        ("leading_zero_prerelease", {**AUDIT_PROGRAM_PAYLOAD, "wizard_version": "1.2.3-01"}),
+        ("leading_zero_dotted_prerelease", {**AUDIT_PROGRAM_PAYLOAD, "wizard_version": "1.2.3-alpha.01"}),
     ]
 )
 def test_program_rejects_invalid_serialized_value(_name: str, value: object) -> None:
     with pytest.raises(ValueError):
         program_from_mapping(value)
+
+
+def test_program_accepts_valid_prerelease_wizard_version() -> None:
+    program = program_from_mapping({**AUDIT_PROGRAM_PAYLOAD, "wizard_version": "1.2.3-alpha.1"})
+
+    assert program.wizard_version == "1.2.3-alpha.1"
 
 
 def test_program_persisted_deserialization_accepts_legacy_wizard_version() -> None:
