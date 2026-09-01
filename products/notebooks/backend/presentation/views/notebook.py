@@ -868,6 +868,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to cancel widget generation.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
         serializer = WidgetCancelRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -901,6 +903,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_status(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
         try:
             result = get_widget_status(notebook=self.get_object(), node_id=node_id)
         except WidgetError as error:
@@ -924,6 +928,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def widget_versions(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
+            raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
             raise Http404()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -965,6 +971,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
+            raise Http404()
+        if not is_notebook_widget_enabled(self._current_user()):
             raise Http404()
         query = WidgetSourceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)

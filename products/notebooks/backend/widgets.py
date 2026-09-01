@@ -297,7 +297,7 @@ def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
                 preferred_owners.setdefault(cell.dataframe_name, cell.node_id)
     owners: dict[str, str] = {}
     for cell in eligible_cells:
-        if preferred_owners[cell.dataframe_name] == cell.node_id:
+        if preferred_owners.get(cell.dataframe_name) == cell.node_id:
             owners.setdefault(cell.dataframe_name, cell.node_id)
     return owners
 
@@ -543,7 +543,7 @@ def _get_existing_generation_job(team_id: int, generation_id: UUID) -> Generated
     return (
         GeneratedWidgetGenerationJob.objects.for_team(team_id)
         .select_related("instance", "instance__notebook")
-        .filter(id=generation_id)
+        .filter(idempotency_key=generation_id)
         .first()
     )
 
@@ -688,7 +688,7 @@ def start_widget_generation(
         elif operation == GeneratedWidgetVersion.Operation.INITIAL:
             resolved_operation = GeneratedWidgetVersion.Operation.REGENERATE
         job = GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id).create(
-            id=generation_id,
+            idempotency_key=generation_id,
             team_id=notebook.team_id,
             widget=locked_instance.widget,
             instance=locked_instance,
@@ -707,14 +707,22 @@ def start_widget_generation(
 def cancel_widget_generation(*, notebook: Notebook, node_id: str, generation_id: UUID) -> None:
     assert_widget_node_exists(notebook, node_id)
     canceled_at = timezone.now()
-    updated = (
+    job_id = (
         GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id)
         .filter(
-            id=generation_id,
+            idempotency_key=generation_id,
             instance__notebook=notebook,
             instance__node_id=node_id,
             status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES,
         )
+        .values_list("id", flat=True)
+        .first()
+    )
+    if job_id is None:
+        return
+    updated = (
+        GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id)
+        .filter(id=job_id, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES)
         .update(
             cancel_requested_at=canceled_at,
             status=GeneratedWidgetGenerationJob.Status.CANCELED,
@@ -726,7 +734,7 @@ def cancel_widget_generation(*, notebook: Notebook, node_id: str, generation_id:
     )
     if updated:
         cache.set(
-            _cancellation_key(notebook.team_id, generation_id),
+            _cancellation_key(notebook.team_id, job_id),
             True,
             timeout=GENERATION_CANCELLATION_TTL_SECONDS,
         )
@@ -951,6 +959,8 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             input_names=frame_names,
             is_cancelled=is_cancelled,
         )
+        # Publication preserves the exact reviewed artifact for inspection. Browser consumers gate execution of
+        # every non-clean verdict on explicit trust for this version's immutable build hash.
         security_reviewed_at = timezone.now()
         if is_cancelled():
             raise WidgetError("Widget generation was canceled.", "generation_canceled")
@@ -1129,7 +1139,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     job = _latest_job(instance)
     active_job = (
         WidgetJobState(
-            id=job.id,
+            id=job.idempotency_key,
             status=job.status,
             phase=job.phase,
             model=job.model,

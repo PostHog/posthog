@@ -224,6 +224,10 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "idempotency_key",
+                    models.UUIDField(default=posthog.uuidt.uuid7),
+                ),
+                (
                     "operation",
                     models.CharField(
                         choices=[
@@ -357,6 +361,13 @@ class Migration(migrations.Migration):
             index=models.Index(
                 fields=["team", "instance", "-created_at"],
                 name="generated_widget_job_inst",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="generatedwidgetgenerationjob",
+            constraint=models.UniqueConstraint(
+                fields=("team", "idempotency_key"),
+                name="generated_widget_job_idempotency_uniq",
             ),
         ),
     ]

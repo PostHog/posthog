@@ -16,6 +16,7 @@ from posthog.models.utils import (
     build_unique_relationship_check,
 )
 from posthog.utils import generate_short_id
+from posthog.uuidt import uuid7
 
 
 class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
@@ -377,6 +378,7 @@ class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
     ACTIVE_STATUSES = (Status.QUEUED, Status.GENERATING, Status.PUBLISHING)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    idempotency_key = models.UUIDField(default=uuid7)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="generation_jobs")
     instance = models.ForeignKey(
         "notebooks.NotebookWidgetInstance", on_delete=models.CASCADE, related_name="generation_jobs"
@@ -407,6 +409,9 @@ class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_generated_widget_generation_job"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "idempotency_key"], name="generated_widget_job_idempotency_uniq"),
+        ]
         indexes = [
             models.Index(fields=["team", "status", "-created_at"], name="generated_widget_job_status"),
             models.Index(fields=["team", "instance", "-created_at"], name="generated_widget_job_inst"),

@@ -13,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -390,6 +391,7 @@ class TestWidgetGeneration(SimpleTestCase):
                 content=markdown_content(
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
+                    '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
                     f'<{tag_name} nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
@@ -904,17 +906,31 @@ class TestWidgetData(APIBaseTest):
         assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
-    def test_generate_endpoint_is_hidden_when_the_feature_is_disabled(self) -> None:
-        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
+    @parameterized.expand(
+        [
+            ("generate", "post", "generate/", {"prompt": "Render a globe", "generation_id": str(uuid4())}),
+            ("cancel", "post", "cancel/", {"generation_id": str(uuid4())}),
+            ("status", "get", "status/", None),
+            ("versions", "get", "versions/", None),
+            ("source", "get", "source/", None),
+            (
+                "revert",
+                "post",
+                "revert/",
+                {"version_id": str(uuid4()), "expected_current_version_id": str(uuid4())},
+            ),
+            ("frame", "get", f"frames/{INPUT_NAME}/", None),
+        ]
+    )
+    def test_widget_endpoint_is_hidden_when_the_feature_is_disabled(
+        self, _name: str, method: str, suffix: str, data: dict[str, str] | None
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/{suffix}"
 
         with patch(
             "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=False
         ):
-            response = self.client.post(
-                url,
-                data={"prompt": "Render a globe", "generation_id": str(uuid4())},
-                format="json",
-            )
+            response = self.client.post(url, data=data, format="json") if method == "post" else self.client.get(url)
 
         assert response.status_code == 404
         assert not NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
@@ -951,12 +967,12 @@ class TestWidgetData(APIBaseTest):
                 operation=GeneratedWidgetVersion.Operation.INITIAL,
             )
 
-        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
         assert result.active_job is not None
         assert result.active_job.id == generation_id
         assert job.base_version is None
         assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
-        start_workflow.assert_called_once_with(str(generation_id), self.team.id)
+        start_workflow.assert_called_once_with(str(job.id), self.team.id)
 
     def test_ambiguous_dispatch_failure_leaves_the_job_retryable(self) -> None:
         generation_id = uuid4()
@@ -980,7 +996,7 @@ class TestWidgetData(APIBaseTest):
                 operation=GeneratedWidgetVersion.Operation.INITIAL,
             )
 
-        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
         assert start_workflow.call_count == 2
         assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
         assert job.error_code is None
@@ -1009,7 +1025,7 @@ class TestWidgetData(APIBaseTest):
         instance = self._mapping()
         current_version = self._pinned_version(instance)
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
-            id=generation_id,
+            idempotency_key=generation_id,
             team_id=self.team.id,
             widget=instance.widget,
             instance=instance,
@@ -1047,9 +1063,12 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert result.active_job is not None
-        assert result.active_job.id == job.id
-        start_workflow.assert_called_once_with(str(generation_id), self.team.id)
-        assert GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=generation_id).count() == 1
+        assert result.active_job.id == generation_id
+        start_workflow.assert_called_once_with(str(job.id), self.team.id)
+        assert (
+            GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(idempotency_key=generation_id).count()
+            == 1
+        )
 
         with self.assertRaises(WidgetError) as error:
             start_widget_generation(
@@ -1063,6 +1082,65 @@ class TestWidgetData(APIBaseTest):
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
             )
         assert error.exception.code == "generation_id_conflict"
+
+    def test_generation_identifier_is_scoped_to_the_team(self) -> None:
+        generation_id = uuid4()
+        other_team = Team.objects.create(organization=self.organization)
+        other_notebook = Notebook.objects.create(
+            team=other_team,
+            created_by=self.user,
+            content=markdown_content(f'<Widget nodeId="{self.NODE_ID}" prompt="Render a globe" />'),
+        )
+        other_widget = GeneratedWidget.objects.for_team(other_team.id).create(
+            team_id=other_team.id,
+            name="Render a globe",
+            canvas_id=uuid4(),
+            created_by=self.user,
+        )
+        other_instance = NotebookWidgetInstance.objects.for_team(other_team.id).create(
+            team_id=other_team.id,
+            notebook=other_notebook,
+            node_id=self.NODE_ID,
+            widget=other_widget,
+            created_by=self.user,
+        )
+        GeneratedWidgetGenerationJob.objects.for_team(other_team.id).create(
+            team_id=other_team.id,
+            idempotency_key=generation_id,
+            widget=other_widget,
+            instance=other_instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+        instance = self._mapping()
+
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Make it lighter",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=generation_id,
+                operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            )
+
+        own_job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
+        assert result.active_job is not None
+        assert result.active_job.id == generation_id
+        assert own_job.instance == instance
+        assert (
+            GeneratedWidgetGenerationJob.objects.for_team(other_team.id).filter(idempotency_key=generation_id).exists()
+        )
 
     def test_restored_version_uses_the_restored_prompt_lineage(self) -> None:
         instance = self._mapping()
@@ -1209,7 +1287,7 @@ class TestWidgetData(APIBaseTest):
         assert job.result_version_id is None
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=instance.widget).count() == 1
 
-    def test_generation_worker_reviews_and_persists_the_exact_source_before_publication(self) -> None:
+    def test_generation_worker_persists_an_advisory_review_before_publication(self) -> None:
         instance = self._mapping()
         base_version = self._pinned_version(instance)
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
@@ -1226,13 +1304,13 @@ class TestWidgetData(APIBaseTest):
         )
         source = "export default function Widget() { return <div>Safe</div> }"
         security_review = WidgetSecurityReview(
-            severity="medium",
-            summary="The widget requests clipboard access.",
+            severity="critical",
+            summary="The widget sends notebook data to another window.",
             findings=[
                 WidgetSecurityFinding(
-                    severity="medium",
-                    title="Clipboard access",
-                    details="The source reads clipboard contents without a widget interaction.",
+                    severity="critical",
+                    title="Notebook data may leave the preview",
+                    details="The source sends rows to another window.",
                 )
             ],
             model=WIDGET_SECURITY_REVIEW_MODEL,
@@ -1275,13 +1353,13 @@ class TestWidgetData(APIBaseTest):
         assert job.result_version_id is not None
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).get(id=job.result_version_id)
         assert version.canvas_source_version_id == publication_id
-        assert version.security_review_severity == "medium"
+        assert version.security_review_severity == "critical"
         assert version.security_review_summary == security_review.summary
         assert version.security_review_findings == [
             {
-                "severity": "medium",
-                "title": "Clipboard access",
-                "details": "The source reads clipboard contents without a widget interaction.",
+                "severity": "critical",
+                "title": "Notebook data may leave the preview",
+                "details": "The source sends rows to another window.",
             }
         ]
         assert version.security_review_model == WIDGET_SECURITY_REVIEW_MODEL
@@ -1366,7 +1444,7 @@ class TestWidgetData(APIBaseTest):
         instance = self._mapping()
         current_version = self._pinned_version(instance)
         GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
-            id=generation_id,
+            idempotency_key=generation_id,
             team_id=self.team.id,
             widget=instance.widget,
             instance=instance,
@@ -1385,9 +1463,9 @@ class TestWidgetData(APIBaseTest):
         response = self.client.post(url, data={"generation_id": str(generation_id)}, format="json")
 
         assert response.status_code == 204
-        key = _cancellation_key(self.team.id, generation_id)
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
+        key = _cancellation_key(self.team.id, job.id)
         assert cache.get(key) is True
-        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
         assert job.status == GeneratedWidgetGenerationJob.Status.CANCELED
         assert job.finished_at is not None
 
@@ -1417,7 +1495,11 @@ class TestWidgetData(APIBaseTest):
             schema_hash="",
         )
 
-        cancel_widget_generation(notebook=self.notebook, node_id=self.NODE_ID, generation_id=job.id)
+        cancel_widget_generation(
+            notebook=self.notebook,
+            node_id=self.NODE_ID,
+            generation_id=job.idempotency_key,
+        )
 
         result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
         assert result.lifecycle_status == "awaiting_generation"
