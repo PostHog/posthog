@@ -344,10 +344,11 @@ class EventDefinitionViewSet(
 
         exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         if exclude_stale:
-            # `last_seen_at` is not indexed: the predicate runs after the project-scoped
-            # pre-filter in `create_event_definitions_sql` has already narrowed the row
-            # set per tenant, and the response is paginated. Worth re-checking with
-            # EXPLAIN if the largest tenants start showing this in slow-query logs.
+            # `posthog_eventdef_team_seen_idx` does not serve this predicate: it leads on
+            # `team_id`, while the scope filter below is on `COALESCE(project_id, team_id)`.
+            # That is acceptable here — the project scope narrows the row set per tenant
+            # first, the response is paginated, and the ORDER BY needs a sort either way,
+            # so a matching index would only save heap fetches for the excluded rows.
             search_query = (
                 search_query
                 + " AND (posthog_eventdefinition.last_seen_at IS NULL"

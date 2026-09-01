@@ -61,6 +61,9 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            # Lets the session lookback bound read the newest `last_seen_at` for a team from one
+            # index tuple, instead of sorting every definition the team has.
+            models.Index(fields=["team_id", "-last_seen_at"], name="posthog_eventdef_team_seen_idx"),
         ]
         constraints = [
             UniqueConstraintByExpression(
