@@ -9,7 +9,13 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.series_bands import SeriesBandsWindowInvalid, _band_gate, resolve_window, run_series_bands
+from products.logs.backend.series_bands import (
+    MAX_WINDOW_START_AGE_DAYS,
+    SeriesBandsWindowInvalid,
+    _band_gate,
+    resolve_window,
+    run_series_bands,
+)
 
 UTC = dt.UTC
 # The scan clock sits ahead of real time so the whole 6-week fixture range stays
@@ -173,7 +179,7 @@ class TestResolveWindow(SimpleTestCase):
         last_day_of_week = dt.datetime(2026, 6, 20, 23, 0, tzinfo=UTC)
         window_start, window_end = resolve_window("-4wStart", "-3wStart", week_start_day=0, now=last_day_of_week)
         assert window_end - window_start == dt.timedelta(days=7)
-        assert last_day_of_week - window_start < dt.timedelta(days=35)
+        assert last_day_of_week - window_start < dt.timedelta(days=MAX_WINDOW_START_AGE_DAYS)
 
     def test_window_that_collapses_after_snapping_is_rejected(self):
         first_hour_of_week = dt.datetime(2026, 6, 14, 0, 30, tzinfo=UTC)
