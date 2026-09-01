@@ -94,7 +94,7 @@ def connect_trino(config: TrinoSourceConfig) -> Iterator[Connection]:
         value for value in (config.auth_type.password, config.auth_type.token) if isinstance(value, str) and value
     )
     session = make_tracked_session(redact_values=redacted, allow_redirects=False)
-    if _is_posthog_managed_trino_host(config.host):
+    if _is_posthog_managed_trino_host(config.host) and config.port == 443 and config.use_ssl and config.verify_ssl:
         session.trust_env = False
     session.verify = config.verify_ssl
     log_connection_open(db_host=config.host, via="trino_https" if config.use_ssl else "trino_http")
