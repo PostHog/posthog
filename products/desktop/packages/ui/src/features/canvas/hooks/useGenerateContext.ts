@@ -19,6 +19,7 @@ import {
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { channelFeedMessagesQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
@@ -49,6 +50,7 @@ export function useGenerateContext() {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const modelResolver = useService<ReportModelResolver>(REPORT_MODEL_RESOLVER);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const contextLayerEnabled = useContextLayerFlag();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const { invalidateTasks } = useCreateTask();
@@ -101,6 +103,7 @@ export function useGenerateContext() {
               channelName,
               channelId,
               description,
+              contextLayerEnabled,
             }),
             taskDescription: contextMdTaskTitle(channelName),
             workspaceMode,
@@ -173,6 +176,7 @@ export function useGenerateContext() {
       currentModel,
       modelResolver,
       cloudRegion,
+      contextLayerEnabled,
     ],
   );
 
