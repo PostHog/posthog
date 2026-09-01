@@ -71,7 +71,15 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
     last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team_id", "-updated_at"])]
+        indexes = [
+            models.Index(fields=["team_id", "-updated_at"]),
+            # Serves the name-collision check that runs on every action create and update.
+            models.Index(
+                fields=["team_id", "name"],
+                condition=models.Q(deleted=False),
+                name="action_team_name_not_deleted",
+            ),
+        ]
         db_table = "posthog_action"
 
     def __str__(self) -> str:
