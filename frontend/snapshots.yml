@@ -5469,9 +5469,9 @@ snapshots:
     products-tracing-operationstable--loading--light:
         hash: v1.k794b7964.04bcc55cb9522d72f548084a92d35c0aba20ff4995949bd8b2ee8686f96cb6ac.P_KhZ-T4DKSiE8XyxMJSgUEUR9bDfDvgYnGqSOiR860
     products-tracing-virtualizedspanlist--default--dark:
-        hash: v1.k794b7964.2d26cb574fb8b9011fcf44c766f491adb06c254b9bc1bb70fa1a14bf757eb72d.HK_kiCD_GlyKPWUd6GcCvJJ5tVWaz6t45kZwDWUYg_4
+        hash: v1.k794b7964.d6cf5ccbc379f67404b237b878878ce7e60512d45869c05c24dfab7784335406.zEh7cw_wZ10BGEuJkOUdjqS8SiWt7386-Cuz4Qc0Les
     products-tracing-virtualizedspanlist--default--light:
-        hash: v1.k794b7964.21b6c26c19954d60a3447075f70b9c9dcfb5f6032f94c85fa223f728ee02bf1c.dAAs5oIhp4WcsPd9uA5wTgaPWyEeuf7PV46c6WFv-9g
+        hash: v1.k794b7964.7ec7e24fc514e8eac101ce26ef491c0becbbe2cc6aeb8759c1c451b5977e6aa7.cP3_uVsCx_-JFlTOLhjShsAIyaSC9JRkJ4Rnlgog0Kk
     products-tracing-virtualizedspanlist--empty--dark:
         hash: v1.k794b7964.5590e8e6497de2fefefa74cf07edd5f814a798deb8f7e5f0102a383f5e8ac6c8.ZvuooUS3qT6kDX8yW2_oQ1iDgO1DwVFMAWM517bhCHw
     products-tracing-virtualizedspanlist--empty--light:
@@ -7093,9 +7093,9 @@ snapshots:
     scenes-app-inbox-scene--self-driving-paused--light:
         hash: v1.k794b7964.68c5a0b4b3a71f9d57ebd22d85c5aedfc6704872ee036cf00c7ba2cf83e4f0c8.k5ktgrWKHvJI9sH0wPbcQ4YI64a33tQ-5oSG_YpCjXw
     scenes-app-inbox-scene--self-driving-verdict-pending--dark:
-        hash: v1.k794b7964.570e5dddd645996b94ff94b2c563b32ced3793db3ab5ccf360d16126af3b9a0b.WC_VEZ1N_iX-o4r11w15QWfD8Nzo1gFerTznKiaIX84
+        hash: v1.k794b7964.3d6c42afbe79033f9c7dad5ca09eb0e34d874aa4c73837d6d6f91fefe37b10df.MxJN_DArFyn1VpR8nheZ1FLPtFcbL2StXF9tha9Tk4o
     scenes-app-inbox-scene--self-driving-verdict-pending--light:
-        hash: v1.k794b7964.1d230f03b5a074e0816ee4c5dd1b4591cfdf86bb602971a6233019985f1c2677.h7Zlyp6gh4AnCQRve-W4zeSDnhAhhqVM1FIqiYN1gNA
+        hash: v1.k794b7964.18a04e43d0b1598e406b105dcdfe548f7d26376ad3ba606401c6795ae3ea1b1f.8uOUfAOgA04AY2GECIDr5Mf98040a17lVfVUA3QpRGM
     scenes-app-inbox-scene--settings--dark:
         hash: v1.k794b7964.1af5812ea7514da4b7682c458680777a3465755635fe3bd55c63d9003f5dbf35.Tn_xNyX_ZAAAwef19CcNR9ODGCkFlv_x89jNmmECg2Q
     scenes-app-inbox-scene--settings--light:
