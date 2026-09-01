@@ -210,7 +210,10 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
             response = self.client.post(self.url, {"serviceName": "svc"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        run.assert_called_once_with(self.team, "svc", interval_minutes=60)
+        kwargs = run.call_args.kwargs
+        assert run.call_args.args == (self.team, "svc")
+        assert kwargs["interval_minutes"] == 60
+        assert kwargs["window_end"] - kwargs["window_start"] == dt.timedelta(days=7)
         data = response.json()
         assert data["service_name"] == "svc"
         assert data["interval_minutes"] == 60
@@ -226,6 +229,19 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
             "lower": 9.0,
             "upper": 57.0,
         }
+
+    @parameterized.expand(
+        [
+            ("span_over_seven_days", {"date_from": "-14d"}, "at most 7 days"),
+            ("start_beyond_retention", {"date_from": "-40d", "date_to": "-34d"}, "at most 35 days ago"),
+        ]
+    )
+    def test_unusable_window_is_rejected_before_querying(self, _name: str, date_range: dict, expected: str):
+        with patch("products.logs.backend.presentation.views.anomalies_api.run_series_bands") as run:
+            response = self.client.post(self.url, {"serviceName": "svc", "dateRange": date_range}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected in response.json()["error"]
+        run.assert_not_called()
 
     def test_truncated_fetch_returns_422(self):
         with patch(

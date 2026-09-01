@@ -3,9 +3,13 @@ import datetime as dt
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.series_bands import _band_gate, run_series_bands
+from products.logs.backend.series_bands import SeriesBandsWindowInvalid, _band_gate, resolve_window, run_series_bands
 
 UTC = dt.UTC
 # The scan clock sits ahead of real time so the whole 6-week fixture range stays
@@ -48,7 +52,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows.append((self.team.pk + 1, SLOT, service, "ns", "prod", "error", 999))
         self._insert(rows)
 
-        result = run_series_bands(self.team, service, now=NOW)
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         assert result.window_start == WINDOW_START
         assert result.window_end == WINDOW_END
@@ -83,7 +87,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        result = run_series_bands(self.team, service, now=NOW)
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         assert len(result.series) == 1
         series = result.series[0]
@@ -109,7 +113,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "warn", value))
         self._insert(rows)
 
-        result = run_series_bands(self.team, service, now=NOW)
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
         assert bucket.lower == 0
@@ -124,6 +128,89 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        result = run_series_bands(self.team, service, now=NOW)
+        result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         assert [(s.severity, s.total_count) for s in result.series] == [("error", 300), ("info", 5)]
+
+    def test_charts_an_earlier_window(self):
+        service = "svc-earlier"
+        prior_end = WINDOW_START
+        prior_start = prior_end - dt.timedelta(days=7)
+        prior_slot = prior_start + dt.timedelta(days=2, hours=1)
+        self._insert(
+            [
+                (self.team.pk, prior_slot, service, "ns", "prod", "info", 7),
+                (self.team.pk, SLOT, service, "ns", "prod", "info", 900),
+            ]
+        )
+
+        result = run_series_bands(self.team, service, window_start=prior_start, window_end=prior_end)
+
+        assert (result.window_start, result.window_end) == (prior_start, prior_end)
+        series = result.series[0]
+        assert series.total_count == 7
+        by_time = {bucket.time: bucket for bucket in series.buckets}
+        assert by_time[prior_slot].observed == 7
+        assert SLOT not in by_time
+
+
+NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
+
+
+class TestResolveWindow(SimpleTestCase):
+    def _resolve(self, date_from, date_to, week_start_day=0):
+        return resolve_window(date_from, date_to, week_start_day=week_start_day, now=NOW_FIXED)
+
+    def test_exactly_seven_days_is_accepted(self):
+        assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == (
+            dt.datetime(2026, 6, 8, tzinfo=UTC),
+            dt.datetime(2026, 6, 15, tzinfo=UTC),
+        )
+
+    def test_oldest_week_preset_resolves_on_the_worst_weekday(self):
+        # Last day of the week, so -4wStart sits at its furthest: 28 days plus the
+        # weekday offset, the closest any preset comes to the age cap.
+        last_day_of_week = dt.datetime(2026, 6, 20, 23, 0, tzinfo=UTC)
+        window_start, window_end = resolve_window("-4wStart", "-3wStart", week_start_day=0, now=last_day_of_week)
+        assert window_end - window_start == dt.timedelta(days=7)
+        assert last_day_of_week - window_start < dt.timedelta(days=35)
+
+    def test_window_that_collapses_after_snapping_is_rejected(self):
+        first_hour_of_week = dt.datetime(2026, 6, 14, 0, 30, tzinfo=UTC)
+        with pytest.raises(SeriesBandsWindowInvalid, match="empty"):
+            resolve_window("wStart", None, week_start_day=0, now=first_hour_of_week)
+
+    def test_thirty_days_back_is_accepted(self):
+        window_start, _ = self._resolve("-30d", "-24d")
+        assert window_start == (NOW_FIXED - dt.timedelta(days=30)).replace(minute=0)
+
+    def test_defaults_to_the_last_seven_days(self):
+        assert self._resolve(None, None) == (
+            NOW_FIXED.replace(minute=0) - dt.timedelta(days=7),
+            NOW_FIXED.replace(minute=0),
+        )
+
+    def test_week_commencing_bounds_land_on_midnight(self):
+        assert self._resolve("-1wStart", "-1wEnd") == (
+            dt.datetime(2026, 6, 7, tzinfo=UTC),
+            dt.datetime(2026, 6, 13, tzinfo=UTC),
+        )
+
+    def test_day_offset_keeps_its_time_of_day(self):
+        window_start, window_end = self._resolve("-7d", None)
+        assert window_start == NOW_FIXED.replace(minute=0) - dt.timedelta(days=7)
+        assert window_end == NOW_FIXED.replace(minute=0)
+
+    def test_future_end_is_clamped_to_now(self):
+        assert self._resolve("-7d", "2026-07-01T00:00:00Z")[1] == NOW_FIXED.replace(minute=0)
+
+    @parameterized.expand(
+        [
+            ("inverted", "2026-06-10T00:00:00Z", "2026-06-09T00:00:00Z"),
+            ("too_long", "-14d", None),
+            ("start_beyond_retention", "-40d", "-34d"),
+        ]
+    )
+    def test_rejects_invalid_windows(self, _name, date_from, date_to):
+        with pytest.raises(SeriesBandsWindowInvalid):
+            self._resolve(date_from, date_to)
