@@ -269,10 +269,14 @@ def report_flag_evaluations_parity(
     # must name the deployment that lost the rows.
     lines.append(f"Environment: {settings.CLOUD_DEPLOYMENT}")
 
+    # text is the notification and accessibility fallback, and what Slack shows if it rejects
+    # the rich blocks. It carries the same lines, so the truncation clause survives that reject.
+    message = "\n".join(lines)
     try:
         slack.get_client().chat_postMessage(
             channel=FLAG_EVALUATIONS_SLACK_CHANNEL,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}],
+            text=message,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": message}}],
         )
     except Exception as e:
         context.log.exception(f"Failed to send Slack notification: {e}")
