@@ -293,7 +293,7 @@ class ContentAutopilotRunListQuerySerializer(serializers.Serializer):
 class ContentAutopilotRunSerializer(serializers.ModelSerializer):
     input_snapshot = ContentAutopilotSnapshotSerializer(help_text="Immutable inputs captured at run start.")
     errors = ContentAutopilotErrorSerializer(  # type: ignore[assignment]  # API field intentionally shadows Serializer.errors.
-        many=True, help_text="Inspectable workflow errors and retryability."
+        many=True, help_text="Inspectable workflow errors from this run."
     )
 
     class Meta:

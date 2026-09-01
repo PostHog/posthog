@@ -19028,7 +19028,7 @@ export namespace Schemas {
       readonly run_status: ContentAutopilotRunRunStatusEnum;
       /** Immutable inputs captured at run start. */
       input_snapshot: ContentAutopilotSnapshot;
-      /** Inspectable workflow errors and retryability. */
+      /** Inspectable workflow errors from this run. */
       errors: ContentAutopilotError[];
       readonly created_at: string;
       readonly updated_at: string;

@@ -1028,7 +1028,7 @@ export interface ContentAutopilotRunApi {
     readonly run_status: ContentAutopilotRunRunStatusEnumApi
     /** Immutable inputs captured at run start. */
     input_snapshot: ContentAutopilotSnapshotApi
-    /** Inspectable workflow errors and retryability. */
+    /** Inspectable workflow errors from this run. */
     errors: ContentAutopilotErrorApi[]
     readonly created_at: string
     readonly updated_at: string
