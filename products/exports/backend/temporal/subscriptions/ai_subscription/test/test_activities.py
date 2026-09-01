@@ -10,6 +10,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     DiagnosticCounts,
     _load_snapshot,
+    _parse_context_refs,
     _persist_ai_report,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
@@ -62,8 +63,20 @@ def _snapshot(delivery_id) -> dict:
 
 
 @sync_to_async
-def _context_ids(delivery_id) -> tuple[list[int], list[int]]:
-    return SubscriptionDelivery.objects.values_list("context_dashboard_ids", "context_insight_ids").get(pk=delivery_id)
+def _context_refs(delivery_id) -> list[str]:
+    return SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
+
+
+@parameterized.expand(
+    [
+        ("valid", ["dashboard:123", "insight:456"], ([123], [456])),
+        ("unknown kind", ["replay:123"], None),
+        ("invalid id", ["insight:not-an-id"], None),
+        ("missing separator", ["insight123"], None),
+    ]
+)
+async def test_parse_context_refs(_name, context_refs, expected) -> None:
+    assert _parse_context_refs(context_refs) == expected
 
 
 async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(team, user) -> None:
@@ -144,7 +157,7 @@ async def test_persist_ai_report_writes_only_compact_context_provenance(team, us
     await _persist_ai_report(delivery.id, result, prompt="full report prompt that must stay outside context")
 
     snapshot = await _snapshot(delivery.id)
-    assert await _context_ids(delivery.id) == ([123], [987, 456])
+    assert await _context_refs(delivery.id) == ["dashboard:123", "insight:987", "insight:456"]
     assert snapshot["ai_report_context"] == {
         "contexts": {
             "dashboards": [

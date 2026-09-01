@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import dataclasses
+from collections.abc import Collection
 from datetime import datetime
 
 from django.utils import timezone as tz
@@ -74,13 +75,31 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
+def _parse_context_refs(context_refs: Collection[str]) -> tuple[list[int], list[int]] | None:
+    dashboard_ids: list[int] = []
+    insight_ids: list[int] = []
+    targets = {"dashboard": dashboard_ids, "insight": insight_ids}
+    for context_ref in context_refs:
+        kind, separator, raw_id = context_ref.partition(":")
+        try:
+            context_id = int(raw_id)
+        except ValueError:
+            return None
+        if separator != ":" or kind not in targets or context_id < 1:
+            return None
+        targets[kind].append(context_id)
+    return dashboard_ids, insight_ids
+
+
 def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
     try:
-        dashboard_ids, insight_ids = SubscriptionDelivery.objects.values_list(
-            "context_dashboard_ids", "context_insight_ids"
-        ).get(pk=delivery_id)
+        context_refs = SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
     except SubscriptionDelivery.DoesNotExist:
         return False
+    parsed_refs = _parse_context_refs(context_refs)
+    if parsed_refs is None:
+        return False
+    dashboard_ids, insight_ids = parsed_refs
     return creator_can_access_report_context(
         subscription,
         dashboard_ids=dashboard_ids,
@@ -142,14 +161,20 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
-        delivery.context_dashboard_ids = [dashboard.id for dashboard in result.context.contexts.dashboards]
-        delivery.context_insight_ids = [
-            *(insight.id for dashboard in result.context.contexts.dashboards for insight in dashboard.insights),
-            *(insight.id for insight in result.context.contexts.insights),
-        ]
-        delivery.save(
-            update_fields=["content_snapshot", "context_dashboard_ids", "context_insight_ids", "last_updated_at"]
+        delivery.context_refs = list(
+            dict.fromkeys(
+                [
+                    *(f"dashboard:{dashboard.id}" for dashboard in result.context.contexts.dashboards),
+                    *(
+                        f"insight:{insight.id}"
+                        for dashboard in result.context.contexts.dashboards
+                        for insight in dashboard.insights
+                    ),
+                    *(f"insight:{insight.id}" for insight in result.context.contexts.insights),
+                ]
+            )
         )
+        delivery.save(update_fields=["content_snapshot", "context_refs", "last_updated_at"])
 
     await _write()
 
