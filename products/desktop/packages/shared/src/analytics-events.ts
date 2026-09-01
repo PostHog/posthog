@@ -832,6 +832,8 @@ export interface InboxReportActionProperties {
   list_size: number;
   dismissal_reason?: string;
   dismissal_note?: string;
+  // 'owner/repo' correction from a wrong_repo dismissal.
+  dismissal_corrected_repository?: string;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;

@@ -17,6 +17,10 @@ export const DISMISSAL_REASON_OPTIONS = [
     label: "Agent's analysis is wrong",
   },
   {
+    value: "wrong_repo",
+    label: "Agent picked the wrong repository",
+  },
+  {
     value: "wontfix_intentional",
     label: "Won't fix - intentional behavior",
   },

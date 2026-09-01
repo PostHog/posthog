@@ -1,3 +1,4 @@
+import { buildSuppressRequest } from "@posthog/core/inbox/bulkActions";
 import {
   buildBulkActionEvents,
   type InboxBulkActionType,
@@ -253,9 +254,7 @@ export function useInboxBulkActions(
         reports: succeeded,
         actionType,
         surface,
-        dismissal: dismissal
-          ? { reason: dismissal.reason, note: dismissal.note }
-          : undefined,
+        dismissal,
       });
       for (const event of events) {
         track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION, event);
@@ -310,15 +309,10 @@ export function useInboxBulkActions(
       // TODO: When dismissing a report that has an open implementation PR
       // (implementation_pr_url), close that PR on GitHub – likely in main, not here.
       return runBulkAction(input.reportIds, (reportId) =>
-        client.updateSignalReportState(reportId, {
-          state: "suppressed",
-          ...(input.dismissal
-            ? {
-                dismissal_reason: input.dismissal.reason,
-                dismissal_note: input.dismissal.note.slice(0, 4000),
-              }
-            : {}),
-        }),
+        client.updateSignalReportState(
+          reportId,
+          buildSuppressRequest(input.dismissal),
+        ),
       );
     },
     {

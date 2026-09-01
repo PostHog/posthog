@@ -4,10 +4,16 @@ import {
   isDismissalReasonSnooze,
 } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
+import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import {
   ExplainedPauseLabel,
   ExplainedSuppressLabel,
 } from "@posthog/ui/features/inbox/components/utils/ExplainedDismissOptionLabels";
+import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
+import {
+  useGithubRepositories,
+  useIntegrations,
+} from "@posthog/ui/features/integrations/useIntegrations";
 import { Button } from "@posthog/ui/primitives/Button";
 import { Dialog, Flex, RadioGroup, Text, TextArea } from "@radix-ui/themes";
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +21,8 @@ import { useEffect, useRef, useState } from "react";
 export interface DismissReportDialogResult {
   reason: DismissalReasonOptionValue;
   note: string;
+  /** 'owner/repo' the reports should have targeted; only set when reason is 'wrong_repo'. */
+  correctedRepository: string | null;
 }
 
 export interface DismissReportDialogProps {
@@ -44,10 +52,20 @@ export function DismissReportDialog({
   const onOpenChangeRef = useRef(onOpenChange);
   onOpenChangeRef.current = onOpenChange;
 
+  // Quill's combobox portals its popup to document.body, outside Dialog.Content, so Radix
+  // treats clicks on the popup as "outside the dialog". While the picker is open, every
+  // dismiss path below must close only the popup — otherwise selecting a repository slams
+  // the dialog shut and drops the reason and note already entered.
+  const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) setIsRepoPickerOpen(false);
+  }, [open]);
+
   // Radix Themes nests Content inside the overlay scroll area, so backdrop clicks
   // often land on padding/overlay nodes that never reach Content's dismiss layer.
   useEffect(() => {
-    if (!open || isSubmitting) return;
+    if (!open || isSubmitting || isRepoPickerOpen) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -67,17 +85,27 @@ export function DismissReportDialog({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [open, isSubmitting]);
+  }, [open, isSubmitting, isRepoPickerOpen]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content
         maxWidth="480px"
-        onPointerDownOutside={() => {
-          if (!isSubmitting) onOpenChange(false);
+        onPointerDownOutside={(event) => {
+          // preventDefault, not just skipping onOpenChange: Radix also dismisses a controlled
+          // dialog through Root's own onOpenChange unless the event is cancelled.
+          if (isSubmitting || isRepoPickerOpen) {
+            event.preventDefault();
+            return;
+          }
+          onOpenChange(false);
         }}
-        onEscapeKeyDown={() => {
-          if (!isSubmitting) onOpenChange(false);
+        onEscapeKeyDown={(event) => {
+          if (isSubmitting || isRepoPickerOpen) {
+            event.preventDefault();
+            return;
+          }
+          onOpenChange(false);
         }}
       >
         <DismissReportDialogBody
@@ -86,6 +114,8 @@ export function DismissReportDialog({
           isSubmitting={isSubmitting}
           snoozeDisabledReason={snoozeDisabledReason}
           onConfirm={onConfirm}
+          isRepoPickerOpen={isRepoPickerOpen}
+          onRepoPickerOpenChange={setIsRepoPickerOpen}
         />
       </Dialog.Content>
     </Dialog.Root>
@@ -98,15 +128,38 @@ function DismissReportDialogBody({
   isSubmitting,
   snoozeDisabledReason,
   onConfirm,
+  isRepoPickerOpen,
+  onRepoPickerOpenChange,
 }: Omit<DismissReportDialogProps, "open" | "onOpenChange"> & {
   selectedCount: number;
+  /** Owned by the dialog wrapper, which suppresses its dismiss paths while the picker is open. */
+  isRepoPickerOpen: boolean;
+  onRepoPickerOpenChange: (open: boolean) => void;
 }) {
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
   const [note, setNote] = useState("");
+  const [correctedRepository, setCorrectedRepository] = useState<string | null>(
+    null,
+  );
+  const [repoSearch, setRepoSearch] = useState("");
+
+  const isWrongRepo = reason === "wrong_repo";
+  // Populates the integration store in case no other surface loaded it yet; react-query dedupes.
+  useIntegrations();
+  const { hasGithubIntegration } = useIntegrationSelectors();
+  // Enabled on the reason alone, not on isRepoPickerOpen: when the list is empty the picker
+  // renders a disabled "No GitHub repos" trigger that cannot be opened, so gating the fetch on
+  // the open state would deadlock on a cold cache (never open -> never fetch -> never open).
+  const repoPage = useGithubRepositories(repoSearch, isWrongRepo);
 
   const handleConfirm = () => {
     if (!reason) return;
-    onConfirm({ reason, note: note.trim() });
+    onConfirm({
+      reason,
+      note: note.trim(),
+      // A correction picked and then abandoned for another reason must not ride along.
+      correctedRepository: isWrongRepo ? correctedRepository : null,
+    });
   };
 
   const alreadyFixedDisabled = snoozeDisabledReason !== null;
@@ -165,6 +218,34 @@ function DismissReportDialogBody({
             })}
           </Flex>
         </RadioGroup.Root>
+
+        {isWrongRepo && hasGithubIntegration ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-(--gray-12) text-xs">
+              Which repository should it have been?
+            </span>
+            <GitHubRepoPicker
+              value={correctedRepository}
+              onChange={setCorrectedRepository}
+              repositories={repoPage.repositories}
+              isLoading={repoPage.isPending}
+              isLoadingMore={repoPage.isFetchingMore}
+              open={isRepoPickerOpen}
+              onOpenChange={onRepoPickerOpenChange}
+              searchQuery={repoSearch}
+              onSearchQueryChange={setRepoSearch}
+              hasMore={repoPage.hasMore}
+              onLoadMore={repoPage.loadMore}
+              disabled={isSubmitting}
+              placeholder="Search repositories"
+              size="1"
+            />
+            <span className="text-(--gray-10) text-xs">
+              Optional. The agent uses your correction when picking repositories
+              in the future.
+            </span>
+          </div>
+        ) : null}
 
         <TextArea
           value={note}

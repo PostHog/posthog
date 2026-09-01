@@ -5072,6 +5072,8 @@ export class PostHogAPIClient {
           /** When omitted, the server suppresses without creating a dismissal artefact. */
           dismissal_reason?: DismissalReasonOptionValue;
           dismissal_note?: string;
+          /** 'owner/repo' the report should have targeted; only allowed with dismissal_reason 'wrong_repo'. */
+          corrected_repository?: string;
           reset_weight?: boolean;
           error?: string;
         },
