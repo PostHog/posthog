@@ -50,6 +50,7 @@ from products.conversations.backend.cache import (
 )
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.person_lookup import get_emails_for_distinct_id
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,46 @@ def _verify_identity(data: dict, team: Team) -> str | None:
 
     IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none").inc()
     raise IdentityVerificationFailed("Invalid identity hash")
+
+
+# Only bridge a viewer to a ticket by email when the ticket's requester identity was
+# server-attested. Slack (webhook), SPF-authenticated email, and Zendesk import all store
+# the requester email in distinct_id; the first two set identity_verified=True and imports
+# leave it None. Anonymous widget submissions carry attacker-controlled distinct_id/traits
+# and always set identity_verified=False — matching those by email would let anyone inject a
+# ticket into a victim's list by using the victim's email. identity_verified is tri-state, so
+# exclude only an explicit False (SQL drops NULL under a plain NOT, hence the isnull branch).
+_EMAIL_BRIDGE_TRUSTED = Q(identity_verified=True) | Q(identity_verified__isnull=True)
+
+
+def _identity_ticket_filter(team: Team, verified_distinct_id: str) -> Q:
+    """Q matching every ticket the verified viewer owns, across channels.
+
+    The viewer's own person distinct_ids cover widget tickets. Other channels key the
+    requester by email in distinct_id (Slack, email, Zendesk), so also match the viewer's
+    verified emails against server-attested tickets only. Emails are resolved server-side
+    from the verified person, never taken from request input.
+    """
+    all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+    match = Q(distinct_id__in=all_ids)
+
+    email_q = Q()
+    for email in get_emails_for_distinct_id(team, verified_distinct_id):
+        email_q |= Q(distinct_id__iexact=email)
+    if email_q:
+        match |= _EMAIL_BRIDGE_TRUSTED & email_q
+    return match
+
+
+def _viewer_owns_ticket(team: Team, verified_distinct_id: str, ticket: Ticket) -> bool:
+    """True when the verified viewer owns this ticket, mirroring _identity_ticket_filter."""
+    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+    if ticket.distinct_id in allowed_ids:
+        return True
+    # Never bridge by email to an explicitly-unverified (attacker-controllable) ticket.
+    if ticket.identity_verified is False or not ticket.distinct_id:
+        return False
+    return ticket.distinct_id.lower() in get_emails_for_distinct_id(team, verified_distinct_id)
 
 
 class WidgetMessageView(APIView):
@@ -242,8 +283,7 @@ class WidgetMessageView(APIView):
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
                 if verified_distinct_id is not None:
-                    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-                    if ticket.distinct_id not in allowed_ids:
+                    if not _viewer_owns_ticket(team, verified_distinct_id, ticket):
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                 else:
                     # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
@@ -388,8 +428,7 @@ class WidgetMessagesView(APIView):
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
-            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-            if ticket.distinct_id not in allowed_ids:
+            if not _viewer_owns_ticket(team, verified_distinct_id, ticket):
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         elif "widget_session_id" in query_serializer.validated_data:
             widget_session_id = str(query_serializer.validated_data["widget_session_id"])
@@ -524,8 +563,7 @@ class WidgetTicketsView(APIView):
 
         # Build query
         if verified_distinct_id is not None:
-            all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-            tickets_query = Ticket.objects.filter(team=team, distinct_id__in=all_ids)
+            tickets_query = Ticket.objects.filter(team=team).filter(_identity_ticket_filter(team, verified_distinct_id))
         else:
             tickets_query = Ticket.objects.filter(team=team, widget_session_id=cache_key_id)
 
@@ -608,8 +646,7 @@ class WidgetMarkReadView(APIView):
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
-            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-            if ticket.distinct_id not in allowed_ids:
+            if not _viewer_owns_ticket(team, verified_distinct_id, ticket):
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
             cache_invalidation_key = f"iv:{verified_distinct_id}"
         elif "widget_session_id" in body_serializer.validated_data:

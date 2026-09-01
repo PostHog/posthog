@@ -859,6 +859,171 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    # --- Cross-channel email bridge (Slack tickets keyed on the requester email) ---
+
+    def _create_slack_ticket(self, email):
+        # Mirrors slack.create_or_update_slack_ticket: the requester is stored as an
+        # anonymous person keyed on the email string, not the viewer's app distinct_id.
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id=email,
+            channel_source="slack",
+            anonymous_traits={"name": "Nimit", "email": email},
+            identity_verified=True,
+        )
+
+    def test_list_tickets_includes_slack_ticket_matched_by_email(self):
+        cache.clear()
+        email = "nimit@example.com"
+        slack_ticket = self._create_slack_ticket(email)
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={email},
+        ):
+            response = self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(str(slack_ticket.id), {t["id"] for t in response.json()["results"]})
+
+    def test_list_tickets_email_match_is_case_insensitive(self):
+        cache.clear()
+        slack_ticket = self._create_slack_ticket("Nimit@Example.com")
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={"nimit@example.com"},
+        ):
+            response = self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(str(slack_ticket.id), {t["id"] for t in response.json()["results"]})
+
+    def test_list_tickets_email_bridge_excludes_other_peoples_tickets(self):
+        cache.clear()
+        self._create_slack_ticket("someone-else@example.com")
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={"nimit@example.com"},
+        ):
+            response = self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_email_bridge_ignores_unverified_ticket(self):
+        # An anonymous widget submission can set distinct_id to anyone's email but always
+        # lands identity_verified=False. It must never surface in that email owner's list.
+        cache.clear()
+        spoofed = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="nimit@example.com",
+            anonymous_traits={"email": "nimit@example.com"},
+            identity_verified=False,
+        )
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={"nimit@example.com"},
+        ):
+            response = self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(spoofed.id), {t["id"] for t in response.json()["results"]})
+
+    def test_list_tickets_email_bridge_includes_imported_ticket(self):
+        # Zendesk imports key on the requester email but leave identity_verified unset (None),
+        # since the email came from the authenticated Zendesk API. Those stay bridgeable.
+        cache.clear()
+        imported = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="nimit@example.com",
+            anonymous_traits={"email": "nimit@example.com"},
+            identity_verified=None,
+        )
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={"nimit@example.com"},
+        ):
+            response = self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(str(imported.id), {t["id"] for t in response.json()["results"]})
+
+    def test_get_messages_slack_ticket_matched_by_email(self):
+        email = "nimit@example.com"
+        slack_ticket = self._create_slack_ticket(email)
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="From Slack",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={email},
+        ):
+            response = self.client.get(
+                f"/api/conversations/v1/widget/messages/{slack_ticket.id}",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["messages"]), 1)
+
+    def test_mark_read_slack_ticket_matched_by_email(self):
+        email = "nimit@example.com"
+        slack_ticket = self._create_slack_ticket(email)
+        slack_ticket.unread_customer_count = 4
+        slack_ticket.save()
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={email},
+        ):
+            response = self.client.post(
+                f"/api/conversations/v1/widget/messages/{slack_ticket.id}/read",
+                {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slack_ticket.refresh_from_db()
+        self.assertEqual(slack_ticket.unread_customer_count, 0)
+
+    def test_send_message_slack_ticket_matched_by_email(self):
+        email = "nimit@example.com"
+        slack_ticket = self._create_slack_ticket(email)
+        with patch(
+            "products.conversations.backend.api.widget.get_emails_for_distinct_id",
+            return_value={email},
+        ):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "identity_distinct_id": self.distinct_id,
+                    "identity_hash": self.identity_hash,
+                    "message": "Reply from my-tickets",
+                    "ticket_id": str(slack_ticket.id),
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # --- Send message ---
 
     def test_send_message_creates_ticket_with_identity(self):
