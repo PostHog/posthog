@@ -415,13 +415,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
+        filters["hog_flow_id"] = getattr(request, "validated_query_data", {}).get("hog_flow_id")
         # Staff can opt into seeing every team task; re-check server-side so a client can't
         # forge the flag to bypass the per-user visibility gate.
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
