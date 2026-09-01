@@ -42,7 +42,12 @@
 -- index is there.
 --   SELECT indisvalid FROM pg_index
 --    WHERE indexrelid = to_regclass('posthog_persondistinctid_team_distinct_covering_idx');
--- On `f`, recover manually, then re-run migrations:
+-- On `f`, drop it first:
 --   DROP INDEX CONCURRENTLY posthog_persondistinctid_team_distinct_covering_idx;
+-- What rebuilds it depends on whether this file is already recorded as applied
+-- (_sqlx_migrations for sqlx, _persons_migrations_applied for the Django
+-- runner). A run that no-ops past an INVALID index records the file, so the
+-- common case is recorded. If it is not recorded, re-run migrations. If it is,
+-- both runners skip the file, so run the statement below by hand.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_persondistinctid_team_distinct_covering_idx
     ON posthog_persondistinctid (team_id, distinct_id) INCLUDE (person_id, is_deleted);

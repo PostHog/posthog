@@ -13,7 +13,9 @@
 -- index is there:
 --   SELECT indisvalid FROM pg_index
 --    WHERE indexrelid = to_regclass('personhog_persondistinctid_tmp_team_distinct_covering_idx');
--- On `f`, recover manually, then re-run migrations:
+-- On `f`, drop it first:
 --   DROP INDEX CONCURRENTLY personhog_persondistinctid_tmp_team_distinct_covering_idx;
+-- Then re-run migrations if this file is not yet recorded as applied, or run
+-- the statement below by hand if it is. 20260901000003 explains why.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS personhog_persondistinctid_tmp_team_distinct_covering_idx
     ON personhog_persondistinctid_tmp (team_id, distinct_id) INCLUDE (person_id, is_deleted);
