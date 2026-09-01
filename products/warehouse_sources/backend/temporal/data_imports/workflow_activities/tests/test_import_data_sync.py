@@ -72,6 +72,7 @@ def _patched_activity(source_mock):
     schema = mock.MagicMock()
     schema.should_use_incremental_field = False
     schema.row_filters = None
+    schema.delta_revive_required = None
 
     with (
         mock.patch.object(module, "tag_queries"),
@@ -614,9 +615,13 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.incremental_field_earliest_value = None
     schema.row_filters = None
     schema.api_version = None
+    schema.delta_revive_required = None
+    # The model reads this marker out of the persisted config through a property. Set both, because
+    # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
     schema.sync_type_config = {
         "incremental_field_last_value": "2026-06-14T15:33:31.802833",
         "incremental_field_type": "timestamp",
+        "delta_revive_required": None,
     }
     return schema
 
@@ -684,6 +689,35 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
     # from new ground, and capturing it after the shift would make them equal and silently disarm
     # that rule with every test still passing.
     assert source_inputs.db_incremental_field_last_value_before_lookback == expected_before_lookback
+
+
+@pytest.mark.asyncio
+async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
+    schema.incremental_field_earliest_value = "2026-01-01T00:00:00"
+    # The model reads this marker out of the persisted config through a property. Set both, because
+    # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
+    revive_marker = {
+        "reason": "missing_data_file",
+        "missing_path": "part-0.parquet",
+        "detected_at": "2026-06-15T00:00:00+00:00",
+    }
+    schema.sync_type_config["delta_revive_required"] = revive_marker
+    schema.delta_revive_required = revive_marker
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    # The revive resets the table and the loader overwrites it from batch 0, so any bound cursor
+    # replaces the whole table with the rows after the watermark.
+    assert source_inputs.db_incremental_field_last_value is None
+    assert source_inputs.db_incremental_field_earliest_value is None
+    # The stored watermark stays put, so a completed rebuild advances it from the rows it read.
+    assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
 
 
 @pytest.mark.asyncio
