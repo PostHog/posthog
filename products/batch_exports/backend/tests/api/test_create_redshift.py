@@ -1,5 +1,6 @@
 import pytest
 
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
@@ -196,6 +197,56 @@ def test_create_redshift_batch_export_rejects_invalid_authorization_type(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert "Authorization for 'COPY'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.168.1.1",
+        "127.0.0.1",
+        "[::1]",
+        "10.0.0.1",
+        "169.254.0.0",
+        "localhost",
+    ],
+)
+def test_create_redshift_batch_export_fails_with_invalid_host(
+    client: HttpClient, temporal, organization, team, user, host, aws_redshift_integration
+):
+    """Test creating a BatchExport with a Redshift destination rejects an internal host.
+
+    Postgres host validation is covered separately in test_create_postgres.py, where the host
+    comes from the linked Integration rather than from inline config.
+    """
+
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "database": "my-db",
+            "host": host,
+            "schema": "public",
+            "table_name": "my_events",
+        },
+        "integration": aws_redshift_integration.pk,
+    }
+
+    batch_export_data = {
+        "name": "my-production-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Invalid host: '{host}'" in response.json()["detail"]
 
 
 def test_create_redshift_batch_export_with_aws_integration(
