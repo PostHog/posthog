@@ -147,6 +147,8 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            # The login only lifts the Docker Hub pull rate limit, and anonymous pulls still
+            # work, so every Docker Hub login in CI is best-effort.
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
