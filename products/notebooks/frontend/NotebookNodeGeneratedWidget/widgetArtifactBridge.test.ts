@@ -69,7 +69,7 @@ describe('widgetArtifactBridge', () => {
 
     it('rejects Canvas methods other than the frame shim', async () => {
         const responses: Record<string, unknown>[] = []
-        const route = createWidgetHostMessageRouter(
+        const { route } = createWidgetHostMessageRouter(
             (message) => responses.push(message),
             () => ({ onDataRequest: jest.fn() })
         )
@@ -81,7 +81,7 @@ describe('widgetArtifactBridge', () => {
 
     it('passes a bounded runtime error to the host', async () => {
         const onError = jest.fn()
-        const route = createWidgetHostMessageRouter(jest.fn(), () => ({ onDataRequest: jest.fn(), onError }))
+        const { route } = createWidgetHostMessageRouter(jest.fn(), () => ({ onDataRequest: jest.fn(), onError }))
 
         await route({ channel: 'posthog-canvas', type: 'error', message: 'x'.repeat(1_000) })
 
@@ -91,9 +91,11 @@ describe('widgetArtifactBridge', () => {
     it('caps the total work one artifact can request', async () => {
         const responses: Record<string, unknown>[] = []
         const onDataRequest = jest.fn().mockResolvedValue(frame)
-        const route = createWidgetHostMessageRouter(
+        const onExhausted = jest.fn()
+        const { route } = createWidgetHostMessageRouter(
             (message) => responses.push(message),
-            () => ({ onDataRequest })
+            () => ({ onDataRequest }),
+            onExhausted
         )
 
         for (let index = 0; index < 201; index++) {
@@ -107,17 +109,39 @@ describe('widgetArtifactBridge', () => {
         }
 
         expect(onDataRequest).toHaveBeenCalledTimes(200)
-        expect(responses.at(-1)).toMatchObject({
-            id: '200',
-            ok: false,
-            error: 'Widget data request exceeds runtime limits',
-        })
+        expect(responses).toHaveLength(200)
+        expect(onExhausted).toHaveBeenCalledTimes(1)
+    })
+
+    it('counts rejected requests toward the artifact limit', async () => {
+        const responses: Record<string, unknown>[] = []
+        const onDataRequest = jest.fn()
+        const onExhausted = jest.fn()
+        const { route } = createWidgetHostMessageRouter(
+            (message) => responses.push(message),
+            () => ({ onDataRequest }),
+            onExhausted
+        )
+
+        for (let index = 0; index < 201; index++) {
+            await route({
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: String(index),
+                method: 'query',
+                payload: {},
+            })
+        }
+
+        expect(onDataRequest).not.toHaveBeenCalled()
+        expect(responses).toHaveLength(200)
+        expect(onExhausted).toHaveBeenCalledTimes(1)
     })
 
     it('bounds requests that never finish', async () => {
         jest.useFakeTimers()
         const responses: Record<string, unknown>[] = []
-        const route = createWidgetHostMessageRouter(
+        const { route } = createWidgetHostMessageRouter(
             (message) => responses.push(message),
             () => ({
                 onDataRequest: (_method, _payload, signal) =>
@@ -145,7 +169,7 @@ describe('widgetArtifactBridge', () => {
         jest.useFakeTimers()
         const responses: Record<string, unknown>[] = []
         let requestCount = 0
-        const route = createWidgetHostMessageRouter(
+        const { route } = createWidgetHostMessageRouter(
             (message) => responses.push(message),
             () => ({
                 onDataRequest: () => {
@@ -171,11 +195,34 @@ describe('widgetArtifactBridge', () => {
             type: 'data-request',
             id: 'next',
             method: 'stateGet',
-            payload: {},
+            payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
         })
 
         expect(responses).toHaveLength(9)
         expect(responses.at(-1)).toEqual(expect.objectContaining({ id: 'next', ok: true, result: frame }))
         jest.useRealTimers()
+    })
+
+    it('aborts active requests when disposed', async () => {
+        let requestSignal: AbortSignal | undefined
+        const { route, dispose } = createWidgetHostMessageRouter(jest.fn(), () => ({
+            onDataRequest: (_method, _payload, signal) => {
+                requestSignal = signal
+                return new Promise(() => undefined)
+            },
+        }))
+        const routing = route({
+            channel: 'posthog-canvas',
+            type: 'data-request',
+            id: '1',
+            method: 'stateGet',
+            payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
+        })
+        await Promise.resolve()
+
+        dispose()
+        await routing
+
+        expect(requestSignal?.aborted).toBe(true)
     })
 })

@@ -13,6 +13,7 @@ class TestMessagePort {
     close = jest.fn()
     postMessage = jest.fn()
     addEventListener = jest.fn()
+    removeEventListener = jest.fn()
     start = jest.fn()
 }
 
@@ -125,8 +126,8 @@ describe('WidgetArtifactFrame', () => {
         expect(onReadFrame).toHaveBeenNthCalledWith(2, 'pandas_df', 100, 100, firstFrame.runId, expect.any(AbortSignal))
     })
 
-    it('deduplicates repeated pages within one artifact load', async () => {
-        const onReadFrame = jest.fn().mockResolvedValue({
+    it('deduplicates only in-flight requests for the same page', async () => {
+        const resolvedFrame = {
             name: 'pandas_df',
             runId: '00000000-0000-0000-0000-000000000001',
             columns: [],
@@ -136,7 +137,12 @@ describe('WidgetArtifactFrame', () => {
             offset: 0,
             nextOffset: null,
             truncated: false,
-        } satisfies WidgetFrameApi)
+        } satisfies WidgetFrameApi
+        let resolveFrame: (frame: WidgetFrameApi) => void = () => undefined
+        const pendingFrame = new Promise<WidgetFrameApi>((resolve) => {
+            resolveFrame = resolve
+        })
+        const onReadFrame = jest.fn().mockReturnValueOnce(pendingFrame).mockResolvedValue(resolvedFrame)
         const port = new TestMessagePort()
         render(
             <WidgetArtifactFrame
@@ -158,10 +164,56 @@ describe('WidgetArtifactFrame', () => {
                 },
             })
 
-        await Promise.all([request('first'), request('second')])
+        const firstRequest = request('first')
+        const secondRequest = request('second')
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(onReadFrame).toHaveBeenCalledTimes(1)
+
+        resolveFrame(resolvedFrame)
+        await Promise.all([firstRequest, secondRequest])
         await request('third')
 
-        expect(onReadFrame).toHaveBeenCalledTimes(1)
+        expect(onReadFrame).toHaveBeenCalledTimes(2)
+    })
+
+    it('aborts active frame reads when unmounted', async () => {
+        let requestSignal: AbortSignal | undefined
+        const onReadFrame = jest.fn(
+            (_name: string, _offset: number, _limit: number, _runId: string | undefined, signal: AbortSignal) => {
+                requestSignal = signal
+                return new Promise<WidgetFrameApi>((_, reject) => {
+                    signal.addEventListener('abort', () => reject(new Error('Request aborted')))
+                })
+            }
+        )
+        const port = new TestMessagePort()
+        const { unmount } = render(
+            <WidgetArtifactFrame
+                artifactUrl="https://example.com/globe.html"
+                allowedFrames={['pandas_df']}
+                onReadFrame={onReadFrame}
+            />
+        )
+        sendNotebookPort(screen.getByTitle('Widget') as HTMLIFrameElement, port)
+        const route = port.addEventListener.mock.calls[0][1] as (event: { data: unknown }) => Promise<void>
+        const routing = route({
+            data: {
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: 'first',
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
+            },
+        })
+        await Promise.resolve()
+        await Promise.resolve()
+
+        unmount()
+        await routing
+
+        expect(requestSignal?.aborted).toBe(true)
+        expect(port.removeEventListener).toHaveBeenCalledTimes(1)
     })
 
     it('does not reconnect after the artifact navigates', () => {

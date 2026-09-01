@@ -96,7 +96,7 @@ export function NotebookWidgetTrustControls({
                     <div className="font-mono text-xs text-muted">Build {shortBuildHash}</div>
                 ) : (
                     <div className="text-warning">
-                        This preview has no verifiable build hash. Regenerate it before running it.
+                        This widget version can't be verified. Regenerate the widget before running it.
                     </div>
                 )}
                 <div className="flex flex-wrap gap-2">

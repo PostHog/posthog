@@ -36,6 +36,7 @@ export function WidgetArtifactFrame({
     const theme = isDarkModeOn ? 'dark' : 'light'
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const artifactPortRef = useRef<MessagePort | null>(null)
+    const connectionDisposeRef = useRef<(() => void) | null>(null)
     const renderTimeoutRef = useRef<number | null>(null)
     const hasLoadedRef = useRef(false)
     const initialTheme = useRef(theme).current
@@ -47,7 +48,8 @@ export function WidgetArtifactFrame({
     const themedArtifactHref = themedArtifactUrl.href
 
     const clearConnection = (): void => {
-        artifactPortRef.current?.close()
+        connectionDisposeRef.current?.()
+        connectionDisposeRef.current = null
         artifactPortRef.current = null
         if (renderTimeoutRef.current !== null) {
             window.clearTimeout(renderTimeoutRef.current)
@@ -61,9 +63,9 @@ export function WidgetArtifactFrame({
         }
         artifactPortRef.current = port
         const runIds = new Map<string, string>()
-        const initialRunIds = new Map<string, Promise<string>>()
+        const initialFrames = new Map<string, Promise<WidgetFrameApi>>()
         const pageRequests = new Map<string, Promise<WidgetFrameApi>>()
-        const route = createWidgetHostMessageRouter(
+        const router = createWidgetHostMessageRouter(
             (message) => port.postMessage(message),
             () => ({
                 onDataRequest: async (_method, payload, signal) =>
@@ -78,9 +80,9 @@ export function WidgetArtifactFrame({
                             }
                             const loadPage = async (): Promise<WidgetFrameApi> => {
                                 if (!runId) {
-                                    const pendingRunId = initialRunIds.get(name)
-                                    if (pendingRunId) {
-                                        runId = await pendingRunId
+                                    const pendingInitialFrame = initialFrames.get(name)
+                                    if (pendingInitialFrame) {
+                                        runId = (await pendingInitialFrame).runId
                                     } else {
                                         const firstFrame = latest.current.onReadFrame(
                                             name,
@@ -89,14 +91,13 @@ export function WidgetArtifactFrame({
                                             undefined,
                                             requestSignal
                                         )
-                                        const firstRunId = firstFrame.then((frame) => frame.runId)
-                                        initialRunIds.set(name, firstRunId)
+                                        initialFrames.set(name, firstFrame)
                                         try {
                                             const frame = await firstFrame
                                             runIds.set(name, frame.runId)
                                             return frame
                                         } finally {
-                                            initialRunIds.delete(name)
+                                            initialFrames.delete(name)
                                         }
                                     }
                                 }
@@ -114,12 +115,9 @@ export function WidgetArtifactFrame({
                             const initialPageKey = pageKey()
                             pageRequests.set(initialPageKey, request)
                             try {
-                                const frame = await request
-                                pageRequests.set(`${name}:${frame.runId}:${offset}:${limit}`, Promise.resolve(frame))
-                                return frame
-                            } catch (error) {
+                                return await request
+                            } finally {
                                 pageRequests.delete(initialPageKey)
-                                throw error
                             }
                         },
                         payload,
@@ -133,9 +131,21 @@ export function WidgetArtifactFrame({
                     }
                     latest.current.onRendered?.()
                 },
-            })
+            }),
+            () => {
+                if (artifactPortRef.current === port) {
+                    clearConnection()
+                    latest.current.onArtifactUnavailable?.()
+                }
+            }
         )
-        port.addEventListener('message', (event) => void route(event.data))
+        const receiveArtifactMessage = (event: MessageEvent): Promise<void> => router.route(event.data)
+        port.addEventListener('message', receiveArtifactMessage)
+        connectionDisposeRef.current = () => {
+            port.removeEventListener('message', receiveArtifactMessage)
+            router.dispose()
+            port.close()
+        }
         port.start()
         port.postMessage({ channel: 'posthog-canvas', type: 'set-theme', theme: latest.current.theme })
         renderTimeoutRef.current = window.setTimeout(() => latest.current.onArtifactUnavailable?.(), 20_000)
