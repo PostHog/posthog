@@ -90,8 +90,10 @@ matching shape above. The pattern is a hint; the user's actual request remains a
 1. Read the current source and version pointer with `canvas-source-retrieve`.
    Remember `current_version_id` — your publish must be guarded on it.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
-   the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
-   fetch or your own PostHog client), make every figure verifiable — an insight-backed metric
+   the canvas shows, follow `querying-canvas-data` (load it through the `ph` SDK; do not fetch
+   PostHog APIs or build a PostHog client). Direct `fetch()` remains available for external public
+   APIs whose exact HTTPS origins are declared in `capabilities.network.origins`. Make every figure
+   verifiable — an insight-backed metric
    links its saved insight in PostHog, an ad-hoc query shows the exact query that ran, per that
    skill's "Verifiability" section — and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
