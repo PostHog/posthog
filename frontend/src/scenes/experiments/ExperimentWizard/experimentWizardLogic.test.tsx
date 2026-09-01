@@ -11,7 +11,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, type FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type AppContext, type FeatureFlagType } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 
@@ -878,6 +878,7 @@ describe('experimentWizardLogic', () => {
     describe('AnalyticsStep Replay Vision scanner consent gate', () => {
         let logic: ReturnType<typeof experimentWizardLogic.build>
         let createLogic: ReturnType<typeof createExperimentLogic.build>
+        let appContextBeforeGrant: AppContext | undefined
 
         beforeEach(() => {
             localStorage.clear()
@@ -886,10 +887,15 @@ describe('experimentWizardLogic', () => {
             initKeaTests()
             // The checkbox's disabledReason fails closed when the app context carries no access
             // levels, which would swallow every click; grant what the backend grants an editor.
-            window.POSTHOG_APP_CONTEXT!.resource_access_control = {
-                [AccessControlResourceType.ReplayScanner]: AccessControlLevel.Editor,
-                [AccessControlResourceType.SessionRecording]: AccessControlLevel.Viewer,
-            }
+            appContextBeforeGrant = window.POSTHOG_APP_CONTEXT
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.ReplayScanner]: AccessControlLevel.Editor,
+                    [AccessControlResourceType.SessionRecording]: AccessControlLevel.Viewer,
+                },
+            } as AppContext
 
             featureFlagsLogic.mount()
             experimentsLogic.mount()
@@ -908,7 +914,9 @@ describe('experimentWizardLogic', () => {
             experimentsLogic.unmount()
             featureFlagsLogic.unmount()
             delete (global as any).__consentAccepted
-            delete window.POSTHOG_APP_CONTEXT?.resource_access_control
+            // initKeaTests spreads the existing context, so the grant would otherwise leak into
+            // every later test in this file.
+            window.POSTHOG_APP_CONTEXT = appContextBeforeGrant
         })
 
         const renderAnalyticsStep = (): void => {
