@@ -510,17 +510,20 @@ def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
     return get_tasks_cache().get(_sandbox_identity_cache_key(kind, scope))
 
 
-def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
+def mark_sandbox_mcp_session(scope: str, user_id: int, *, best_effort: bool = False) -> None:
     """Record whose OAuth token the sandbox's live MCP session holds.
 
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS — half the token
     lifetime — so an absent entry reads as "must refresh" and can still hide a
-    live session bound to an earlier actor. Written best-effort: this runs in the
-    agent-server-launch activity, which must not fail after the server is already
-    running, and a dropped write only reaches the same unknown-binding state that
-    expiry reaches on its own.
+    live session bound to an earlier actor.
+
+    Fail-loud by default. A dropped write after a rebind does not leave the entry
+    absent: it leaves the *previous* actor's id under the key, and the skip gate in
+    _refresh_sandbox_mcp then lets that actor's next turn run against this actor's
+    live session. Pass best_effort=True only where the entry is already absent or
+    already this actor, so a lost write cannot record a different actor.
     """
-    _mark_sandbox_identity("mcp-session", scope, user_id, best_effort=True)
+    _mark_sandbox_identity("mcp-session", scope, user_id, best_effort=best_effort)
 
 
 def get_sandbox_mcp_session_user(scope: str) -> int | None:

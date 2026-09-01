@@ -567,7 +567,11 @@ def _invoke_start_agent_server(
 
 def _record_agent_server_launch(sandbox: SandboxBase, ctx: TaskProcessingContext, params: _LaunchParams) -> None:
     if params.mcp_configs and params.actor_user_id is not None:
-        mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
+        # best_effort: the scope is this sandbox's id, so a launch always writes against an
+        # absent entry and a lost write cannot leave another actor's id behind. Raising here
+        # would fail the activity with the agent server already running, and the retry would
+        # then launch a second one.
+        mark_sandbox_mcp_session(sandbox.id, params.actor_user_id, best_effort=True)
     try:
         TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
     except Exception:

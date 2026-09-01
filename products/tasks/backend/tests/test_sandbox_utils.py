@@ -157,15 +157,17 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
 
 
 def test_sandbox_identity_marker_best_effort_boundary() -> None:
-    # The mcp-session marker is a refresh optimization, so a redis failure must not fail the
-    # agent-server-launch activity. The github-identity marker gates owner-token re-injection,
-    # so a dropped write must surface rather than read as "not rebound".
+    # Both markers gate credential identity, so a dropped write must surface by default: after a
+    # rebind the key still holds the previous actor, not an absent entry. Only a caller that
+    # writes against an absent or identical entry may swallow it, via an explicit best_effort.
     failing = MagicMock()
     failing.set.side_effect = ReadOnlyError("read only replica")
     with (
         patch("products.tasks.backend.temporal.process_task.utils.get_tasks_cache", return_value=failing),
         patch("products.tasks.backend.redis.get_tasks_cache", return_value=failing),
     ):
-        mark_sandbox_mcp_session("sandbox-1", 42)
+        mark_sandbox_mcp_session("sandbox-1", 42, best_effort=True)
+        with pytest.raises(ReadOnlyError):
+            mark_sandbox_mcp_session("sandbox-1", 42)
         with pytest.raises(ReadOnlyError):
             mark_sandbox_github_identity("sandbox-1", 42)

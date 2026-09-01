@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from redis.exceptions import ReadOnlyError
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.user_integration import ReauthorizationRequired
@@ -33,6 +34,8 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 pytestmark = pytest.mark.django_db
+
+_UTILS_MODULE = "products.tasks.backend.temporal.process_task.utils"
 
 
 @pytest.fixture(autouse=True)
@@ -371,6 +374,24 @@ class TestSessionIdentityGate:
         mock_send_refresh.assert_called_once()
         assert get_sandbox_mcp_session_user("sb-2") == 42
         assert cache.get(_sandbox_identity_cache_key("mcp-session", "run-1")) == 42  # untouched
+
+    def test_rebind_marker_write_failure_fails_closed(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        # The rebind landed but redis dropped the marker write, so the key still holds the
+        # previous actor. Reporting the session safe would let that actor's next turn take the
+        # same-actor skip and run against this actor's live session, with this actor's token.
+        _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        stale_marker = MagicMock()
+        stale_marker.get.return_value = 99
+        stale_marker.set.side_effect = ReadOnlyError("read only replica")
+
+        actor = MagicMock(id=42)
+        with patch(f"{_UTILS_MODULE}.get_tasks_cache", return_value=stale_marker):
+            failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+
+        assert failure == SandboxRebindFailure.MARKER_WRITE_FAILED
+        mock_send_refresh.assert_called_once()
 
     def test_transition_with_no_configs_fails_closed(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh

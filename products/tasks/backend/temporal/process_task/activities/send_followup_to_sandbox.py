@@ -71,6 +71,7 @@ class SandboxRebindFailure(StrEnum):
     TOKEN_MINT_FAILED = "token_mint_failed"
     NO_CONFIGS_ON_TRANSITION = "no_configs_on_transition"
     REFRESH_SESSION_FAILED = "refresh_session_failed"
+    MARKER_WRITE_FAILED = "marker_write_failed"
     NO_SANDBOX_HANDLE = "no_sandbox_handle"
     SANDBOX_NOT_RUNNING = "sandbox_not_running"
     CREDENTIAL_LOCK_UNAVAILABLE = "credential_lock_unavailable"
@@ -669,6 +670,28 @@ def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, 
     raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
 
 
+def _record_mcp_binding(scope: str, run_id: str, user_id: int) -> SandboxRebindFailure | None:
+    """Record a confirmed rebind, or report unsafe when the marker write is lost.
+
+    The session now belongs to this actor, but a lost write leaves the *previous*
+    actor's id under the key, and the skip gate above would then let that actor's
+    next turn run against this session. Failing the turn closed keeps the caller
+    retrying until the binding lands.
+    """
+    try:
+        mark_sandbox_mcp_session(scope, user_id)
+    except Exception as e:
+        logger.warning(
+            "refresh_mcp_marker_write_failed",
+            run_id=run_id,
+            user_id=user_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return SandboxRebindFailure.MARKER_WRITE_FAILED
+    return None
+
+
 def _refresh_sandbox_mcp(
     task_run: TaskRun,
     scopes: PosthogMcpScopes,
@@ -770,8 +793,11 @@ def _refresh_sandbox_mcp(
         # No recorded prior actor and no MCP configs to establish a session:
         # there is nothing to leak, so let the turn run rather than block the
         # agent just because MCP is unavailable. Record the binding so a later
-        # actor transition is still detected.
-        mark_sandbox_mcp_session(scope, actor_user.id)
+        # actor transition is still detected — best-effort, because the entry is
+        # absent or already this actor here, so a lost write cannot leave a
+        # different actor's id behind, and blocking the turn on redis would
+        # defeat the point of this branch.
+        mark_sandbox_mcp_session(scope, actor_user.id, best_effort=True)
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
         return None
 
@@ -784,7 +810,9 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if result.success:
-        mark_sandbox_mcp_session(scope, actor_user.id)
+        marker_failure = _record_mcp_binding(scope, run_id, actor_user.id)
+        if marker_failure is not None:
+            return marker_failure
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
         return None
 
@@ -802,7 +830,9 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if retry.success:
-        mark_sandbox_mcp_session(scope, actor_user.id)
+        marker_failure = _record_mcp_binding(scope, run_id, actor_user.id)
+        if marker_failure is not None:
+            return marker_failure
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
         return None
 

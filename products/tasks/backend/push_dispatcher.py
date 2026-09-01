@@ -33,7 +33,7 @@ from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.models import Task, TaskPresence
-from products.tasks.backend.redis import tasks_cache_add
+from products.tasks.backend.redis import CacheGuard, tasks_cache_add_strict
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
@@ -289,10 +289,17 @@ def _enqueue_user(
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
-    # fail_open=False: this cooldown is the only dedup in the push chain and turn completion
-    # can enter from several processes, so a redis failure drops the push instead of letting
-    # each process's local guard send its own duplicate.
-    if not tasks_cache_add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind], fail_open=False):
+    # Strict guard: this cooldown is the only dedup in the push chain and turn completion can
+    # enter from several processes, so a redis failure drops the push instead of letting each
+    # process's local guard send its own duplicate.
+    cooldown = tasks_cache_add_strict(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind])
+    if cooldown is CacheGuard.UNAVAILABLE:
+        # Counted as a failure, not a dedup: during an outage every push takes this branch, and
+        # a cooldown_deduped spike would point diagnosis at duplicate suppression instead.
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason="cache_unavailable").inc()
+        logger.warning("push_dispatcher.cooldown_unavailable", subject=cooldown_subject, kind=kind)
+        return
+    if cooldown is CacheGuard.ALREADY_PRESENT:
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
         logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
         return

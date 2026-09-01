@@ -130,18 +130,28 @@ class TestTasksCacheAddRedisFallback(SimpleTestCase):
             mock_time.monotonic.return_value = 1061.0
             self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
 
-    def test_add_fail_closed_reports_key_present(self):
-        # A cross-process dedup caller must back off entirely on a redis failure; the
-        # per-process guard would still let one duplicate through per process.
-        failing_cache = MagicMock()
-        failing_cache.add.side_effect = redis.exceptions.BusyLoadingError()
+    @parameterized.expand(
+        [
+            ("admitted", [True], tasks_redis.CacheGuard.ADMITTED),
+            ("already_present", [False], tasks_redis.CacheGuard.ALREADY_PRESENT),
+            ("redis_down", [redis.exceptions.BusyLoadingError()], tasks_redis.CacheGuard.UNAVAILABLE),
+        ]
+    )
+    def test_add_strict_reports_the_guard_decision(self, _name, add_results, expected):
+        # A caller whose shared key is the only dedup must tell an outage from a real duplicate:
+        # it drops the work either way, but counts an outage as a failure rather than as
+        # suppression. There is also no per-process fallback here — that would admit one
+        # duplicate per process.
+        cache = MagicMock()
+        cache.add.side_effect = add_results
 
         with (
-            patch.object(tasks_redis, "get_tasks_cache", return_value=failing_cache),
+            patch.object(tasks_redis, "get_tasks_cache", return_value=cache),
             patch.object(tasks_redis, "capture_exception"),
             patch.dict(tasks_redis._local_guard_expiry, clear=True),
         ):
-            self.assertFalse(tasks_redis.tasks_cache_add("guard-key", True, timeout=60, fail_open=False))
+            self.assertEqual(tasks_redis.tasks_cache_add_strict("guard-key", True, timeout=60), expected)
+            self.assertEqual(tasks_redis._local_guard_expiry, {})
 
 
 class _ThreadHungryAsyncClient:

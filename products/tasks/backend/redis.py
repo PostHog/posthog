@@ -1,5 +1,6 @@
 import time
 import threading
+from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
@@ -158,13 +159,11 @@ def tasks_cache_set(key: str, value: Any, timeout: float | None = None) -> bool:
         return False
 
 
-def tasks_cache_add(key: str, value: Any, timeout: int, fail_open: bool = True) -> bool:
+def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
     """Best-effort ``cache.add`` used as a dedup/cooldown guard. Returns True when the key was
     newly added (the caller should proceed), False when it already existed. A redis failure
     degrades to a per-process guard with the same key and timeout, so an outage throttles per
-    process instead of not at all. Pass ``fail_open=False`` when the guard is the only dedup
-    across processes and a duplicate is worse than skipping the work: a failure then reports
-    the key as already present and the caller backs off."""
+    process instead of not at all."""
     # The guard is read before the redis write. A redis write that the guard then vetoes leaves a
     # key that outlives the guard entry, so a recovery inside a window suppresses for up to twice
     # the timeout. The 60 second heartbeat guard cannot afford that against the 120 second
@@ -175,11 +174,33 @@ def tasks_cache_add(key: str, value: Any, timeout: int, fail_open: bool = True) 
         redis_added = bool(get_tasks_cache().add(key, value, timeout=timeout))
     except _REDIS_ERRORS as e:
         _note_cache_failure("add", e)
-        if not fail_open:
-            return False
         return _local_guard_add(key, timeout)
     if redis_added:
         # Record the redis admission in the local guard too, so the fallback still suppresses a
         # repeat of this key if redis drops before the window ends.
         _local_guard_add(key, timeout)
     return redis_added
+
+
+class CacheGuard(StrEnum):
+    """What a fail-closed dedup guard decided, so an outage stays distinguishable from a
+    genuine duplicate."""
+
+    ADMITTED = "admitted"
+    ALREADY_PRESENT = "already_present"
+    UNAVAILABLE = "unavailable"
+
+
+def tasks_cache_add_strict(key: str, value: Any, timeout: int) -> CacheGuard:
+    """``cache.add`` for a guard where a duplicate is worse than skipping the work.
+
+    Unlike ``tasks_cache_add`` there is no per-process fallback: when the shared key is the
+    only dedup in the chain, each process's local guard would still admit its own duplicate.
+    A redis failure reports ``UNAVAILABLE`` instead, so the caller can back off and still
+    attribute the drop to the outage rather than to a repeat."""
+    try:
+        added = bool(get_tasks_cache().add(key, value, timeout=timeout))
+    except _REDIS_ERRORS as e:
+        _note_cache_failure("add", e)
+        return CacheGuard.UNAVAILABLE
+    return CacheGuard.ADMITTED if added else CacheGuard.ALREADY_PRESENT
