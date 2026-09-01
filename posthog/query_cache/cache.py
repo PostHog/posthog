@@ -34,9 +34,9 @@ class CacheLookup:
     failure: Optional[QueryFailureRecord] = None
 
 
-# Writers that are a person in a browser: session logins carry no access_method tag, and
-# sharing tokens render shared links. Every other tag is code calling the API.
-PERSON_ACCESS_METHODS: frozenset[AccessMethod | None] = frozenset({None, AccessMethod.SHARING_TOKEN})
+# Session logins carry no access_method tag, and sharing tokens render shared links: both are a
+# person in a browser and keep the full TTL. Every other tag is code calling the API.
+EXTENDED_TTL_ACCESS_METHODS: frozenset[AccessMethod | None] = frozenset({None, AccessMethod.SHARING_TOKEN})
 
 
 def retention_ttl(*, insight_id: Optional[int], dashboard_id: Optional[int], access_method: Optional[str]) -> int:
@@ -47,7 +47,7 @@ def retention_ttl(*, insight_id: Optional[int], dashboard_id: Optional[int], acc
     those entries are served at any age. Other programmatic writes get a short TTL, because no
     read path treats a result older than a day as fresh.
     """
-    if insight_id is None and dashboard_id is None and access_method not in PERSON_ACCESS_METHODS:
+    if insight_id is None and dashboard_id is None and access_method not in EXTENDED_TTL_ACCESS_METHODS:
         return settings.CACHED_RESULTS_PROGRAMMATIC_TTL
     return settings.CACHED_RESULTS_TTL
 
