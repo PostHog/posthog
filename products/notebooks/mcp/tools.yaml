@@ -65,8 +65,8 @@ tools:
             cell runs, and tell the user what a mid-analysis resize will cost them. Changing only idle_timeout_seconds
             never restarts; restart_required then reports that a live kernel will not pick it up until it restarts on
             its own. The user pays for the sandbox for as long as it runs, so tell them the response's hourly_price in
-            dollars whenever you set or change the size. notebooks-compute-options lists the presets and the values
-            this tool accepts.
+            dollars whenever you set or change the size. notebooks-compute-options lists the presets and the values this
+            tool accepts.
         feature_flag: revamped-py-notebooks
     notebooks-create:
         operation: notebooks_create
