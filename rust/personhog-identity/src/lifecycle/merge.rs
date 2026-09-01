@@ -176,6 +176,25 @@ pub const OUTCOME_SKIPPED_ALREADY_IDENTIFIED: &str = "skipped_already_identified
 pub const OUTCOME_SKIPPED_CONFLICT: &str = "skipped_conflict";
 pub const OUTCOME_SKIPPED_MOVE_LIMIT: &str = "skipped_move_limit";
 pub const OUTCOME_SKIPPED_REFUSED: &str = "skipped_refused";
+
+/// The verdict an abort settles its pending sources with. An enum so a
+/// caller cannot pass an arbitrary outcome string into the settlement.
+#[derive(Clone, Copy)]
+enum AbortOutcome {
+    /// Claim contention: another live op held a person. Unsettled.
+    Conflict,
+    /// A definitive leader refusal: retrying meets the same answer.
+    Refused,
+}
+
+impl AbortOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            AbortOutcome::Conflict => OUTCOME_SKIPPED_CONFLICT,
+            AbortOutcome::Refused => OUTCOME_SKIPPED_REFUSED,
+        }
+    }
+}
 pub const OUTCOME_ERROR: &str = "error";
 
 /// Per-person row statuses this driver writes. `marked`/`sealed` are the
@@ -871,7 +890,7 @@ async fn abort_in_claim_tx(
 ) -> Result<(), SagaError> {
     let mut outcome = outcome_from_dispositions(
         &dispositions,
-        Some(OUTCOME_SKIPPED_CONFLICT),
+        Some(AbortOutcome::Conflict),
         None,
         &HashMap::new(),
     )?;
@@ -1035,7 +1054,7 @@ impl MergeDriver {
             )
             .execute(&mut *tx)
             .await?;
-            let outcome = build_outcome(&mut tx, op, Some(OUTCOME_SKIPPED_CONFLICT)).await?;
+            let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Conflict)).await?;
             if !complete_op_in_tx(
                 &mut tx,
                 op.op_id,
@@ -1145,7 +1164,7 @@ impl MergeDriver {
         // exhausts into UNAVAILABLE, transient at the step, never an
         // abort. Recording a refusal as a conflict would misfile a
         // configuration error as claim contention behind salted retries.
-        let outcome = build_outcome(&mut tx, op, Some(OUTCOME_SKIPPED_REFUSED)).await?;
+        let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Refused)).await?;
         if !complete_op_in_tx(
             &mut tx,
             op.op_id,
@@ -1165,7 +1184,7 @@ impl MergeDriver {
         tracing::error!(
             op_id = %op.op_id,
             step = %from_step.as_str(),
-            reason = %personhog_common::grpc::semantic_refusal_reason(status).unwrap_or("unknown"),
+            reason = %personhog_common::grpc::refusal_reason_label(status),
             message = %status.message(),
             "leader definitively refused a pre-flip merge step; op aborted, releasing its fences"
         );
@@ -1174,9 +1193,7 @@ impl MergeDriver {
             ABORTS_TOTAL,
             &[(
                 "reason".to_string(),
-                personhog_common::grpc::semantic_refusal_reason(status)
-                    .unwrap_or("unknown")
-                    .to_string(),
+                personhog_common::grpc::refusal_reason_label(status).to_string(),
             )],
             1,
         );
@@ -1498,14 +1515,19 @@ async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
     // in plan order and the writer's flush upsert spans overlapping
     // persons, so uncontrolled order is a deadlock cycle under load.
     // Sorted acquisition on both sides (the writer sorts its flush
-    // batches; unmap does the same) makes a cycle impossible.
+    // batches; unmap does the same) makes a cycle impossible. The target
+    // is included although no statement below writes its person row
+    // today, so the lock set stays a superset of any partner's.
+    let mut lock_ids = sources.clone();
+    lock_ids.push(target);
+    lock_ids.sort_unstable();
     let lock_persons_sql = format!(
         "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
         person_table = tables.person,
     );
     sqlx::query(&lock_persons_sql)
         .bind(team_id)
-        .bind(&sources)
+        .bind(&lock_ids)
         .execute(&mut *tx)
         .await?;
     let lock_pdi_sql = format!(
@@ -1866,7 +1888,7 @@ async fn claim_record(tx: &mut Tx<'_>, op: &OpRow) -> Result<ClaimRecord, SagaEr
 async fn build_outcome(
     tx: &mut Tx<'_>,
     op: &OpRow,
-    abort_outcome: Option<&'static str>,
+    abort_outcome: Option<AbortOutcome>,
 ) -> Result<Value, SagaError> {
     let record = claim_record(tx, op).await?;
     let statuses: HashMap<i64, String> = sqlx::query!(
@@ -1898,7 +1920,7 @@ async fn build_outcome(
 
 fn outcome_from_dispositions(
     dispositions: &[Disposition],
-    abort_outcome: Option<&'static str>,
+    abort_outcome: Option<AbortOutcome>,
     survivor: Option<Value>,
     statuses: &HashMap<i64, String>,
 ) -> Result<Value, SagaError> {
@@ -1911,7 +1933,7 @@ fn outcome_from_dispositions(
                     .and_then(|id| statuses.get(&id))
                     .map(String::as_str);
                 match (abort_outcome, status) {
-                    (Some(slug), _) => slug,
+                    (Some(abort), _) => abort.as_str(),
                     (None, Some(STATUS_DELETED)) => OUTCOME_MERGED,
                     (None, _) => OUTCOME_ERROR,
                 }

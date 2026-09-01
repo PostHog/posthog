@@ -43,6 +43,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::collections::HashMap;
+
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
 use sqlx::postgres::PgPool;
@@ -152,8 +154,7 @@ pub async fn rebuild_partition_fences(
     let start = std::time::Instant::now();
     let query = sqlx::query(
         r#"
-        SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type,
-               o.request->>'creator_event_uuid' AS creator_event_uuid
+        SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
         FROM lifecycle_op_person lop
         JOIN lifecycle_op o ON o.op_id = lop.op_id
         WHERE lop.status IN ('marked', 'sealed')
@@ -182,28 +183,58 @@ pub async fn rebuild_partition_fences(
     // left behind.
     drop_partition_fences(fences, partition, num_partitions);
 
-    let mut installed = 0usize;
+    // Keep only this partition's rows before touching the frozen
+    // requests: extracting a jsonb field detoasts the whole request (both
+    // property maps, twice), and the scan reads every partition's marks.
+    let mut ours: Vec<(i64, i64, Uuid, String)> = Vec::new();
     for row in rows {
         let team_id: i32 = row.get("team_id");
         let person_id: i64 = row.get("person_id");
         if partition_for_person(team_id as i64, person_id, num_partitions) != partition {
             continue;
         }
-        let op_id: Uuid = row.get("op_id");
-        let op_type: String = row.get("op_type");
-        // Frozen requests predating the field, and delete ops, carry none.
-        let creator_event_uuid = row
-            .get::<Option<String>, _>("creator_event_uuid")
-            .and_then(|raw| Uuid::parse_str(&raw).ok());
+        ours.push((
+            team_id as i64,
+            person_id,
+            row.get("op_id"),
+            row.get("op_type"),
+        ));
+    }
+
+    let mut op_ids: Vec<Uuid> = ours.iter().map(|(_, _, op_id, _)| *op_id).collect();
+    op_ids.sort_unstable();
+    op_ids.dedup();
+    let mut creators: HashMap<Uuid, Uuid> = HashMap::new();
+    if !op_ids.is_empty() {
+        let creator_rows = sqlx::query(
+            r#"
+            SELECT op_id, request->>'creator_event_uuid' AS creator_event_uuid
+            FROM lifecycle_op
+            WHERE op_id = ANY($1)
+            "#,
+        )
+        .bind(&op_ids)
+        .fetch_all(pool)
+        .await?;
+        for row in creator_rows {
+            // Frozen requests predating the field, and delete ops, carry none.
+            if let Some(creator) = row
+                .get::<Option<String>, _>("creator_event_uuid")
+                .and_then(|raw| Uuid::parse_str(&raw).ok())
+            {
+                creators.insert(row.get("op_id"), creator);
+            }
+        }
+    }
+
+    let mut installed = 0usize;
+    for (team_id, person_id, op_id, op_type) in ours {
         fences.insert(
-            PersonCacheKey {
-                team_id: team_id as i64,
-                person_id,
-            },
+            PersonCacheKey { team_id, person_id },
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
-                creator_event_uuid,
+                creator_event_uuid: creators.get(&op_id).copied(),
             },
         );
         installed += 1;
