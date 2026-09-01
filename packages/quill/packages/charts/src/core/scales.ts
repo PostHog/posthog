@@ -866,29 +866,22 @@ function padValueRange(
     return [min < 0 ? start - reserve : start, max > 0 ? end + reserve : end]
 }
 
-export function autoFormatYTick(value: number, domainMax: number): string {
+export function autoFormatterFor(ticks: number[]): (value: number) => string {
+    const domainMax = ticks.length > 0 ? Math.max(...ticks.map((tick) => Math.abs(tick))) : 1
     if (domainMax < 2) {
         // Two decimals only resolve a domain down to ~0.1; below that every tick rounds to the same
         // label, so scale the precision to the domain instead.
-        return value.toLocaleString('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: significantDecimalPlaces(domainMax),
-        })
+        return (value) =>
+            value.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: significantDecimalPlaces(domainMax),
+            })
     }
     if (domainMax < 5) {
-        return value.toFixed(1)
+        return (value) => value.toFixed(1)
     }
-    return value.toLocaleString('en-US', { maximumFractionDigits: 0 })
-}
-
-export function autoFormatterFor(ticks: number[]): (value: number) => string {
-    const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
-    const formatter = (value: number): string => autoFormatYTick(value, domainMax)
-
-    if (new Set(ticks.map(formatter)).size < new Set(ticks).size) {
-        return (value) => value.toLocaleString('en-US', { maximumFractionDigits: 10 })
-    }
-    return formatter
+    const maximumFractionDigits = ticks.some((tick) => !Number.isInteger(tick)) ? 10 : 0
+    return (value) => value.toLocaleString('en-US', { maximumFractionDigits })
 }
 
 export function resolveYScaleForSeries<S extends (value: number) => number>(

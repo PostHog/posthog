@@ -2,7 +2,6 @@ import { dimensions, makeSeries } from '../testing'
 import {
     applyValueBounds,
     autoFormatterFor,
-    autoFormatYTick,
     buildSegmentResolveValue,
     buildStackedPositionValue,
     computeDivergingStackData,
@@ -833,7 +832,7 @@ describe('hog-charts scales', () => {
         })
     })
 
-    describe('autoFormatYTick', () => {
+    describe('autoFormatterFor', () => {
         it.each([
             { domainMax: 0, value: 0.5, expected: '0.50', label: 'two decimal places when domainMax < 2' },
             { domainMax: 1, value: 0.123, expected: '0.12', label: 'two decimal places when domainMax equals 1' },
@@ -850,7 +849,7 @@ describe('hog-charts scales', () => {
                 label: 'adds thousands separators for large values',
             },
         ])('returns $expected: $label', ({ domainMax, value, expected }) => {
-            expect(autoFormatYTick(value, domainMax)).toBe(expected)
+            expect(autoFormatterFor([domainMax])(value)).toBe(expected)
         })
 
         it.each([
@@ -860,20 +859,18 @@ describe('hog-charts scales', () => {
         ])(
             'scales precision to the domain so small ticks stay distinct: $value over 0–$domainMax → $expected',
             ({ domainMax, value, expected }) => {
-                expect(autoFormatYTick(value, domainMax)).toBe(expected)
+                expect(autoFormatterFor([domainMax])(value)).toBe(expected)
             }
         )
 
         it('formats zero correctly when domainMax is large', () => {
-            expect(autoFormatYTick(0, 100)).toBe('0')
+            expect(autoFormatterFor([100])(0)).toBe('0')
         })
 
         it('formats negative values correctly', () => {
-            expect(autoFormatYTick(-5, 10)).toBe('-5')
+            expect(autoFormatterFor([-10, 10])(-5)).toBe('-5')
         })
-    })
 
-    describe('autoFormatterFor', () => {
         it('keeps fractional ticks distinct on an axis that extends to five', () => {
             const ticks = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
             const formatter = autoFormatterFor(ticks)
