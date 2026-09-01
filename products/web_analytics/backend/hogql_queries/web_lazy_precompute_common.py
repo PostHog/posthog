@@ -528,6 +528,18 @@ class LazyPrecomputeIneligible(Exception):
     """
 
 
+class WrongFamily:
+    """Marks a decline that only means another precompute family owns this query shape.
+
+    A stats table read asks each family in turn, and every family checks the shape before
+    anything else. Only the family that owns the shape knows why the read really fell through,
+    so a shape decline keeps the reported reason instead of replacing it with its own.
+
+    Mix into a `LazyPrecomputeIneligible` subclass. This is a plain marker class because the
+    families raise from two separate exception hierarchies.
+    """
+
+
 class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
     pass
 
@@ -718,7 +730,8 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
     lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
         reason = type(error).__name__
-        set_lazy_precompute_ineligible_reason(reason)
+        if not isinstance(error, WrongFamily):
+            set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,

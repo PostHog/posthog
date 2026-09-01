@@ -32,6 +32,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
+    WrongFamily,
     ceil_utc_day,
     check_common_eligibility,
     floor_utc_day,
@@ -90,7 +91,7 @@ WEB_STATS_FRUSTRATION_LAZY_ROWS = Histogram(
 )
 
 
-class WrongBreakdown(LazyPrecomputeIneligible):
+class WrongBreakdown(WrongFamily, LazyPrecomputeIneligible):
     pass
 
 

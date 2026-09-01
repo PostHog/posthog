@@ -62,6 +62,14 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    WrongBreakdown as FrustrationWrongBreakdown,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import BreakdownOwnedByAnotherFamily
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    MissingBounceRate,
+    WrongBreakdown as PathsWrongBreakdown,
+)
 from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
@@ -176,6 +184,36 @@ class TestEligibilityReasonTagging(BaseTest):
         assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "DateRangeOverMax"
 
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=None)
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) is None
+
+    @parameterized.expand(
+        [
+            ("paths, wrong breakdown", PathsWrongBreakdown("breakdownBy=DeviceType")),
+            ("paths, no bounce rate", MissingBounceRate()),
+            ("frustration, wrong breakdown", FrustrationWrongBreakdown("breakdownBy=Page")),
+            ("stats, breakdown a sibling owns", BreakdownOwnedByAnotherFamily(WebStatsBreakdown.PAGE)),
+        ]
+    )
+    def test_a_shape_decline_keeps_the_owning_family_reason(self, _name, decline) -> None:
+        # A stats table read asks every family in turn. Only the family that owns the shape knows
+        # why the read fell through, so a sibling answering "not my shape" must not take its place.
+        log_eligibility_outcome(log_prefix="web_stats_paths", team_id=self.team.pk, error=DateRangeOverMax(120))
+
+        log_eligibility_outcome(log_prefix="sibling", team_id=self.team.pk, error=decline)
+
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "DateRangeOverMax"
+
+    def test_a_shape_decline_leaves_a_read_the_owning_family_admitted_unreported(self) -> None:
+        # A read the owning family admits but cannot serve is a cache miss. Letting a sibling report
+        # "not my shape" would count that miss as a gate rejection.
+        log_eligibility_outcome(log_prefix="web_stats_paths", team_id=self.team.pk, error=None)
+
+        log_eligibility_outcome(
+            log_prefix="web_stats",
+            team_id=self.team.pk,
+            error=BreakdownOwnedByAnotherFamily(WebStatsBreakdown.PAGE),
+        )
+
         assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) is None
 
     @parameterized.expand(

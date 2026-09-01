@@ -29,6 +29,7 @@ from posthog.models.team import Team
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    WrongFamily,
     is_precompute_enabled_for_team,
     set_lazy_precompute_ineligible_reason,
 )
@@ -217,7 +218,8 @@ def can_use_lazy_precompute(
     except LazyPrecomputeIneligible as exc:
         reason = type(exc).__name__
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
-        set_lazy_precompute_ineligible_reason(reason)
+        if not isinstance(exc, WrongFamily):
+            set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_lazy_precompute_rejected",
             team_id=runner.team.pk,
