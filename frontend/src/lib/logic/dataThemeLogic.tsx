@@ -163,9 +163,11 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         }, {} as DataColorTheme)
                     }
 
-                    // No theme resolved (list still loading, empty, or matching neither the environment
+                    // Themes have loaded but none resolved (empty list, or matching neither the environment
                     // default nor a global theme). Fall back to the built-in colors so charts still draw.
-                    return DEFAULT_DATA_COLOR_THEME
+                    // While themes are still loading (themes == null), keep returning null so callers can
+                    // show a loading state and the chart renders once, after the real theme resolves.
+                    return themes != null ? DEFAULT_DATA_COLOR_THEME : null
                 },
         ],
         getColorFromToken: [

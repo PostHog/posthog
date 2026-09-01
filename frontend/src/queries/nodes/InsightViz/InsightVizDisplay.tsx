@@ -171,6 +171,7 @@ export function InsightVizDisplay({
         insightData,
         validationError,
         validationErrorCode,
+        theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { defaultTheme, themesLoading } = useValues(dataThemeLogic)
@@ -499,9 +500,9 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    // The color theme failed to resolve (list empty, or matching neither the environment default nor a
-    // global theme). Charts now fall back to the built-in colors instead of a blank tile, so capture the
-    // state to keep it measurable. Web Analytics insights don't use themes, so they are exempt.
+    // Themes resolved but none matched (empty list, or matching neither the environment default nor a
+    // global theme). getTheme then falls back to the built-in colors, so charts draw instead of a blank
+    // tile; capture the state to keep it measurable. Web Analytics insights don't use themes, so exempt.
     const colorThemeMissing = !themesLoading && !defaultTheme && activeView !== InsightType.WEB_ANALYTICS
     useEffect(() => {
         if (colorThemeMissing) {
@@ -512,6 +513,21 @@ export function InsightVizDisplay({
             })
         }
     }, [colorThemeMissing, insightProps?.dashboardId, insightProps?.dashboardItemId])
+
+    // While the color theme is still loading, show loading rather than a blank tile. Once themes resolve,
+    // getTheme falls back to the built-in colors when none match, so `theme` is only null during load and
+    // the chart renders once, after the theme is ready. Web Analytics insights don't use themes.
+    if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
+        return (
+            <InsightLoadingState
+                queryId={queryId}
+                key={queryId}
+                insightProps={insightProps}
+                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+            />
+        )
+    }
 
     return (
         <>
