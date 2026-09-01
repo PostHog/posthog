@@ -914,7 +914,7 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
     Inbox: {
-        name: 'Inbox',
+        name: 'Self-driving inbox',
         projectBased: true,
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
         docsHref: 'https://posthog.com/docs/self-driving/inbox',
@@ -1053,6 +1053,7 @@ export const productUrls = {
             search?: string
             tab?: string
             msg?: string
+            [key: string]: string | undefined
         }
     ): string => {
         const encodePathSegment = (value: string): string => {
@@ -1065,7 +1066,13 @@ export const productUrls = {
                 (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
             )
         }
-        const queryParams = new URLSearchParams(params)
+        const definedParams: Record<string, string> = {}
+        for (const [key, value] of Object.entries(params ?? {})) {
+            if (value !== undefined) {
+                definedParams[key] = value
+            }
+        }
+        const queryParams = new URLSearchParams(definedParams)
         const stringifiedParams = queryParams.toString()
         return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
@@ -2263,6 +2270,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Inbox',
+        displayLabel: 'Self-driving inbox',
         intents: [],
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,

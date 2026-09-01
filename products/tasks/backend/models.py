@@ -68,6 +68,7 @@ TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "scout_suggestions": "scout",
 }
 
 
@@ -302,6 +303,10 @@ class Task(DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Headless scan that pre-computes the "Suggested for this project" scout batch
+        # (products/signals/backend/scout_harness/suggestions.py). Reserved: the origin is what
+        # routes the run to the Signals OAuth app and its read-only posture.
+        SIGNALS_SCOUT_SUGGESTIONS = "scout_suggestions", "Signals Scout Suggestions"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
         # HogDesk — the internal support desk client. Tasks it creates from a
@@ -848,8 +853,16 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
+        # A repo-less signals task must carry no GitHub credential at all — team or personal.
+        # Provisioning injects whatever integration is attached, and these runs read text any
+        # member can write, so an attached token turns planted text into repository access.
+        github_resolution_allowed = bool(repository) or origin_product not in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+        )
         github_integration = None
-        if repository or origin_product not in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if github_resolution_allowed:
             github_integration = (
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
@@ -872,7 +885,9 @@ class Task(DeletedMetaFields, models.Model):
             if origin_product == Task.OriginProduct.SIGNAL_REPORT
             else None,
         )
-        if authorship_mode == PrAuthorshipMode.USER:
+        if not github_resolution_allowed:
+            pass
+        elif authorship_mode == PrAuthorshipMode.USER:
             user_github_integration = resolve_user_github_integration_for_task(
                 task_stub,
                 repository=repository,
@@ -1981,6 +1996,16 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Copy of the parent task's origin_product, populated on creation and never changed.
+    # It lets the per-minute monitoring gauges group by origin_product without joining
+    # posthog_task on every run row. See `collect_task_run_state_metrics`.
+    origin_product = models.CharField(
+        max_length=20,
+        choices=task_origin_product_choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -2109,10 +2134,29 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
+            # Open statuses remain selective, so status leads the index for untimed gauges.
+            models.Index(
+                fields=["status", "environment", "origin_product"],
+                name="task_run_status_env_origin_idx",
+            ),
+            # Terminal rows dominate over time, so the recency range must lead this partial index.
+            models.Index(
+                fields=["updated_at"],
+                include=["status", "environment", "origin_product"],
+                name="task_run_terminal_updated_idx",
+                condition=models.Q(status__in=["completed", "failed", "cancelled"]),
+            ),
         ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        # Mirror the parent task's origin_product onto the run once, at creation, so the
+        # monitoring gauges can group by it locally.
+        if self._state.adding and not self.origin_product and self.task_id:
+            self.origin_product = self.task.origin_product
+        super().save(*args, **kwargs)
 
     @property
     def mode(self) -> str:

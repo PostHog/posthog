@@ -4727,6 +4727,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -4817,6 +4819,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6301,6 +6305,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6329,6 +6335,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -6415,6 +6423,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -6451,6 +6461,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -7434,6 +7446,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -7538,6 +7552,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -18661,6 +18677,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     */
+    export type ConfidenceTierEnum = typeof ConfidenceTierEnum[keyof typeof ConfidenceTierEnum];
+
+
+    export const ConfidenceTierEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    /**
      * * `boolean` - boolean
      * * `number` - number
      * * `string` - string
@@ -20884,6 +20914,74 @@ export namespace Schemas {
       id?: number;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
+    }
+
+    export interface DashboardSavedViewFilters {
+      /** @maxLength 200 */
+      search?: string;
+      createdBy?: number[] | 'All users';
+      pinned?: boolean;
+      shared?: boolean;
+      /**
+         * @maxItems 50
+         * @items.maxLength 100
+         */
+      tags?: string[];
+      /**
+         * @maxLength 4000
+         * @nullable
+         */
+      folder?: string | null;
+    }
+
+    /**
+     * * `private` - Private
+     * * `team` - Team
+     */
+    export type DashboardSavedViewScopeEnum = typeof DashboardSavedViewScopeEnum[keyof typeof DashboardSavedViewScopeEnum];
+
+
+    export const DashboardSavedViewScopeEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    export interface DashboardSavedView {
+      readonly id: string;
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name: string;
+      /** Dashboard list filters stored by this view. */
+      filters: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** Whether the current user can change this view's visibility. */
+      readonly can_change_scope: boolean;
+    }
+
+    export interface DashboardSavedViewWrite {
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name: string;
+      /** Dashboard list filters stored by this view. */
+      filters: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
     }
 
     export interface DashboardSubscribeNudgeResponse {
@@ -27082,6 +27180,14 @@ export namespace Schemas {
       status?: string;
       /** duckgres org identifier (the PostHog organization id) */
       org?: string;
+    }
+
+    /**
+     * Typed view over the Subscription.delivery_config JSON blob.
+     */
+    export interface DeliveryConfig {
+      /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
+      post_all_insights_in_main_message?: boolean;
     }
 
     /**
@@ -39875,6 +39981,39 @@ export namespace Schemas {
     }
 
     /**
+     * * `hogql` - hogql
+     */
+    export type FileDownloadHogQLModelEnum = typeof FileDownloadHogQLModelEnum[keyof typeof FileDownloadHogQLModelEnum];
+
+
+    export const FileDownloadHogQLModelEnum = {
+      Hogql: 'hogql',
+    } as const;
+
+    /**
+     * Request shape for counting the rows a file download batch export would produce.
+     */
+    export interface FileDownloadCountRowsRequest {
+      /** Model to count rows for. Only 'hogql' is supported.
+       *
+       * * `hogql` - hogql */
+      model: FileDownloadHogQLModelEnum;
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      hogql_query: string;
+    }
+
+    /**
+     * Typed output for view set `count_rows`.
+     */
+    export interface FileDownloadCountRowsResponse {
+      /**
+         * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+         * @minimum 0
+         */
+      count: number;
+    }
+
+    /**
      * * `events` - events
      */
     export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
@@ -39882,16 +40021,6 @@ export namespace Schemas {
 
     export const FileDownloadEventsRequestModelEnum = {
       Events: 'events',
-    } as const;
-
-    /**
-     * * `hogql` - hogql
-     */
-    export type FileDownloadHogQLRequestModelEnum = typeof FileDownloadHogQLRequestModelEnum[keyof typeof FileDownloadHogQLRequestModelEnum];
-
-
-    export const FileDownloadHogQLRequestModelEnum = {
-      Hogql: 'hogql',
     } as const;
 
     /**
@@ -42104,14 +42233,14 @@ export namespace Schemas {
     }
 
     /**
-     * Test trigger payload, typically {event, person, groups}.
+     * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
 
     export interface HogFlowInvocation {
       /** Optional override; omit to use saved definition. */
       configuration?: HogFlow;
-      /** Test trigger payload, typically {event, person, groups}. */
+      /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
@@ -43887,6 +44016,51 @@ export namespace Schemas {
       quantile?: number | null;
     }
 
+    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
+
+
+    export const MetricsStatSummary = {
+      Latest: 'latest',
+      Average: 'average',
+      Total: 'total',
+    } as const;
+
+    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
+
+
+    export const MetricsDisplayType = {
+      Line: 'line',
+      Area: 'area',
+      Bar: 'bar',
+      Stat: 'stat',
+    } as const;
+
+    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
+
+
+    export const MetricsAxisScale = {
+      Linear: 'linear',
+      Log: 'log',
+    } as const;
+
+    export interface MetricsYAxisSettings {
+      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
+      max?: number | null;
+      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+      min?: number | null;
+      scale?: MetricsAxisScale | null;
+      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
+      startAtZero?: boolean | null;
+    }
+
+    export interface MetricsDisplaySettings {
+      goalLines?: GoalLine[] | null;
+      /** `stat` display only: which summary the headline value shows. */
+      statSummary?: MetricsStatSummary | null;
+      type?: MetricsDisplayType | null;
+      yAxis?: MetricsYAxisSettings | null;
+    }
+
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -43933,6 +44107,8 @@ export namespace Schemas {
       clauses: MetricsQueryClause[];
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
+      /** Chart presentation. A node without it renders as a line chart. */
+      display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
       /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
@@ -45439,20 +45615,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `high` - high
-     * * `medium` - medium
-     * * `low` - low
-     */
-    export type IdentityMatchingLinkTierEnum = typeof IdentityMatchingLinkTierEnum[keyof typeof IdentityMatchingLinkTierEnum];
-
-
-    export const IdentityMatchingLinkTierEnum = {
-      High: 'high',
-      Medium: 'medium',
-      Low: 'low',
-    } as const;
-
-    /**
      * The resolved person behind one side of a link, with a curated set of properties that mirror
      * the match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.
      */
@@ -45554,7 +45716,7 @@ export namespace Schemas {
        * * `high` - high
        * * `medium` - medium
        * * `low` - low */
-      tier: IdentityMatchingLinkTierEnum;
+      tier: ConfidenceTierEnum;
       /** When the link was computed (UTC). */
       computed_at: string;
       /** Distinct (IP, day) combinations both sides were seen on. */
@@ -46343,6 +46505,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable: boolean;
       /**
          * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
          * @nullable
@@ -53099,6 +53263,7 @@ export namespace Schemas {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -53124,6 +53289,7 @@ export namespace Schemas {
       Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',
@@ -53756,6 +53922,14 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardBasic[];
+    }
+
+    export interface PaginatedDashboardSavedViewList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DashboardSavedView[];
     }
 
     export interface PaginatedDashboardTemplateList {
@@ -57040,6 +57214,8 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      delivery_config?: DeliveryConfig;
     }
 
     export interface PaginatedSubscriptionList {
@@ -58543,6 +58719,30 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TrendingInsight[];
+    }
+
+    export interface UploadedMedia {
+      readonly id: string;
+      /** The file's original name. */
+      readonly name: string;
+      /** @nullable */
+      readonly purpose: string | null;
+      /** @nullable */
+      readonly content_type: string | null;
+      /** @nullable */
+      readonly size_bytes: number | null;
+      /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+      readonly url: string;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedUploadedMediaList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UploadedMedia[];
     }
 
     export interface UserGitHubAccount {
@@ -60555,6 +60755,29 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedDashboardSavedView {
+      readonly id?: string;
+      /**
+         * Name shown in the dashboard list view picker.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Dashboard list filters stored by this view. */
+      filters?: DashboardSavedViewFilters;
+      /** Whether only the creator or all team members can use this view.
+       *
+       * * `private` - Private
+       * * `team` - Team */
+      scope?: DashboardSavedViewScopeEnum;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** Whether the current user can change this view's visibility. */
+      readonly can_change_scope?: boolean;
     }
 
     export interface PatchedDashboardTemplate {
@@ -63091,6 +63314,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable?: boolean;
       /**
          * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
          * @nullable
@@ -65066,9 +65291,9 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced?: boolean;
     }
 
@@ -65999,6 +66224,8 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      delivery_config?: DeliveryConfig;
     }
 
     /**
@@ -66853,6 +67080,7 @@ export namespace Schemas {
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
+       * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
@@ -67155,9 +67383,9 @@ export namespace Schemas {
       readonly product_intents?: readonly PatchedTeamProductIntentsItem[];
       readonly managed_viewsets?: PatchedTeamManagedViewsets;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced?: boolean;
     }
 
@@ -69445,9 +69673,9 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced: boolean;
     }
 
@@ -71452,6 +71680,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -71480,6 +71710,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -71566,6 +71798,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -71591,6 +71825,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -71983,6 +72219,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -72011,6 +72249,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -72097,6 +72337,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -72122,6 +72364,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+      preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -75813,6 +76057,10 @@ export namespace Schemas {
       config?: SignalScoutConfigOptions;
     }
 
+    /**
+     * * `canonical` - canonical
+     * * `custom` - custom
+     */
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -76210,6 +76458,93 @@ export namespace Schemas {
          * @maxItems 200
          */
       run_ids: string[];
+    }
+
+    export interface ScoutSuggestionProposedConfig {
+      /**
+         * Suggested five-field cron schedule in the project timezone, or null for an interval.
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+      /**
+         * Suggested minutes between runs when no cron is given; null means the daily default.
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /** Whether the suggested scout should write to the inbox (false = dry run). */
+      emit: boolean;
+    }
+
+    export interface ScoutSuggestionItem {
+      /** Stable id of this suggestion within the batch; use it to dismiss. */
+      id: string;
+      /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
+       *
+       * * `canonical` - canonical
+       * * `custom` - custom */
+      kind: ScoutOriginEnum;
+      /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
+      skill_name: string;
+      /** Short sentence-case title: what the scout watches. */
+      title: string;
+      /** Project-specific evidence for this suggestion, in prose. */
+      why_here: string;
+      /** Custom only: the one-line description the scout would be created with. */
+      description: string;
+      /** Custom only: the complete skill body the scout would be created with. */
+      draft_body: string;
+      /** Suggested schedule and emit posture. */
+      proposed_config: ScoutSuggestionProposedConfig;
+      /** True when nothing in the current fleet covers this. */
+      gap: boolean;
+      /** The producer's confidence.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high */
+      confidence: ConfidenceTierEnum;
+    }
+
+    export interface ScoutSuggestionRefresh {
+      /** The dispatched refresh workflow id. */
+      workflow_id: string;
+    }
+
+    /**
+     * * `fresh` - Fresh
+     * * `stale` - Stale
+     * * `failed` - Failed
+     * * `empty` - Empty
+     */
+    export type ScoutSuggestionSetStatusEnum = typeof ScoutSuggestionSetStatusEnum[keyof typeof ScoutSuggestionSetStatusEnum];
+
+
+    export const ScoutSuggestionSetStatusEnum = {
+      Fresh: 'fresh',
+      Stale: 'stale',
+      Failed: 'failed',
+      Empty: 'empty',
+    } as const;
+
+    export interface ScoutSuggestionSet {
+      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+       *
+       * * `fresh` - Fresh
+       * * `stale` - Stale
+       * * `failed` - Failed
+       * * `empty` - Empty */
+      status: ScoutSuggestionSetStatusEnum;
+      /**
+         * When the current batch was generated; null before the first run.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** The model that produced the batch, when pinned. */
+      model: string;
+      /** Skill names that were enabled when the batch was generated. */
+      fleet_snapshot: string[];
+      /** Suggestions not yet dismissed or created, best first. Up to 5. */
+      items: ScoutSuggestionItem[];
     }
 
     /**
@@ -77348,6 +77683,21 @@ export namespace Schemas {
          * @nullable
          */
       mentioning_slack_user_id: string | null;
+      /**
+         * Temporal workflow id of the per-conversation mention queue (`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's messages before any run exists. Null when the workspace id cannot be resolved.
+         * @nullable
+         */
+      queue_workflow_id: string | null;
+      /**
+         * Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.
+         * @nullable
+         */
+      queue_workflow_url: string | null;
+      /**
+         * Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.
+         * @nullable
+         */
+      mapping_admin_url: string | null;
     }
 
     /**
@@ -77371,6 +77721,8 @@ export namespace Schemas {
       created_at: string;
       /** Absolute URL to the task detail page in the PostHog app. */
       url: string;
+      /** Absolute URL to the Task row in Django admin. */
+      admin_url: string;
     }
 
     /**
@@ -77429,6 +77781,8 @@ export namespace Schemas {
       log_url: string | null;
       /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
       repo_research: SlackThreadContextRepoResearch | null;
+      /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */
+      admin_url: string;
     }
 
     /**
@@ -83288,6 +83642,7 @@ export namespace Schemas {
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
+       * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
@@ -84687,6 +85042,7 @@ export namespace Schemas {
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
+       * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
@@ -84996,9 +85352,9 @@ export namespace Schemas {
       readonly product_intents: readonly TeamProductIntentsItem[];
       readonly managed_viewsets: TeamManagedViewsets;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced: boolean;
     }
 
@@ -85621,6 +85977,35 @@ export namespace Schemas {
       file: string;
     }
 
+    export interface UploadedMediaStartUpload {
+      /**
+         * The file's display name, e.g. 'logo.png'.
+         * @maxLength 1000
+         */
+      name: string;
+      /**
+         * Library to add this image to once uploaded, e.g. 'email'.
+         * @maxLength 100
+         */
+      purpose: string;
+    }
+
+    /**
+     * Extra form fields to send alongside the file in the same POST.
+     */
+    export type UploadedMediaUploadStartedFormFields = {[key: string]: string};
+
+    export interface UploadedMediaUploadStarted {
+      /** Id of the pending upload — pass this to complete_upload. */
+      readonly id: string;
+      /** POST the image file here as multipart/form-data. */
+      readonly upload_url: string;
+      /** Extra form fields to send alongside the file in the same POST. */
+      readonly form_fields: UploadedMediaUploadStartedFormFields;
+      /** Seconds before upload_url expires. */
+      readonly expires_in: number;
+    }
+
     /**
      * Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.
      * @nullable
@@ -85973,15 +86358,13 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+     * Request body for POST /api/users/verify_email/.
      */
     export interface VerifyEmailRequest {
       /** UUID of the user whose email is being verified. */
       uuid: string;
-      /** Verification token from the emailed link. Required unless a code is provided. */
-      token?: string;
-      /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
-      code?: string;
+      /** The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+      code: string;
     }
 
     /**
@@ -88597,10 +88980,10 @@ export namespace Schemas {
 
     export interface _MetricSamplesBody {
       /**
-         * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+         * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
          * @maxLength 255
          */
-      metricName: string;
+      metricName?: string;
       /** Lower bound (inclusive) for the sample window. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
@@ -88610,6 +88993,11 @@ export namespace Schemas {
          * @maxLength 255
          */
       traceId?: string;
+      /**
+         * Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.
+         * @maxLength 255
+         */
+      spanId?: string;
       /** Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.
        *
        * * `gauge` - gauge
@@ -91412,6 +91800,33 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DashboardSavedViewsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Return saved views with this visibility scope.
+     *
+     * * `private` - Private
+     * * `team` - Team
+     * @minLength 1
+     */
+    scope?: DashboardSavedViewsListScope;
+    };
+
+    export type DashboardSavedViewsListScope = typeof DashboardSavedViewsListScope[keyof typeof DashboardSavedViewsListScope];
+
+
+    export const DashboardSavedViewsListScope = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
 
     export type DashboardTemplatesListParams = {
     /**
@@ -98633,6 +99048,7 @@ export namespace Schemas {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -98767,6 +99183,7 @@ export namespace Schemas {
       Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',
@@ -99077,6 +99494,45 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UploadedMediaListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * The library to list.
+     */
+    purpose: UploadedMediaListPurpose;
+    };
+
+    export type UploadedMediaListPurpose = typeof UploadedMediaListPurpose[keyof typeof UploadedMediaListPurpose];
+
+
+    export const UploadedMediaListPurpose = {
+      Email: 'email',
+    } as const;
+
+    /**
+     * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+     */
+    export type UploadedMediaCreateBodyPurpose = typeof UploadedMediaCreateBodyPurpose[keyof typeof UploadedMediaCreateBodyPurpose];
+
+
+    export const UploadedMediaCreateBodyPurpose = {
+      Email: 'email',
+    } as const;
+
+    export type UploadedMediaCreateBody = {
+      /** Image file. Must be under 4MB and a real, decodable image. */
+      image: Blob;
+      /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+      purpose?: UploadedMediaCreateBodyPurpose;
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
