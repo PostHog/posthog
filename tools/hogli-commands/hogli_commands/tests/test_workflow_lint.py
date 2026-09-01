@@ -1194,8 +1194,9 @@ class TestCli:
 # The shape these fixtures guard against: a `changes` detector cleared with a bare
 # `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
 # are empty on a cancelled job, so the gate exits 0 green with no tests run.
-def _gate(body: str, condition: str = "${{ !cancelled() }}", step_condition: str | None = None) -> str:
+def _gate(body: str, condition: str | None = "${{ !cancelled() }}", step_condition: str | None = None) -> str:
     step_if = f"if: {step_condition}\n            " if step_condition is not None else ""
+    job_if = f"        if: {condition}\n" if condition is not None else ""
     return f"""
     name: ci-thing
     on: pull_request
@@ -1212,8 +1213,7 @@ def _gate(body: str, condition: str = "${{ !cancelled() }}", step_condition: str
         name: Thing Tests Pass
         needs: [changes, build]
         timeout-minutes: 5
-        if: {condition}
-        steps:
+{job_if}        steps:
           - {step_if}run: |
 {textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
 """
@@ -1431,6 +1431,7 @@ class TestRequiredGateCheck:
             _gate(PAREN_LABEL_CALL_BODY),
             ENV_LOOP_GATE,
             _gate(SAFE_BODY, step_condition="${{ !cancelled() }}"),
+            _gate(SAFE_BODY, condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}"),
         ],
         ids=[
             "inline-allowlist",
@@ -1442,6 +1443,7 @@ class TestRequiredGateCheck:
             "helper-call-with-parens-in-label",
             "env-block-loop",
             "step-level-not-cancelled",
+            "not-cancelled-or-deterministic-failure",
         ],
     )
     def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
@@ -1460,12 +1462,14 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
 
+    # A gate with no condition defaults to success(), so it disappears the moment a
+    # dependency fails — the fail-open this rule exists to stop.
     @pytest.mark.parametrize(
         "condition",
-        ["always()", "${{ !cancelled() && false }}", "${{ cancelled() }}"],
-        ids=["bare-always", "conditional-not-cancelled", "unnegated-cancelled"],
+        ["always()", "${{ !cancelled() && false }}", "${{ cancelled() }}", None],
+        ids=["bare-always", "conditional-not-cancelled", "unnegated-cancelled", "no-condition"],
     )
-    def test_flags_gate_condition_other_than_not_cancelled(self, tmp_path: Path, condition: str) -> None:
+    def test_flags_gate_condition_other_than_not_cancelled(self, tmp_path: Path, condition: str | None) -> None:
         _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition=condition))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1
@@ -1535,7 +1539,7 @@ class TestRequiredGateCheck:
     def test_finds_off_convention_gate_without_not_cancelled(self, tmp_path: Path) -> None:
         _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="always()"))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
-        assert any("unconditional `if: ${{ !cancelled() }}`" in issue.message for issue in issues)
+        assert any("must use `if: ${{ !cancelled() }}`" in issue.message for issue in issues)
         assert [issue.message.split("'")[1] for issue in issues if "dependency" in issue.message] == ["changes"]
 
     def test_finds_env_routed_gate_not_named_pass(self, tmp_path: Path) -> None:

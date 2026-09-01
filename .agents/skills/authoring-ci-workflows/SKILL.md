@@ -99,13 +99,35 @@ Gates and the workers they inspect share the **same** condition:
 | Gate    | `if: ${{ !cancelled() }}` | It emits an explicit verdict on every completed run, and a superseded run records `cancelled`, not `failure`. |
 | Workers | `if: !cancelled()`        | So a superseded run actually stops instead of holding the concurrency slot.                                   |
 
-The gate condition must be exactly `!cancelled()`, with optional `${{ }}` wrapping.
-Adding another predicate can skip the required check on a live run, so `!cancelled() && <condition>` is rejected.
-`always()` is also rejected: it is identical to `!cancelled()` on any run that is not cancelled, but on a superseded run it runs the gate after the cancel and reports `failure`, which inflates every CI failure-rate metric with runs a developer merely pushed over.
+The gate condition must contain `!cancelled()`, with optional `${{ }}` wrapping.
+`always()` is rejected: it is identical to `!cancelled()` on any run that is not cancelled, but on a superseded run it runs the gate after the cancel and reports `failure`, which inflates every CI failure-rate metric with runs a developer merely pushed over.
+
+**Extra predicates may only be OR-ed on, never AND-ed.**
+This is a correctness rule, not a style one.
+A conjunction gives the gate a second way to be false, and a job skipped by its own condition records `skipped`, which branch protection reads as a pass.
+Both conclusions occur in the same cancelled run: in [run 33496887370](https://github.com/PostHog/posthog/actions/runs/33496887370) `Calculate running time` recorded `cancelled` while `Backend coverage report` recorded `skipped`, because an AND-ed predicate of its own was already false.
+A disjunction cannot be false while `!cancelled()` is true, so cancellation stays the gate's one false predicate and the conclusion stays `cancelled`.
 
 Cancellation still fails closed.
-A `!cancelled()` job that never starts records conclusion `cancelled`, never `skipped`, and branch protection passes only `success`/`skipped`/`neutral`, so a cancelled required check cannot merge.
-Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`).
+A gate on `!cancelled()` that never starts records conclusion `cancelled`, never `skipped`.
+Measured on a superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529762)): the gate recorded `cancelled` with zero steps, while the `always()` control ran after the cancel and recorded `failure`.
+GitHub's [status checks reference](https://docs.github.com/en/pull-requests/reference/status-checks) lists `success`/`neutral`/`skipped` as passing and never places `cancelled` among them, and a commit whose only checks are cancelled rolls up to `FAILURE` ([evidence](https://github.com/PostHog/posthog/actions/runs/33513732017)).
+That is inference rather than a documented guarantee, which is the reason for the next rule.
+
+**A workflow that cancels its own run must OR that signal onto its gate.**
+`ci-backend` cancels itself when repo checks or OpenAPI types fail deterministically, to stop paying for runners on a failure a retry cannot fix.
+Under a bare `!cancelled()` those real failures would report `cancelled` too, which both hides them from the failure-rate metric and rests merge safety on the inference above.
+OR-ing the deterministic-failure output back on keeps the honest verdict, because the disjunct is true, so the gate dispatches despite the cancel:
+
+```yaml
+if: >
+  !cancelled()
+  || needs.repo-checks.outputs.deterministic_failure == 'true'
+  || needs.check-openapi-types.outputs.deterministic_failure == 'true'
+```
+
+Measured on a self-cancelled run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529687)): the bare `!cancelled()` gate recorded `cancelled`, the OR-ed gate ran and recorded `failure`.
+Only superseded runs then report `cancelled`, and every real failure keeps a `failure` conclusion.
 
 Four rules for the gate body:
 

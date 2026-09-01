@@ -10,6 +10,12 @@ dependencies' ``needs.*.result``. Two properties keep it honest:
    failure-rate metrics stop counting superseded runs as failures. ``always()``
    would instead run the gate after the cancel and report ``failure``.
 
+   Extra predicates may only be OR-ed on. A disjunction cannot be false while
+   ``!cancelled()`` is true, so cancellation stays the gate's one false predicate
+   and the conclusion stays ``cancelled``. A conjunction gives the gate a second
+   way to be false, and a job skipped by its own condition records ``skipped``,
+   which branch protection reads as a pass.
+
 2. Allowlist **per dependency** — assert ``success``/``skipped`` and block
    everything else. One bad dependency is enough, so judging the step as a whole
    would call a mostly-correct gate clean. The trap is a ``changes`` detector
@@ -159,6 +165,21 @@ def _condition_matches(condition: object, pattern: re.Pattern[str]) -> bool:
 
 def _uses_only_not_cancelled(condition: object) -> bool:
     return _condition_matches(condition, NOT_CANCELLED)
+
+
+def _gate_condition_ok(condition: object) -> bool:
+    """``!cancelled()``, alone or OR-ed with predicates that can only widen it.
+
+    ci-backend cancels its own run when a repo or OpenAPI check fails
+    deterministically, so under a bare ``!cancelled()`` a real failure would
+    report ``cancelled``. OR-ing that signal back on keeps the honest verdict:
+    the disjunct is true, so the gate dispatches despite the cancel and reports
+    ``failure``. ``&&`` anywhere is rejected — see the module docstring.
+    """
+    normalized = _normalized_condition(condition)
+    if normalized is None or "&&" in normalized:
+        return False
+    return any(NOT_CANCELLED.fullmatch(term.strip()) for term in normalized.split("||"))
 
 
 def _step_runs_whenever_gate_runs(condition: object) -> bool:
@@ -353,10 +374,11 @@ def _dependencies(job: Job) -> set[str]:
 
 
 def _problems(job: Job) -> Iterator[str]:
-    if not _uses_only_not_cancelled(job.raw.get("if")):
+    if not _gate_condition_ok(job.raw.get("if")):
         yield (
-            "required-check gate must use unconditional `if: ${{ !cancelled() }}` so it emits a verdict "
-            "on every completed run and reports `cancelled` (not `failure`) when superseded"
+            "required-check gate must use `if: ${{ !cancelled() }}` so it emits a verdict on every "
+            "completed run and reports `cancelled` (not `failure`) when superseded. Extra predicates "
+            "may only be OR-ed on; `&&` lets the gate skip, which branch protection reads as a pass"
         )
 
     step_traces = [_trace_step(job, step) for step in job.steps]
@@ -378,7 +400,8 @@ class RequiredGateCheck(WorkflowCheck):
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Use only `if: ${{ !cancelled() }}` on the gate, and test every dependency as "
+            "Use `if: ${{ !cancelled() }}` on the gate, OR-ing on any extra predicate rather than "
+            "`&&`-ing it, and test every dependency as "
             '`!= "success" && != "skipped"` rather than `== "failure"`. Inline tests, an `env:` '
             "block and a shared shell helper all work, so long as the failing branch exits nonzero. "
             "A job that reads results without gating anything opts out with "
