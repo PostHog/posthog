@@ -45,6 +45,16 @@ export function sanitizeRetentionInterval(rawValue: string): { value: number; ex
     return { value: parsed, exceededMax: false }
 }
 
+// Coerce a typed bracket count to a whole number of at least 1, or undefined to clear the row.
+// A fractional value that rounds below 1, or a non-finite value from a cleared field, would
+// otherwise be dropped by the retention listener and silently remove the bracket.
+export function sanitizeCustomBracket(rawValue: number | undefined): number | undefined {
+    if (rawValue === undefined || !Number.isFinite(rawValue)) {
+        return undefined
+    }
+    return Math.max(1, Math.round(rawValue))
+}
+
 const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
     { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
@@ -152,7 +162,7 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                             min={1}
                             step={1}
                             onChange={(value) => {
-                                updateLocalCustomBracket(index, value === undefined ? undefined : Math.round(value))
+                                updateLocalCustomBracket(index, sanitizeCustomBracket(value))
                             }}
                         />
                         <LemonButton
