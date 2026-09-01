@@ -603,9 +603,9 @@ export interface metricsViewerLogicMeta {
         namedClauses: (viewerClauses: MetricsViewerClause[]) => MetricsViewerClause[]
         hasMetricName: (namedClauses: MetricsViewerClause[]) => boolean
         queryPayload: (namedClauses: MetricsViewerClause[], formula: string) => MetricsQueryRequestBody | null
-        queryFingerprint: (queryPayload: any) => string
+        queryFingerprint: (queryPayload: MetricsQueryRequestBody | null) => string
         anomalyQuery: (namedClauses: MetricsViewerClause[], formula: string) => MetricsAnomalyRequestBody | null
-        anomalyFingerprint: (anomalyQuery: any) => string
+        anomalyFingerprint: (anomalyQuery: MetricsAnomalyRequestBody | null) => string
         metricsDisplay: (
             displayType: MetricsDisplayType,
             goalLines: GoalLine[],
