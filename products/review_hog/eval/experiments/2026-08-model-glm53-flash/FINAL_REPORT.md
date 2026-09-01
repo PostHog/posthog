@@ -11,7 +11,7 @@
 - The comparison is tilted **in GLM's favor**; its results below are its ceiling on this stack, not its floor.
 - Shipping GLM in prod would require shipping the same tools-mode override (or new prompt plumbing for exec mode). Without it, GLM reviews blind.
 
-Also fixed on the way and kept as a real fix for a PR: `REVIEW_MCP_SCOPES` on master lacks `project:read`, which the MCP handshake requires — sessions get refused and reviews silently run skill-less (separate handoff: `/tmp/reviewhog-mcp-project-read-scope.md`).
+Also kept on this branch: `project:read` added to `REVIEW_MCP_SCOPES`. A later investigation disproved the first read of the "missing scope: project:read" warning — the handshake's project fetch is best-effort and never refuses a connection (the only refusing scope is `user:read`, fixed earlier in #88697). The scope stays for attribution on MCP analytics events, the active-project line in the environment prompt, and one less captured exception per session.
 
 ## Setup
 
@@ -59,16 +59,16 @@ The cost is genuinely remarkable — $0.02–0.05 per verdict vs Opus's $1.06 �
 
 ## Bugs found on the way
 
-- **`REVIEW_MCP_SCOPES` is missing `project:read` on master** — the MCP handshake requires it; without it every review session is refused and the review runs skill-less. Fixed on this branch (the one intentional surviving diff); prod investigation handed off separately.
+- **The "missing scope: project:read" warning is non-fatal** — first read as a handshake refusal, later disproven: the project fetch is best-effort, and the only scope whose absence refuses a session is `user:read` (#88697, already fixed). `project:read` was still added to `REVIEW_MCP_SCOPES` (the one surviving diff) for analytics attribution, the environment-prompt project line, and less error-tracking noise.
 - **The skill-fetch prompt says `skill-get(...)` but non-allowlisted MCP clients get an exec-only surface** since #69629 — Claude/Codex models bridge the gap, GLM does not. Prompt wording or a tools-mode header needs to be a deliberate choice, not luck (FINDINGS item 5).
 - Zero-token `claude-opus-4-8` rows can appear in the usage stream when a validation session's calls fail — watch for them as a session-death signature.
 
 ## Ops notes for the next experiment
 
-`FINDINGS.md` items 1–12 carry the full list (Baseten exclusivity, tools-mode override, worker-wedge remedy, image rebuild costs, watchdog design — watch ngrok traffic age and skip Go zero timestamps, not harness-log mtime). The night itself ran clean: four runs, zero wedges, zero tunnel outages, all four effort/model guards green, scoring fanned out over 68 workflow agents with zero errors.
+`FINDINGS.md` items 1–13 carry the full list (Baseten exclusivity, tools-mode override, worker-wedge remedy, image rebuild costs, watchdog design — watch ngrok traffic age and skip Go zero timestamps, not harness-log mtime). The night itself ran clean: four runs, zero wedges, zero tunnel outages, all four effort/model guards green, scoring fanned out over 68 workflow agents with zero errors.
 
 ## Recommendation
 
 1. **Keep the prod pins**: Sol @ xhigh reviewer, Opus 5 @ xhigh validator. GLM 5.3 Flash joins neither seat.
-2. **Land the `project:read` scope fix** from this branch — it is a real prod bug independent of GLM.
+2. **Land the `project:read` scope addition** from this branch — not a bug fix, but it gives MCP sessions proper project attribution and quiets a per-session captured exception.
 3. If a future flash-class model is retried, budget the tools-mode question first (FINDINGS 5), and check validator **coverage** (every finding gets a verdict) before judging precision/recall — it is the metric the standard table hides.

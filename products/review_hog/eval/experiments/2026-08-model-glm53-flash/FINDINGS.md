@@ -23,11 +23,13 @@ Run-by-run results stay in [PLAN.md](./PLAN.md); this file carries the traps.
    `RESTRICTED_MODEL_PRODUCTS` entry. Both marked `EXPERIMENT local-only, revert`. Restart the
    `llm-gateway` phrocs process after (it sources `.env` at start). Probe before any run:
    `curl localhost:3308/background_agents/v1/models` must list the model.
-4. **MCP handshake scope creep.** `REVIEW_MCP_SCOPES` needed `project:read` on top of
-   `llm_skill:read` + `user:read` — the MCP server now also resolves `/api/projects/<id>/` at
-   session open (mcp process log: "missing scope: project:read"). Same silent-failure class as
-   #88697: the agent runs without its skill and nothing errors. ALWAYS smoke `skill-get` in a
-   sandbox before an experiment night. Candidate upstream fix PR (like #88697) — flag to Alex.
+4. **The "missing scope: project:read" log line is a red herring.** A later investigation
+   (2026-08-31) disproved the first read of it: the MCP handshake's project fetch is best-effort,
+   so `project:read` is NOT required to connect — the only scope whose absence refuses the
+   connection is `user:read` (the real silent-failure class, fixed in #88697). We still added
+   `project:read` to `REVIEW_MCP_SCOPES` for what it actually buys: project attribution on MCP
+   analytics events, the active-project line in the environment prompt, and one less captured
+   exception per session. ALWAYS smoke `skill-get` in a sandbox before an experiment night.
 5. **⚠️ READ BEFORE TRUSTING THE FINAL REPORT — GLM cannot fetch its skill on the default MCP
    surface, so this experiment runs a local MCP-mode override.** Since #69629 (2026-07-09) the
    MCP server defaults every non-allowlisted client (sandbox agents included) to CLI mode:
