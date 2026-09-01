@@ -1597,7 +1597,7 @@
             "label": "External click URL"
         },
         "$feature_flag": {
-            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
+            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
                 "beta-feature"
             ],
@@ -2332,6 +2332,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -4011,6 +4022,12 @@
             "label": "Exception",
             "primary_property": "$exception_types"
         },
+        "$experiment_exposure": {
+            "description": "When a user is exposed to an experiment variant.",
+            "ignored_in_assistant": true,
+            "label": "Experiment exposure",
+            "primary_property": "$feature_flag"
+        },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
             "description_llm": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
@@ -4553,6 +4570,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -6188,7 +6216,7 @@
             "label": "External click URL"
         },
         "$feature_flag": {
-            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
+            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
                 "beta-feature"
             ],
@@ -7340,6 +7368,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
