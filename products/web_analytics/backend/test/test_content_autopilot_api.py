@@ -9,8 +9,8 @@ from rest_framework import status
 from posthog.models import Organization, Team
 from posthog.rate_limit import ContentAutopilotDiscoveryBurstRateThrottle
 
-from products.web_analytics.backend.api.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
 from products.web_analytics.backend.models import ContentAutopilotProposal, ContentAutopilotRun
+from products.web_analytics.backend.presentation.views.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
 from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
     create_content_autopilot_profile,
@@ -32,7 +32,7 @@ class TestContentAutopilotAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.web_analytics.backend.api.content_autopilot.posthog_feature_flag_enabled",
+            "products.web_analytics.backend.presentation.views.content_autopilot.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()
@@ -130,7 +130,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "domain")
 
-    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_editable_onboarding_defaults(self, discover_site: MagicMock) -> None:
         discover_site.return_value = DISCOVERED_SITE
 
@@ -143,7 +143,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["source_urls"], ["https://example.com/sitemap.xml"])
 
-    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_a_validation_error_for_a_typed_fetch_failure(self, discover_site: MagicMock) -> None:
         discover_site.side_effect = PublicUrlFetchError("transport", "The site could not be inspected safely.")
 
@@ -157,7 +157,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.json()["attr"], "domain")
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_is_throttled_for_the_session_authenticated_ui(
         self, discover_site: MagicMock, _rate_limit_enabled: MagicMock
     ) -> None:
