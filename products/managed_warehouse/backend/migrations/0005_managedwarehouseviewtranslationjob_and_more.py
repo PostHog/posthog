@@ -87,7 +87,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="managed_warehouse_view_translation_jobs",
+                        related_name="+",
                         to="posthog.organization",
                     ),
                 ),
@@ -153,7 +153,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="managed_warehouse_view_translation_results",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),

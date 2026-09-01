@@ -174,7 +174,7 @@ class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, U
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="managed_warehouse_view_translation_jobs",
+        related_name="+",
         db_constraint=False,
     )
     created_by = models.ForeignKey(
@@ -232,7 +232,7 @@ class ManagedWarehouseViewTranslationResult(TeamScopedRootMixin, UpdatedMetaFiel
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
-        related_name="managed_warehouse_view_translation_results",
+        related_name="+",
         db_constraint=False,
     )
     saved_query_id = models.UUIDField()
