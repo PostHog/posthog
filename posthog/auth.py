@@ -1245,19 +1245,25 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         return "Bearer"
 
 
+# Routes register the /api/projects/:id/ segment under either a team or a project kwarg
+# depending on the viewset (routing treats the URL project id as the team id). Missing any
+# spelling here means a token for one team authenticates on that route for another team.
+_TEAM_ID_URL_KWARGS = ("parent_lookup_team_id", "team_id", "parent_lookup_project_id", "project_id")
+
+
 def _team_id_from_request_path(request: Request) -> Optional[str]:
     parser_context = getattr(request, "parser_context", None)
     if isinstance(parser_context, dict):
         kwargs = parser_context.get("kwargs")
         if isinstance(kwargs, dict):
-            for lookup in ("parent_lookup_team_id", "team_id"):
+            for lookup in _TEAM_ID_URL_KWARGS:
                 if kwargs.get(lookup) is not None:
                     return str(kwargs[lookup])
 
     django_request = getattr(request, "_request", request)
     resolver_match = getattr(django_request, "resolver_match", None)
     if resolver_match and getattr(resolver_match, "kwargs", None):
-        for lookup in ("parent_lookup_team_id", "team_id"):
+        for lookup in _TEAM_ID_URL_KWARGS:
             team_id = resolver_match.kwargs.get(lookup)
             if team_id is not None:
                 return str(team_id)
