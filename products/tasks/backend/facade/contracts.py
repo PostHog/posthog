@@ -211,6 +211,7 @@ class ChannelDTO:
     channel_type: str
     github_integration: int | None
     repositories: list[str]
+    auto_archive_after_days: int | None
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False

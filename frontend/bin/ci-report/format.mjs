@@ -47,3 +47,14 @@ export function totalComparison(bytes, baselineBytes, { warningThresholdPercent 
         totalLine: `**Total:** ${formatBytes(bytes)} · ${formatDelta(bytes, baselineBytes)}`,
     }
 }
+
+// Makes untrusted text safe for a cell in a section's markdown table. Section
+// writers interpolate PR-controlled strings (file paths, identifiers); git
+// allows filenames containing backticks, pipes, and newlines, and the report
+// parser treats `<!-- ci-report:section:... -->` sequences in the raw comment
+// body as trusted section metadata. Stripping control characters removes the
+// newlines those markers require, and removing backticks and pipes keeps the
+// surrounding table well-formed.
+export function markdownCell(value) {
+    return String(value).replace(/[`|\p{C}]/gu, '')
+}

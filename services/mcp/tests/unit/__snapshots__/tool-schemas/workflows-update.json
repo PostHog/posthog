@@ -64,9 +64,10 @@
                                             },
                                             "source": {
                                                 "default": "events",
-                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                                "description": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
                                                 "enum": [
                                                     "events",
+                                                    "internal-events",
                                                     "person-updates",
                                                     "data-warehouse-table",
                                                     "data-warehouse-view"

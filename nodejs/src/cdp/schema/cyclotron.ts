@@ -32,6 +32,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_model',
         'task_repository',
         'task_mcp_installations',
+        'signals_scout',
     ]),
     key: z.string(),
     label: z.string(),
@@ -115,6 +116,19 @@ export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
     session_token_input: z.string().optional(),
 })
 
+// When `standard_webhooks` is present on a fetch queue payload, the cyclotron
+// fetch executor signs the request per the Standard Webhooks spec immediately
+// before each attempt. Like `aws_sigv4` above, `secret_input` is an input-key
+// reference resolved at fetch time, because the queue payload is plaintext JSON.
+// `webhook_id` is minted per fetch call by the fetch async function and lives in
+// the payload so retries of that call reuse it: the spec makes it the receiver's
+// idempotency key, so it must stay constant across attempts of one delivery and
+// differ between two deliveries, including two in the same invocation.
+export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.object({
+    secret_input: z.string(),
+    webhook_id: z.string(),
+})
+
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),
     url: z.string(),
@@ -123,6 +137,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     max_tries: z.number().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
+    standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
@@ -163,6 +178,9 @@ export type PushNotificationPayloadType = z.infer<typeof PushNotificationPayload
 
 export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
     typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
+>
+export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchStandardWebhooksSchema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>

@@ -59,7 +59,7 @@ def build_model(facet: str, values: list[str]) -> type[BaseModel]:
     still lets the model invent values. A 500-session run produced `unclarified`,
     `unclar` and `unclassified` alongside the `unclear` it was given.
     """
-    facet_enum = Enum(f"{facet.title()}Value", {v: v for v in values}, type=str)
+    facet_enum = Enum(f"{facet.title()}Value", {v: v for v in values}, type=str)  # ty: ignore[mismatched-type-name]
     return create_model(
         "Facet",
         goal=(str, Field(description="Generalized starting intention, 3-8 words, imperative, no proper nouns")),

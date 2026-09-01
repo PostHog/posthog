@@ -501,8 +501,9 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     Never raises: the footer is the last thing added to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
 
-    Describes the run in full, links included. Whether the reader may open them is
-    ``viewer_has_code_access``'s question, asked where the reader is known.
+    Describes the run in full, links included. Whether the reader gets the desktop link
+    is ``viewer_has_code_access``'s question, asked where the reader is known; the web
+    link is for everyone, since the task page enforces access itself.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.

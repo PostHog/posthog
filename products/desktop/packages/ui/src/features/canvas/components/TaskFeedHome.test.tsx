@@ -11,8 +11,8 @@ vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
   useSetHeaderContent: vi.fn(),
 }));
-vi.mock("@posthog/ui/features/canvas/components/ChannelBreadcrumb", () => ({
-  ChannelBreadcrumb: () => null,
+vi.mock("@posthog/ui/features/canvas/components/SavedSearchSwitcher", () => ({
+  SavedSearchSwitcher: () => null,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelFeedView", () => ({
   ChannelFeedView: ({ intro }: { intro?: ReactNode }) => intro,

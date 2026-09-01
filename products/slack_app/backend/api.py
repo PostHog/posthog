@@ -60,9 +60,7 @@ from products.slack_app.backend.discussion_replies import try_ingest_discussion_
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
-    is_slack_app_assistant_flag_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
@@ -382,18 +380,13 @@ def resolve_slack_user(
         # path on miss so this stays additive — a workspace with no links
         # behaves exactly like before.
         #
-        # The link lookup runs FIRST (two cheap indexed queries) and the flag
-        # check only fires when a row is found, and on the email-mismatch
-        # failure branch below to decide whether to offer the invite button.
-        # Both checks are local-evaluation only (`only_evaluate_locally=True`),
-        # so calling twice on the rare both-branches path is essentially free.
         linked_user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
             candidate_org_ids={integration.team.organization_id},
         )
 
-        if linked_user is not None and is_slack_app_oauth_enabled(integration, slack_team_id):
+        if linked_user is not None and is_slack_app_oauth_enabled(integration):
             user_permissions = UserPermissions(user=linked_user, team=integration.team)
             if user_permissions.current_team.effective_membership_level is None:
                 logger.warning(
@@ -476,7 +469,7 @@ def resolve_slack_user(
                     ),
                     prefer_thread_message=True,
                 )
-                if is_slack_app_oauth_enabled(integration, slack_team_id):
+                if is_slack_app_oauth_enabled(integration):
                     invite_url = build_invite_url(
                         slack_user_id=slack_user_id,
                         slack_team_id=slack_team_id,
@@ -1367,20 +1360,16 @@ def _resolve_untagged_followup_mapping(
     candidates: list[Integration],
     channel: str | None,
     thread_ts: str | None,
-    slack_team_id: str,
 ) -> SlackThreadTaskMapping | None:
-    """Look up a ``SlackThreadTaskMapping`` for an untagged thread reply and
-    confirm the integration's org has opted in via the feature flag.
+    """Look up the ``SlackThreadTaskMapping`` for an untagged thread reply.
 
     Returns the mapping when the message should enter the shared routing
-    pipeline; ``None`` when it should drop. Two distinct ``None`` cases —
-    no mapping (thread we don't own) and FF off — are logged separately so
-    rollout dashboards can tell them apart.
+    pipeline; ``None`` when the thread isn't ours and it should drop.
     """
     candidate_ids = [c.id for c in candidates]
     # ``task`` is fetched separately inside the classifier activity — the
-    # handler hot path only needs the integration (for the FF check + the
-    # ``mention_target`` override downstream).
+    # handler hot path only needs the integration (for the ``mention_target``
+    # override downstream).
     mapping = (
         SlackThreadTaskMapping.objects.filter(
             integration_id__in=candidate_ids,
@@ -1390,17 +1379,6 @@ def _resolve_untagged_followup_mapping(
         .select_related("integration", "integration__team")
         .first()
     )
-    if mapping is None:
-        return None
-    if not is_slack_app_untagged_thread_followups_enabled(mapping.integration, slack_team_id):
-        logger.info(
-            "slack_app_thread_message_feature_flag_off",
-            slack_team_id=slack_team_id,
-            channel=channel,
-            thread_ts=thread_ts,
-            integration_id=mapping.integration_id,
-        )
-        return None
     return mapping
 
 
@@ -1600,16 +1578,14 @@ def resolve_posthog_user_from_event(
         return None
 
     # Linked-user path: short-circuit the email match when the user has bound
-    # their Slack identity to a PostHog account. The cheap indexed lookup
-    # runs first; the feature-flag gate only fires when a row is found so
-    # workspaces with no linked users don't pay for the flag evaluation.
+    # their Slack identity to a PostHog account.
     slack_team_id = probe_integration.integration_id
     linked_user = find_linked_posthog_user(
         slack_user_id=slack_user_id,
         slack_team_id=slack_team_id,
         candidate_org_ids=org_ids,
     )
-    if linked_user is not None and is_slack_app_oauth_enabled(probe_integration, slack_team_id):
+    if linked_user is not None and is_slack_app_oauth_enabled(probe_integration):
         return linked_user if linked_user.is_active else None
 
     if slack_email is None:
@@ -1714,7 +1690,7 @@ def _post_user_resolution_failure_reply(
     posted = _post_slack_user_feedback(
         slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True
     )
-    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe, probe.integration_id):
+    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe):
         invite_url = build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=probe.integration_id,
@@ -1975,12 +1951,6 @@ def _route_assistant_event(
 
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
 
-    # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
-    # The flag alone, not the full gate — a workspace that opted in but is missing scopes should
-    # hear that from `_handle_assistant_dm_message`, not be silently ignored.
-    if not is_slack_app_assistant_flag_enabled(probe.team):
-        return ROUTE_HANDLED_LOCALLY
-
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
     # against projects the resolved PostHog user can actually access (no cross-org metadata leak).
     resolution = resolve_user_for_workspace(
@@ -1990,7 +1960,7 @@ def _route_assistant_event(
         event_id=event_id,
     )
     if resolution.user is None:
-        # Flag is on but the Slack user isn't a resolvable org member — tell them why (DMs only).
+        # The Slack user isn't a resolvable org member — tell them why (DMs only).
         if event_type == "message":
             _post_assistant_unavailable(SlackIntegration(probe), fields.dm_channel_id, fields.thread_ts)
         return ROUTE_HANDLED_LOCALLY
@@ -2275,15 +2245,14 @@ def route_posthog_code_event_to_relevant_region(
             if ingested:
                 return ROUTE_HANDLED_LOCALLY
 
-        # Threads we don't own (and orgs that haven't opted in) are dropped here
-        # so the rest of the pipeline only runs for actionable messages.
+        # Threads we don't own are dropped here so the rest of the pipeline
+        # only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
         if event_type == "message":
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
                 candidates=workspace_result.candidates,
                 channel=channel_str,
                 thread_ts=thread_ts_str,
-                slack_team_id=slack_team_id,
             )
             if untagged_followup_mapping is None:
                 return ROUTE_HANDLED_LOCALLY
@@ -2865,9 +2834,8 @@ def _route_team_join(
     member gets the DM: it grants no access on its own — the assistant
     resolves and authorizes the user on every interaction, offering the
     account-linking flow when their email doesn't match — so eligibility
-    sorts itself out on first use. The ``slack-app-assistant`` flag is the
-    per-install opt-in that keeps the DM dark for workspaces that haven't
-    enabled the assistant.
+    sorts itself out on first use. The DM stays dark for installs that lack
+    the assistant scopes.
     """
     joiner = event.get("user") if isinstance(event.get("user"), dict) else None
     slack_user_id = joiner.get("id") if joiner else None
@@ -3232,9 +3200,7 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         .select_related("team__organization")
         .first()
     )
-    # A flag turned off between prompt and click means the whole untagged path is
-    # dark again; an unresolvable clicker means we have nobody to run as.
-    if integration is None or not is_slack_app_untagged_thread_followups_enabled(integration, slack_team_id):
+    if integration is None:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
 
