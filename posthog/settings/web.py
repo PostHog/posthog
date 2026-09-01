@@ -586,6 +586,7 @@ SPECTACULAR_SETTINGS = {
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardSavedViewScopeEnum": "products.dashboards.backend.models.dashboard_saved_view.DashboardSavedView.Scope",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
@@ -676,6 +677,8 @@ SPECTACULAR_SETTINGS = {
             None,
         ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+        # Shared by FileDownloadHogQLRequest.model and FileDownloadCountRowsRequest.model.
+        "FileDownloadHogQLModelEnum": ["hogql"],
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",

@@ -30,8 +30,11 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import {
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { useCodexSubscription } from "@posthog/ui/features/settings/useCodexSubscription";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -364,7 +367,8 @@ export function TaskInput({
     !!channelContextPath || (!!channelContext && !channelContextDismissed);
 
   const adapter = lastUsedAdapter;
-  const codexSubscription = useCodexSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
 
   // Applying a prefilled prompt replaces whatever the composer had, so it must
@@ -501,6 +505,20 @@ export function TaskInput({
     adapter === "codex" &&
     workspaceMode !== "cloud" &&
     codexSubscription.needsConnection;
+
+  const showClaudeNotConnectedNotice =
+    runtime !== "pi" &&
+    adapter === "claude" &&
+    workspaceMode !== "cloud" &&
+    claudeSubscription.needsConnection;
+
+  const composerModelAccess =
+    runtime === "pi"
+      ? undefined
+      : subscriptionModelAccess(
+          adapter === "codex" ? codexSubscription : claudeSubscription,
+          workspaceMode,
+        );
 
   const {
     repositories: visibleCloudRepositories,
@@ -1573,6 +1591,8 @@ export function TaskInput({
                         onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
+                        modelAccess={composerModelAccess}
+                        showBillingMenu
                       />
                     )
                   }
@@ -1583,6 +1603,19 @@ export function TaskInput({
                     if (canSubmit) void submitTask();
                   }}
                 />
+                {showClaudeNotConnectedNotice && (
+                  <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
+                    Claude is set to use your Claude plan, but no account is
+                    logged in. Sessions use PostHog credits.{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => openSettings("harness")}
+                    >
+                      Log in in Settings
+                    </button>
+                  </div>
+                )}
                 {showCodexNotConnectedNotice && (
                   <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
                     Codex is set to use your ChatGPT plan, but no account is
