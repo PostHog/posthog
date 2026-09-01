@@ -33,7 +33,7 @@ import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam } from '~/tests/helpers/sql'
 import { Person, Team } from '~/types'
 
 describe('createProcessPersonsStep', () => {
@@ -64,7 +64,6 @@ describe('createProcessPersonsStep', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
         const organizationId = await createOrganization(infra.postgres)
         teamId = await createTeam(infra.postgres, organizationId)

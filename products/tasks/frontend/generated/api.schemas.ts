@@ -8,15 +8,10 @@
  * OpenAPI spec version: 1.0.0
  */
 export interface LegacyDesktopAccessResponseApi {
-    /** Whether the user has legacy PostHog Desktop access. */
+    /** Whether the current project can use PostHog Desktop. */
     has_access: boolean
     /** Whether the independent Loops feature is enabled. */
     has_loops_access: boolean
-}
-
-export interface CodeInviteRedeemRequestApi {
-    /** @maxLength 50 */
-    code: string
 }
 
 /**
@@ -849,16 +844,22 @@ export interface SandboxCustomImageBuildApi {
 }
 
 /**
- * List response for sandbox environments (subset of fields).
+ * A sandbox environment, as returned by list, detail, create and update.
  */
 export interface SandboxEnvironmentDTOApi {
     id: string
     name: string
     network_access_level: string
     allowed_domains?: string[]
+    include_default_domains: boolean
     repositories?: string[]
+    /** Whether any environment variables are set on this environment. */
+    has_environment_variables?: boolean
+    /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+    environment_variable_keys?: string[]
     private: boolean
     internal: boolean
+    effective_domains?: string[]
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     created_at?: string | null
@@ -1102,6 +1103,8 @@ export interface ChannelDTOApi {
     /** @nullable */
     github_integration: number | null
     repositories: string[]
+    /** @nullable */
+    auto_archive_after_days: number | null
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
@@ -1202,6 +1205,13 @@ export interface PatchedChannelUpdateApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+    /**
+     * Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_archive_after_days?: number | null
 }
 
 export interface ChannelDeleteConflictApi {
@@ -1287,6 +1297,54 @@ export interface OnboardingSessionApi {
     task_id: string
 }
 
+export interface OnboardingSessionTestApi {
+    /**
+     * Company domain to research. Blank simulates a personal email address.
+     * @maxLength 253
+     */
+    company_domain?: string
+    /** Whether the user is joining an organization that already has shared context. */
+    joining_existing_organization?: boolean
+    /** Whether the project has ingested events. */
+    has_events?: boolean
+    /**
+     * Number of findings waiting in #general.
+     * @minimum 0
+     * @maximum 10000
+     */
+    signal_reports_waiting?: number
+    /**
+     * Display names of other Desktop users in the organization.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    other_members?: string[]
+    /**
+     * Signal sources that were already enabled.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    sources_enabled?: string[]
+    /**
+     * Signal sources the onboarding flow is watching.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    sources_watching?: string[]
+    /** Whether onboarding enabled any signal sources. */
+    sources_newly_enabled?: boolean
+}
+
+/**
+ * The first-run session that was started for the requester.
+ */
+export interface OnboardingSessionTestResponseApi {
+    /** The agent session opened in the team's #general space. */
+    task_id: string
+    /** The requester's personal space containing the session. */
+    channel_id: string
+}
+
 /**
  * The requester's default channels, plus whether this call is what created them.
  */
@@ -1297,6 +1355,13 @@ export interface ProvisionedChannelsApi {
     personal_created: boolean
     /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
     general_created: boolean
+}
+
+export interface TeachingCanvasApi {
+    /** The teaching canvas that was resolved or created. */
+    canvas_id: string
+    /** The requester's personal space containing the canvas. */
+    channel_id: string
 }
 
 /**
@@ -1601,6 +1666,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+    preview_available?: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -1665,6 +1732,11 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -1721,6 +1793,28 @@ export const OriginProductEnumApi = {
     SignalsChat: 'signals_chat',
     TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
+} as const
+
+/**
+ * * `default` - default
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
+ * * `read-only` - read-only
+ * * `full-access` - full-access
+ */
+export type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi =
+    (typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi)[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi]
+
+export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
+    ReadOnly: 'read-only',
+    FullAccess: 'full-access',
 } as const
 
 /**
@@ -1829,6 +1923,16 @@ export interface TaskCreateApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -1974,6 +2078,16 @@ export interface TaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -2102,6 +2216,16 @@ export interface PatchedTaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -2837,6 +2961,50 @@ export interface TaskUsageResponseApi {
     total_cost_usd: number
 }
 
+/**
+ * Request body for warming a successor to an existing terminal task run.
+ */
+export interface WarmTaskResumeRequestApi {
+    /** ID of the task's latest terminal run whose snapshot and conversation should be resumed. */
+    resume_from_run_id: string
+    /** Agent runtime adapter to start before the next message is submitted.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** LLM model to start before the next message is submitted. */
+    model?: string
+    /** Reasoning effort to apply when the warmed successor receives its first message.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Initial permission mode for the warmed successor's agent session.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+}
+
+/**
+ * Response for a successfully warmed successor run on an existing task.
+ */
+export interface WarmTaskResumeResponseApi {
+    /** ID of the existing task being resumed. */
+    task_id: string
+    /** ID of the idling successor run that submit will activate. */
+    run_id: string
+}
+
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
@@ -2856,28 +3024,6 @@ export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
 export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
-} as const
-
-/**
- * * `default` - default
- * * `acceptEdits` - acceptEdits
- * * `plan` - plan
- * * `bypassPermissions` - bypassPermissions
- * * `auto` - auto
- * * `read-only` - read-only
- * * `full-access` - full-access
- */
-export type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi =
-    (typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi)[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi]
-
-export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
-    Default: 'default',
-    AcceptEdits: 'acceptEdits',
-    Plan: 'plan',
-    BypassPermissions: 'bypassPermissions',
-    Auto: 'auto',
-    ReadOnly: 'read-only',
-    FullAccess: 'full-access',
 } as const
 
 /**
@@ -3002,16 +3148,6 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
-/**
- * * `local` - local
- */
-export type TaskRunUpdateEnvironmentEnumApi =
-    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
-
-export const TaskRunUpdateEnvironmentEnumApi = {
-    Local: 'local',
-} as const
-
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3045,10 +3181,6 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
-    /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-     *
-     * * `local` - local */
-    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 /**
@@ -3539,6 +3671,8 @@ export interface TaskRunCancelRequestApi {
      * @nullable
      */
     reason?: string | null
+    /** Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started. */
+    only_if_awaiting_first_message?: boolean
 }
 
 /**
@@ -4524,6 +4658,18 @@ export interface PaginatedTaskSummaryDTOListApi {
 }
 
 /**
+ * * `user_created` - user_created
+ * * `posthog_ai` - posthog_ai
+ */
+export type WarmTaskRequestOriginProductEnumApi =
+    (typeof WarmTaskRequestOriginProductEnumApi)[keyof typeof WarmTaskRequestOriginProductEnumApi]
+
+export const WarmTaskRequestOriginProductEnumApi = {
+    UserCreated: 'user_created',
+    PosthogAi: 'posthog_ai',
+} as const
+
+/**
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
@@ -4545,7 +4691,7 @@ export interface WarmTaskRequestApi {
      */
     repositories?: string[]
     /**
-     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it.
      * @nullable
      */
     github_integration?: number | null
@@ -4584,6 +4730,21 @@ export interface WarmTaskRequestApi {
      * @nullable
      */
     custom_image_id?: string | null
+    /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
+     *
+     * * `user_created` - user_created
+     * * `posthog_ai` - posthog_ai */
+    origin_product?: WarmTaskRequestOriginProductEnumApi
+    /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
 }
 
 /**
@@ -4767,6 +4928,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
+    /**
+     * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
+     */
+    hog_flow_id?: string
     /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *

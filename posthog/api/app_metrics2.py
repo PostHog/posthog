@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.utils import action
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
@@ -371,6 +372,59 @@ def fetch_app_metric_totals_by_team_and_source(
     for row in results:
         team_id, app_source_id = row[0], row[1]
         totals.setdefault(team_id, {})[app_source_id] = dict(zip(name, (int(value) for value in row[2:])))
+    return totals
+
+
+def fetch_app_metric_daily_totals_by_team(
+    app_source: str,
+    name: list[str],
+    after: datetime,
+    before: Optional[datetime] = None,
+    team_ids: Optional[list[int]] = None,
+    workload: Workload = Workload.DEFAULT,
+) -> dict[int, dict[str, dict[str, int]]]:
+    """Daily metric totals per team, keyed `{team_id: {"YYYY-MM-DD": {metric_name: count}}}`.
+
+    Days rather than a single total, because "sent at least X on each of N days" cannot be told
+    apart from one burst of the same size once the window is summed.
+
+    Called without team_ids, the daily tier sweep scans the whole fleet. The result is bounded per
+    team, at most one row per metric name per day, but it grows linearly with the number of sending
+    teams because app_source alone does not prune the app_metrics2 primary key. This is affordable at
+    the current scale and runs on the LONG_RUNNING queue. If the sending fleet grows large, batch by
+    team or aggregate to one row per team here.
+    """
+    clickhouse_kwargs: dict[str, Any] = {
+        "app_source": app_source,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "name": name,
+        "team_ids": team_ids,
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            team_id,
+            toDate(timestamp) as day,
+            metric_name,
+            sum(count) as count
+        FROM app_metrics2
+        WHERE app_source = %(app_source)s
+        {"AND team_id IN %(team_ids)s" if team_ids else ""}
+        AND timestamp >= toDateTime64(%(after)s, 6)
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        AND metric_name IN %(name)s
+        GROUP BY team_id, day, metric_name
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs, workload=workload)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    totals: dict[int, dict[str, dict[str, int]]] = {}
+    for team_id, day, metric_name, count in results:
+        totals.setdefault(team_id, {}).setdefault(day.strftime("%Y-%m-%d"), {})[metric_name] = count
     return totals
 
 

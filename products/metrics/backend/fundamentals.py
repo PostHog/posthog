@@ -176,11 +176,24 @@ def _deduped_in_time_order(samples: Sequence[Sample]) -> list[Sample]:
     return list(by_timestamp.values())
 
 
-def reduce_temporal(samples: Sequence[Sample], reducer: TemporalReducer) -> float:
-    """Collapse one series' samples to that series' value for the bucket."""
+def reduce_temporal(samples: Sequence[Sample], reducer: TemporalReducer) -> float | None:
+    """Collapse one series' samples to that series' value for the bucket.
+
+    Returns None when the value is unknowable: a lone cumulative reading has
+    no predecessor to diff against, and 0 would read as a flat counter.
+    """
     if reducer in (TemporalReducer.NONE, TemporalReducer.POOLED_SAMPLES):
         raise ValueError(f"{reducer!r} has no single per-series value; apply it through a plan")
     ordered = _deduped_in_time_order(samples)
+    if reducer == TemporalReducer.INCREASE:
+        # A reading below its predecessor means the counter restarted, and the
+        # post-restart reading is itself the increase.
+        if len(ordered) < 2:
+            return None
+        total = 0.0
+        for previous, current in zip(ordered, ordered[1:]):
+            total += current.value - previous.value if current.value >= previous.value else current.value
+        return total
     if not ordered:
         return 0.0
 
@@ -190,14 +203,6 @@ def reduce_temporal(samples: Sequence[Sample], reducer: TemporalReducer) -> floa
         return sum(sample.value for sample in ordered)
     if reducer == TemporalReducer.AVG_OVER_TIME:
         return sum(sample.value for sample in ordered) / len(ordered)
-    if reducer == TemporalReducer.INCREASE:
-        # The first sample's history is unknown, so it contributes nothing. A
-        # reading below its predecessor means the counter restarted, and the
-        # post-restart reading is itself the increase.
-        total = 0.0
-        for previous, current in zip(ordered, ordered[1:]):
-            total += current.value - previous.value if current.value >= previous.value else current.value
-        return total
     raise ValueError(f"Unsupported temporal reducer: {reducer!r}")
 
 
@@ -247,7 +252,10 @@ def apply_plan(series_samples: Mapping[K, Sequence[Sample]], plan: ReductionPlan
             sample.value for samples in series_samples.values() for sample in _deduped_in_time_order(samples)
         ]
     else:
-        per_series_values = [reduce_temporal(samples, plan.temporal) for samples in series_samples.values() if samples]
+        # An unknowable series value contributes nothing rather than a fake 0,
+        # and a bucket holding only unknowns has no value at all.
+        reduced = (reduce_temporal(samples, plan.temporal) for samples in series_samples.values() if samples)
+        per_series_values = [value for value in reduced if value is not None]
     value = reduce_spatial(per_series_values, plan.spatial, quantile=plan.quantile)
     # An empty bucket has no number, and normalizing None would invent one.
     return value if value is None else value / plan.divisor

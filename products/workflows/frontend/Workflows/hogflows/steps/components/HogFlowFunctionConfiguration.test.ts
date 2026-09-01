@@ -8,6 +8,8 @@ describe('HogFlowFunctionConfiguration', () => {
             ['webhook', { event: false, person: false, groups: false, request: true }],
             // Slack-triggered runs are person-less.
             ['slack-message', { event: true, person: false, groups: false, request: false }],
+            // GitHub-triggered runs are person-less too.
+            ['github-event', { event: true, person: false, groups: false, request: false }],
         ])('exposes the right globals for a %s trigger', (triggerType, present) => {
             const globals = buildSampleGlobals(triggerType, undefined)
             Object.entries(present).forEach(([key, shouldExist]) => {
@@ -34,6 +36,24 @@ describe('HogFlowFunctionConfiguration', () => {
                 integration_id: expect.any(Number),
             })
             expect('thread_ts' in properties).toBe(true)
+        })
+
+        // Locks the sample property names to what the GitHub trigger emits, so hand-typed
+        // expressions like {event.properties.actor_access} autocomplete instead of warning as unknown.
+        it('exposes the GitHub event properties for a github-event trigger', () => {
+            const properties = buildSampleGlobals('github-event', undefined).event.properties
+            expect(properties).toMatchObject({
+                event_type: expect.any(String),
+                repository: expect.any(String),
+                sender: expect.any(String),
+                actor_access: expect.any(String),
+                author_association: expect.any(String),
+                title: expect.any(String),
+                body: expect.any(String),
+                integration_id: expect.any(Number),
+            })
+            expect('bot_sender' in properties).toBe(true)
+            expect('review_state' in properties).toBe(true)
         })
 
         it('maps workflow variables to typed placeholders', () => {

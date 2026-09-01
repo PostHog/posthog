@@ -80,6 +80,9 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts")
         self.assertIn("connect-src https://api.example.com", response["Content-Security-Policy"])
+        self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", response["Content-Security-Policy"])
+        self.assertIn("img-src 'self' data: blob: https://api.example.com", response["Content-Security-Policy"])
+        self.assertIn("frame-src https://api.example.com", response["Content-Security-Policy"])
         self.assertNotIn("evil.example.net", response["Content-Security-Policy"])
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/"), token or "", "source.ts")

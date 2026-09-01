@@ -33,6 +33,15 @@ interface ScoutConfigControlsProps {
     updating?: boolean
 }
 
+// The models the picker offers, a deliberate subset of the Tasks catalog the backend
+// validates pins against — growing this list is a frontend-only change.
+const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
+    { value: null, label: 'Default' },
+    { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+    { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+]
+
 interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
@@ -172,7 +181,7 @@ export function ScoutConfigForm({
                     size="small"
                     value={config.network_access}
                     options={[
-                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains only' },
+                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains' },
                         { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
                     ]}
                     // Editable while the scout is disabled, unlike the schedule controls: a newly
@@ -192,23 +201,26 @@ export function ScoutConfigForm({
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Model</span>
                         <span className="text-[11.5px] text-muted">
-                            The model this scout runs on. Pick a more capable model for harder tasks. Leave empty to use
-                            the default.
+                            The model this scout runs on. Pick a more capable model for harder tasks.
                         </span>
                     </div>
-                    <LemonInput
-                        key={config.model ?? 'unset'}
+                    <LemonSelect
                         size="small"
-                        placeholder="Default"
-                        defaultValue={config.model ?? ''}
+                        value={config.model ?? null}
+                        // A pin stored via the API can name a catalog model the picker doesn't offer;
+                        // keep it selected (hidden from the menu) so opening the picker doesn't lose it.
+                        options={
+                            config.model && !SCOUT_MODEL_OPTIONS.some((option) => option.value === config.model)
+                                ? [...SCOUT_MODEL_OPTIONS, { value: config.model, label: config.model, hidden: true }]
+                                : SCOUT_MODEL_OPTIONS
+                        }
                         // Editable while the scout is disabled for the same reason as network access:
                         // a newly enabled scout is immediately due, so the model must be settable first.
                         disabledReason={updating ? 'Saving scout settings' : undefined}
                         className="w-44"
-                        onBlur={(event) => {
-                            const value = event.currentTarget.value.trim()
-                            if (value !== (config.model ?? '')) {
-                                onUpdate(config.id, { model: value || null })
+                        onChange={(value) => {
+                            if (value !== (config.model ?? null)) {
+                                onUpdate(config.id, { model: value })
                             }
                         }}
                         aria-label={`${config.skill_name} model`}

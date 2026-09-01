@@ -50,7 +50,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceCreatedVia,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -152,7 +158,7 @@ def _dynamic_source_metadata(*, lifecycle_generation: int) -> dict[str, object]:
 
 
 def _set_dynamic_source_auth(source: ExternalDataSource, *, lifecycle_generation: int) -> ExternalDataSource:
-    source.access_method = ExternalDataSource.AccessMethod.DIRECT
+    source.access_method = ExternalDataSourceAccessMethod.DIRECT
     source.direct_query_enabled = True
     source.connection_metadata = _dynamic_source_metadata(lifecycle_generation=lifecycle_generation)
     source.job_inputs = {}
@@ -262,13 +268,13 @@ def _ensure_managed_source_locked(
         connection_id=str(uuid4()),
         destination_id=str(uuid4()),
         team_id=team_id,
-        status=ExternalDataSource.Status.RUNNING,
+        status=ExternalDataSourceStatus.RUNNING,
         source_type=ExternalDataSourceType.POSTGRES,
         job_inputs={},
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
-        access_method=ExternalDataSource.AccessMethod.DIRECT,
-        created_via=ExternalDataSource.CreatedVia.WEB,
+        access_method=ExternalDataSourceAccessMethod.DIRECT,
+        created_via=ExternalDataSourceCreatedVia.WEB,
         direct_query_enabled=True,
         connection_metadata=_dynamic_source_metadata(lifecycle_generation=lifecycle_generation),
     )
@@ -425,7 +431,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
             .filter(
                 id=source_id,
                 deleted=False,
-                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                access_method=ExternalDataSourceAccessMethod.DIRECT,
                 direct_query_enabled=True,
             )
             .first()

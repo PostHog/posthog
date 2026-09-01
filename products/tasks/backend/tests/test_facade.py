@@ -1,6 +1,6 @@
 import importlib
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
@@ -199,6 +199,40 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
+class TestBootstrapTaskRun(TestCase):
+    def test_invalid_cloud_origin_returns_validation_error(self) -> None:
+        organization = Organization.objects.create(name="Legacy task org")
+        team = Team.objects.create(organization=organization, name="Legacy task team")
+        user = User.objects.create(email="legacy-task@example.com")
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Legacy task",
+            description="Run later",
+            origin_product="automation",
+        )
+
+        result = facade.bootstrap_task_run(
+            task.id,
+            team.id,
+            user.id,
+            validated_data={"environment": TaskRun.Environment.CLOUD},
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+
 class TestFacadeReadsAndMappers(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -234,7 +268,11 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+            state={
+                "initial_prompt_override": "framed prompt",
+                "end_run_when_done": True,
+                "sandbox_jwt_kid": "secret",
+            },
         )
 
         detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
@@ -242,6 +280,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail is not None
         expected = "framed prompt" if include_agent_state else None
         assert detail.state.get("initial_prompt_override") == expected
+        # The finish-tool gate reads this key at agent boot; a filter that drops it makes
+        # every unbound workflow run idle out instead of ending itself.
+        assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
@@ -292,6 +333,27 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(outcome, "ownership_changed")
         self.assertIsNone(resumed_run)
 
+    def test_resume_in_cloud_rejects_invalid_origin(self):
+        task = self._make_task(origin_product="automation")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "invalid_origin")
+        self.assertIsNone(resumed_run)
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+
     def test_task_exists_and_visibility(self):
         task = self._make_task()
         self.assertTrue(facade.task_exists(task.id, self.team.id))
@@ -300,6 +362,24 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+
+    def test_task_control_runtime_and_origin_uses_control_predicate(self):
+        task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
+        self.assertEqual(
+            facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
+            facade.ControlVisibleTask(
+                runtime=Task.Runtime.PI.value, origin_product=Task.OriginProduct.POSTHOG_AI.value
+            ),
+        )
+
+        # An experiments task is readable across the team but only its creator may drive it, so the
+        # warm gate must use the control predicate, not the read predicate.
+        other_user = User.objects.create(email="control-origin@test.com", distinct_id="control-origin")
+        experiments_task = self._make_task(origin_product=Task.OriginProduct.EXPERIMENTS)
+        self.assertIsNotNone(facade.get_task_detail(experiments_task.id, self.team.id, other_user.id))
+        self.assertIsNone(facade.task_control_runtime_and_origin(experiments_task.id, self.team.id, other_user.id))
+
+        self.assertIsNone(facade.task_control_runtime_and_origin(uuid4(), self.team.id, self.user.id))
 
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
@@ -390,6 +470,57 @@ class TestFacadeReadsAndMappers(TestCase):
         assert handle is not None
         self.assertEqual(handle.task_id, older_task.id)
         self.assertEqual(handle.run_id, active.id)
+
+    def test_get_latest_active_internal_task_run_for_organization_uses_trusted_markers(self):
+        active_task = self._make_task(internal=True)
+        active = TaskRun.objects.create(
+            task=active_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        terminal_task = self._make_task(internal=True)
+        TaskRun.objects.create(
+            task=terminal_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        untrusted_task = self._make_task(internal=False)
+        TaskRun.objects.create(
+            task=untrusted_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        wrong_stage_task = self._make_task(internal=True)
+        TaskRun.objects.create(
+            task=wrong_stage_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "another-server-flow"},
+        )
+        other_organization = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+        other_task = self._make_task(team=other_team, internal=True)
+        TaskRun.objects.create(
+            task=other_task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+
+        result = facade.get_latest_active_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream"
+        )
+
+        assert result is not None
+        self.assertEqual(result.id, active.id)
 
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
@@ -736,6 +867,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         self.assertIsNone(task.runs.get().branch)
+
+    def test_run_task_returns_validation_error_for_invalid_cloud_origin(self):
+        task = self._make_task(origin_product="automation")
+
+        result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={})
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
@@ -1177,6 +1326,86 @@ class TestAppendLogAgentActivity(TestCase):
             run.reset_mock()
             facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
             run.heartbeat_workflow.assert_called_once_with(agent_active=True)
+
+    def test_append_task_run_log_retires_followups_the_entries_echo(self):
+        run = MagicMock()
+        entries = [{"notification": {"method": "session/prompt", "params": {"prompt": []}}}]
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log("r", "t", 1, entries=entries)
+
+        run.clear_echoed_followup_messages.assert_called_once_with(entries)
+
+
+class TestSignalTaskRunUserMessage(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Signal Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Signal Team")
+        cls.user = User.objects.create(email="signal@test.com", distinct_id="signal-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _signal(self, run: TaskRun, **kwargs) -> bool | None:
+        defaults: dict[str, Any] = {"content": "check the paste path", "artifact_ids": [], "message_id": "m1"}
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
+            return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
+
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self):
+        run = self._run()
+
+        self.assertTrue(self._signal(run))
+
+        run.refresh_from_db()
+        recorded = run.state["pending_followup_messages"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], "m1")
+        self.assertEqual(recorded[0]["content"], "check the paste path")
+
+    def test_the_recorded_time_predates_the_signal(self):
+        run = self._run()
+        signalled_at: list[datetime] = []
+
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=lambda *args, **kwargs: signalled_at.append(django_timezone.now()),
+        ):
+            facade.signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                self.team.id,
+                content="check the paste path",
+                artifact_ids=[],
+                message_id="m1",
+            )
+
+        run.refresh_from_db()
+        recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
+        self.assertLessEqual(recorded_at, signalled_at[0])
+
+    @parameterized.expand([("no message id", {"message_id": None}), ("no content", {"content": "  "})])
+    def test_records_nothing_without_an_identifiable_message(self, _name, overrides):
+        run = self._run()
+
+        self.assertTrue(self._signal(run, **overrides))
+
+        run.refresh_from_db()
+        self.assertNotIn("pending_followup_messages", run.state or {})
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { clearFilterButtonProps } from '../clearFilterButtonProps'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES } from './types'
+import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES, toTicketAssignee } from './types'
 
 function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
     // String tokens ('unassigned', 'me') only match the identical token.
@@ -183,7 +183,7 @@ function TriggerLabel({ value, emptyLabel }: { value: AssigneeFilterEntry[]; emp
         )
     }
     return (
-        <AssigneeResolver assignee={entry}>
+        <AssigneeResolver assignee={toTicketAssignee(entry)}>
             {({ assignee }) => (
                 <span className="flex items-center gap-1">
                     <AssigneeIconDisplay assignee={assignee} size="small" />
@@ -220,7 +220,7 @@ const AssigneeFilterItem = ({
             size="small"
             icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
             disabledReason={isSelected(item) ? undefined : selectionCapReason}
-            onClick={() => onToggle({ type: item.type, id: item.id })}
+            onClick={() => onToggle(toTicketAssignee(item))}
         >
             <span className="flex items-center gap-1">
                 <AssigneeIconDisplay assignee={item} size="small" />

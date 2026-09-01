@@ -4,8 +4,6 @@ import { z } from "zod";
 export {
   type CloudTaskUpdatePayload,
   isTerminalStatus,
-  type TaskRunStatus,
-  TERMINAL_STATUSES,
 } from "@posthog/shared";
 
 export const cloudContextOutput = z
@@ -84,10 +82,6 @@ export const designateRelayedMcpServersInput = z.object({
   runId: z.string(),
   servers: z.array(z.string().min(1)).max(20),
 });
-
-export type DesignateRelayedMcpServersInput = z.infer<
-  typeof designateRelayedMcpServersInput
->;
 
 export const sendCommandOutput = z.object({
   success: z.boolean(),

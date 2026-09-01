@@ -7,8 +7,11 @@ import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtu
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { parseJSON } from '~/common/utils/json-parse'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
@@ -41,11 +44,11 @@ describe('HogFunctionHandler', () => {
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
     let template: DBHogFunctionTemplate
+    let integrationId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogInputsService = new HogInputsService(
@@ -61,10 +64,9 @@ describe('HogFunctionHandler', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: false,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -79,9 +81,18 @@ describe('HogFunctionHandler', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
+                internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
             {
                 teamManager: hub.teamManager,
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                    hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
@@ -110,7 +121,7 @@ describe('HogFunctionHandler', () => {
         // Simple hog function that prints the inputs
 
         template = await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-test-hogflow-executor',
+            id: `template-test-hogflow-executor-${team.id}`,
             name: 'Test Template',
             code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
@@ -127,8 +138,9 @@ describe('HogFunctionHandler', () => {
             ],
         })
 
+        integrationId = team.id
         await insertIntegration(hub.postgres, team.id, {
-            id: 1,
+            id: integrationId,
             kind: 'slack',
             config: { team: 'foobar' },
             sensitive_config: {
@@ -150,7 +162,7 @@ describe('HogFunctionHandler', () => {
                                     value: 'John Doe',
                                 },
                                 oauth: {
-                                    value: 1,
+                                    value: integrationId,
                                 },
                             },
                             mappings: [
@@ -196,20 +208,17 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        expect(mockFetch.mock.calls).toMatchInlineSnapshot(`
-            [
-              [
-                "http://localhost/test",
-                {
-                  "body": "{"name":"John Doe","oauth":{"$integration_id":1,"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
-                  "headers": {
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                },
-              ],
-            ]
-        `)
+        expect(mockFetch.mock.calls[0][0]).toBe('http://localhost/test')
+        expect(parseJSON(mockFetch.mock.calls[0][1].body)).toEqual({
+            name: 'John Doe',
+            oauth: {
+                $integration_id: integrationId,
+                team: 'foobar',
+                access_token: 'token',
+                not_encrypted: 'not-encrypted',
+                access_token_raw: 'token',
+            },
+        })
 
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
@@ -362,7 +371,7 @@ describe('HogFunctionHandler', () => {
                 value: 'John Doe',
             },
             oauth: {
-                value: 1,
+                value: integrationId,
             },
         })
         expect(calledConfig.inputs_schema).toEqual([
@@ -545,6 +554,7 @@ describe('HogFunctionHandler', () => {
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
             messageAssets: [],
+            conversionWatchers: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -586,7 +596,7 @@ describe('HogFunctionHandler', () => {
     describe('non_failure_status_codes propagation', () => {
         it('propagates non_failure_status_codes from action.config.inputs into the synthetic hog function', async () => {
             const templateWithNonFailure = await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-test-hogflow-non-failure-status',
+                id: `template-test-hogflow-non-failure-status-${team.id}`,
                 name: 'Test Template With Non-Failure Codes',
                 code: `fetch('http://localhost/test', { 'method': 'POST', 'body': {} })`,
                 inputs_schema: [

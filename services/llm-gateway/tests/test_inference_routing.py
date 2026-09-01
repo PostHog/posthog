@@ -23,6 +23,7 @@ from llm_gateway.request_context import RequestContext, set_request_context
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
 GLM53_MODEL = "zai-org/glm-5.3"
+GLM53_FLASH_MODEL = "zai-org/glm-5.3-flash"
 DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 KIMI_MODEL = "@cf/moonshotai/kimi-k2.6"
 PRODUCT = "posthog_code"
@@ -181,7 +182,7 @@ async def test_baseten_flag_routes_each_surface(send_fn: Any, endpoint: str) -> 
     evaluate.assert_awaited_once_with("tasks-glm-baseten-inference", "d-1")
 
 
-@pytest.mark.parametrize("model", [DEEPSEEK_MODEL, GLM53_MODEL])
+@pytest.mark.parametrize("model", [DEEPSEEK_MODEL, GLM53_MODEL, GLM53_FLASH_MODEL])
 @pytest.mark.parametrize(
     ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
 )
@@ -224,11 +225,12 @@ async def test_deepseek_does_not_apply_glm_anthropic_normalization() -> None:
     assert handle.call_args.kwargs["request_data"] == request
 
 
-async def test_baseten_exclusive_glm_still_applies_anthropic_normalization() -> None:
+@pytest.mark.parametrize("model", [GLM53_MODEL, GLM53_FLASH_MODEL])
+async def test_baseten_exclusive_glm_still_applies_anthropic_normalization(model: str) -> None:
     # A Baseten-exclusive GLM is still a GLM: the Claude-runtime reasoning rewrite must apply.
     handle = AsyncMock(return_value={"ok": True})
     request = {
-        "model": GLM53_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": "hi"}],
         "output_config": {"effort": "high"},
     }

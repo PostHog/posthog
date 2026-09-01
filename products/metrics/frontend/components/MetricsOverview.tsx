@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -11,11 +11,58 @@ import { STALE_AFTER_MS, metricsOverviewLogic } from './metricsOverviewLogic'
 
 const isStale = (lastSeen: string): boolean => dayjs().diff(dayjs(lastSeen)) > STALE_AFTER_MS
 
-const OverviewStat = ({ label, value, caption }: { label: string; value: number; caption: string }): JSX.Element => (
+// Shared by the loaded cards and their placeholders, so a rename cannot make the
+// labels change as the data lands.
+const STAT_LABELS = ['Services', 'Metric names', 'Active series'] as const
+
+// Header text only, so the placeholder table has the same columns as the real one.
+const SERVICE_COLUMN_TITLES = ['Service', 'Metrics', 'Active series', 'Last seen']
+
+// `null` renders the placeholder. One component for both states, so the loading
+// card cannot drift from the loaded one and change size when the data lands.
+const OverviewStat = ({
+    label,
+    value,
+    caption,
+}: {
+    label: string
+    value: number | null
+    caption: string | null
+}): JSX.Element => (
     <div className="flex flex-col border rounded p-4 flex-1 min-w-40">
-        <span className="text-2xl font-semibold">{humanFriendlyNumber(value)}</span>
+        {value === null ? (
+            <LemonSkeleton className="h-8 w-20" />
+        ) : (
+            <span className="text-2xl font-semibold">{humanFriendlyNumber(value)}</span>
+        )}
         <span className="text-sm">{label}</span>
-        <span className="text-xs text-secondary">{caption}</span>
+        {caption === null ? (
+            <LemonSkeleton className="h-3 w-24 my-1" />
+        ) : (
+            <span className="text-xs text-secondary">{caption}</span>
+        )}
+    </div>
+)
+
+// The window length arrives with the data, so the captions are placeholders too
+// rather than a hardcoded guess that flashes if the server default ever changes.
+const MetricsOverviewSkeleton = (): JSX.Element => (
+    <div className="flex flex-col gap-4">
+        <LemonSkeleton className="h-8 w-80" />
+        <div className="flex flex-wrap gap-2">
+            {STAT_LABELS.map((label) => (
+                <OverviewStat key={label} label={label} value={null} caption={null} />
+            ))}
+        </div>
+        <LemonTable
+            dataSource={[]}
+            loading
+            rowKey="service_name"
+            columns={SERVICE_COLUMN_TITLES.map((title) => ({
+                title,
+                align: title === 'Metrics' || title === 'Active series' ? 'right' : undefined,
+            }))}
+        />
     </div>
 )
 
@@ -65,11 +112,7 @@ export const MetricsOverview = (): JSX.Element => {
     const { viewService } = useActions(metricsOverviewLogic)
 
     if (!overview) {
-        return (
-            <div className="flex justify-center py-8">
-                <Spinner />
-            </div>
-        )
+        return <MetricsOverviewSkeleton />
     }
 
     const windowHours = Math.round(overview.lookback_seconds / 3600)
@@ -79,9 +122,20 @@ export const MetricsOverview = (): JSX.Element => {
         <div className="flex flex-col gap-4">
             <IngestionStatus lastSeen={overview.last_seen} />
             <div className="flex flex-wrap gap-2">
-                <OverviewStat label="Services" value={overview.services.length} caption={windowLabel} />
-                <OverviewStat label="Metric names" value={overview.metric_names} caption={windowLabel} />
-                <OverviewStat label="Active series" value={overview.series} caption={windowLabel} />
+                {STAT_LABELS.map((label) => (
+                    <OverviewStat
+                        key={label}
+                        label={label}
+                        value={
+                            {
+                                Services: overview.services.length,
+                                'Metric names': overview.metric_names,
+                                'Active series': overview.series,
+                            }[label]
+                        }
+                        caption={windowLabel}
+                    />
+                ))}
             </div>
             <LemonTable
                 dataSource={overview.services as _MetricsOverviewServiceApi[]}

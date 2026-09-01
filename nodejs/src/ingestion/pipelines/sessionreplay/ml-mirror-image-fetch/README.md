@@ -295,9 +295,9 @@ Removing an eligible entry cannot permit an earlier request.
 
 **5.18** The queue selects the registrable domain that is furthest below its concurrency target. It uses the waiting job count and then insertion order as tie-breakers. It applies the same rule to origins within the selected registrable domain. The pod and registrable-domain limits still apply.
 
-**5.19** The queue calculates remaining request capacity from active and waiting jobs. It applies the configured registrable-domain and pod limits. The defaults are 6 and 300. If fewer than 48 request slots remain, low-origin-diversity mode can start. More than 50 canonical URL jobs must still be eligible for a diversity deferral. The pass processes 8 more jobs for forward progress. It then republishes each eligible job in the waiting tail to the frontier without reducing the hop budget. Low-origin-diversity mode remains active for the rest of that pass.
+**5.19** The queue continues processing eligible jobs when few origins or registrable domains remain. The scheduler still applies crawl delay, request rate, connection, breaker, registrable-domain, pod, and pass-deadline limits. The lane does not republish a job only to seek more origin diversity in a later Kafka batch.
 
-This rule lets later Kafka records add domain and origin diversity when the current pass cannot use enough pod capacity. A job can receive this zero-wait diversity deferral once. A previously deferred job proceeds normally, subject to the pass deadline. This bound prevents a persistent dominant origin or one long run from creating a fast republish cycle without progress.
+**5.20** Each worker creates one Kafka group member for each configured target partition. Group assignments do not overlap, so ready group members supply batches from different partitions. The worker joins their batches into one fetch pass. The target must be from one to four and defaults to two. The worker starts the fetch pass when all target batches arrive or the join window ends. If fewer batches arrive, the worker processes the available batches. A later group can run concurrently instead of waiting behind a full pass. Shared request limits still bound total network concurrency. The worker divides the existing Kafka prefetch memory budget across its group members.
 
 ### 6. Smokescreen
 
@@ -414,7 +414,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 }
 ```
 
-`v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The optional boolean `lowOriginDiversityDeferred` records that the job has already received its one zero-wait diversity deferral.
+`v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The parser accepts and removes the legacy optional `lowOriginDiversityDeferred` field.
 
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
@@ -423,7 +423,7 @@ The parser ignores unknown fields so that a producer can add optional data witho
 **10.6** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
 
-**10.7** A redirect, pass-deadline deferral, and low-origin-diversity deferral have no required wait. The lane publishes them to the frontier with `notBeforeMs` set to `0`. A retry, an early `notBeforeMs`, or a full runtime-state map uses the smallest delay topic that satisfies its required wait.
+**10.7** A redirect or pass-deadline deferral has no required wait. The lane publishes it to the frontier with `notBeforeMs` set to `0`. A retry, an early `notBeforeMs`, or a full runtime-state map uses the smallest delay topic that satisfies its required wait.
 
 **10.8** Before Kafka delivery, the lane groups republished jobs by destination topic and the current URL's registrable domain. It packs each group into records of no more than 1,000 jobs and no more than 512 KiB. It sends records up to the configured pending-publish limit and waits for every started delivery acknowledgement. After one delivery fails, it starts no more records from that batch. It also stops starting deliveries 200 seconds after the poll batch began. This leaves time for in-flight delivery callbacks, the final crawl-history write, and offset handling before Kafka's 300-second poll limit. A record contains only one registrable domain and uses that registrable domain as its Kafka key.
 
@@ -453,15 +453,31 @@ A fetch batch can publish more frontier records than it consumed. This can occur
 
 **11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
 
-**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
+**11.6** Every metric label defined by this lane uses a fixed set of values or the bounded integer partition set of the frontier topic. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Image scrub sources use `inline` or `url`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
 
 **11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
 
 It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
 
-**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. For deduplicated canonical URL jobs, it observes the URL share held by the top 1, 5, and 10 origins and registrable domains. It also observes the inverse Simpson effective count for both scopes. At fetch-pass start, it observes the request slots that the queue can use immediately and their ratio to the pod request limit. It counts passes that enter low-origin-diversity mode and observes the origins, canonical URL jobs, and request slots that remain at entry. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
+**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. For deduplicated canonical URL jobs, it observes the URL share held by the top 1, 5, and 10 origins and registrable domains. It also observes the inverse Simpson effective count for both scopes. At fetch-pass start, it observes the request slots that the queue can use immediately and their ratio to the pod request limit. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
 
-**11.9** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
+**11.9** Partition metrics count valid Kafka records and URL jobs at the parsed, accepted, unique, fetchable, not-ready, and store-deduplicated stages. They count durable completed and republished outcomes. They also observe image request outcomes, image scheduler waits, the largest origin and registrable-domain share, and the effective count for each source partition. These metrics do not label configuration requests because one configuration request can serve jobs from more than one partition.
+
+**11.10** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
+
+**11.11** The mirror counts collected image ref occurrences by `css` or `html` source, canonical property name, and `inline` or `url` lane. It counts before per-message ref deduplication. Every property label comes from the fixed HTML attribute set in requirement 13.11 or the fixed CSS property allowlist in the anonymizer.
+
+**11.12** The fetch deployment writes three high-cardinality metrics to TopHog. It does not export registrable domains as Prometheus labels.
+
+`ml_image_fetch_attempts_by_registrable_domain` counts durable URL attempts by partition, registrable domain, completed or republished disposition, and outcome.
+
+`ml_image_fetch_block_events_by_registrable_domain` counts blocking observations by partition, registrable domain, and exact reason. Reasons distinguish concurrency, scheduler waits, configuration failures, response backoff, and deadlines.
+
+`ml_image_fetch_blocked_ms_by_registrable_domain` sums positive wait milliseconds spent or imposed for the same keys. Domain concurrency contributes events because it has no measured wait duration.
+
+The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
+
+Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
 
 ### 12. Conditional requests
 
@@ -497,11 +513,21 @@ The fetch URL keeps the original query verbatim. The global ref uses a canonical
 
 **13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `GLOBAL_URL_KEY` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(GLOBAL_URL_KEY, canonical_url)`. Every producer must use this construction. The DynamoDB crawl-history key for the original URL is the same `imageurl:<hash>` string.
 
-**13.6** The mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
+**13.6** For a direct image attribute, the mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
 
-**13.7** Data preparation uses the suffix of the ref attribute to find the source attribute. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+**13.7** For a CSS field, the mirror stores refs in a sibling attribute named `data-anon-image-refs-<field>`. Its value is a JSON object that maps each decimal slot number to one image ref.
 
-**13.8** Data preparation removes the ref attribute whether or not the ref resolves. The ref is a hash that has no meaning in training data and would appear as random noise.
+**13.8** The mirror replaces each collected CSS image with the existing valid SVG placeholder. It adds `<metadata id='anon-image-slot-<slot>'/>` before the closing `</svg>` to identify the corresponding ref without changing the rendered placeholder.
+
+**13.9** Data preparation uses the suffix of a direct ref attribute to find its source attribute. It uses each CSS slot number to find the matching numbered placeholder. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+
+**13.10** Data preparation removes direct ref attributes and CSS ref maps whether or not their refs resolve. It removes the slot metadata from unresolved CSS placeholders, so the remaining CSS still contains a valid, unnumbered placeholder.
+
+**13.11** The mirror collects remote images from `img[src]`, `img[rr_src]`, `img[srcset]`, SVG `image[href]`, SVG `image[xlink:href]`, `video[poster]`, and `source[srcset]` below a `picture` element. It does not infer a `source` parent from a tagless attribute mutation.
+
+**13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie.
+
+**13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
 
 ### 14. HTTP request/response
 
@@ -606,10 +632,11 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.4** The record has these Kafka headers:
 
-| Header             | Value                                                                                               |
-| ------------------ | --------------------------------------------------------------------------------------------------- |
-| `content-type`     | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
-| `content-encoding` | The response content codings in the order in which the server applied them, normalized to lowercase |
+| Header                 | Value                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `content-type`         | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
+| `content-encoding`     | The response content codings in the order in which the server applied them, normalized to lowercase |
+| `capture-timestamp-ms` | The Unix timestamp from the replay Kafka record where the collector first saw the URL               |
 
 **17.5** The fetcher omits `content-encoding` when the response has no content coding or specifies `identity`. The scrubber treats a missing header as `identity`.
 
@@ -617,9 +644,9 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.7** After content decoding, the scrubber checks that the bytes match `content-type` before it sends them to the image scrubber.
 
-**17.8** Existing inline image records keep their current format: the key is an `image:<pseudo-team>:<hash>` ref, the value is the raw image bytes, and no transport headers are required.
+**17.8** Inline image records use an `image:<pseudo-team>:<hash>` key and raw image bytes. They carry `capture-timestamp-ms` from the source replay Kafka record.
 
-**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, and `content-encoding`. The dead-letter path can add diagnostic headers and update its replay counter.
+**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, `content-encoding`, and `capture-timestamp-ms`. The dead-letter path can add diagnostic headers and update its replay counter.
 
 **17.10** The maximum record size is the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead. The fetcher producer, image-scrub topic, existing image-scrub dead-letter topic, and their consumers must accept that size.
 
@@ -630,6 +657,8 @@ ai_research_session_replay_image_fetch_retry_1h
 **17.13** Data preparation converts each distinct ref to the deterministic object key and performs one direct S3 read. A missing object leaves the image placeholder in place and does not require a recrawl.
 
 **17.14** Inline images keep their existing sharded S3 storage and Parquet index.
+
+**17.15** After a successful S3 write, the scrubber observes capture-to-S3 duration in a fixed-bucket histogram. The `source` label is `inline` or `url`. The scrubber does not observe a URL candidate when the conditional write finds an existing object.
 
 ## External specifications
 

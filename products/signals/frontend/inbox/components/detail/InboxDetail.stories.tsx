@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
+import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -16,10 +20,11 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
-import { SignalReportStatus } from '../../types'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
-import { PullRequestDetail } from './PullRequestDetail'
 import { ReportDetail } from './ReportDetail'
+import { ReportDetailLegacy } from './ReportDetailLegacy'
 
 const mixedPrChecks = {
     checks: [
@@ -110,7 +115,12 @@ const detailMocks = mswDecorator({
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Detail',
-    parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2026-06-11' },
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2026-06-11',
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+    },
     decorators: [detailMocks],
 }
 export default meta
@@ -124,7 +134,7 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 export const Report: Story = {
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} tab="reports" />
+            <ReportDetail report={reportTabReports[0]} />
         </Frame>
     ),
 }
@@ -139,7 +149,6 @@ export const ReportMinimal: Story = {
                     status: SignalReportStatus.CANDIDATE,
                     signal_count: 1,
                 })}
-                tab="reports"
             />
         </Frame>
     ),
@@ -148,7 +157,7 @@ export const ReportMinimal: Story = {
 export const PullRequest: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
         </Frame>
     ),
 }
@@ -156,7 +165,22 @@ export const PullRequest: Story = {
 export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[1]} />
+            <ReportDetail report={pullRequestReports[1]} />
+        </Frame>
+    ),
+}
+
+// Opens the "Files changed" tab: the file tree beside the branch diff from `mockBranchDiff()`.
+function FilesChangedTab({ report }: { report: SignalReport }): JSX.Element {
+    const { setDetailTab } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    useEffect(() => setDetailTab('files'), [setDetailTab])
+    return <ReportDetail report={report} />
+}
+
+export const PullRequestFilesChanged: Story = {
+    render: () => (
+        <Frame>
+            <FilesChangedTab report={pullRequestReports[0]} />
         </Frame>
     ),
 }
@@ -262,7 +286,27 @@ export const PullRequestInlineReview: Story = {
     decorators: [inlineReviewMocks],
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+// The detail pages with the redesign flag off: summary on the left, evidence on the right, and the
+// "Files changed" tab for a report with a PR.
+export const ReportLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    render: () => (
+        <Frame>
+            <ReportDetailLegacy report={reportTabReports[0]} tab="reports" />
+        </Frame>
+    ),
+}
+
+export const PullRequestLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    render: () => (
+        <Frame>
+            <ReportDetailLegacy report={pullRequestReports[0]} tab="pulls" />
         </Frame>
     ),
 }

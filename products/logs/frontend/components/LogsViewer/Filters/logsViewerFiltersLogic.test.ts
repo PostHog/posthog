@@ -141,6 +141,25 @@ describe('logsViewerFiltersLogic', () => {
         })
     })
 
+    // The reconciliation rules themselves are covered in logsFilterAdd.test.ts; this pins that the
+    // attribute row buttons go through them, which they did not — a repeat click used to stack an
+    // identical chip, and a `+` after a `-` used to leave a pair matching no log.
+    describe('addFilter', () => {
+        it.each([
+            ['a repeat click', PropertyOperator.Exact, PropertyOperator.Exact],
+            ['a click cancelling an exclusion', PropertyOperator.IsNot, PropertyOperator.Exact],
+        ])('leaves one chip after %s', async (_label, first, second) => {
+            logic.actions.addFilter('service_name', 'api', first, PropertyFilterType.Log)
+            logic.actions.addFilter('service_name', 'api', second, PropertyFilterType.Log)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const inner = logic.values.filters.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toEqual([
+                { key: 'service_name', value: ['api'], operator: second, type: PropertyFilterType.Log },
+            ])
+        })
+    })
+
     describe('setFilterGroup fallback', () => {
         it('falls back to default when given invalid filterGroup', async () => {
             logic.actions.setFilterGroup(null as any)

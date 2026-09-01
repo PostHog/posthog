@@ -1365,6 +1365,53 @@ class TestModalSandboxCreateImageFallback:
         assert sandbox.config.image_fallback is not None
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
 
+    def test_falling_back_to_the_base_image_drops_the_dev_stack_cpu_floor(self) -> None:
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            cpu_cores=8,
+            memory_gb=16,
+            burstable_resources=True,
+        )
+        bare_custom = MagicMock(name="bare_custom")
+        cpu_requests: list[Any] = []
+        original_create = MagicMock()
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            cpu_requests.append(kwargs["cpu"])
+            if kwargs["image"] is bare_custom:
+                raise RuntimeError("image build failed")
+            return original_create(**kwargs)
+
+        original_create.return_value.object_id = "sb-created"
+        original_create.return_value.exec.return_value.poll.return_value = 0
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+
+        assert cpu_requests == [(4.0, 8.0), (0.5, 8.0)]
+        assert sandbox.config.image_fallback is not None
+        assert sandbox.config.effective_cpu_request_cores == 0.5
+
     def test_snapshot_overlay_failure_falls_back_to_bare_snapshot(self):
         config = SandboxConfig(name="t", snapshot_external_id="im-snap-1")
         bare_snapshot = MagicMock(name="bare_snapshot")
@@ -1759,6 +1806,26 @@ class TestResourceCreateKwargs:
 
         # Reserve the explicitly requested floor, burst up to the configured limit.
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
+
+    @pytest.mark.parametrize(
+        "config_kwargs, expected_cpu",
+        [
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6}, (6.0, 8.0)),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
+                (4.0, 4.0),
+            ),
+            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0)),
+            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0)),
+        ],
+    )
+    def test_dev_stack_image_raises_the_cpu_request_floor(
+        self, config_kwargs: dict[str, Any], expected_cpu: tuple[float, float]
+    ) -> None:
+        config = SandboxConfig(name="t", memory_gb=16, burstable_resources=True, **{"cpu_cores": 8, **config_kwargs})
+
+        assert _resource_create_kwargs(config)["cpu"] == expected_cpu
 
     def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)

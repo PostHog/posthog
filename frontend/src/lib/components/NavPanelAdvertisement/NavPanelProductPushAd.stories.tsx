@@ -14,21 +14,21 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 /**
- * A card for a product push campaign. The campaign is the product key, the title is the product name, and the display is the product display.
+ * One product push card, labelled with the product key it renders for.
  */
 const PushCard = ({
-    campaign,
+    productKey,
     title,
     display,
 }: {
-    campaign: string
+    productKey: string
     title: string
     display: ProductPushDisplay
 }): JSX.Element => (
     // The push card renders inside the (narrow) sidebar, so mirror that width here.
     <div className="w-[232px]">
-        <div className="mb-1 font-mono text-xs text-muted">{campaign}</div>
-        <BindLogic logic={navPanelAdvertisementLogic} props={{ campaign: `story-${campaign}` }}>
+        <div className="mb-1 font-mono text-xs text-muted">{productKey}</div>
+        <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: `story-${productKey}` }}>
             <AdvertisementCard title={title} text={display.tagline} hero={display} />
         </BindLogic>
     </div>
@@ -51,7 +51,7 @@ export const AllProducts: Story = {
                     ([productKey, display]) => (
                         <PushCard
                             key={productKey}
-                            campaign={productKey}
+                            productKey={productKey}
                             title={humanizeProductKey(productKey)}
                             display={display}
                         />
@@ -65,6 +65,6 @@ export const AllProducts: Story = {
 // What a product key with no bespoke entry falls back to (e.g. a TAM-scheduled push of an unlisted product).
 export const DefaultFallback: Story = {
     render: (): JSX.Element => (
-        <PushCard campaign="default_fallback" title="Any other product" display={DEFAULT_PRODUCT_PUSH_DISPLAY} />
+        <PushCard productKey="default_fallback" title="Any other product" display={DEFAULT_PRODUCT_PUSH_DISPLAY} />
     ),
 }

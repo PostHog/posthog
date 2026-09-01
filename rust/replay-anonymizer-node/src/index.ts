@@ -42,6 +42,13 @@ export interface AnonymizeUrlEntry {
     domain: string
 }
 
+export interface AnonymizeImageSourceCount {
+    source: 'css' | 'html'
+    property: string
+    kind: 'inline' | 'url'
+    count: number
+}
+
 /** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */
 export interface AnonymizeMeta {
     distinctId: string
@@ -63,6 +70,8 @@ export interface AnonymizeMeta {
     images?: AnonymizeImageEntry[]
     /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
     urls?: AnonymizeUrlEntry[]
+    /** Collected ref occurrences by bounded replay location, property, and inline or URL lane. */
+    imageSources?: AnonymizeImageSourceCount[]
     /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
     urlDeclines?: { reason: string; count: number }[]
 }

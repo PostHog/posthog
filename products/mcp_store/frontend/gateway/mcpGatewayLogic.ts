@@ -437,7 +437,7 @@ export interface mcpGatewayLogicActions {
         value: GatewayAddServerValues[keyof GatewayAddServerValues]
     ) => {
         field: keyof GatewayAddServerValues
-        value: boolean | string | string[]
+        value: boolean | string
     }
     setAgentServerAccess: (
         accountId: string,
@@ -1446,6 +1446,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 }
                 actions.closeConnectionModal()
                 actions.refreshServersAfterConnection()
+                actions.loadServiceAccounts()
                 lemonToast.success(`Connected to ${server.name}`)
             } catch (error: unknown) {
                 actions.loadServers()

@@ -205,6 +205,13 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
         key_property: z.string().optional(),
     }),
+    z.object({
+        type: z.literal('github-event'),
+        filters: z.object({
+            // Delivery properties only, repository and event type included — see the registry entry
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
 ])
 
 /** Trigger types that use HogFlowSchedule for recurring execution */

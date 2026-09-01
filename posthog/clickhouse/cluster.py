@@ -164,6 +164,7 @@ class ClickhouseCluster:
         satellite_clusters: Sequence[str] | None = None,
         retry_policy: RetryPolicy | None = None,
         connection_overrides: Mapping[str, Any] | None = None,
+        shard_role: NodeRole = NodeRole.DATA,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -172,10 +173,15 @@ class ClickhouseCluster:
         self.__extra_hosts: set[HostInfo] = set()
 
         migrations_cluster = cluster or settings.CLICKHOUSE_CLUSTER
-        # The cluster whose DATA nodes back `shards`, which is what every sharded mutation
+        # The cluster whose shard-bearing nodes back `shards`, which is what every sharded mutation
         # dispatches over. Callers holding a table that lives elsewhere have no way to reach it
         # through this instance, so they need to be able to ask.
         self.__data_cluster_name = data_cluster or migrations_cluster
+        # Which hostClusterRole owns a shard here. `data` on the main cluster, but a cluster can
+        # shard its tables across another role: the events cluster carries sharded_events_json on
+        # nodes whose role is `events`, and reading their shard numbers as absent would leave this
+        # handle with no shards to dispatch over at all.
+        self.__shard_role = shard_role
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
 
         for row in cluster_hosts:
@@ -186,8 +192,8 @@ class ClickhouseCluster:
             resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
             host_info = HostInfo(
                 ConnectionInfo(resolved_host, resolved_port),
-                shard_num if host_cluster_role == NodeRole.DATA else None,
-                replica_num if host_cluster_role == NodeRole.DATA else None,
+                shard_num if host_cluster_role == shard_role else None,
+                replica_num if host_cluster_role == shard_role else None,
                 host_cluster_type,
                 host_cluster_role,
             )
@@ -200,7 +206,7 @@ class ClickhouseCluster:
             data_hosts = self.__get_cluster_hosts(bootstrap_client, data_cluster, retry_policy)
             for row in data_hosts:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
-                if host_cluster_role == NodeRole.DATA:
+                if host_cluster_role == shard_role:
                     effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
                     resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                     host_info = HostInfo(
@@ -255,6 +261,41 @@ class ClickhouseCluster:
         self.__client_settings = client_settings
         self.__retry_policy = retry_policy
         self.__connection_overrides = dict(connection_overrides) if connection_overrides else {}
+        # Kept so `sibling` can build a handle for another cluster from the same connection.
+        self.__bootstrap_client = bootstrap_client
+        self.__extra_host_infos = list(extra_hosts) if extra_hosts else []
+        self.__siblings: dict[tuple[str, NodeRole], ClickhouseCluster] = {}
+
+    @property
+    def shard_role(self) -> NodeRole:
+        return self.__shard_role
+
+    def sibling(self, cluster: str, shard_role: NodeRole = NodeRole.DATA) -> ClickhouseCluster:
+        """A handle addressing ``cluster``, carrying this one's connection settings.
+
+        ``shards`` covers exactly one cluster, so a caller holding a table stored on another one
+        cannot dispatch to it through this instance. Deriving the second handle here rather than
+        from a second resource keeps host, credentials, client settings and retry policy in one
+        place: a handle assembled anywhere else can drift from the one the job already holds.
+
+        Memoized, because discovery costs a query per cluster and callers resolve the same table
+        once per op. Raises whatever the server says when no such cluster is defined here.
+        """
+        if cluster == self.__data_cluster_name and shard_role == self.__shard_role:
+            return self
+        sibling = self.__siblings.get((cluster, shard_role))
+        if sibling is None:
+            sibling = self.__siblings[(cluster, shard_role)] = ClickhouseCluster(
+                self.__bootstrap_client,
+                extra_hosts=self.__extra_host_infos,
+                logger=self.__logger,
+                client_settings=self.__client_settings,
+                cluster=cluster,
+                retry_policy=self.__retry_policy,
+                connection_overrides=self.__connection_overrides,
+                shard_role=shard_role,
+            )
+        return sibling
 
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
@@ -409,6 +450,8 @@ class ClickhouseCluster:
         node_roles: list[NodeRole],
         concurrency: int | None = None,
         workload: Workload = Workload.DEFAULT,
+        *,
+        require_hosts: bool = False,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -416,13 +459,12 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        hosts = self.__hosts_by_roles(self.__hosts, node_roles, workload)
+        if require_hosts and not hosts:
+            raise ValueError(f"No hosts found with roles {node_roles}")
+
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_roles(self.__hosts, node_roles, workload)
-                }
-            )
+            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None

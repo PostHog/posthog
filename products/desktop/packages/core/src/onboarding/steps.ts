@@ -45,13 +45,6 @@ export function computeActiveSteps(options: {
   });
 }
 
-export function stepIndexOf(
-  activeSteps: OnboardingStep[],
-  step: OnboardingStep,
-): number {
-  return activeSteps.indexOf(step);
-}
-
 /**
  * Where to send the user when the step they are standing on drops out of
  * `activeSteps` (the conditional steps appear and disappear as their async

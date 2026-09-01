@@ -5,6 +5,7 @@ import {
     areDatesValidForInterval,
     dateFilterToText,
     dateMapping,
+    formatRelativeDateValue,
     dateStringToDayJs,
     getDefaultInterval,
     is12HoursOrLess,
@@ -12,6 +13,22 @@ import {
 } from 'lib/utils/dateFilters'
 
 describe('dateFilters utils', () => {
+    describe('formatRelativeDateValue()', () => {
+        it.each([
+            ['-14d', '14 days ago'],
+            ['14d', '14 days from now'],
+            ['+1w', '1 week from now'],
+            ['-1h', '1 hour ago'],
+            ['0d', 'now'],
+        ])('formats %s as %s', (value, expected) => {
+            expect(formatRelativeDateValue(value)).toBe(expected)
+        })
+
+        it('returns null for absolute dates', () => {
+            expect(formatRelativeDateValue('2026-08-20')).toBeNull()
+        })
+    })
+
     describe('dateFilterToText()', () => {
         beforeEach(() => {
             tk.freeze(new Date('2026-06-15T12:00:00.000Z'))

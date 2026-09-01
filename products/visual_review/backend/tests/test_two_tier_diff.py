@@ -8,11 +8,8 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from products.visual_review.backend.diff import compare_images
-from products.visual_review.backend.diffing import (
-    PIXEL_DIFF_THRESHOLD_PERCENT,
-    SSIM_DISSIMILARITY_THRESHOLD,
-    classify_compare_result,
-)
+from products.visual_review.backend.diffing import classify_compare_result
+from products.visual_review.backend.facade.contracts import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
 from products.visual_review.backend.facade.enums import ChangeKind
 
 

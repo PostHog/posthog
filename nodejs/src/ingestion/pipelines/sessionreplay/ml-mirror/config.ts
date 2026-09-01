@@ -47,12 +47,10 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
-     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
-     * `imageurl:<hash>` ref. The prefix differs from the image lane's `image:` on
-     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
-     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
-     * URLs and how many distinct hosts real traffic carries.
+     * Enabling changes the mirrored JSONL shape a second time. A direct remote image keeps its
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its `imageurl:<hash>`
+     * ref. CSS keeps numbered placeholders and a `data-anon-image-refs-<field>` sibling carries a
+     * JSON slot-to-ref map. The URL hash names the URL rather than the bytes behind it.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
 
@@ -83,8 +81,12 @@ export type MlMirrorConfig = {
 
     /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
+    /** Optional topic for rejected frontier records. Empty commits and drops rejected input without quarantine. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
+    /** Kafka group members per image-fetch worker. Their batches join into one fetch pass. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
@@ -108,12 +110,6 @@ export type MlMirrorConfig = {
      * scale with it too. Raise the pod's memory before you raise this.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
-    /** Low-diversity mode starts when the remaining request capacity is lower than this value. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: number
-    /** Low-diversity mode starts only when more than this many undeferred canonical URL jobs remain. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: number
-    /** Canonical URL jobs fetched in low-diversity mode before the remaining undeferred jobs return to Kafka. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: number
     /** Image bodies waiting for Kafka delivery. This must fit inside the producer byte queue. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
     /**
@@ -231,8 +227,10 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
+        SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 2,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
@@ -240,9 +238,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: 48,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: 50,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: 8,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,

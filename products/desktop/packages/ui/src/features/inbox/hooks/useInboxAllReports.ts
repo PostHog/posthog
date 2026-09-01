@@ -37,12 +37,11 @@ const EMPTY_FILTER_ARRAY: never[] = [];
  * values so unrelated filter changes don't re-render the consumer.
  *
  * `withReportsCount` opts into the extra count query behind `counts.reports`;
- * without it that count stays 0. Only the inbox tab bar renders it, and the
- * sidebar and channel nav mount this hook on every route to read `counts.pulls`
- * alone, so making it opt-in keeps them from polling a second endpoint for a
- * number they never show.
+ * without it that count stays 0. Only surfaces that render that count should
+ * pay for its request.
  */
 export function useInboxAllReports(options?: {
+  enabled?: boolean;
   ignoreScope?: boolean;
   ignoreFilters?: boolean;
   pullRequestsOnly?: boolean;
@@ -54,17 +53,15 @@ export function useInboxAllReports(options?: {
    */
   statusFilter?: string;
   /**
-   * Apply the persisted `prFilter` (with-PR / without-PR) to the query. Only
-   * the sectioned inbox renders the control that sets it, so only it opts in —
-   * otherwise a stored value would silently filter surfaces with no way to
-   * clear it (e.g. empty the legacy Reports tab, which then drops PR-backed
-   * reports itself).
+   * Apply the persisted source filter to the query. The sectioned inbox hides
+   * that control, so it opts out to avoid a stored value filtering the list.
    */
-  applyPrFilter?: boolean;
+  applySourceFilter?: boolean;
 }) {
+  const enabled = options?.enabled ?? true;
   const ignoreScope = options?.ignoreScope ?? false;
   const ignoreFilters = options?.ignoreFilters ?? false;
-  const applyPrFilter = options?.applyPrFilter ?? false;
+  const applySourceFilter = options?.applySourceFilter ?? true;
   const refetchIntervalMs =
     options?.refetchIntervalMs ?? INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
@@ -84,22 +81,24 @@ export function useInboxAllReports(options?: {
     ignoreFilters ? "desc" : s.sortDirection,
   );
   const sourceProductFilter = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? EMPTY_FILTER_ARRAY : s.sourceProductFilter,
+    ignoreFilters || !applySourceFilter
+      ? EMPTY_FILTER_ARRAY
+      : s.sourceProductFilter,
   );
   const priorityFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : s.priorityFilter,
   );
-  const prFilter = useInboxSignalsFilterStore((s) =>
-    ignoreFilters || !applyPrFilter ? "all" : s.prFilter,
-  );
+  const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
+  const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
+  const { data: currentUser } = useCurrentUser({
+    client,
+    enabled: enabled && isForYou && teammateUuid === null,
+  });
 
   // Reviewer scope is applied server-side via `suggested_reviewers`: "For you"
   // filters on the current user, a teammate scope on theirs, "Entire project"
   // and the Runs tab (`ignoreScope`) send nothing.
-  const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
-  const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
   const reviewerUuid =
     teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
 
@@ -110,13 +109,7 @@ export function useInboxAllReports(options?: {
       status: pullRequestsOnly
         ? INBOX_PULL_REQUEST_STATUS_FILTER
         : (options?.statusFilter ?? INBOX_PIPELINE_STATUS_FILTER),
-      has_implementation_pr: pullRequestsOnly
-        ? true
-        : prFilter === "with_pr"
-          ? true
-          : prFilter === "without_pr"
-            ? false
-            : undefined,
+      has_implementation_pr: pullRequestsOnly ? true : undefined,
       ordering: buildSignalReportListOrdering(sortField, sortDirection),
       source_product:
         sourceProductFilter.length > 0
@@ -132,7 +125,7 @@ export function useInboxAllReports(options?: {
       // filter, so hold the query until that uuid resolves rather than firing a
       // throwaway project-wide fetch first. Other scopes don't depend on the
       // user and run immediately.
-      enabled: !isForYou || reviewerUuid != null,
+      enabled: enabled && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -141,8 +134,8 @@ export function useInboxAllReports(options?: {
   // True count of pull-request reports for the active scope. The infinite list
   // only holds the first page(s), so deriving pulls from loaded reports caps at
   // the page size and depends on ordering (a PR can sit past page 1). A cheap
-  // `limit: 1` count query with the server-side `has_implementation_pr` filter
-  // returns the real total regardless of page size.
+  // count-only query with the server-side `has_implementation_pr` filter returns
+  // the real total without fetching or enriching a report row.
   const pullRequestCountQuery = useInboxReports(
     {
       status: INBOX_PULL_REQUEST_STATUS_FILTER,
@@ -158,10 +151,10 @@ export function useInboxAllReports(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
+      count_only: true,
     },
     {
-      enabled: !isForYou || reviewerUuid != null,
+      enabled: enabled && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -169,7 +162,7 @@ export function useInboxAllReports(options?: {
   const pullRequestTotal = pullRequestCountQuery.data?.count ?? 0;
 
   // True count of Reports-tab reports for the active scope, on the same
-  // `limit: 1` pattern as the pull-request count above. Deriving it instead by
+  // count-only pattern as the pull-request count above. Deriving it instead by
   // subtracting from the pipeline total only works if every non-report item is
   // visible in the loaded pages, and the list is ordered `ready` first, so the
   // queued, live and failed runs sit past page 1 and never get subtracted.
@@ -185,10 +178,11 @@ export function useInboxAllReports(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
+      count_only: true,
     },
     {
-      enabled: withReportsCount && (!isForYou || reviewerUuid != null),
+      enabled:
+        enabled && withReportsCount && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },

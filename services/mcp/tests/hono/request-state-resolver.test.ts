@@ -350,6 +350,22 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it.each([
+        ['a Desktop task', { taskOriginProduct: undefined }, true],
+        ['a support reply task', { taskOriginProduct: 'support_reply' }, true],
+        // Scout sandboxes mount gateway servers directly as `mcp__<server>__<tool>`; a second
+        // `<slug>__<tool>` spelling inside exec resolves for a member but not for the service
+        // account, so skills learned interactively fail on the schedule.
+        ['a scout run', { taskOriginProduct: 'signals_scout' }, false],
+    ] as const)('surfaces gateway tools through exec for %s', async (_label, overrides, enabled) => {
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-gateway': true })
+
+        const result = await makeResolver().resolve(makeProps({ mcpConsumer: 'posthog-code', ...overrides }))
+
+        expect(result.useSingleExec).toBe(true)
+        expect(result.gatewayToolsEnabled).toBe(enabled)
+    })
+
+    it.each([
         ['PostHog Code task', { mcpConsumer: 'posthog-code', taskId: 'task-1' }, false],
         ['PostHog Code without a task', { mcpConsumer: 'posthog-code', taskId: undefined }, true],
         ['non-PostHog Code task', { mcpConsumer: 'other', taskId: 'task-1' }, true],

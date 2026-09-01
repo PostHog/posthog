@@ -377,6 +377,125 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == expected, response.json()
 
+    def _create_email_template(self) -> None:
+        # Mirrors the real `template-email`: a hidden template whose code calls the reserved
+        # `sendEmail` async function.
+        HogFunctionTemplate.objects.create(
+            template_id="template-email-test",
+            sha="1.0.0",
+            name="Email",
+            description="Internal building block",
+            code="let res := sendEmail(inputs.email)\nif (not res.success) { throw Error('failed') }",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+    @parameterized.expand(
+        [
+            # These two handlers stage a queue only the messaging consumers serve, so a call from a
+            # plain destination makes the worker produce to a topic its cluster lacks and the
+            # process dies. Both a direct call and a bare reference are refused, because the bare
+            # name compiles to the same global dispatch once it is called.
+            ("send_email_call", "let res := sendEmail(inputs.email)\nreturn res"),
+            ("send_email_reference", "let f := sendEmail\nreturn f(inputs.email)"),
+            ("send_email_nested", "if (true) { for (let i := 0; i < 1; i := i + 1) { sendEmail(inputs.email) } }"),
+            ("send_push_notification", "return sendPushNotification(inputs.message)"),
+        ]
+    )
+    def test_create_calling_reserved_function_is_blocked(self, _name: str, hog: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"type": "destination", "name": "Sneaky", "hog": hog, "inputs": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "hog"
+        assert "Reserved for PostHog's own use" in response.json()["detail"]
+        assert not HogFunction.objects.filter(team=self.team, name="Sneaky").exists()
+
+    @parameterized.expand(
+        [
+            # Only the two messaging functions are refused. Async functions that stage an ordinary
+            # 'fetch' carry no such risk, so the reserved set must not creep out to swallow the
+            # customer analytics family that destinations are meant to call.
+            ("fetch", "let res := fetch('https://example.com', {})\nreturn res"),
+            ("post_hog_update_account", "return postHogUpdateAccount({'external_id': '1', 'updates': {}})"),
+        ]
+    )
+    def test_create_with_supported_function_is_allowed(self, _name: str, hog: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"type": "destination", "name": f"Fine {_name}", "hog": hog, "inputs": {}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            # A function built from the template that legitimately calls the reserved function keeps
+            # the template's own calls, so it can still be disabled and deleted. Adding a call the
+            # template does not make is refused even on that function.
+            ("resave_template_code_allowed", "let res := sendEmail(inputs.email)", status.HTTP_200_OK),
+            (
+                "added_reserved_call_blocked",
+                "let res := sendEmail(inputs.email)\nsendPushNotification(inputs.message)",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_function_from_template_may_only_keep_the_templates_reserved_calls(
+        self, _name: str, hog: str, expected: int
+    ) -> None:
+        self._create_email_template()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Workflow email step",
+            type="destination",
+            template_id="template-email-test",
+            enabled=False,
+            inputs_schema=[],
+            inputs={},
+            hog="let res := sendEmail(inputs.email)",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data={"hog": hog},
+        )
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            # The template carve-out keeps the reserved call a hidden template makes, so a function
+            # built from one stays disableable and deletable. It must never yield a function that
+            # RUNS, because only a running one can wedge a worker. Two independent rules close that:
+            # the hidden-template rule refuses any save leaving it enabled, and an existing
+            # function's type is immutable, so it cannot be re-typed into a plain destination while
+            # keeping the call.
+            ("enable_blocked", {"enabled": True}, "enabled"),
+            ("retype_blocked", {"type": "transformation"}, "type"),
+        ]
+    )
+    def test_template_carve_out_cannot_yield_a_runnable_function(self, _name: str, patch: dict, attr: str) -> None:
+        self._create_email_template()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Workflow email step",
+            type="destination",
+            template_id="template-email-test",
+            enabled=False,
+            inputs_schema=[],
+            inputs={},
+            hog="let res := sendEmail(inputs.email)",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data={**patch, "hog": "let res := sendEmail(inputs.email)"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == attr
+
     @parameterized.expand(
         [
             # Filters that no longer compile (e.g. the team's test account filters gained a static
