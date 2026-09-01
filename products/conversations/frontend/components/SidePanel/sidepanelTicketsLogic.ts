@@ -142,8 +142,12 @@ export interface sidepanelTicketsLogicActions {
     initTickets: () => {
         value: true
     }
-    loadMessages: (ticketId: string) => {
+    loadMessages: (
+        ticketId: string,
+        quiet?: boolean
+    ) => {
         ticketId: string
+        quiet: boolean
     }
     loadTickets: () => {
         value: true
@@ -275,7 +279,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         startPolling: true,
         stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
-        loadMessages: (ticketId: string) => ({ ticketId }),
+        loadMessages: (ticketId: string, quiet: boolean = false) => ({ ticketId, quiet }),
         setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -593,7 +597,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 cache.pollTimer = null
             }
         },
-        loadMessages: async ({ ticketId }) => {
+        loadMessages: async ({ ticketId, quiet }) => {
             if (!ticketId || !posthog.conversations) {
                 return
             }
@@ -638,7 +642,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     reason: 'thread_load_failed',
                     error: e,
                 })
-                lemonToast.error('Failed to load messages. Please try again.')
+                // A quiet refresh runs right after a successful send. The message did leave the
+                // browser, so an error toast here would contradict the "Message sent!" the reader
+                // just saw. Keep the telemetry, drop the toast — a later poll or reopen recovers.
+                if (!quiet) {
+                    lemonToast.error('Failed to load messages. Please try again.')
+                }
             } finally {
                 actions.setMessagesLoading(false)
             }
@@ -689,7 +698,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         actions.setView('ticket')
                     }
                     actions.loadTickets()
-                    actions.loadMessages(response.ticket_id)
+                    actions.loadMessages(response.ticket_id, true)
                     lemonToast.success('Message sent!')
                     onSuccess()
                 } else {

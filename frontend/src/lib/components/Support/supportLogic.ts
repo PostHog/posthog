@@ -50,6 +50,7 @@ export type SupportFailureSurface =
     | 'support_form' // the modal / side-panel support form (every "contact support" CTA)
     | 'side_panel_composer' // the conversations composer in the support panel
     | 'side_panel_tickets' // the panel's ticket list and message threads
+    | 'support_ticket_scene' // the staff-side ticket scene and its message poll
     | 'restore_form' // "email me a link to my tickets"
 
 /** Why a submitted message never became a ticket. Every one of these loses customer intent. */

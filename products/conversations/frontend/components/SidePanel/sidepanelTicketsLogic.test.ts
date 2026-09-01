@@ -507,4 +507,34 @@ describe('sidepanelTicketsLogic', () => {
             message_preview: 'here is the error I get',
         })
     })
+
+    // A successful send refreshes the thread. If that refresh throws, the message still went
+    // through, so the reader must not get an error toast contradicting "Message sent!" — but the
+    // failure is still worth counting.
+    it('keeps a failed post-send thread refresh quiet while still counting it', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog as any).conversations.getMessages = jest.fn().mockRejectedValue(new Error('offline'))
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('' as never)
+        ;(posthog.capture as jest.Mock).mockClear()
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('did this go through?', onSuccess)
+        }).toFinishAllListeners()
+
+        expect(onSuccess).toHaveBeenCalledTimes(1)
+        expect(successToast).toHaveBeenCalledWith('Message sent!')
+        expect(errorToast).not.toHaveBeenCalled()
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'thread_load_failed' })
+
+        errorToast.mockRestore()
+        successToast.mockRestore()
+    })
 })
