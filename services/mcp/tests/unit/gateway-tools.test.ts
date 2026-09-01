@@ -184,7 +184,7 @@ describe('gateway tools', () => {
 
         const listed = JSON.parse((await exec.handler(mockContext(), { command: 'tools' })) as string)
 
-        expect(listed.tools).toEqual(['feature-flag-create'])
+        expect([...listed.read, ...listed.write, ...listed.destructive]).toEqual(['feature-flag-create'])
         expect(listed.connected_servers).toContain('linear')
     })
 

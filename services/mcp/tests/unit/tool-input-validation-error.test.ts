@@ -17,7 +17,7 @@ describe('handleToolError with ToolInputValidationError', () => {
         const [content] = result.content as Array<{ type: string; text: string }>
         expect(content?.type).toBe('text')
         expect(content?.text).toBe(
-            'Error: [action-get]: Invalid input for "action-get": missing required parameter: id'
+            'Error: [action-get]: Invalid input for "action-get": missing required parameter: id\n\nerror_code: invalid_input'
         )
         expect(captureException).not.toHaveBeenCalled()
     })

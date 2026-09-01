@@ -3,11 +3,33 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
+import { POSTHOG_META_KEY } from '@/tools/types'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
     INACTIVE_OAUTH_TOKEN = 'INACTIVE_OAUTH_TOKEN',
 }
+
+/**
+ * Stable classification of a failed tool call, returned on every error result.
+ * Prose alone gives an agent nothing to branch on: it cannot tell "retry with a
+ * different id" from "ask the user to re-authenticate" without matching on a
+ * message that is free to change. `ExecCommandErrorReason` values pass through
+ * unchanged, because the `exec` dispatcher already classifies its own rejections.
+ */
+export type ToolErrorCode =
+    | ExecCommandErrorReason
+    | 'missing_project_context'
+    | 'missing_organization_context'
+    | 'invalid_input'
+    | 'validation_error'
+    | 'permission_denied'
+    | 'not_found'
+    | 'unauthorized'
+    | 'rate_limited'
+    | 'invalid_request'
+    | 'upstream_error'
+    | 'internal_error'
 
 export class MCPToolError extends Error {
     public readonly tool: string
@@ -417,6 +439,57 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
     return undefined
 }
 
+/** Classifies a recoverable error class the tool layer raises itself. */
+function codeForRecoverableError(
+    error: MissingProjectContextError | MissingOrganizationContextError | ToolInputValidationError | ExecCommandError
+): ToolErrorCode {
+    if (error instanceof MissingProjectContextError) {
+        return 'missing_project_context'
+    }
+    if (error instanceof MissingOrganizationContextError) {
+        return 'missing_organization_context'
+    }
+    return error instanceof ExecCommandError ? error.reason : 'invalid_input'
+}
+
+/** Classifies a 4xx the PostHog API returned. */
+function codeForApiError(error: PostHogApiError | PostHogValidationError): ToolErrorCode {
+    if (error instanceof PostHogValidationError) {
+        return 'validation_error'
+    }
+    switch (error.status) {
+        case 401:
+            return 'unauthorized'
+        case 403:
+            return 'permission_denied'
+        case 404:
+            return 'not_found'
+        case 429:
+            return 'rate_limited'
+        default:
+            return 'invalid_request'
+    }
+}
+
+/**
+ * Builds the error result an agent sees. The trailing `error_code` line is the
+ * one part of the text that is safe to branch on: the message above it is
+ * written for a human reader and may change. The same code rides on `_meta` for
+ * clients that consume the result programmatically.
+ */
+export function buildToolErrorResult(toolName: string, code: ToolErrorCode, message: string): CallToolResult {
+    return {
+        content: [
+            {
+                type: 'text',
+                text: `Error: [${toolName}]: ${message}\n\nerror_code: ${code}`,
+            },
+        ],
+        isError: true,
+        _meta: { [POSTHOG_META_KEY]: { errorCode: code } },
+    }
+}
+
 /**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
@@ -444,15 +517,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError
     ) {
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Error: [${toolName}]: ${error.message}`,
-                },
-            ],
-            isError: true,
-        }
+        return buildToolErrorResult(toolName, codeForRecoverableError(error), error.message)
     }
 
     // Recoverable: 4xx responses from the PostHog API (and validation errors)
@@ -468,15 +533,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             recoverableApiError instanceof PostHogValidationError ||
             (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
         if (isFourXx) {
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
-                    },
-                ],
-                isError: true,
-            }
+            return buildToolErrorResult(toolName, codeForApiError(recoverableApiError), recoverableApiError.message)
         }
     }
 
@@ -500,15 +557,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             // Never let observability break the request.
         }
 
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Error: [${toolName}]: ${formatPermissionErrorMessage(permissionError)}`,
-                },
-            ],
-            isError: true,
-        }
+        return buildToolErrorResult(toolName, 'permission_denied', formatPermissionErrorMessage(permissionError))
     }
 
     const mcpError =
@@ -544,13 +593,9 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
             : undefined
 
-    return {
-        content: [
-            {
-                type: 'text',
-                text: `Error: [${mcpError.tool}]: ${mcpError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
-            },
-        ],
-        isError: true,
-    }
+    // Distinct from the 4xx codes above so an agent backs off instead of
+    // rewriting input that was never the problem.
+    const code: ToolErrorCode = recoverableApiError ? 'upstream_error' : 'internal_error'
+
+    return buildToolErrorResult(mcpError.tool, code, `${mcpError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`)
 }

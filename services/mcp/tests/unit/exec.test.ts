@@ -1048,12 +1048,56 @@ describe('exec tool', () => {
         })
     })
 
+    describe('access classes', () => {
+        const readTool = makeMockTool({ name: 'dashboard-get', title: 'Get dashboard' })
+        const writeTool = makeMockTool({
+            name: 'dashboard-create',
+            title: 'Create dashboard',
+            annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true, readOnlyHint: false },
+        })
+        const destructiveTool = makeMockTool({
+            name: 'dashboard-delete',
+            title: 'Delete dashboard',
+            annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: true, readOnlyHint: false },
+        })
+
+        it('groups the tool listing by what a call can do', async () => {
+            const exec = createExec([readTool, writeTool, destructiveTool])
+
+            const listed = JSON.parse((await exec.handler(mockContext, { command: 'tools' })) as string)
+
+            expect(listed).toEqual({
+                read: ['dashboard-get'],
+                write: ['dashboard-create'],
+                destructive: ['dashboard-delete'],
+            })
+        })
+
+        it('names the search matches that write or destroy, leaving read-only ones implicit', async () => {
+            const exec = createExec([readTool, writeTool, destructiveTool])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+
+            expect(result.matches).toHaveLength(3)
+            expect(result.write).toEqual(['dashboard-create'])
+            expect(result.destructive).toEqual(['dashboard-delete'])
+        })
+
+        it('omits the lists when every match is read-only', async () => {
+            const exec = createExec([readTool])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+
+            expect(result).toEqual({ matches: ['dashboard-get'] })
+        })
+    })
+
     describe('search command', () => {
-        it('returns a plain array of matching tool names', async () => {
+        it('returns matching tool names', async () => {
             const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
             const exec = createExec([flagTool])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
-            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+            expect(JSON.parse(result as string)).toEqual({ matches: ['feature-flag-get-all'] })
         })
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
@@ -1104,7 +1148,7 @@ describe('exec tool', () => {
                 },
             ])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
-            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+            expect(JSON.parse(result as string)).toEqual({ matches: ['feature-flag-get-all'] })
         })
 
         it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
@@ -1119,8 +1163,7 @@ describe('exec tool', () => {
             const result = JSON.parse(
                 (await exec.handler(mockContext, { command: 'search create dashboard insight' })) as string
             )
-            expect(Array.isArray(result)).toBe(true)
-            expect(result.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
+            expect(result.matches.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
         })
 
         it('surfaces scope-gated tools for a plain-language query', async () => {

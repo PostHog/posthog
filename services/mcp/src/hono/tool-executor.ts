@@ -7,6 +7,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import {
+    buildToolErrorResult,
     ExecCommandError,
     handleToolError,
     MissingOrganizationContextError,
@@ -118,7 +119,7 @@ export class ToolExecutor {
     async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
-            return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
+            return buildToolErrorResult('unknown', 'invalid_input', 'Missing tool name')
         }
 
         const { intentMeta, args } = this.extractIntent(toolName, (params?.arguments ?? {}) as Record<string, unknown>)
@@ -132,20 +133,20 @@ export class ToolExecutor {
             // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
-                return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+                return buildToolErrorResult(toolName, 'unknown_tool', `Tool ${toolName} not found`)
             }
             return this.callRenderUiTool(callParams, state, intentMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            return buildToolErrorResult(toolName, 'unknown_tool', `Tool ${toolName} not found`)
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
         if (!preBuilt) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            return buildToolErrorResult(toolName, 'unknown_tool', `Tool ${toolName} not found`)
         }
 
         return this.callTool(
@@ -223,10 +224,7 @@ export class ToolExecutor {
                 intentMeta,
                 this.servedToolDescription(tool.name)
             )
-            return {
-                content: [{ type: 'text', text: message }],
-                isError: true,
-            }
+            return buildToolErrorResult(tool.name, 'invalid_input', message)
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
@@ -358,10 +356,11 @@ export class ToolExecutor {
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
-            return {
-                content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
-                isError: true,
-            }
+            return buildToolErrorResult(
+                resolved.name,
+                'invalid_input',
+                formatInputValidationError(resolved.name, validation.error)
+            )
         }
 
         const startMs = Date.now()
@@ -555,17 +554,18 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const renderUiTool = createRenderUiTool(state.allTools, state.context)
         if (!renderUiTool) {
-            return {
-                content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
-                isError: true,
-            }
+            return buildToolErrorResult(
+                'render-ui',
+                'unknown_tool',
+                'render-ui is not available — no tool has a UI app'
+            )
         }
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = renderUiTool.schema.safeParse(toolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            return buildToolErrorResult('render-ui', 'invalid_input', `Invalid input: ${validation.error.message}`)
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: 'render-ui' })
