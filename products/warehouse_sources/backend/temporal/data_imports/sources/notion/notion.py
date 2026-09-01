@@ -824,5 +824,11 @@ def notion_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # database_rows fans out across data sources and drains each one in turn, so the combined
+        # stream is not globally ascending by last_edited_time. "desc" defers the watermark write to
+        # successful job end (see finalize_desc_sort_incremental_value), so a failed mid-sync attempt
+        # can't advance the watermark past rows a later data source has not read yet; the next attempt
+        # re-reads from the old watermark and rows merge on id. Full-refresh streams don't checkpoint
+        # a watermark, so their sort_mode is moot.
+        sort_mode="desc" if config.supports_incremental else "asc",
     )

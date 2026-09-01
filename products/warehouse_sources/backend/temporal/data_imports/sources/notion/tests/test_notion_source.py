@@ -113,6 +113,23 @@ class TestNotionSource:
 
     @parameterized.expand(
         [
+            # database_rows is the one incremental stream, and its fan-out drains each data source in
+            # turn so the combined stream is not globally ascending. It must sync "desc" so the
+            # watermark write is deferred to job end; a failed mid-sync attempt that advanced an "asc"
+            # watermark would skip a later data source's older rows.
+            ("database_rows", "desc"),
+            ("pages", "asc"),
+        ]
+    )
+    def test_source_for_pipeline_sort_mode(self, schema_name: str, expected_sort_mode: str) -> None:
+        inputs = _make_inputs(schema_name)
+        manager = self.source.get_resumable_source_manager(inputs)
+        response = self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
+
+        assert response.sort_mode == expected_sort_mode
+
+    @parameterized.expand(
+        [
             ("401 Client Error: Unauthorized for url: https://api.notion.com/v1/search",),
             ("403 Client Error: Forbidden for url: https://api.notion.com/v1/users",),
         ]
