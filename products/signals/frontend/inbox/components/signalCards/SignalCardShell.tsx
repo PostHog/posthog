@@ -33,14 +33,11 @@ export function SignalCardDisclosureProvider({
 export function SignalCardHeader({
     signal,
     label,
-    rightSlot,
     disclosure,
 }: {
     signal: SignalNode
     /** Optional bold title shown after the source line (e.g. an entity name). */
     label?: React.ReactNode
-    /** Optional content rendered at the end of the header (e.g. a severity badge). */
-    rightSlot?: React.ReactNode
     disclosure?: SignalCardDisclosureState | null
 }): JSX.Element {
     const meta = getSourceProductMeta(signal.source_product)
@@ -77,7 +74,6 @@ export function SignalCardHeader({
             </span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
-            {rightSlot}
             {disclosure ? (
                 <LemonButton
                     type="tertiary"
@@ -96,19 +92,17 @@ export function SignalCardHeader({
 export function SignalCardShell({
     signal,
     label,
-    rightSlot,
     children,
 }: {
     signal: SignalNode
     label?: React.ReactNode
-    rightSlot?: React.ReactNode
     children: React.ReactNode
 }): JSX.Element {
     const disclosure = useContext(SignalCardDisclosureContext)
 
     return (
         <LemonCard hoverEffect={false} className={disclosure ? 'p-2 shadow-none' : 'p-3 shadow-sm'}>
-            <SignalCardHeader signal={signal} label={label} rightSlot={rightSlot} disclosure={disclosure} />
+            <SignalCardHeader signal={signal} label={label} disclosure={disclosure} />
             {!disclosure || disclosure.expanded ? children : null}
         </LemonCard>
     )

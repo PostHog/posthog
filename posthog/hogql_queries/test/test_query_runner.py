@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
@@ -20,12 +20,18 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
     DataTableNode,
     DataVisualizationNode,
+    DateRange,
     EventsNode,
+    EventsQuery,
+    GroupsQuery,
+    HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
@@ -35,7 +41,11 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PropertyType,
+    PropertyValuesQuery,
     QueryLogTags,
+    SessionsQuery,
+    SessionsTimelineQuery,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
@@ -49,9 +59,11 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_failure_handling import classify_failure
@@ -62,6 +74,7 @@ from posthog.hogql_queries.query_runner import (
     QueryRunner,
     QueryRunnerWithHogQLContext,
     get_query_runner,
+    get_query_runner_or_none,
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -70,6 +83,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+from posthog.models.user import User
+from posthog.query_cache import storage as qc_storage
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -78,6 +93,7 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
+from posthog.query_cache.storage import entry_redis_key
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
 
@@ -251,6 +267,38 @@ class TestQueryRunner(BaseTest):
         assert results[0] is results[1]
         timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
         assert timing_keys == ["./build_shared_database"]
+
+    def test_shared_database_reuses_runner_access_control_snapshot(self):
+        runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team, user=self.user)
+        snapshot = runner.user_access_control
+        assert snapshot is not None
+        assert runner.shared_database.user_access_control is snapshot
+
+    def test_actors_run_rebuilds_shared_state_on_user_change(self):
+        other_user = User.objects.create_and_join(self.organization, "other-user@example.com", None)
+        preloaded_snapshot = UserAccessControl(user=self.user, team=self.team)
+        runner = get_query_runner_or_none(
+            query=ActorsQuery(select=["properties.email"]),
+            team=self.team,
+            user=self.user,
+            user_access_control=preloaded_snapshot,
+        )
+        assert isinstance(runner, ActorsQueryRunner)
+        seen: list[tuple[Any, Any]] = []
+
+        def capture(self_runner: ActorsQueryRunner) -> ActorsQueryResponse:
+            seen.append((self_runner.shared_database, self_runner.user_access_control))
+            return ActorsQueryResponse(results=[], columns=[], hogql="", limit=100, offset=0)
+
+        with mock.patch.object(ActorsQueryRunner, "_calculate", autospec=True, side_effect=capture):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=other_user)
+
+        (first_database, first_snapshot), (second_database, second_snapshot) = seen
+        assert first_database is not second_database
+        assert first_snapshot is preloaded_snapshot
+        assert first_snapshot is not second_snapshot
+        assert second_database.user_access_control is second_snapshot
 
     def test_shared_database_kill_switch_disables_sharing(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -1137,155 +1185,6 @@ class TestApplySeriesCustomNames(BaseTest):
     @parameterized.expand(
         [
             (
-                "patches_funnel_steps_without_breakdown",
-                [
-                    {"order": 0, "custom_name": "Old Step 1", "count": 100},
-                    {"order": 1, "custom_name": "Old Step 2", "count": 50},
-                ],
-                [
-                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
-                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
-                ],
-                True,
-            ),
-            (
-                "patches_funnel_steps_with_breakdown",
-                [
-                    [
-                        {"order": 0, "custom_name": None, "count": 100, "breakdown": "Chrome"},
-                        {"order": 1, "custom_name": None, "count": 50, "breakdown": "Chrome"},
-                    ],
-                    [
-                        {"order": 0, "custom_name": None, "count": 80, "breakdown": "Firefox"},
-                        {"order": 1, "custom_name": None, "count": 40, "breakdown": "Firefox"},
-                    ],
-                ],
-                [
-                    [
-                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 100, "breakdown": "Chrome"},
-                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 50, "breakdown": "Chrome"},
-                    ],
-                    [
-                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 80, "breakdown": "Firefox"},
-                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 40, "breakdown": "Firefox"},
-                    ],
-                ],
-                True,
-            ),
-            (
-                "not_modified_when_names_match",
-                [
-                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
-                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
-                ],
-                [
-                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
-                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
-                ],
-                False,
-            ),
-        ]
-    )
-    def test_apply_funnels_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
-
-        from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-
-        query = FunnelsQuery(
-            series=[
-                EventsNode(event="step1", custom_name="Step 1 Renamed"),
-                EventsNode(event="step2", custom_name="Step 2 Renamed"),
-            ]
-        )
-
-        runner = FunnelsQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedFunnelsQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
-                "patches_all_lifecycle_statuses",
-                [
-                    {"action": {"order": 0, "custom_name": None}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "dormant", "data": [4]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "dormant", "data": [4]},
-                ],
-                True,
-            ),
-            (
-                "not_modified_when_lifecycle_names_match",
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                False,
-            ),
-        ]
-    )
-    def test_apply_lifecycle_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
-
-        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-
-        query = LifecycleQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Lifecycle"),
-            ]
-        )
-
-        runner = LifecycleQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedLifecycleQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
                 "modified_when_name_changes",
                 TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
                 [{"action": {"order": 0, "custom_name": "Old Name"}, "data": [1]}],
@@ -1633,6 +1532,28 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         query = {"kind": "HogQLQuery", "query": "select * from system.surveys"}
         payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
         assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
+
+    def test_canvas_object_deny_partitions_an_activity_logs_query(self):
+        # `system.activity_logs` limits Canvas rows to the canvases in `system.canvases`, so two users
+        # with identical activity-log access but different canvas grants must land in different cache
+        # entries - otherwise the restricted one replays the other's Canvas activity rows on a hit.
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        canvas_id = "018f0000-0000-0000-0000-0000000000ca"
+        self._ac(
+            resource="canvas",
+            resource_id=canvas_id,
+            access_level="none",
+            organization_member=other_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.activity_logs"}
+        unrestricted = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        restricted = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert "restricted_objects" not in unrestricted.get_cache_payload()
+        assert restricted.get_cache_payload()["restricted_objects"] == {"canvas": [canvas_id]}
+        assert restricted.get_cache_key() != unrestricted.get_cache_key()
 
     def test_object_grants_under_a_denied_resource_partition_cache(self):
         # Both users are denied notebooks at the resource level and see only what they were granted,
@@ -2004,3 +1925,57 @@ class TestQueryFailureCaching(BaseTest):
                     runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             mock_enqueue.assert_not_called()
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+
+
+class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
+    # Guards the context threading in each runner's _calculate: the one Database build
+    # must go through shared_database (visible as the build_shared_database timing),
+    # so every execute_hogql_query call in the same run reuses it instead of the
+    # executor building its own.
+    @parameterized.expand(
+        [
+            ("hogql", HogQLQuery(query="select count() from events")),
+            (
+                "hogql_filtered",
+                HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                ),
+            ),
+            ("events", EventsQuery(select=["event"])),
+            ("sessions", SessionsQuery(select=["session_id"])),
+            ("actors", ActorsQuery(select=["person"])),
+            ("sessions_timeline", SessionsTimelineQuery()),
+            ("groups", GroupsQuery(group_type_index=0)),
+            ("property_values", PropertyValuesQuery(property_key="email", property_type=PropertyType.PERSON)),
+        ]
+    )
+    def test_calculate_builds_database_once_via_shared_path(self, _name: str, query: BaseModel) -> None:
+        runner = get_query_runner(query=query, team=self.team, user=self.user)
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            runner.calculate()
+        assert create_for.call_count == 1
+        assert any("build_shared_database" in key for key in runner.timings.to_dict())
+
+
+class TestQueryRunnerRetentionTtl(BaseTest):
+    def tearDown(self) -> None:
+        super().tearDown()
+        cache.clear()
+
+    def test_run_applies_programmatic_retention_ttl(self) -> None:
+        TestQueryRunner = setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        redis_key = entry_redis_key(runner.get_cache_key())
+
+        try:
+            tag_queries(access_method="personal_api_key")
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        finally:
+            reset_query_tags()
+
+        assert 0 < qc_storage.query_cache_raw_client().ttl(redis_key) <= settings.CACHED_RESULTS_PROGRAMMATIC_TTL
+
+        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, insight_id=1)
+
+        assert qc_storage.query_cache_raw_client().ttl(redis_key) > settings.CACHED_RESULTS_PROGRAMMATIC_TTL

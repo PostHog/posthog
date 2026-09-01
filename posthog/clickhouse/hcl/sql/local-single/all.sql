@@ -15,6 +15,34 @@ CREATE TABLE posthog.channel_definition (
   type_if_paid Nullable(String),
   type_if_organic Nullable(String)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.channel_definition', '{replica}-{shard}') ORDER BY (domain, kind) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.clickhouse_cleanup_deleted_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  max_version UInt64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_orphaned_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  own_tombstone UInt8,
+  max_version Int64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -973,6 +1001,8 @@ CREATE TABLE posthog.logs32 (
   _bytes_uncompressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_compressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _record_count UInt64 CODEC(DoubleDelta, ZSTD(1)),
+  pattern String,
+  pattern_version UInt8,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -1895,7 +1925,7 @@ CREATE TABLE posthog.sharded_events_recent (
   _timestamp DateTime,
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDateTime(inserted_at) + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDate(inserted_at) + toIntervalDay(9) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -4652,34 +4682,6 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_log_attributes TO posthog.log_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-      arrayJoin(attributes) AS attribute,
-      'log' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.logs34
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attributes
-  );
 CREATE MATERIALIZED VIEW posthog.logs34_to_log_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -4709,33 +4711,6 @@ FROM
     FROM posthog.logs34
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, attributes
-  );
-CREATE MATERIALIZED VIEW posthog.logs34_to_resource_attributes TO posthog.log_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      arrayJoin(resource_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.logs34
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, resource_attributes
   );
 CREATE MATERIALIZED VIEW posthog.logs34_to_resource_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
@@ -6145,7 +6120,9 @@ CREATE TABLE posthog.logs (
   _offset UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_uncompressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_compressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
-  _record_count UInt64 CODEC(DoubleDelta, ZSTD(1))
+  _record_count UInt64 CODEC(DoubleDelta, ZSTD(1)),
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs32');
 CREATE TABLE posthog.marketing_conversions_preaggregated (
   team_id Int64,
