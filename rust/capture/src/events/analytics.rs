@@ -497,46 +497,34 @@ async fn process_events_inner(
     //      end state matches, but the pass order differs.
     //   2. Lane assignment is a single `DataType::from_event_name` match in
     //      legacy versus assign-then-reroute in v1.
-    //   3. Events whose person processing was already off: v1 skips its stamps
-    //      entirely (so such an event is never rerouted to overflow) and reports
-    //      it as outcome="already_disabled". Legacy still stamps and reroutes it,
-    //      and still counts it in the metric and log below; only the warning
-    //      excludes it. So legacy's limited count can exceed its warned count,
-    //      where v1's cannot.
-    // Both paths consult the same shared limiter for every non-dropped event, so
-    // per-key counts are identical regardless of which pipeline serves the key.
+    // Both paths charge the same shared limiter for every non-dropped event,
+    // including events whose person processing is already off, so per-key counts
+    // are identical regardless of which pipeline serves the key.
     // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
-            // Narrower than the tallies above: events an upstream event
-            // restriction had already taken person processing away from are
-            // excluded. The limiter didn't change their fate, so telling the
-            // customer we skipped person processing for them would inflate the
-            // count and name distinct_ids the limit never affected. v1 draws the
-            // same line via `already_disabled` in
-            // `v1::analytics::process::apply_token_distinct_id_limits`.
-            let mut warned_distinct_ids: HashSet<&str> = HashSet::new();
-            let mut warned_event_count: u64 = 0;
             let mut already_disabled_event_count: u64 = 0;
             for event in events.iter_mut() {
-                // Person processing is already off, which at this point can only
-                // come from an event restriction: the burst limiter runs after
-                // this stage in `stamp_overflow_reason`, and the limiter's own
-                // stamp is set below. The limiter has nothing left to take away
-                // from this event, so consulting it would change nothing and
-                // still cost a local cache miss and a Redis round trip.
+                let cache_key =
+                    GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
+                        .to_cache_key();
+                // Charge every event, even one an event restriction already
+                // stripped of person processing: its volume belongs in the
+                // key's fleet count, or a covered key starts from zero when the
+                // restriction lifts. The check reads only the local cache.
+                let limited = limiter.is_limited(&cache_key, 1).await.is_some();
+
+                // Person processing is already off: nothing left to take away,
+                // so stamp nothing and keep it out of the customer-facing tallies.
                 if event.metadata.skip_person_processing {
                     already_disabled_event_count += 1;
                     continue;
                 }
-                let cache_key =
-                    GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
-                        .to_cache_key();
-                if limiter.is_limited(&cache_key, 1).await.is_some() {
-                    let already_disabled = event.metadata.skip_person_processing;
+
+                if limited {
                     event.metadata.skip_person_processing = true;
                     // Reroute the hot key to overflow. AnalyticsMain only: historical
                     // never overflows, the AI lane keeps its dedicated topic (v1
@@ -547,10 +535,6 @@ async fn process_events_inner(
                     }
                     limited_distinct_ids.insert(&event.event.distinct_id);
                     limited_event_count += 1;
-                    if !already_disabled {
-                        warned_distinct_ids.insert(&event.event.distinct_id);
-                        warned_event_count += 1;
-                    }
                 }
             }
             if limited_event_count > 0 {
@@ -575,20 +559,18 @@ async fn process_events_inner(
             }
 
             if already_disabled_event_count > 0 {
-                counter!(
-                    "capture_global_rate_limiter_skipped",
-                    "reason" => "person_processing_already_disabled",
-                )
-                .increment(already_disabled_event_count);
+                // Charged against the limiter but not re-stamped.
+                counter!("capture_global_rate_limiter_already_disabled")
+                    .increment(already_disabled_event_count);
             }
 
-            if warned_event_count > 0 {
+            if limited_event_count > 0 {
                 emit_rate_limit_warning(
                     ingestion_warning_emitter.as_deref(),
                     &request_context(context),
                     CAPTURE_LEGACY_RATE_LIMIT,
-                    &warned_distinct_ids,
-                    warned_event_count,
+                    &limited_distinct_ids,
+                    limited_event_count,
                 );
             }
         }

@@ -17,6 +17,9 @@ const mockGetSignalReports = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
   getSignalReports: mockGetSignalReports,
 }));
+const filterMocks = vi.hoisted(() => ({
+  sourceProductFilter: [] as string[],
+}));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -39,8 +42,9 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
       searchQuery: "",
       sortField: "priority",
       sortDirection: "desc",
-      sourceProductFilter: [],
+      sourceProductFilter: filterMocks.sourceProductFilter,
       priorityFilter: [],
+      prFilter: "all",
     }),
 }));
 
@@ -106,6 +110,7 @@ function reportsCountParams(): SignalReportsQueryParams | undefined {
 function renderCounts(options?: {
   enabled?: boolean;
   withReportsCount?: boolean;
+  applySourceFilter?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -119,6 +124,7 @@ function renderCounts(options?: {
 describe("useInboxAllReports", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    filterMocks.sourceProductFilter = [];
     mockGetSignalReports.mockImplementation(async (params) =>
       fakeServer(params),
     );
@@ -173,5 +179,15 @@ describe("useInboxAllReports", () => {
     renderCounts({ enabled: false, withReportsCount: true });
 
     expect(mockGetSignalReports).not.toHaveBeenCalled();
+  });
+
+  it("ignores a saved source filter when its surface hides that control", async () => {
+    filterMocks.sourceProductFilter = ["github"];
+
+    const { result } = renderCounts({ applySourceFilter: false });
+
+    await waitFor(() => expect(result.current.allReports).toHaveLength(50));
+    expect(pipelineRequests()[0]?.source_product).toBeUndefined();
+    expect(result.current.sourceProductFilter).toEqual([]);
   });
 });

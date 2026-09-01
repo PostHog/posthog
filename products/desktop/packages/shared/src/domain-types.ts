@@ -314,6 +314,7 @@ export function readPendingFollowupMessages(
 const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
+  benjamin_version: optionalField(z.string()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -1076,6 +1077,8 @@ export interface SignalReportsQueryParams {
   suggested_reviewers?: string;
   /** Comma-separated `P0`–`P4` priorities — only returns reports with one of these priorities. */
   priority?: string;
+  /** Comma-separated actionability choices. Only returns reports with one of these latest judgments. */
+  actionability?: string;
   /** Return the filtered total without fetching or enriching report rows. */
   count_only?: boolean;
   /**

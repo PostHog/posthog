@@ -567,7 +567,7 @@ class Team(UUIDTClassicModel):
             Supported entry types and the exact shape each accepts:
 
             # Person property — match (or exclude) by a person property
-            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
 
             # Event property — match by an event property
             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
@@ -579,8 +579,9 @@ class Team(UUIDTClassicModel):
             # property-filter schema.
             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
 
-            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
-            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
+            "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
+            "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
         ),
         "project",
         "admin",

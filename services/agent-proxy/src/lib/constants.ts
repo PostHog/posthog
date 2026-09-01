@@ -13,6 +13,10 @@ export const STREAM_TTL_SECONDS = 6 * 60 * 60 // 21600
 // (mirrors SANDBOX_EVENT_INGEST_TOKEN_TTL in connection_token.py).
 export const SEQUENCE_TTL_SECONDS = STREAM_TTL_SECONDS + 3600 // 25200
 
+// Drain window for a stream after its terminal sentinel
+// (mirrors TASK_RUN_STREAM_COMPLETED_TIMEOUT in redis_stream.py).
+export const STREAM_COMPLETED_TTL_SECONDS = Math.min(30 * 60, Math.floor(STREAM_TTL_SECONDS / 3)) // 1800
+
 // Redis XADD MAXLEN ~ (approximate trim, not exact).
 export const STREAM_MAX_LENGTH = 5_000
 
