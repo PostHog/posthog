@@ -116,6 +116,10 @@ export interface insightSceneLogicValues {
     activeSceneId: string | null // sceneLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
+    accessDeniedToInsight: boolean
+    accessDeniedToInsightSelector:
+        | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean)
+        | undefined
     alertId: AlertType['id'] | null
     breadcrumbs: Breadcrumb[]
     dashboardId: DashboardType['id'] | null
@@ -137,6 +141,8 @@ export interface insightSceneLogicValues {
         logic: BuiltLogic<insightLogicType>
         unmount: () => void
     } | null
+    insightMissing: boolean
+    insightMissingSelector: ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
     insightMode: ItemMode
     insightQuery: Node<Record<string, any>> | null | undefined
     insightQuerySelector:
@@ -510,6 +516,48 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
             (insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
+        ],
+        insightMissingSelector: [
+            (s) => [s.insightLogicRef],
+            (
+                insightLogicRef: {
+                    logic: BuiltLogic<insightLogicType>
+                    unmount: () => void
+                } | null
+            ) => insightLogicRef?.logic.selectors.insightMissing,
+        ],
+        insightMissing: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.insightMissingSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return false
+                    }
+                },
+            ],
+            (insightMissing: boolean | undefined) => insightMissing ?? false,
+        ],
+        accessDeniedToInsightSelector: [
+            (s) => [s.insightLogicRef],
+            (
+                insightLogicRef: {
+                    logic: BuiltLogic<insightLogicType>
+                    unmount: () => void
+                } | null
+            ) => insightLogicRef?.logic.selectors.accessDeniedToInsight,
+        ],
+        accessDeniedToInsight: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.accessDeniedToInsightSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return false
+                    }
+                },
+            ],
+            (accessDeniedToInsight: boolean | undefined) => accessDeniedToInsight ?? false,
         ],
         breadcrumbs: [
             (s) => [s.insightLogicRef, s.insight, s.insightQuery, s.dashboardId, s.dashboardName, s.sceneSource],
