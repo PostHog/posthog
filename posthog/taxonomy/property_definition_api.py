@@ -1,13 +1,16 @@
 import json
 import uuid
+import hashlib
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
+from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router, transaction
 from django.db.models import Manager, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
+from drf_spectacular.utils import OpenApiResponse
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
@@ -15,14 +18,19 @@ from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventProperty, PropertyDefinition, User
+from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE, property_usage_instance_id
+from posthog.models import EventProperty, PropertyDefinition, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -31,6 +39,7 @@ from posthog.taxonomy.taxonomy import (
     PROPERTY_NAME_ALIASES,
     PROPERTY_NAME_ALIASES_BY_TYPE,
 )
+from posthog.utils import relative_date_parse
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
@@ -90,6 +99,96 @@ def is_query_canceled(error: BaseException) -> bool:
 class SeenTogetherQuerySerializer(serializers.Serializer):
     event_names: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=True)
     property_name: serializers.CharField = serializers.CharField(required=True)
+
+
+MAX_USAGE_METRICS_PROPERTIES = 100
+USAGE_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
+@frozen
+class _PropertyUsageKey:
+    type: str
+    name: str
+
+
+def _usage_metrics_cache_key(team_id: int, key: _PropertyUsageKey) -> str:
+    # Property names can contain characters that are invalid in cache keys; hash them.
+    digest = hashlib.sha256(f"{key.type}:{key.name}".encode()).hexdigest()[:32]
+    return f"property_definition:usage_30d:{team_id}:{digest}"
+
+
+def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_PropertyUsageKey, int]:
+    tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
+    instance_ids = {property_usage_instance_id(key.type, key.name): key for key in keys}
+    rows = sync_execute(
+        """
+        SELECT instance_id, sum(count)
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND metric_name = %(metric_name)s
+          AND timestamp >= toDateTime64(%(after)s, 6)
+          AND instance_id IN %(instance_ids)s
+        GROUP BY instance_id
+        """,
+        {
+            "team_id": team.pk,
+            "app_source": PROPERTY_USAGE_APP_SOURCE,
+            "metric_name": "viewed",
+            "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
+            "instance_ids": list(instance_ids),
+        },
+    )
+    counts = dict.fromkeys(keys, 0)
+    for instance_id, total in rows or []:
+        key = instance_ids.get(instance_id)
+        if key is not None:
+            counts[key] = int(total)
+    return counts
+
+
+class PropertyUsageEntrySerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PROPERTY_DEFINITION_TYPES,
+        default="event",
+        help_text="Property definition type the name belongs to.",
+    )
+    name = serializers.CharField(max_length=400, help_text="Property name, for example `$current_url`.")
+
+
+class PropertyUsageMetricsRequestSerializer(serializers.Serializer):
+    properties = PropertyUsageEntrySerializer(
+        many=True,
+        help_text=f"Properties to fetch 30-day query usage for, at most {MAX_USAGE_METRICS_PROPERTIES} per request.",
+    )
+
+    def validate_properties(self, value: list[dict]) -> list[dict]:
+        if not value:
+            raise ValidationError("Provide at least one property.")
+        if len(value) > MAX_USAGE_METRICS_PROPERTIES:
+            raise ValidationError(f"At most {MAX_USAGE_METRICS_PROPERTIES} properties per request.")
+        return value
+
+
+class PropertyUsageMetricsItemSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PROPERTY_DEFINITION_TYPES,
+        help_text="Property definition type the name belongs to.",
+    )
+    name = serializers.CharField(help_text="Property name.")
+    query_usage_30_day = serializers.IntegerField(
+        help_text=(
+            "Number of query executions in the last 30 days that referenced this property, "
+            "including cached insight views."
+        ),
+    )
+
+
+class PropertyUsageMetricsResponseSerializer(serializers.Serializer):
+    results = PropertyUsageMetricsItemSerializer(
+        many=True,
+        help_text="One entry per requested property, in request order.",
+    )
 
 
 class PropertyDefinitionQuerySerializer(serializers.Serializer):
@@ -990,6 +1089,47 @@ class PropertyDefinitionViewSet(
         results = {event_name: event_name in seen_events for event_name in event_names}
 
         return response.Response(results)
+
+    @validated_request(
+        request_serializer=PropertyUsageMetricsRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=PropertyUsageMetricsResponseSerializer,
+                description="30-day query usage per requested property.",
+            )
+        },
+        summary="30-day query usage for a set of properties",
+        description=(
+            "Returns how many query executions referenced each property in the last 30 days, "
+            "including cached insight views. Batched: send up to "
+            f"{MAX_USAGE_METRICS_PROPERTIES} properties at once. Counts are cached for 24 hours."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["property_definition:read"], url_path="usage_metrics")
+    def usage_metrics(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
+        keys = [
+            _PropertyUsageKey(type=entry["type"], name=entry["name"]) for entry in request.validated_data["properties"]
+        ]
+
+        cache_keys = {key: _usage_metrics_cache_key(self.team_id, key) for key in set(keys)}
+        cached = cache.get_many(list(cache_keys.values()))
+        counts: dict[_PropertyUsageKey, int] = {}
+        missing: list[_PropertyUsageKey] = []
+        for key, cache_key in cache_keys.items():
+            if cache_key in cached:
+                counts[key] = cached[cache_key]
+            else:
+                missing.append(key)
+
+        if missing:
+            counts.update(_fetch_property_usage(self.team, missing))
+            cache.set_many(
+                {cache_keys[key]: counts[key] for key in missing},
+                timeout=USAGE_METRICS_CACHE_TTL_SECONDS,
+            )
+
+        results = [{"type": key.type, "name": key.name, "query_usage_30_day": counts.get(key, 0)} for key in keys]
+        return response.Response({"results": results})
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

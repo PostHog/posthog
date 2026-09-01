@@ -5014,6 +5014,47 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(updated_metadata)
         self.assertNotEqual(initial_metadata, updated_metadata)
 
+    def test_listing_insights_filtered_by_property_name(self):
+        def trends_query_with_property(property_key: str) -> dict:
+            return {
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "properties": [{"key": property_key, "type": "event", "value": "x"}],
+                        }
+                    ],
+                },
+            }
+
+        browser_insight = Insight.objects.create(
+            query=trends_query_with_property("$browser"), team=self.team, created_by=self.user
+        )
+        os_insight = Insight.objects.create(
+            query=trends_query_with_property("$os"), team=self.team, created_by=self.user
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/", data={"properties": json.dumps(["$browser"])}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [insight["id"] for insight in response.json()["results"]]
+        self.assertIn(browser_insight.id, ids)
+        self.assertNotIn(os_insight.id, ids)
+
+        # Ancient clients sent property-filter dicts under this param; those must stay a no-op
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"properties": json.dumps([{"key": "$browser"}])},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [insight["id"] for insight in response.json()["results"]]
+        self.assertIn(browser_insight.id, ids)
+        self.assertIn(os_insight.id, ids)
+
     def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
         """
         Test that updating an insight without changing the query does not update the query metadata.

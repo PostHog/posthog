@@ -655,6 +655,9 @@ SPECTACULAR_SETTINGS = {
         # Keeps agent_platform's approval-request enum on its pre-collision name now
         # that mcp_store also has a "decision" field.
         "DecisionEnum": ["approve", "reject"],
+        # PropertyDefinitionTypeEnum is taken by the value-type enum (String/Numeric/...);
+        # this one is the definition scope, shared by the property usage_metrics serializers.
+        "PropertyUsageTypeEnum": ["event", "person", "group", "session"],
         # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
         "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
         "NotebookSQLV2RefKindEnum": ["hogql", "local"],

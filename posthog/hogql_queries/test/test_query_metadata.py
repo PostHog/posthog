@@ -2,12 +2,15 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
     CalendarHeatmapQuery,
     DataTableNode,
     EntityType,
+    EventPropertyFilter,
     EventsNode,
     EventsQuery,
     FunnelCorrelationActorsQuery,
@@ -32,7 +35,12 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.query_metadata import QueryEventsExtractor
+from posthog.hogql_queries.query_metadata import (
+    MAX_PROPERTIES_PER_QUERY_METADATA,
+    QueryEventsExtractor,
+    QueryPropertiesExtractor,
+    extract_query_metadata,
+)
 
 from products.actions.backend.models.action import Action
 
@@ -360,3 +368,193 @@ class TestQueryEventsExtractor(TestCase):
         )
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "click"])
+
+    def test_extract_events_hogql_query(self):
+        query = {
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "select count() from events where event = '$pageview' or event in ('signup', 'purchase')",
+            },
+        }
+        result = self.extractor.extract_events(query)
+        self.assertCountEqual(result, ["$pageview", "signup", "purchase"])
+
+    def test_extract_events_invalid_hogql_query(self):
+        result = self.extractor.extract_events({"kind": "HogQLQuery", "query": "select ((( from"})
+        self.assertCountEqual(result, [])
+
+
+class TestQueryPropertiesExtractor(TestCase):
+    def setUp(self):
+        self.extractor = QueryPropertiesExtractor()
+
+    @parameterized.expand(
+        [
+            (
+                "series_and_global_property_filters",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "pageview",
+                            "properties": [{"key": "$browser", "type": "event", "value": "Chrome"}],
+                        }
+                    ],
+                    "properties": [{"key": "email", "type": "person", "value": "test"}],
+                },
+                [("event", "$browser"), ("person", "email")],
+            ),
+            (
+                "feature_filter_maps_to_event_definition",
+                {"kind": "TrendsQuery", "properties": [{"key": "$feature/foo", "type": "feature", "value": "test"}]},
+                [("event", "$feature/foo")],
+            ),
+            (
+                "group_and_session_filters",
+                {
+                    "kind": "TrendsQuery",
+                    "properties": [
+                        {"key": "industry", "type": "group", "group_type_index": 0, "value": "tech"},
+                        {"key": "$session_duration", "type": "session", "value": 60},
+                    ],
+                },
+                [("group", "industry"), ("session", "$session_duration")],
+            ),
+            (
+                "unattributable_filter_types_skipped",
+                {
+                    "kind": "TrendsQuery",
+                    "properties": [
+                        {"key": "id", "type": "cohort", "value": 5},
+                        {"key": "properties.x > 1", "type": "hogql"},
+                        {"key": "column", "type": "data_warehouse", "value": "a"},
+                    ],
+                },
+                [],
+            ),
+            (
+                "breakdown_defaults_to_event",
+                {"kind": "TrendsQuery", "breakdownFilter": {"breakdown": "$browser"}},
+                [("event", "$browser")],
+            ),
+            (
+                "breakdown_with_type",
+                {
+                    "kind": "TrendsQuery",
+                    "breakdownFilter": {"breakdown": "$geoip_country_code", "breakdown_type": "person"},
+                },
+                [("person", "$geoip_country_code")],
+            ),
+            (
+                "cohort_breakdown_skipped",
+                {"kind": "TrendsQuery", "breakdownFilter": {"breakdown": [11, 12], "breakdown_type": "cohort"}},
+                [],
+            ),
+            (
+                "multiple_breakdowns",
+                {
+                    "kind": "TrendsQuery",
+                    "breakdownFilter": {
+                        "breakdowns": [
+                            {"property": "$browser", "type": "event"},
+                            {"property": "email", "type": "person"},
+                        ]
+                    },
+                },
+                [("event", "$browser"), ("person", "email")],
+            ),
+            (
+                "math_property_defaults_to_event",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "purchase", "math": "sum", "math_property": "revenue"}],
+                },
+                [("event", "revenue")],
+            ),
+            (
+                "math_property_session_type",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "purchase",
+                            "math": "avg",
+                            "math_property": "$session_duration",
+                            "math_property_type": "session_properties",
+                        }
+                    ],
+                },
+                [("session", "$session_duration")],
+            ),
+            (
+                "deduplicates_repeated_references",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "a", "properties": [{"key": "$browser", "type": "event"}]},
+                        {"kind": "EventsNode", "event": "b", "properties": [{"key": "$browser", "type": "event"}]},
+                    ],
+                },
+                [("event", "$browser")],
+            ),
+            (
+                "hogql_query_properties",
+                {
+                    "kind": "DataTableNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "select properties.$browser, properties['$os'] from events",
+                    },
+                },
+                [("event", "$browser"), ("event", "$os")],
+            ),
+            (
+                "invalid_hogql_contributes_nothing",
+                {"kind": "HogQLQuery", "query": "select ((( from"},
+                [],
+            ),
+        ]
+    )
+    def test_extract_properties(self, _name, query, expected):
+        result = self.extractor.extract_properties(query)
+        self.assertCountEqual([(prop.type, prop.name) for prop in result], expected)
+
+    def test_extract_properties_from_pydantic_query(self):
+        query = TrendsQuery(series=[EventsNode(event="pageview", properties=[EventPropertyFilter(key="$browser")])])
+        result = self.extractor.extract_properties(query)
+        self.assertCountEqual([(prop.type, prop.name) for prop in result], [("event", "$browser")])
+
+    def test_extract_properties_caps_reference_count(self):
+        query = {
+            "kind": "TrendsQuery",
+            "properties": [{"key": f"prop_{i}", "type": "event"} for i in range(150)],
+        }
+        result = self.extractor.extract_properties(query)
+        self.assertEqual(len(result), MAX_PROPERTIES_PER_QUERY_METADATA)
+
+
+class TestExtractQueryMetadata(TestCase):
+    def test_includes_events_and_properties(self):
+        metadata = extract_query_metadata(
+            {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "pageview",
+                        "properties": [{"key": "$browser", "type": "event", "value": "Chrome"}],
+                    }
+                ],
+            },
+            Mock(id=1),
+        )
+        self.assertEqual(metadata.events, ["pageview"])
+        self.assertEqual([(prop.type, prop.name) for prop in metadata.properties], [("event", "$browser")])
+
+    def test_empty_query_has_empty_properties(self):
+        metadata = extract_query_metadata(None, Mock(id=1))
+        self.assertEqual(metadata.events, [])
+        self.assertEqual(metadata.properties, [])

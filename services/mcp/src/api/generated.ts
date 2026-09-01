@@ -70112,6 +70112,61 @@ export namespace Schemas {
       Person: 'person',
     } as const;
 
+    /**
+     * * `event` - event
+     * * `person` - person
+     * * `group` - group
+     * * `session` - session
+     */
+    export type PropertyUsageTypeEnum = typeof PropertyUsageTypeEnum[keyof typeof PropertyUsageTypeEnum];
+
+
+    export const PropertyUsageTypeEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
+    export interface PropertyUsageEntry {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - event
+       * * `person` - person
+       * * `group` - group
+       * * `session` - session */
+      type?: PropertyUsageTypeEnum;
+      /**
+         * Property name, for example `$current_url`.
+         * @maxLength 400
+         */
+      name: string;
+    }
+
+    export interface PropertyUsageMetricsItem {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - event
+       * * `person` - person
+       * * `group` - group
+       * * `session` - session */
+      type: PropertyUsageTypeEnum;
+      /** Property name. */
+      name: string;
+      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+      query_usage_30_day: number;
+    }
+
+    export interface PropertyUsageMetricsRequest {
+      /** Properties to fetch 30-day query usage for, at most 100 per request. */
+      properties: PropertyUsageEntry[];
+    }
+
+    export interface PropertyUsageMetricsResponse {
+      /** One entry per requested property, in request order. */
+      results: PropertyUsageMetricsItem[];
+    }
+
     export interface PropertyValueItem {
       count?: number | null;
       name?: string | number | boolean | null;

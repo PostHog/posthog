@@ -4039,6 +4039,60 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+/**
+ * * `event` - event
+ * * `person` - person
+ * * `group` - group
+ * * `session` - session
+ */
+export type PropertyUsageTypeEnumApi = (typeof PropertyUsageTypeEnumApi)[keyof typeof PropertyUsageTypeEnumApi]
+
+export const PropertyUsageTypeEnumApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
+} as const
+
+export interface PropertyUsageEntryApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - event
+     * * `person` - person
+     * * `group` - group
+     * * `session` - session */
+    type?: PropertyUsageTypeEnumApi
+    /**
+     * Property name, for example `$current_url`.
+     * @maxLength 400
+     */
+    name: string
+}
+
+export interface PropertyUsageMetricsRequestApi {
+    /** Properties to fetch 30-day query usage for, at most 100 per request. */
+    properties: PropertyUsageEntryApi[]
+}
+
+export interface PropertyUsageMetricsItemApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - event
+     * * `person` - person
+     * * `group` - group
+     * * `session` - session */
+    type: PropertyUsageTypeEnumApi
+    /** Property name. */
+    name: string
+    /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+    query_usage_30_day: number
+}
+
+export interface PropertyUsageMetricsResponseApi {
+    /** One entry per requested property, in request order. */
+    results: PropertyUsageMetricsItemApi[]
+}
+
 export interface LeakedKeyReportApi {
     /**
      * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.

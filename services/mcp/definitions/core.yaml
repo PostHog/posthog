@@ -405,6 +405,9 @@ tools:
     property-definitions-update:
         operation: property_definitions_update
         enabled: false
+    property-definitions-usage-metrics-create:
+        operation: property_definitions_usage_metrics_create
+        enabled: false
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false

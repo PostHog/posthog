@@ -2078,6 +2078,14 @@ class InsightViewSet(
                 events = json.loads(events_filter) if events_filter else []
                 for event in events:
                     queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+            elif key == "properties":
+                properties_filter = request.GET["properties"]
+                property_names = json.loads(properties_filter) if properties_filter else []
+                for property_name in property_names:
+                    # Ancient clients sent full property-filter dicts under this param; only
+                    # plain names participate so those payloads stay a no-op.
+                    if isinstance(property_name, str) and property_name:
+                        queryset = queryset.filter(Q(query_metadata__properties__contains=[{"name": property_name}]))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
