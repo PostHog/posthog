@@ -244,13 +244,13 @@ tools:
             string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request,
             `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or
             `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use
-            `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository`
-            (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the
-            correction is recorded and fed into future repository selection for this project. Use `other` plus a
-            `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are
-            persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409
-            if the transition is not allowed from the report's current status. To transition several reports at once,
-            use `inbox-reports-bulk-set-state` instead of calling this per report.
+            `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an
+            'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is
+            recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note`
+            (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
+            artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
+            allowed from the report's current status. To transition several reports at once, use
+            `inbox-reports-bulk-set-state` instead of calling this per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
