@@ -115,6 +115,11 @@ pub struct Config {
     /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
     /// means the pipeline never produces `Destination::AiEventsOverflow`.
     pub topic_ai_overflow: Option<String>,
+
+    /// Overflow topic for the session-replay lane. Optional because only the
+    /// replay pipeline produces to it; a sink that serves no replay traffic
+    /// leaves it unset.
+    pub topic_replay_overflow: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -231,6 +236,7 @@ mod tests {
         env.insert("RETRY_BACKOFF_MAX_MS".into(), "2000".into());
         env.insert("SOCKET_SEND_BUFFER_BYTES".into(), "65536".into());
         env.insert("SOCKET_RECEIVE_BUFFER_BYTES".into(), "65536".into());
+        env.insert("TOPIC_REPLAY_OVERFLOW".into(), "replay_overflow".into());
 
         let cfg = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(cfg.hosts, "localhost:9092");
@@ -260,6 +266,10 @@ mod tests {
         assert_eq!(cfg.socket_send_buffer_bytes, 65536);
         assert_eq!(cfg.socket_receive_buffer_bytes, 65536);
         assert_eq!(cfg.topic_main, "events_main");
+        assert_eq!(
+            cfg.topic_replay_overflow,
+            Some("replay_overflow".to_string())
+        );
     }
 
     #[test]
@@ -291,6 +301,7 @@ mod tests {
         assert_eq!(cfg.retry_backoff_max_ms, 1000);
         assert_eq!(cfg.socket_send_buffer_bytes, 0);
         assert_eq!(cfg.socket_receive_buffer_bytes, 0);
+        assert_eq!(cfg.topic_replay_overflow, None);
     }
 
     #[rstest]
