@@ -48,7 +48,7 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
     [key: `preset-${number}`]: string
 }
 
-const DEFAULT_DATA_COLOR_THEME_COLORS = [
+const FALLBACK_DATA_COLOR_THEME_COLORS = [
     '#1d4aff',
     '#621da6',
     '#42827e',
@@ -66,7 +66,7 @@ const DEFAULT_DATA_COLOR_THEME_COLORS = [
     '#30d5c8',
 ] as const
 
-export const DEFAULT_DATA_COLOR_THEME: DataColorTheme = DEFAULT_DATA_COLOR_THEME_COLORS.reduce(
+export const FALLBACK_DATA_COLOR_THEME: DataColorTheme = FALLBACK_DATA_COLOR_THEME_COLORS.reduce(
     (theme, color, index) => {
         theme[`preset-${index + 1}`] = color
         return theme
