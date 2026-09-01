@@ -12,7 +12,8 @@ from posthog.temporal.health_checks.framework import (
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
-REVERSE_PROXY_LOOKBACK_DAYS = 1
+REVERSE_PROXY_LOOKBACK_DAYS = 7
+MIN_EVENTS = 50
 REVERSE_PROXY_SQL = """
 SELECT team_id
 FROM events
@@ -20,7 +21,8 @@ WHERE team_id IN %(team_ids)s
   AND event IN ('$pageview', '$screen')
   AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
 GROUP BY team_id
-HAVING countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
+HAVING count() >= %(min_events)s
+   AND countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
 """
 
 
@@ -79,6 +81,7 @@ class ReverseProxyCheck(HealthCheck):
             REVERSE_PROXY_SQL,
             team_ids=team_ids,
             lookback_days=REVERSE_PROXY_LOOKBACK_DAYS,
+            params={"min_events": MIN_EVENTS},
         )
 
         issues: dict[int, list[HealthCheckResult]] = {}
