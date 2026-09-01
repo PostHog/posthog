@@ -631,18 +631,22 @@ impl MismatchTracker {
         // A fingerprint the tracker already holds keeps the time it was first
         // stored with, so a disagreement accumulates elapsed time even while the
         // rest of the team's diff set changes around it. A fingerprint this build
-        // has not seen before starts its window now. A stored time ahead of this
-        // pod's clock restarts at now, so a build on a pod that ran ahead cannot
-        // hold the window open past its own skew.
+        // has not seen before starts its window now.
+        //
+        // A stored time can sit ahead of this pod's clock, and it is kept as it
+        // is. Do not clamp it to `now_secs`. The builder pods share no clock, so
+        // "the pod that wrote this ran ahead" and "my own clock is behind" both
+        // read as `at > now_secs`, and a clamp answers both the same way. A pod
+        // running behind would then pull the stored time back to its own clock,
+        // the fingerprint would look older than it is, and a later pod would
+        // confirm before the interval had really elapsed. Keeping the stored time
+        // costs a confirmation delayed by the skew, which is the direction every
+        // other tracker failure takes. See the test named for this.
         let first_seen: HashMap<u64, u64> = diffs
             .iter()
             .take(MAX_STORED_FINGERPRINTS)
             .map(|d| {
-                let at = prior
-                    .get(&d.fingerprint)
-                    .copied()
-                    .unwrap_or(now_secs)
-                    .min(now_secs);
+                let at = prior.get(&d.fingerprint).copied().unwrap_or(now_secs);
                 (d.fingerprint, at)
             })
             .collect();
@@ -1330,31 +1334,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tracker_does_not_carry_a_future_timestamp_into_later_builds() {
-        // The pod that wrote the observation ran ahead of this one. Resolving the
-        // current build to first sight is not enough on its own: storing the
-        // future timestamp back would hold the window open until every later
-        // pod's clock passed it, and a team that rebuilds inside the TTL would
-        // keep it alive. The stored time restarts at this pod's clock instead, so
-        // the disagreement confirms one interval later and a forward clock step
-        // cannot hide drift past its own duration.
+    async fn tracker_does_not_confirm_before_the_interval_really_elapsed() {
+        // A pod running behind must not age a fingerprint on the pods that come
+        // after it. Clamping the stored time to the writing pod's own clock looks
+        // like the fix for a time that sits in the future, but the pods share no
+        // clock: a pod that is behind cannot tell itself apart from a writer that
+        // ran ahead. It would store its own earlier clock, and the build after it
+        // would then measure elapsed time from a start that never happened.
         let ahead_pod = MockRedisClient::new();
         tracker(&ahead_pod)
             .observe(7, mismatch_diffs(), at(1_000))
             .await;
 
+        // 70 seconds behind. Correct on its own build, which reports first sight.
         let behind_pod = next_build(&ahead_pod);
         let behind = tracker(&behind_pod)
-            .observe(7, mismatch_diffs(), at(990))
+            .observe(7, mismatch_diffs(), at(930))
             .await;
         assert!(behind.confirmed.is_empty());
-        assert_eq!(behind.first_sight.len(), 1);
 
+        // 40 seconds of real time after the first sighting, against a 60 second
+        // interval. Confirming here would report a race as a parity defect, which
+        // is the whole failure this interval exists to remove.
         let later_pod = next_build(&behind_pod);
         let later = tracker(&later_pod)
-            .observe(7, mismatch_diffs(), at(1_050))
+            .observe(7, mismatch_diffs(), at(1_040))
             .await;
-        assert_eq!(later.confirmed.len(), 1);
+        assert!(later.confirmed.is_empty());
+        assert_eq!(later.first_sight.len(), 1);
     }
 
     #[tokio::test]
