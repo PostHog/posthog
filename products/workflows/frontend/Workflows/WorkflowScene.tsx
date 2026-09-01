@@ -39,11 +39,13 @@ import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
-import { WorkflowProposalsBanner } from './WorkflowProposalsBanner'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+import { WorkflowSuggestions } from './WorkflowSuggestions'
+import { WorkflowSuggestionsNotice } from './WorkflowSuggestionsNotice'
+import { WorkflowSuggestionsTabLabel } from './WorkflowSuggestionsTabLabel'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -93,6 +95,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
     // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
@@ -173,6 +176,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
+        selfOptimisingEnabled
+            ? {
+                  label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
+                  key: 'suggestions',
+                  content: <WorkflowSuggestions id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Assets',
             key: 'assets',
@@ -206,7 +216,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
-                {selfOptimisingEnabled && props.id && props.id !== 'new' && <WorkflowProposalsBanner id={props.id} />}
+                {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />
