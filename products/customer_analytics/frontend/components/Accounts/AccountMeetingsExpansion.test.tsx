@@ -76,12 +76,16 @@ describe('AccountMeetingsExpansion', () => {
     it.each([AccessControlLevel.None, AccessControlLevel.Viewer])(
         'disables meeting matching with customer analytics access %s',
         async (accessLevel) => {
+            const appContext = window.POSTHOG_APP_CONTEXT
+            if (!appContext) {
+                throw new Error('PostHog app context is required for this test.')
+            }
             window.POSTHOG_APP_CONTEXT = {
-                ...window.POSTHOG_APP_CONTEXT,
+                ...appContext,
                 resource_access_control: {
-                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    ...appContext.resource_access_control,
                     customer_analytics: accessLevel,
-                } as NonNullable<typeof window.POSTHOG_APP_CONTEXT.resource_access_control>,
+                },
             }
             render(
                 <Provider>

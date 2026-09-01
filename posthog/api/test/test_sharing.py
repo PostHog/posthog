@@ -2077,24 +2077,25 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "system.dashboards" in str(response.json())
 
-    def test_account_query_can_be_shared_without_customer_analytics_access(self):
-        self.insight.query = {"kind": "AccountsQuery"}
+    @parameterized.expand(
+        [
+            ("base_account_query", None, status.HTTP_200_OK),
+            ("feature_request_lazy_join", ["feature_requests.count"], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_account_query_sharing_respects_lazy_join_access(
+        self, _case: str, select: list[str] | None, expected_status: int
+    ) -> None:
+        self.insight.query = {"kind": "AccountsQuery", **({"select": select} if select else {})}
         self.insight.save()
         AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
 
         response = self._enable_sharing("insight")
 
-        assert response.status_code == status.HTTP_200_OK, response.content
-
-    def test_account_query_with_feature_request_lazy_join_cannot_be_shared(self):
-        self.insight.query = {"kind": "AccountsQuery", "select": ["feature_requests.count"]}
-        self.insight.save()
-
-        response = self._enable_sharing("insight")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "system.feature_request_account_links" in str(response.json())
-        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "system.feature_request_account_links" in str(response.json())
+            assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
 
     def test_already_enabled_share_is_not_regated(self):
         config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
