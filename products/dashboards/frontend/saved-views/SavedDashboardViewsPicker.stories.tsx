@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type { DashboardListSavedView } from './dashboardSavedViewsLogic'
