@@ -1,1 +1,43 @@
 """Celery tasks for engineering_analytics."""
+
+import structlog
+from celery import shared_task
+
+from posthog.egress.limiter.policies import Priority
+from posthog.models.integration.github import GitHubIntegration
+from posthog.models.team import Team
+
+from products.engineering_analytics.backend.logic.census import collect_repo_census, emit_census_events
+from products.engineering_analytics.backend.logic.sources import list_github_sources
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True)
+def emit_test_ownership_census() -> None:
+    team_ids = (
+        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB, deleted=False)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+    for team_id in team_ids:
+        emit_team_test_census.delay(team_id=team_id)
+
+
+@shared_task(ignore_result=True)
+def emit_team_test_census(team_id: int) -> None:
+    team = Team.objects.get(id=team_id)
+    for source in list_github_sources(team=team, user_access_control=None):
+        if not source.repo:
+            continue
+        integration = GitHubIntegration.first_for_team_repository(
+            team.id, source.repo, source="owners_census", priority=Priority.BATCH
+        )
+        token = integration.installation_access_token if integration else None
+        if not token:
+            logger.info("owners_census_skipped_no_integration", team_id=team_id, repository=source.repo)
+            continue
+        rows = collect_repo_census(source.repo, token)
+        emit_census_events(team, source.repo, rows)
