@@ -136,6 +136,23 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(await screen.findByText('Regenerating widget…')).toBeTruthy()
     })
 
+    it('does not offer initial generation in the settings panel while status is still loading', async () => {
+        // The status request never resolves, so `status` stays null through the render.
+        jest.mocked(notebooksWidgetStatus).mockImplementation(() => new Promise(() => {}))
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        expect(await screen.findByText('Widget')).toBeTruthy()
+        // Before the first status response the panel must not present the initial form, or an
+        // editor could start a job that the backend turns into a regeneration.
+        expect(screen.queryByText('Generate widget')).toBeNull()
+        expect(screen.queryByText('Instructions')).toBeNull()
+    })
+
     it('shows cancellation errors while initial generation is still running', async () => {
         jest.mocked(notebooksWidgetCancel).mockRejectedValue(new Error('Cancel request failed'))
 

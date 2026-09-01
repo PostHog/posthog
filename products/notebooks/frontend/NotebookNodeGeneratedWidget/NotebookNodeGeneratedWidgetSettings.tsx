@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonSelect, LemonTextArea } from '@posthog/l
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
@@ -56,6 +57,8 @@ export function NotebookNodeGeneratedWidgetSettings({
         selectedVersion,
         selectedVersionId,
         status,
+        statusLoadError,
+        statusLoading,
         versions,
         versionsCount,
         versionsError,
@@ -68,6 +71,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         clearGenerationError,
         generateWidget,
         loadMoreVersions,
+        loadStatus,
         loadVersions,
         openGenerationModal,
         openSourceModal,
@@ -83,6 +87,29 @@ export function NotebookNodeGeneratedWidgetSettings({
     const initialPrompt = attributes.prompt ?? ''
     const visibleGenerationError =
         generationError || (!isWorking && !generationRequestLoading ? status?.error_detail : null)
+
+    // A null status means the first status response has not arrived. Never show the initial
+    // generation form here, or an editor could start a job on a widget that already has versions
+    // (the backend turns that "initial" request into a regeneration). The node body guards the
+    // same window; mirror it with a loading, then retry, state.
+    if (!status) {
+        if (statusLoadError) {
+            return (
+                <div className="flex flex-col items-start gap-3 p-3">
+                    <div className="text-sm">We couldn't load this widget's status.</div>
+                    <LemonButton onClick={loadStatus} loading={statusLoading}>
+                        Retry
+                    </LemonButton>
+                </div>
+            )
+        }
+        return (
+            <div className="flex flex-col gap-3 p-3">
+                <LemonSkeleton className="h-6 w-1/3" />
+                <LemonSkeleton className="h-20 w-full" />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-3 p-3">
