@@ -1,6 +1,14 @@
-import { SourceConfig, SourceFieldSelectConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
+import {
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+} from '~/queries/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
+
+// The two field types that carry a caption, both routed through the same caption-to-help contract.
+type CaptionField = SourceFieldSelectConfig | SourceFieldInputConfig
 
 const SELECT_FIELD: SourceFieldSelectConfig = {
     type: 'select',
@@ -13,6 +21,18 @@ const SELECT_FIELD: SourceFieldSelectConfig = {
         { label: 'All responses (including partial & started)', value: 'completed,partial,started' },
     ],
     caption: 'Changing this triggers a full refresh of the responses table.',
+}
+
+// The SSH host-key field is a textarea with a caption. The textarea branch used to drop the
+// caption while every sibling rendered it, so a caption-carrying textarea renders no help.
+const TEXTAREA_FIELD: SourceFieldInputConfig = {
+    type: 'textarea',
+    name: 'host_key',
+    label: 'SSH host key (optional)',
+    required: false,
+    placeholder: '',
+    secret: false,
+    caption: 'Paste the server public host key to verify its identity on connect.',
 }
 
 const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfig
@@ -48,13 +68,19 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
 }
 
 describe('sourceFieldToElement', () => {
-    it('renders a select field caption as field help text', () => {
-        const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
+    it.each([
+        ['select', SELECT_FIELD],
+        ['textarea', TEXTAREA_FIELD],
+    ] as [string, CaptionField][])('renders a %s field caption as field help text', (_name, field) => {
+        const element = sourceFieldToElement(field, SOURCE_CONFIG)
         expect(element.props.help).toBeTruthy()
     })
 
-    it('omits help when a select field has no caption', () => {
-        const element = sourceFieldToElement({ ...SELECT_FIELD, caption: undefined }, SOURCE_CONFIG)
+    it.each([
+        ['select', SELECT_FIELD],
+        ['textarea', TEXTAREA_FIELD],
+    ] as [string, CaptionField][])('omits help when a %s field has no caption', (_name, field) => {
+        const element = sourceFieldToElement({ ...field, caption: undefined }, SOURCE_CONFIG)
         expect(element.props.help).toBeUndefined()
     })
 
