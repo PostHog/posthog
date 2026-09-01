@@ -36,10 +36,9 @@ def _idempotency_cache_key(hog_flow_id: uuid.UUID, idempotency_key: str) -> str:
     return f"workflow_scout_run_idempotency:{hog_flow_id}:{idempotency_key}"
 
 
-# The step only treats 409 as a graceful skip, so every remaining backpressure kind (paused,
-# cooldown, budget, quota) maps onto it; a scout that cannot run at all fails the step so the
-# author notices. A run_in_flight rejection never reaches this map — create() answers it directly
-# with the in-flight run's id instead.
+# The step only treats 409 as a graceful skip, so every backpressure kind (paused, cooldown,
+# budget, quota, run in flight) maps onto it; a scout that cannot run at all fails the step so the
+# author notices.
 _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
     ScoutRunRejectionKind.NOT_FOUND: status.HTTP_404_NOT_FOUND,
     ScoutRunRejectionKind.FORBIDDEN: status.HTTP_403_FORBIDDEN,
@@ -142,15 +141,9 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         # the task-creation endpoint's origin_key — no need to re-resolve the workflow or re-run
         # the scout's gates for a request this key has already spent.
         if cache_key is not None:
-            cached_workflow_id = get_client().get(cache_key)
-            if cached_workflow_id is not None:
-                workflow_id = (
-                    cached_workflow_id.decode() if isinstance(cached_workflow_id, bytes) else cached_workflow_id
-                )
-                return Response(
-                    WorkflowScoutRunResponseSerializer({"scout": skill_name, "workflow_id": workflow_id}).data,
-                    status=status.HTTP_202_ACCEPTED,
-                )
+            cached = get_client().get(cache_key)
+            if cached is not None:
+                return _dispatched(skill_name, cached.decode() if isinstance(cached, bytes) else cached)
 
         # A token outlives the workflow it was minted for (its TTL covers the whole fetch retry
         # chain), so a deleted workflow must not still be able to spend scout runs.
@@ -160,30 +153,6 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         try:
             started = start_workflow_scout_run(team_id=team_id, skill_name=skill_name)
         except WorkflowScoutRunRejected as error:
-            # A retried request (the engine re-queues the identical fetch on a lost response)
-            # deterministically collides with the run its own earlier attempt started, confirmed
-            # by Temporal's own id-conflict policy — so answer with that run's id as a normal
-            # dispatch rather than a skip. dispatch_confirmed gates this: the earlier pre-dispatch
-            # gate can also report in_flight_workflow_id for an unrelated run of this scout (a
-            # different source, or a different workflow's fire), where nothing has actually
-            # started under this call's own id, and that case still falls through to a 409 below.
-            if error.in_flight_workflow_id is not None and error.dispatch_confirmed:
-                logger.info(
-                    "workflow_scout_run_already_in_flight",
-                    team_id=team_id,
-                    hog_flow_id=str(hog_flow_id),
-                    skill_name=skill_name,
-                    workflow_id=error.in_flight_workflow_id,
-                )
-                if cache_key is not None:
-                    get_client().set(cache_key, error.in_flight_workflow_id, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
-                return Response(
-                    WorkflowScoutRunResponseSerializer(
-                        {"scout": skill_name, "workflow_id": error.in_flight_workflow_id}
-                    ).data,
-                    status=status.HTTP_202_ACCEPTED,
-                )
-
             logger.info(
                 "workflow_scout_run_rejected",
                 team_id=team_id,
@@ -202,10 +171,14 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         )
         if cache_key is not None:
             get_client().set(cache_key, started.workflow_id, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
-        return Response(
-            WorkflowScoutRunResponseSerializer({"scout": started.skill_name, "workflow_id": started.workflow_id}).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return _dispatched(started.skill_name, started.workflow_id)
+
+
+def _dispatched(skill_name: str, workflow_id: str) -> Response:
+    return Response(
+        WorkflowScoutRunResponseSerializer({"scout": skill_name, "workflow_id": workflow_id}).data,
+        status=status.HTTP_202_ACCEPTED,
+    )
 
 
 def _rejected(detail: str, http_status: int) -> Response:

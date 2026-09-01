@@ -84,22 +84,6 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert response.status_code == expected
         assert response.json()["detail"] == f"detail: {reason}"
 
-    def test_a_retry_that_collides_with_its_own_dispatch_gets_the_run_back(self) -> None:
-        # The engine re-queues an identical fetch on a lost response. The retry always collides
-        # with the run its own earlier attempt started (the workflow's Temporal id is stable per
-        # (team, skill)), confirmed by Temporal's own id-conflict policy, so it must report that
-        # run rather than record a skip for a fire that actually started one.
-        rejection = WorkflowScoutRunRejected(
-            ScoutRunRejection(kind=ScoutRunRejectionKind.CONFLICT, reason="run_in_flight", detail="in progress"),
-            in_flight_workflow_id="signals-scout-workflow-run-1",
-            dispatch_confirmed=True,
-        )
-        with patch(_START_SCOUT, side_effect=rejection):
-            response = self._post()
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
-
     def test_a_retry_with_the_same_idempotency_key_does_not_dispatch_twice(self) -> None:
         # A retry landing after the original Temporal workflow has already closed would otherwise
         # start a second billable run: ALLOW_DUPLICATE lets a closed workflow's id be reused for a
@@ -122,21 +106,6 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
             self._post({"idempotency_key": "invocation-2:action-1"})
 
         assert start.call_count == 2
-
-    def test_an_unrelated_collision_still_skips_since_nothing_is_confirmed_dispatched(self) -> None:
-        # The pre-dispatch gate can also report in_flight_workflow_id, for a live run of this
-        # scout from a different source or a different workflow's fire — nothing has actually
-        # started under this call's own id, so it must not be reported as a dispatch.
-        rejection = WorkflowScoutRunRejected(
-            ScoutRunRejection(kind=ScoutRunRejectionKind.CONFLICT, reason="run_in_flight", detail="in progress"),
-            in_flight_workflow_id="signals-scout-workflow-run-1",
-            dispatch_confirmed=False,
-        )
-        with patch(_START_SCOUT, side_effect=rejection):
-            response = self._post()
-
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["detail"] == "in progress"
 
     def test_refuses_a_request_for_a_deleted_workflow(self) -> None:
         token = _token(self.team.id, str(self.hog_flow.id))
