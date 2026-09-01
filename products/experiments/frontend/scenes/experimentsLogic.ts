@@ -27,6 +27,10 @@ import {
 import type { AvailableFeature, UserType } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import { experimentsRunningTimeEstimatesRetrieve } from 'products/experiments/frontend/generated/api'
+import type { RunningTimeEstimatesResponseApiResults } from 'products/experiments/frontend/generated/api.schemas'
+
 export const EXPERIMENTS_PER_PAGE = 100
 
 export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> {
@@ -181,6 +185,8 @@ export interface experimentsLogicValues {
         search?: string | undefined
         status?: ExperimentStatus | 'all' | undefined
     }
+    runningTimeEstimates: RunningTimeEstimatesResponseApiResults
+    runningTimeEstimatesLoading: boolean
     sidePanelContext: SidePanelSceneContext
     tab: ExperimentsTabs
     unavailableFeatureFlagKeys: Set<string>
@@ -398,6 +404,21 @@ export interface experimentsLogicActions {
         }
         payload?: void
     }
+    loadRunningTimeEstimates: (experimentIds: number[]) => number[]
+    loadRunningTimeEstimatesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRunningTimeEstimatesSuccess: (
+        runningTimeEstimates: RunningTimeEstimatesResponseApiResults,
+        payload?: number[]
+    ) => {
+        runningTimeEstimates: RunningTimeEstimatesResponseApiResults
+        payload?: number[]
+    }
     openFeatureFlagModal: () => {
         value: true
     }
@@ -590,6 +611,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
             }
             actions.loadExperiments()
         },
+        loadExperimentsSuccess: ({ experiments }) => {
+            // Remaining time is estimated on demand, not stored, so fetch it for the running rows on this page.
+            // Running experiments are persisted, so their id is always numeric (never 'new'/'web').
+            const runningIds = experiments.results
+                .filter((experiment) => getExperimentStatus(experiment) === ExperimentStatus.Running)
+                .map((experiment) => experiment.id)
+                .filter((id): id is number => typeof id === 'number')
+            actions.loadRunningTimeEstimates(runningIds)
+        },
         setFeatureFlagModalFilters: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadFeatureFlagModalFeatureFlags()
@@ -719,6 +749,20 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         results: values.experiments.results.map((exp) => (exp.id === experiment.id ? experiment : exp)),
                         count: values.experiments.count,
                     }
+                },
+            },
+        ],
+        runningTimeEstimates: [
+            {} as RunningTimeEstimatesResponseApiResults,
+            {
+                loadRunningTimeEstimates: async (experimentIds: number[]) => {
+                    if (experimentIds.length === 0) {
+                        return {}
+                    }
+                    const response = await experimentsRunningTimeEstimatesRetrieve(String(values.currentProjectId), {
+                        ids: experimentIds.join(','),
+                    })
+                    return response.results
                 },
             },
         ],
