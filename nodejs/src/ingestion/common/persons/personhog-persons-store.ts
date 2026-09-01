@@ -63,11 +63,6 @@ export const personhogStoreUnsupportedFieldCounter = new Counter({
     labelNames: ['field'],
 })
 
-export const personhogStorePersonNowExhaustedCounter = new Counter({
-    name: 'personhog_store_person_now_exhausted_total',
-    help: 'Folds that gave up re-reading a distinct id because merges kept overtaking the read',
-})
-
 export const personhogStoreMergeCallFailedCounter = new Counter({
     name: 'personhog_store_merge_call_failed_total',
     help: 'Merge calls that failed with no verdict, failing the batch to redeliver, by error class',
@@ -131,20 +126,12 @@ export class PersonhogUnsupportedFieldError extends Error {
     }
 }
 
-/** Bounds the redirect's re-resolve loop; exhausting it throws rather than dropping. */
-const REDIRECT_MAX_ATTEMPTS = 5
-
-/** Reads personNow spends before giving up on a memo that merges keep overtaking. */
-const PERSON_NOW_MAX_READS = 3
-
-/** Pause between re-resolves while identity lags a merge the leader already applied. */
-const REDIRECT_REFRESH_INTERVAL_MS = 100
+/** Redirect re-entries one write pass spends chasing a merge chain before failing to redelivery. */
+const REDIRECT_MAX_ATTEMPTS = 3
 
 /** Rounds a flush waits on in-flight writers before failing rather than acking over unwritten ops. */
 const FLUSH_MAX_WAIT_ROUNDS = 3
 const FLUSH_WAIT_ROUND_MS = 1_000
-
-type RedirectOutcome = 'written' | 'gone' | 'size_violation'
 
 /** A redirect failure that already incremented its own flush outcome. */
 class CountedRedirectError extends Error {}
@@ -205,11 +192,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         (personKey) => this.hasUnwrittenOps(personKey),
         (personKey, document) => this.projectPendingOps(personKey, document)
     )
-    /**
-     * Redirects in flight, keyed by the person being written TO (the lane
-     * sits under its vanished person's key), so a merge's drain can await them.
-     */
-    private redirectsInFlight: Map<string, Set<Promise<void>>> = new Map()
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
 
@@ -342,33 +324,19 @@ export class PersonhogPersonsStore implements PersonsStore {
      * leaves through the memo, never straight out of a read.
      */
     private async personNow(person: InternalPerson, distinctId: string, batchId: number): Promise<InternalPerson> {
-        const distinctKey = `${person.team_id}:${distinctId}`
-        let reads = 0
-        for (;;) {
-            const resolved = this.memo.lookup(person.team_id, distinctId)
-            if (resolved) {
-                return resolved
-            }
-            // An edge naming somebody other than the caller's person is the
-            // newer truth, so the document has to be read, not folded onto.
-            const edge = this.memo.resolutionOf(distinctKey)
-            if (edge == null || edge === `${person.team_id}:${person.id}`) {
-                return person
-            }
-            if (reads === PERSON_NOW_MAX_READS) {
-                // Folding onto the caller's copy would repoint the id off
-                // the survivor; failing redelivers the batch and keeps the ops.
-                personhogStorePersonNowExhaustedCounter.inc()
-                throw new Error(
-                    `distinct id ${distinctId} in team ${person.team_id} belongs to another person and ` +
-                        `could not be read in ${PERSON_NOW_MAX_READS} attempts; failing rather than folding onto ${person.id}`
-                )
-            }
-            reads += 1
-            // The read settles into the memo, so the loop's answer always
-            // leaves through it rather than through a value that raced it.
-            await this.fetchForUpdate(person.team_id, distinctId, batchId)
+        const resolved = this.memo.lookup(person.team_id, distinctId)
+        if (resolved) {
+            return resolved
         }
+        // An edge naming somebody other than the caller's person is the
+        // newer truth; one read settles it. A wrong fold heals at flush
+        // through the tombstone redirect either way.
+        const edge = this.memo.resolutionOf(`${person.team_id}:${distinctId}`)
+        if (edge == null || edge === `${person.team_id}:${person.id}`) {
+            return person
+        }
+        await this.fetchForUpdate(person.team_id, distinctId, batchId)
+        return this.memo.lookup(person.team_id, distinctId) ?? person
     }
 
     private foldEventOps(
@@ -456,10 +424,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Claims arm their settle promise, so a writer already on the wire
         // is visible here even before it reaches its concurrency slot;
         // waiting lets the drain capture its lane instead of skipping it.
-        const inFlightWrites = [
-            ...personKeys.map((personKey) => this.entries.get(personKey)?.directWriteSettled),
-            ...personKeys.flatMap((personKey) => [...(this.redirectsInFlight.get(personKey) ?? [])]),
-        ].filter((settled): settled is Promise<void> => settled !== undefined)
+        const inFlightWrites = personKeys
+            .map((personKey) => this.entries.get(personKey)?.directWriteSettled)
+            .filter((settled): settled is Promise<void> => settled !== undefined)
         if (inFlightWrites.length > 0) {
             await Promise.all(inFlightWrites)
         }
@@ -962,49 +929,27 @@ export class PersonhogPersonsStore implements PersonsStore {
             // this pass never attempted.
             const progress = { remaining: segments }
             // Terminates: every iteration writes the remainder, drops a
-            // unit, enters the redirect once, or throws.
+            // unit, or throws; a fresh tombstone re-enters the redirect,
+            // bounded like the Postgres retry loop so a lineage merging
+            // faster than we can chase fails to redelivery.
             let viaRedirect = false
+            let redirects = 0
             while (progress.remaining > 0) {
                 try {
                     if (viaRedirect) {
-                        const outcome = await this.redirectToSurvivor(entry, progress)
-                        personhogStoreFlushCounter.inc({
-                            outcome: { written: 'redirected', gone: 'not_found', size_violation: 'size_violation' }[
-                                outcome
-                            ],
-                        })
-                        if (outcome === 'gone') {
-                            // The one arm that permanently discards a lane's
-                            // ops; logged because the counter cannot say
-                            // whose data went.
-                            logger.warn('🤔', 'lane dropped: its person was deleted and its id resolves to nobody', {
-                                team_id: entry.teamId,
-                                person_id: entry.personId,
-                                distinct_id: entry.distinctId,
-                                segments: progress.remaining,
-                            })
-                            this.dropLeadingSegments(entry, progress.remaining)
-                            break
-                        }
-                        if (outcome === 'size_violation') {
-                            // Only the rejected unit can never succeed;
-                            // unlike Postgres, one oversized row does not
-                            // abort everything else in the flush.
-                            this.dropLeadingSegments(entry, 1)
-                            progress.remaining -= 1
-                            continue
-                        }
+                        await this.redirectToSurvivor(entry, progress)
+                        personhogStoreFlushCounter.inc({ outcome: 'redirected' })
                         break
                     }
                     await this.writeSegments(entry, entry.personId, progress)
                     personhogStoreFlushCounter.inc({ outcome: 'success' })
                     break
                 } catch (error) {
-                    if (error instanceof NoRowsUpdatedError) {
+                    if (error instanceof NoRowsUpdatedError && redirects < REDIRECT_MAX_ATTEMPTS) {
                         // The person was merged or deleted since the fold.
-                        // The direct write is over; from here the lane is
-                        // redirect-owned, and merges await it through the
-                        // redirectsInFlight registry instead.
+                        // The direct write is over; the lane is
+                        // redirect-owned from here.
+                        redirects += 1
                         entry.settleWrite?.()
                         entry.settleWrite = undefined
                         entry.directWriteSettled = undefined
@@ -1139,137 +1084,40 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Re-resolves a lane's distinct id after its person vanished and writes
-     * the snapshot to the survivor, answering 'written', 'size_violation',
-     * or 'gone', the one outcome the caller discards on. The other dead
-     * ends throw instead: an id still naming the vanished person is
-     * identity lag, and a survivor that vanishes restarts the loop.
+     * Re-resolves a lane's distinct id after its person vanished and
+     * writes the segments to whoever owns the id now, matching the
+     * Postgres store's merged-away recovery. One resolve is enough: the
+     * saga repoints mappings in Postgres before the leader ever answers a
+     * tombstone, so a fresh owner is already visible, and no owner means
+     * the person was genuinely deleted, where redelivery recreates
+     * through the normal pipeline.
      */
-    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<RedirectOutcome> {
-        // Each pass re-resolves against the person the previous one failed
-        // to write, so consecutive merges on one lineage converge.
-        let vanished = entry.personId
-        for (let attempt = 0; attempt < REDIRECT_MAX_ATTEMPTS; attempt++) {
-            // The resolve is a network call like the write: a transient
-            // failure must put the entry back, not strand it claimed.
-            let survivorId: string | undefined
-            try {
-                const [resolved] = await this.repository.resolvePersonsByDistinctIds(
-                    [{ teamId: entry.teamId, distinctId: entry.distinctId }],
-                    CALLER_TAG
-                )
-                survivorId = resolved?.person?.id
-                if (survivorId === undefined || survivorId === vanished) {
-                    // Identity has not caught up with the merge the leader
-                    // already applied. Refresh before concluding the person
-                    // is gone, so lag does not read as a deletion and throw
-                    // the ops away.
-                    if (attempt < REDIRECT_MAX_ATTEMPTS - 1) {
-                        await new Promise((resolve) =>
-                            setTimeout(resolve, REDIRECT_REFRESH_INTERVAL_MS * (attempt + 1))
-                        )
-                        continue
-                    }
-                    if (survivorId === vanished) {
-                        // Still naming the vanished person is identity lag,
-                        // not deletion; dropping would lose real writes.
-                        personhogStoreFlushCounter.inc({ outcome: 'redirect_lagged' })
-                        throw new CountedRedirectError(
-                            `identity still resolves ${entry.distinctId} to vanished person ` +
-                                `${vanished} in team ${entry.teamId}; failing the flush rather than dropping`
-                        )
-                    }
-                    // Nobody to repoint to, so the id goes back to identity
-                    // on its next event rather than folding onto the corpse.
-                    this.memo.releaseResolution(`${entry.teamId}:${entry.distinctId}`)
-                    // Only the lane's own person needs dropping; the chain
-                    // dropped each other person as it was proved gone.
-                    this.memo.dropBaseline(`${entry.teamId}:${entry.personId}`)
-                    return 'gone'
-                }
-                // Registered before the write goes on the wire, so a
-                // merge's drain sees this redirect and awaits it.
-                const survivorKey = `${entry.teamId}:${survivorId}`
-                let settleRedirect: () => void = () => {}
-                const redirecting = new Promise<void>((resolve) => {
-                    settleRedirect = resolve
-                })
-                let registered = this.redirectsInFlight.get(survivorKey)
-                if (!registered) {
-                    registered = new Set()
-                    this.redirectsInFlight.set(survivorKey, registered)
-                }
-                registered.add(redirecting)
-                try {
-                    // Another pod can merge the person away (ingestion
-                    // partitions by distinct id, personhog by person). The
-                    // ops travel as they stand, deletions included,
-                    // matching Postgres.
-                    await this.writeSegments(entry, survivorId, progress)
-                } finally {
-                    settleRedirect()
-                    registered.delete(redirecting)
-                    if (registered.size === 0 && this.redirectsInFlight.get(survivorKey) === registered) {
-                        this.redirectsInFlight.delete(survivorKey)
-                    }
-                }
-                // Healing the memo stops later events folding onto the dead
-                // person; the same repoint the Postgres cache performs.
-                this.memo.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
-                this.memo.dropBaseline(`${entry.teamId}:${entry.personId}`)
-                // These ops just landed on the survivor, whose baseline
-                // answers for its own lane and cannot know about them; drop
-                // it so the next reader re-reads past them.
-                this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
-                return 'written'
-            } catch (error) {
-                if (error instanceof NoRowsUpdatedError) {
-                    // The write proved this survivor gone too; drop its
-                    // baseline so nothing serves the dead person.
-                    if (survivorId !== undefined) {
-                        this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
-                    }
-                    // The person this pass resolved is gone too; the next pass
-                    // must not settle for it again.
-                    vanished = survivorId ?? vanished
-                    continue
-                }
-                if (error instanceof PersonhogPropertiesSizeError) {
-                    // This pass proved the person gone and named the
-                    // survivor; without the repoint, every later event in
-                    // the batch pays the redirect again.
-                    if (survivorId !== undefined) {
-                        this.memo.repointResolution(
-                            `${entry.teamId}:${entry.distinctId}`,
-                            `${entry.teamId}:${survivorId}`
-                        )
-                    }
-                    // Earlier segments may have landed before the refusal,
-                    // leaving the survivor's baseline behind by those. It
-                    // belongs to another lane, so nothing else here will
-                    // correct it.
-                    if (survivorId !== undefined) {
-                        this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
-                    }
-                    // Logged here because the refusing survivor is named
-                    // only in this scope.
-                    logger.warn('🤔', 'leader refused a redirected write on properties size', {
-                        team_id: entry.teamId,
-                        person_id: survivorId,
-                        distinct_id: entry.distinctId,
-                    })
-                    return 'size_violation'
-                }
-                throw error
-            }
-        }
-        // Every attempt lost its race. The segments are still in the entry,
-        // so failing here retries them on the batch's redelivery rather than
-        // discarding writes the batch never acked.
-        personhogStoreFlushCounter.inc({ outcome: 'redirect_exhausted' })
-        throw new CountedRedirectError(
-            `person ${entry.personId} in team ${entry.teamId} merged away ${REDIRECT_MAX_ATTEMPTS} times during redirect`
+    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<void> {
+        const [resolved] = await this.repository.resolvePersonsByDistinctIds(
+            [{ teamId: entry.teamId, distinctId: entry.distinctId }],
+            CALLER_TAG
         )
+        const survivorId = resolved?.person?.id
+        if (survivorId === undefined || survivorId === entry.personId) {
+            // Release the edge so the redelivered events re-resolve rather
+            // than folding onto the corpse again.
+            this.memo.releaseResolution(`${entry.teamId}:${entry.distinctId}`)
+            this.memo.dropBaseline(`${entry.teamId}:${entry.personId}`)
+            personhogStoreFlushCounter.inc({ outcome: 'redirect_gone' })
+            throw new CountedRedirectError(
+                `person ${entry.personId} in team ${entry.teamId} vanished and ${entry.distinctId} resolves to ` +
+                    `${survivorId === undefined ? 'nobody' : 'the same person'}; failing the flush to redeliver`
+            )
+        }
+        // The resolve proved where the id belongs, so heal the memo before
+        // the write — the same repoint the Postgres cache performs — and
+        // later events fold onto the survivor whatever the write's fate.
+        this.memo.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
+        this.memo.dropBaseline(`${entry.teamId}:${entry.personId}`)
+        // Ops travel as they stand, deletions included, matching Postgres.
+        await this.writeSegments(entry, survivorId, progress)
+        // The survivor's baseline cannot know about these ops.
+        this.memo.dropBaseline(`${entry.teamId}:${survivorId}`)
     }
 
     /**

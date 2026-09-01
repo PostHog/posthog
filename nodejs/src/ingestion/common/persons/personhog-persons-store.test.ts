@@ -753,11 +753,8 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
     })
 
-    it.each([
-        ['not_found', new NoRowsUpdatedError('gone')],
-        ['size_violation', new PersonhogPropertiesSizeError('too big', 1, '7')],
-    ])('drops %s from the lane rather than failing or retrying it forever', async (_outcome, error) => {
-        repository.updatePersonProperties.mockRejectedValue(error)
+    it('drops a size-rejected segment from the lane rather than retrying it forever', async () => {
+        repository.updatePersonProperties.mockRejectedValue(new PersonhogPropertiesSizeError('too big', 1, '7'))
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await bound.flush()
@@ -778,26 +775,6 @@ describe('PersonhogPersonsStore', () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValue([
             { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
         ] as never)
-
-        await bound.flush()
-
-        expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
-            expect.objectContaining({ personId: '9', setProperties: { a: '1' } }),
-            expect.any(String)
-        )
-    })
-
-    it('refreshes before concluding a person is gone', async () => {
-        const bound = store.forBatch(0)
-        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-        repository.updatePersonProperties
-            .mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
-            .mockResolvedValue({ person, updated: true } as never)
-        // Identity lags the leader: the first answer still names the person
-        // the leader has already lost, which must not read as a deletion.
-        repository.resolvePersonsByDistinctIds
-            .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person }] as never)
-            .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
 
         await bound.flush()
 
@@ -1104,19 +1081,22 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.hasBaseline('1:7')).toBe(false)
         })
 
-        it('a redirect that finds nobody sends the id back to identity', async () => {
+        it('a person gone from identity fails the flush to redeliver, releasing the id', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
             expect((store as any).memo.resolutionOf('1:d1')).toBe('1:7')
             // The person is deleted rather than merged, so the redirect's
-            // resolve answers nobody and the ops have nowhere to land.
+            // resolve answers nobody. Redelivery recreates through the
+            // normal pipeline, as Postgres does; dropping here would lose
+            // the ops.
             repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('deleted') as never)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([] as never)
 
-            await bound.flush()
+            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
 
-            // Keeping either would make every later event on this id fold
-            // onto the deleted person and pay the whole redirect again.
+            expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+            // Released, so the redelivered events re-resolve rather than
+            // folding onto the deleted person again.
             expect((store as any).memo.resolutionOf('1:d1')).toBeUndefined()
             expect((store as any).memo.hasBaseline('1:7')).toBe(false)
         })
@@ -1239,33 +1219,6 @@ describe('PersonhogPersonsStore', () => {
             // a merge left behind, and later events would compose on top.
             expect(projected.id).toBe('9')
             expect((store as any).memo.resolutionOf('1:d1')).toBe('1:9')
-        })
-
-        it('a redirect drops the baseline of each person it proves gone', async () => {
-            const bound = store.forBatch(0)
-            const mid = { ...person, id: '9' }
-            // The batch has read person 9, so it holds a document for it.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd2', person: mid },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue(mid as never)
-            await bound.fetchForUpdate(1, 'd2')
-            expect((store as any).memo.hasBaseline('1:9')).toBe(true)
-
-            await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
-            // 7 is gone, the redirect resolves to 9, and 9 turns out to be
-            // gone too; the pass after that resolves to nobody.
-            repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('merged away') as never)
-            repository.resolvePersonsByDistinctIds
-                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: mid }] as never)
-                .mockResolvedValue([] as never)
-
-            await bound.flush()
-
-            // 9 was proved gone mid-chain. Leaving its document would serve
-            // a dead person to every other id still naming it, and it is the
-            // reason the 'gone' exit needs to drop only the lane's own.
-            expect((store as any).memo.hasBaseline('1:9')).toBe(false)
         })
 
         it('a write in flight stays visible in the view until its answer lands', async () => {
@@ -1560,49 +1513,6 @@ describe('PersonhogPersonsStore', () => {
             // Whatever the interleaving, nothing acks over unwritten ops.
             expect(written).toEqual(expect.arrayContaining(['8', '10', '7']))
             expect((narrowStore as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
-        })
-
-        it('a merge waits for a redirect already writing to its survivor', async () => {
-            const bound = store.forBatch(0)
-            // An external merge destroyed lane 9's person, so its redirect
-            // resolves survivor 7 and goes on the wire. A local merge fencing
-            // 7 must wait it out, or its newer writes land first and the
-            // redirect's older raw $set overwrites them.
-            await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'older' } }), 'anon-2')
-            let releaseRedirect: () => void = () => {}
-            const events: string[] = []
-            repository.updatePersonProperties.mockImplementation(((request: { personId: string }) => {
-                if (request.personId === '9') {
-                    return Promise.reject(new NoRowsUpdatedError('merged away'))
-                }
-                return new Promise((resolve) => {
-                    releaseRedirect = () => {
-                        events.push('redirect-landed')
-                        resolve({ person, updated: true })
-                    }
-                })
-            }) as never)
-            // Answered by requested id, so the merge's own fence resolve
-            // maps d1 to person 7 — the survivor the redirect is writing to.
-            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
-                Promise.resolve(
-                    keys.map((key) => ({ teamId: 1, distinctId: key.distinctId, person: { ...person, id: '7' } }))
-                )) as never)
-            repository.mergePersons = jest.fn().mockImplementation(() => {
-                events.push('merge-sent')
-                return Promise.resolve({ survivor: person, results: [] })
-            })
-
-            const flushing = bound.flush()
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            const merging = bound.mergePersons(mergeReq())
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(events).toEqual([])
-
-            releaseRedirect()
-            await merging
-            await flushing
-            expect(events).toEqual(['redirect-landed', 'merge-sent'])
         })
     })
 
@@ -2291,11 +2201,11 @@ describe('PersonhogPersonsStore', () => {
                 return [] as never
             })
 
-            await bound.flush()
+            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
 
-            const entry = (store as any).entries.get('1:7')
-            expect(entry.segments).toHaveLength(1)
-            expect(entry.segments[0].set).toEqual({ later: 'fold' })
+            const sets = (store as any).entries.get('1:7').segments.map((segment: EventOps) => segment.set)
+            expect(sets).toContainEqual({ later: 'fold' })
+            expect(sets).toContainEqual({ b: '2' })
         })
 
         it('a replayed merged verdict cannot mark the survivor dead through the memo', async () => {
@@ -2339,16 +2249,16 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.resolutionOf('1:d1')).toBe('1:12')
         })
 
-        it('exhausting the refresh while identity still names the vanished person fails the flush', async () => {
+        it('a resolve still naming the vanished person fails the flush to redeliver', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
             repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('merged away') as never)
-            // The lag shape: identity keeps answering the person the leader
-            // lost. Dropping would lose the write whenever lag outruns the
-            // budget, so the batch must fail and redeliver.
+            // Structurally the mapping is repointed before the leader ever
+            // answers a tombstone, so this shape is an anomaly; failing
+            // keeps the ops and surfaces it rather than dropping.
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
 
-            await expect(bound.flush()).rejects.toThrow(/identity still resolves/)
+            await expect(bound.flush()).rejects.toThrow(/the same person/)
             expect((store as any).entries.get('1:7').segments).toHaveLength(1)
         })
 
@@ -2673,7 +2583,8 @@ describe('PersonhogPersonsStore', () => {
 
         // Throwing rather than dropping is the claim; the attempt budget is
         // a tuning constant and not what this pins.
-        await expect(bound.flush()).rejects.toThrow(/merged away \d+ times during redirect/)
+        await expect(bound.flush()).rejects.toThrow('merged away')
+        expect((store as any).entries.get('1:7').segments).toHaveLength(1)
     })
 
     it('fails the flush on unexpected errors so the batch retries whole', async () => {
