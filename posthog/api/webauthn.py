@@ -264,7 +264,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         # Validate request data format
         response_data: dict[str, Any] = request.data.get("response", {})
-        if payload_error := self._assertion_payload_error(request, response_data):
+        credential_id: str = request.data.get("rawId") or ""
+        if payload_error := self._assertion_payload_error(credential_id, response_data):
             return _login_error(payload_error)
 
         # Type the response data
@@ -280,7 +281,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         try:
             verified_user = self._verify_login_assertion(
-                request, credential_id=request.data["rawId"], challenge=challenge, typed_response=typed_response
+                request, credential_id=credential_id, challenge=challenge, typed_response=typed_response
             )
             self._enforce_login_policy(request, verified_user)
 
@@ -312,12 +313,12 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def _assertion_payload_error(self, request: Request, response_data: dict[str, Any]) -> str | None:
+    def _assertion_payload_error(self, credential_id: str, response_data: dict[str, Any]) -> str | None:
         """Reject an assertion the verification step cannot read, before any cryptographic work."""
         if not response_data.get("userHandle"):
             return "No userHandle in response. Make sure you're using a discoverable credential."
 
-        if not request.data.get("rawId"):
+        if not credential_id:
             return "No credential ID in response."
 
         # Validate response structure
