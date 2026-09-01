@@ -13,36 +13,49 @@ describe('CodeCanvasLink', () => {
         jest.clearAllMocks()
     })
 
-    it('closes the bridge page five seconds after opening PostHog Desktop', () => {
+    it('closes the bridge page after the desktop app hides it', () => {
         const originalLocation = window.location
         const closeSpy = jest.spyOn(window, 'close').mockImplementation()
         const clearTimeoutSpy = jest.spyOn(window, 'clearTimeout')
-        let closePage: (() => void) | undefined
+        const visibilityStateSpy = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+        const timers = new Map<number, () => void>()
+        let nextTimerId = 1
+        let visibilityChangeHandler: EventListener | undefined
 
         Object.defineProperty(window, 'location', {
             configurable: true,
             writable: true,
             value: { ...originalLocation, href: originalLocation.href },
         })
-        jest.spyOn(window, 'setTimeout').mockImplementation((handler) => {
-            closePage = handler as () => void
-            return 1
+        jest.spyOn(window, 'setTimeout').mockImplementation((handler, delay) => {
+            timers.set(delay as number, handler as () => void)
+            return nextTimerId++
+        })
+        jest.spyOn(document, 'addEventListener').mockImplementation((type, listener) => {
+            if (type === 'visibilitychange') {
+                visibilityChangeHandler = listener as EventListener
+            }
         })
 
         try {
             CodeCanvasLink({ channelId: 'channel-1', dashboardId: 'dashboard-1' })
 
-            const openDesktopAndScheduleClose = jest.mocked(React.useEffect).mock.calls[0][0]
-            const cleanup = openDesktopAndScheduleClose()
+            const openDesktopAndWatchForIt = jest.mocked(React.useEffect).mock.calls[0][0]
+            const cleanup = openDesktopAndWatchForIt()
 
             expect(window.location.href).toBe('posthog-code://canvas/channel-1/dashboard-1')
-            expect(window.setTimeout).toHaveBeenCalledWith(expect.any(Function), 5000)
+            expect(timers.has(5000)).toBe(false)
 
-            closePage?.()
+            visibilityStateSpy.mockReturnValue('hidden')
+            visibilityChangeHandler?.(new Event('visibilitychange'))
+
+            expect(timers.get(5000)).toEqual(expect.any(Function))
+            timers.get(5000)?.()
             expect(closeSpy).toHaveBeenCalledTimes(1)
 
             cleanup?.()
             expect(clearTimeoutSpy).toHaveBeenCalledWith(1)
+            expect(clearTimeoutSpy).toHaveBeenCalledWith(2)
         } finally {
             Object.defineProperty(window, 'location', {
                 configurable: true,
