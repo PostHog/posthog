@@ -2,9 +2,12 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client import sync_execute
 
@@ -337,6 +340,30 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             trace_id_index, brokers_id_index, "trace_id should appear before brokers.0.id when searching for 'id'"
         )
         self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")
+
+
+class TestLogValuesAttributesQueryErrors(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "values",
+                "products.logs.backend.presentation.views.api.LogValuesQueryRunner.calculate",
+                {"key": "service.name", "attribute_type": "resource"},
+            ),
+            (
+                "attributes",
+                "products.logs.backend.presentation.views.api.LogAttributesQueryRunner.calculate",
+                {"attribute_type": "resource"},
+            ),
+        ]
+    )
+    def test_query_error_returns_400_with_message(self, endpoint, runner_path, params):
+        # A failed ClickHouse/HogQL query must reach the service filter as a clean 400, not an opaque 500.
+        with patch(runner_path, side_effect=QueryError("bad log query")):
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "bad log query")
 
 
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
