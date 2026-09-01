@@ -101,7 +101,7 @@ export const WORKFLOWS_MCP_TOOLS: McpToolSummary[] = [
     {
         name: 'workflows-stats',
         description:
-            "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click.",
+            "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click. Pass version=<n> to read one published version instead of the workflow's whole history - that is how you tell whether a change helped, by comparing the version before it with the version after it.",
     },
     {
         name: 'workflows-suggest',
