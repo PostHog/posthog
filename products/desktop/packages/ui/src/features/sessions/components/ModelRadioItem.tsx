@@ -3,10 +3,13 @@ import {
   DropdownMenuRadioItem,
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
 import { isRestrictedModel } from "@posthog/ui/features/billing/modelGate";
 import { ModelCostChip } from "@posthog/ui/features/sessions/components/ModelCostChip";
+
+const TOOLTIP_DELAY_MS = 150;
 
 /**
  * Model picker entry. Plan-restricted models render dimmed with a lock;
@@ -29,23 +32,13 @@ export function ModelRadioItem({
   unavailableReason?: string;
 }) {
   const restricted = isRestrictedModel(model);
-  const label = <span className="whitespace-nowrap">{model.name}</span>;
-  return (
+  const item = (
     <DropdownMenuRadioItem
       value={model.value}
       closeOnClick={closeOnClick}
       className={restricted || unavailableReason ? "opacity-60" : undefined}
     >
-      {unavailableReason ? (
-        <Tooltip disableHoverablePopup>
-          <TooltipTrigger render={label} />
-          <TooltipContent side="right" className="max-w-56">
-            {unavailableReason}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        label
-      )}
+      <span className="whitespace-nowrap">{model.name}</span>
       {unavailableReason ? (
         <Prohibit size={11} className="ml-auto text-muted-foreground" />
       ) : restricted ? (
@@ -54,5 +47,20 @@ export function ModelRadioItem({
         <ModelCostChip modelId={model.value} />
       )}
     </DropdownMenuRadioItem>
+  );
+
+  if (!unavailableReason) {
+    return item;
+  }
+
+  return (
+    <TooltipProvider delay={TOOLTIP_DELAY_MS}>
+      <Tooltip disableHoverablePopup>
+        <TooltipTrigger render={item} />
+        <TooltipContent side="right" className="max-w-60">
+          {unavailableReason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

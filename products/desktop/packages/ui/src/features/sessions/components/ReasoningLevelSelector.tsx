@@ -148,7 +148,7 @@ export function ReasoningLevelSelector({
     adapter === "claude" && modelAccess === "own-subscription";
   const unavailableReason = (modelId: string): string | undefined =>
     onOwnSubscription && !isAnthropicModelId(modelId)
-      ? "Your Claude plan does not run this model. Switch billing to PostHog credits to use it."
+      ? "Your Claude plan cannot run this model. Change billing to PostHog credits to use it."
       : undefined;
 
   const handleHarnessSelect = (harness: AgentHarness) => {
