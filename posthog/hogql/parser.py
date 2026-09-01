@@ -36,6 +36,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_enums import ParserMode
+from posthog.utils import safe_cache_add
 
 logger = getLogger(__name__)
 
@@ -424,6 +425,13 @@ _REJECTION_SHADOW_MAX_NESTING = 24
 _REJECTION_SHADOW_MAX_STATEMENT_KEYWORDS = 8
 _STATEMENT_KEYWORD_PATTERN = re.compile(r"\b(?:if|while|for|fn)\b", re.IGNORECASE)
 
+# Error-tracking capture from the rejection leg is throttled to at most one per signature per this window. The leg is
+# unsampled and its designed operating condition — a sustained primary regression or a broken shadow wheel — makes
+# every affected request reach a capture, so an un-throttled path rebuilds a stack trace per request and can crowd
+# unrelated exceptions out of the shared telemetry queue. `_SHADOW_REJECTIONS` still counts every occurrence, so the
+# metric keeps full volume while the captures stay a trickle.
+_REJECTION_CAPTURE_THROTTLE_TTL = 300  # seconds
+
 
 def _is_shallow_enough_to_shadow(rule: ParseRule, statement: str) -> bool:
     """Whether the shadow backend can parse `statement` within a bounded time. See `_REJECTION_SHADOW_MAX_NESTING`."""
@@ -477,6 +485,18 @@ def _run_rejection_shadow(
             rule=rule_label, result=result, primary_version=primary_version, shadow_version=shadow_version
         ).inc()
 
+    def _capture_throttled(result: str, exc: BaseException) -> None:
+        # One capture per (result, rule, backend pair) per TTL — see `_REJECTION_CAPTURE_THROTTLE_TTL`. The key omits
+        # the query and the primary error, so varying the input can't force a fresh capture on a repeated signature.
+        throttle_key = f"hogql_parser_rejection_capture:{result}:{rule_label}:{backends.primary}:{backends.shadow}"
+        if safe_cache_add(throttle_key, True, _REJECTION_CAPTURE_THROTTLE_TTL):
+            capture_exception(
+                exc,
+                additional_properties=_rejection_properties(
+                    rule, statement, backends.primary, backends.shadow, primary_error
+                ),
+            )
+
     if not _is_shallow_enough_to_shadow(rule, statement):
         _count("skipped_deep_nesting")
         return
@@ -490,19 +510,14 @@ def _run_rejection_shadow(
         # Broken shadow wheel or panic, surfaced as an InternalHogQLError (cpp raises ParsingError, rust wraps a
         # panic as NotImplementedError), plus any other unexpected failure. Counted and captured, never raised.
         _count("shadow_error")
-        capture_exception(
-            err,
-            additional_properties=_rejection_properties(
-                rule, statement, backends.primary, backends.shadow, primary_error
-            ),
-        )
+        _capture_throttled("shadow_error", err)
         return
     _count("shadow_accepted")
-    capture_exception(
+    _capture_throttled(
+        "shadow_accepted",
         HogQLParserPrimaryOnlyRejection(
             f"{rule} refused by {backends.primary} but parsed by {backends.shadow}: {primary_error}"
         ),
-        additional_properties=_rejection_properties(rule, statement, backends.primary, backends.shadow, primary_error),
     )
 
 

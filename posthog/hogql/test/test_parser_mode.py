@@ -254,7 +254,10 @@ class TestParserMode(BaseTest):
 
         with patch("posthog.hogql.parser._invoke_parser", side_effect=only_primary_rejects):
             with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
-                with patch("posthog.hogql.parser.capture_exception") as captured:
+                with (
+                    patch("posthog.hogql.parser.capture_exception") as captured,
+                    patch("posthog.hogql.parser.safe_cache_add", return_value=True),
+                ):
                     with self.assertRaises(HogQLSyntaxError):
                         parse_select(
                             "select rejection_probe from events",
@@ -279,7 +282,10 @@ class TestParserMode(BaseTest):
 
         with patch("posthog.hogql.parser._invoke_parser", side_effect=primary_rejects_shadow_breaks):
             with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
-                with patch("posthog.hogql.parser.capture_exception") as captured:
+                with (
+                    patch("posthog.hogql.parser.capture_exception") as captured,
+                    patch("posthog.hogql.parser.safe_cache_add", return_value=True),
+                ):
                     with self.assertRaises(HogQLSyntaxError):
                         parse_select(
                             "select rejection_probe from events",
@@ -288,6 +294,26 @@ class TestParserMode(BaseTest):
         self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["shadow_error"])
         captured.assert_called_once()
         self.assertIsInstance(captured.call_args.args[0], ParsingError)
+
+    def test_rejection_shadow_throttles_repeated_captures(self):
+        real_invoke = parser_module._invoke_parser
+
+        def only_primary_rejects(backend, rule, statement, start):
+            if backend == "cpp-json":
+                raise HogQLSyntaxError("simulated cpp-json regression")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=only_primary_rejects):
+            with patch("posthog.hogql.parser.safe_cache_add", side_effect=[True, False]) as throttle:
+                with patch("posthog.hogql.parser.capture_exception") as captured:
+                    for _ in range(2):
+                        with self.assertRaises(HogQLSyntaxError):
+                            parse_select(
+                                "select rejection_probe from events",
+                                parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                            )
+        self.assertEqual(throttle.call_count, 2)
+        captured.assert_called_once()
 
     def test_rejection_shadow_stays_silent_when_both_backends_reject(self):
         with patch("posthog.hogql.parser._SHADOW_REJECTIONS") as counter:
