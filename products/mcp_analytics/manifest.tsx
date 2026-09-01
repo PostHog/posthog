@@ -24,6 +24,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
             iconType: 'mcp_analytics',
+            docsHref: 'https://posthog.com/docs/mcp-analytics',
         },
         MCPAnalyticsToolDetail: {
             import: () => import('./frontend/MCPAnalyticsToolDetail'),
@@ -41,6 +42,7 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+        '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
         '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     },
     redirects: {
@@ -58,6 +60,7 @@ export const manifest: ProductManifest = {
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+        mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
         mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     },
     setupProbe: {

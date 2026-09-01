@@ -202,6 +202,65 @@ describe("PiAgentServer", () => {
     );
   });
 
+  it("persists extension requests and sends responses without waiting for RPC output", async () => {
+    const appendTaskRunLog = vi.fn(
+      async (_taskId: string, _runId: string, _entries: unknown[]) => ({}),
+    );
+    const respondToExtensionUI = vi.fn(async () => {});
+    const server = new PiAgentServer(config()) as unknown as {
+      posthogAPI: { appendTaskRunLog: typeof appendTaskRunLog };
+      session: unknown;
+      handleExtensionEvent(event: Record<string, unknown>): void;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+      logFlushQueue: Promise<void>;
+    };
+    server.posthogAPI.appendTaskRunLog = appendTaskRunLog;
+    server.session = {
+      runtime: { client: { respondToExtensionUI } },
+    };
+    const request = {
+      type: "extension_ui_request",
+      id: "confirm-1",
+      method: "confirm",
+      title: "Continue?",
+      message: "Proceed?",
+    };
+    const response = {
+      type: "extension_ui_response",
+      id: "confirm-1",
+      confirmed: true,
+    };
+
+    server.handleExtensionEvent(request);
+    await server.logFlushQueue;
+    await server.executeCommand("pi/rpc", { command: response });
+    await server.logFlushQueue;
+
+    expect(respondToExtensionUI).toHaveBeenCalledWith(response);
+    const persistedEntries = appendTaskRunLog.mock.calls.flatMap(
+      ([, , entries]) => entries,
+    );
+    expect(persistedEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "pi_extension_event",
+          notification: expect.objectContaining({
+            params: expect.objectContaining(request),
+          }),
+        }),
+        expect.objectContaining({
+          type: "pi_extension_event",
+          notification: expect.objectContaining({
+            params: expect.objectContaining(response),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("bounds events retained while no SSE client is connected", () => {
     const server = new PiAgentServer(config()) as unknown as {
       broadcast(event: Record<string, unknown>): void;

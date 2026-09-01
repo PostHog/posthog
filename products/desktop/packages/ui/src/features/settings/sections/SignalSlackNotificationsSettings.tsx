@@ -7,16 +7,18 @@ import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOpti
 
 const NOTIFY_ALL_VALUE = "__all__";
 
+// Labels name the range a threshold covers, because the priority digits descend as urgency rises,
+// so a directional word ("and above") reads either way.
 const MIN_PRIORITY_OPTIONS: {
   value: SignalReportPriority | typeof NOTIFY_ALL_VALUE;
   label: string;
 }[] = [
   { value: NOTIFY_ALL_VALUE, label: "All priorities" },
   { value: "P0", label: "P0 only" },
-  { value: "P1", label: "P1 and above" },
-  { value: "P2", label: "P2 and above" },
-  { value: "P3", label: "P3 and above" },
-  { value: "P4", label: "P4 and above" },
+  { value: "P1", label: "P0-P1" },
+  { value: "P2", label: "P0-P2" },
+  { value: "P3", label: "P0-P3" },
+  { value: "P4", label: "P0-P4" },
 ];
 
 interface SignalSlackNotificationsSettingsProps {
@@ -91,7 +93,7 @@ export function SignalSlackNotificationsSettings({
       </SettingsCardRow>
       <SettingsCardRow
         label="Minimum priority"
-        description="Only ping me for reports at or above this priority"
+        description="Only ping me for reports in this priority range. P0 is the most urgent."
       >
         <SettingsOptionSelect
           value={minPriority ?? NOTIFY_ALL_VALUE}

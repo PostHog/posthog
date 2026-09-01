@@ -29,7 +29,7 @@ export const desktopBetaTermsKeys = {
     [...desktopBetaTermsKeys.all(), identity] as const,
 };
 
-export function useDesktopBetaTerms(
+function useDesktopBetaTerms(
   organizationId: string | undefined,
   enabled = true,
 ) {

@@ -270,6 +270,7 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    benjamin_enabled: bool = False,
     peer_messaging: bool = False,
 ) -> str:
     env_vars = {
@@ -291,6 +292,7 @@ def build_agent_runtime_env_prefix(
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
         # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
@@ -546,6 +548,7 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
@@ -611,7 +614,8 @@ class SandboxBase(ABC):
             result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
             payload = json.loads(result.stdout or "{}")
             session_init_ms = payload.get("sessionInitMs")
-            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            boot = payload.get("boot", {})
+            raw_phases = boot.get("phasesMs", {}) if isinstance(boot, dict) else {}
             allowed_phases = {
                 "context_fetch",
                 "acp_initialize",
@@ -628,6 +632,13 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
+            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+                duration = boot.get(source) if isinstance(boot, dict) else None
+                if isinstance(duration, int | float) and not isinstance(duration, bool):
+                    phases[target] = max(0, int(duration))
+            boot_ms = payload.get("bootMs")
+            if "server_total" not in phases and isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
+                phases["server_total"] = max(0, int(boot_ms))
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}

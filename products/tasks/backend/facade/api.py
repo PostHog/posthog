@@ -165,6 +165,13 @@ WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
 WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
+
+class _AutoArchiveUnchanged:
+    pass
+
+
+_AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
+
 __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
@@ -400,6 +407,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
         "ai_stage",
         "auto_publish",
+        "benjamin_enabled",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -806,6 +814,33 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     """The channel a (non-deleted) task is filed in, or None."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
+
+
+def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
+    """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
+
+    Callers use it to attribute a sandbox agent's writes to the stage that started it. Only
+    ``SIGNAL_REPORT``-origin tasks qualify, and ``ai_stage`` is written server-side once at run
+    creation (see ``Task.create_and_run``), so the sandbox whose token names the task cannot set
+    or change it — which is what makes it safe to treat as an identity rather than a claim.
+
+    A task's runs all carry the stage the pipeline started it for, so the newest run answers for
+    the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
+    predating the stamp.
+    """
+    state = (
+        TaskRun.objects.filter(
+            task_id=task_id,
+            team_id=team_id,
+            task__deleted=False,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    stage = (state or {}).get("ai_stage")
+    return stage if isinstance(stage, str) and stage else None
 
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -1522,6 +1557,24 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bool:
+    """Promote a bot-authored run to user authorship when the actor now has a usable GitHub install.
+
+    Delegates to ``upgrade_run_to_user_authorship``, which persists the change and leaves
+    runs that are bot-authored by design (signal reports, caller-token runs) untouched.
+    Returns True when the run was promoted.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        upgrade_run_to_user_authorship,
+    )
+
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    actor_user = User.objects.filter(id=actor_user_id).first()
+    if run is None or actor_user is None:
+        return False
+    return upgrade_run_to_user_authorship(run, actor_user, run.state) is not None
+
+
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
     """Best-effort: tell the run's workflow a client command landed, so the idle timer resets."""
     try:
@@ -2183,6 +2236,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        "rtk_effective",
+        "benjamin_effective",
+        "usage_metrics_recorded",
     }
 )
 
@@ -4555,6 +4611,7 @@ def bootstrap_task_run(
         "context_window": context_window,
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
+        "benjamin_enabled": validated_data.get("benjamin_enabled"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -5222,6 +5279,10 @@ def _list_tasks_queryset(
     channel = filters.get("channel")
     if channel:
         qs = qs.filter(channel_id=channel)
+
+    hog_flow_id = filters.get("hog_flow_id")
+    if hog_flow_id:
+        qs = qs.filter(hog_flow_id=hog_flow_id)
 
     if search:
         search_term = search.strip()
@@ -6857,13 +6918,14 @@ def run_task(
     if pending_user_artifact_ids and not is_pi_task:
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
-    if initial_permission_mode is not None:
-        extra_state = extra_state or {}
-        extra_state["initial_permission_mode"] = initial_permission_mode
-    rtk_enabled = validated_data.get("rtk_enabled")
-    if rtk_enabled is not None:
-        extra_state = extra_state or {}
-        extra_state["rtk_enabled"] = rtk_enabled
+    for key, value in (
+        ("initial_permission_mode", initial_permission_mode),
+        ("rtk_enabled", validated_data.get("rtk_enabled")),
+        ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+    ):
+        if value is not None:
+            extra_state = extra_state or {}
+            extra_state[key] = value
 
     if resume_from_run_id:
         assert previous_run is not None and previous_state is not None
@@ -7390,6 +7452,7 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
         system_role=channel.system_role,
         github_integration=channel.github_integration_id,
         repositories=channel.repositories,
+        auto_archive_after_days=channel.auto_archive_after_days,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
         starred=starred,
@@ -7618,9 +7681,11 @@ def update_channel(
     team_id: int,
     user_id: int | None,
     *,
+    can_manage_shared_auto_archive: bool,
     name: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
+    auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
     """Update a visible channel."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
@@ -7631,6 +7696,8 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
+    elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
+        return "auto_archive_forbidden"
     if name is not None and _is_general_channel(channel):
         return "general"
     update_fields: list[str] = []
@@ -7644,6 +7711,9 @@ def update_channel(
         channel.repositories = repositories
         channel.github_integration = github_integration if repositories else None
         update_fields.extend(["repositories", "github_integration"])
+    if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
+        channel.auto_archive_after_days = auto_archive_after_days
+        update_fields.append("auto_archive_after_days")
     if not update_fields:
         return _channel_to_dto(channel)
     try:
@@ -7714,7 +7784,9 @@ def visible_tasks_q(user_id: int | None, *, relation: Literal["", "task"] = "") 
 
 def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:
     """Whether ``channel_id`` is a live channel in this team that the user may see."""
-    return Channel.objects.filter(Channel.visible_to_q(user_id), id=channel_id, team_id=team_id, deleted=False).exists()
+    return (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).exists()
+    )
 
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:

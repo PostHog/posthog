@@ -38,27 +38,14 @@ from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.schema import (
-    BreakdownFilter,
-    BreakdownType,
-    EventsNode,
-    FunnelsQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_ACTIVITIES,
@@ -1057,50 +1044,6 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe
         )
 
         assert len(s3_objects["Contents"]) != 0
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_client):
-    # Tests that funnels work in PERSON_ID_OVERRIDE_PROPERTIES_JOINED PoE mode when using extended person properties
-    await _run(
-        team=team,
-        schema_name="Customer",
-        table_name="stripe_customer",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer["data"],
-    )
-
-    await sync_to_async(DataWarehouseJoin.objects.create)(
-        team=team,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name="stripe_customer",
-        joining_table_key="email",
-        field_name="stripe_customer",
-    )
-
-    query = FunnelsQuery(
-        series=[EventsNode(), EventsNode()],
-        breakdownFilter=BreakdownFilter(
-            breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
-        ),
-    )
-    funnel_class = FunnelUDF(context=FunnelQueryContext(query=query, team=team))
-
-    query_ast = funnel_class.get_query()
-    await sync_to_async(execute_hogql_query)(
-        query_type="FunnelsQuery",
-        query=query_ast,
-        team=team,
-        modifiers=create_default_modifiers_for_team(
-            team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-        ),
-    )
 
 
 @pytest.mark.django_db(transaction=True)

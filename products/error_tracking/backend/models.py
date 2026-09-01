@@ -387,8 +387,10 @@ class ErrorTrackingSymbolSet(UUIDTModel):
     # with one
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
-    # When a symbol set is loaded, last_used is set, so we can track how often
-    # symbol sets are used, and cleanup ones not used for a long time
+    # Retention deletes a symbol set once last_used falls outside its window. Two paths write it:
+    # symbolication, when it loads the set, and a bulk upload, for every chunk id in the request.
+    # The upload must write it because event release mode derives chunk ids from content, so one
+    # row can serve many releases without symbolication ever touching it.
     last_used = models.DateTimeField(null=True, blank=True)
 
     def delete(self, *args, **kwargs):
@@ -611,7 +613,11 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = []
+        indexes = [
+            # Recent-frames-per-team scans, such as the source maps recommendation. Without
+            # created_at in the index, a 24h window has to visit every frame the team ever stored.
+            models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
+        ]
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),

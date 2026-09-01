@@ -56,6 +56,7 @@ from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
@@ -1200,19 +1201,16 @@ class ExperimentService:
         if not event_names:
             return
 
-        from products.event_definitions.backend.models.event_definition import EventDefinition
-
         project_id = self.team.project_id
-        # Uses `team_id = project_id` (not team_id = self.team.id)
+        # `COALESCE(project_id, team_id)` falls back to `team_id` (not self.team.id)
         # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
         # *primary* team, and primary_team.id == project.id by convention. This
         # mirrors the picker SQL in posthog/api/event_definition.py so sibling
         # teams can validate against legacy primary-team events the picker shows.
         existing = set(
-            EventDefinition.objects.filter(
-                Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
-                name__in=event_names,
-            ).values_list("name", flat=True)
+            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id, name__in=event_names)
+            .values_list("name", flat=True)
         )
         unknown = event_names - existing
         if unknown:

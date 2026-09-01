@@ -670,22 +670,14 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
-    /**
-     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
-     * @maxLength 64
-     * @pattern ^[^\u0000-\u001f\u007f]*$
-     */
+    /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
      * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
      * @items.maxLength 64
      */
     tags?: string[]
-    /**
-     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
-     * @maxLength 39
-     * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
-     */
+    /** The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account. */
     author_handle?: string
 }
 

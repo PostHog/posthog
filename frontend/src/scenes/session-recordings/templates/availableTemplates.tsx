@@ -1,7 +1,6 @@
 import {
     IconApp,
     IconCursorClick,
-    IconFlag,
     IconHandMoney,
     IconPhone,
     IconSearch,
@@ -135,21 +134,6 @@ export const replayTemplates: ReplayTemplateType[] = [
         ],
         categories: ['B2C'],
         icon: <IconSearch />,
-    },
-    {
-        key: 'experiment',
-        name: 'A/B test results',
-        description: 'Watch how users interact with your A/B test. Look for any areas or steps that cause friction.',
-        variables: [
-            {
-                type: 'flag',
-                name: 'Feature flag',
-                key: 'feature-flag',
-                description: 'The feature flag that you want to observe.',
-            },
-        ],
-        categories: ['More'],
-        icon: <IconFlag />,
     },
     {
         key: 'rageclicks',
