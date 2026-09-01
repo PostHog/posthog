@@ -86,4 +86,29 @@ describe("PiModelSelector", () => {
     expect(onGatewayModelSelect).toHaveBeenCalledTimes(1);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("lists the running model when the curated catalog omits it", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const running = { provider: "posthog" as const, id: "gpt-5.5" };
+    render(
+      <PiModelSelector
+        models={piModels}
+        currentModel={running}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Model: gpt-5.5" }));
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /Claude Opus 5/ }),
+    );
+    expect(onChange).toHaveBeenCalledWith(piModels[0]);
+
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /gpt-5\.5/ }),
+    );
+    expect(onChange).toHaveBeenLastCalledWith(running);
+  });
 });

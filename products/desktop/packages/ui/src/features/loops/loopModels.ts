@@ -3,6 +3,7 @@ import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-eff
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
+  isDeepseekModelId,
   isDefaultSelectOption,
   isGlm53FlashModelId,
   isGlm53ModelId,
@@ -72,7 +73,8 @@ export function formatLoopModel(
  * Pinnable models for a loop, derived from the same per-adapter preview
  * config that feeds the main create-task picker, so the loops picker offers
  * exactly the ids the loops API accepts. Restricted (plan-locked) models are
- * dropped, GLM is flag-gated like the main picker, and the currently pinned
+ * dropped, staged models carry the same rollout flags as the main picker
+ * (`useModelRolloutFlags`), and the currently pinned
  * model always stays selectable so an existing loop's model never drops out.
  */
 export function loopModelOptions(
@@ -83,12 +85,14 @@ export function loopModelOptions(
     glm53Enabled,
     glm53FlashEnabled,
     kimiEnabled,
+    deepseekEnabled,
     pinnedModel,
   }: {
     glmEnabled: boolean;
     glm53Enabled?: boolean;
     glm53FlashEnabled?: boolean;
     kimiEnabled?: boolean;
+    deepseekEnabled?: boolean;
     pinnedModel: string;
   },
 ): LoopModelOption[] {
@@ -120,6 +124,12 @@ export function loopModelOptions(
         kimiEnabled ||
         option.value === pinnedModel ||
         !isKimiModelId(option.value),
+    )
+    .filter(
+      (option) =>
+        deepseekEnabled ||
+        option.value === pinnedModel ||
+        !isDeepseekModelId(option.value),
     );
   if (pinnedModel && !options.some((option) => option.value === pinnedModel)) {
     options.push({ value: pinnedModel, label: pinnedModel });

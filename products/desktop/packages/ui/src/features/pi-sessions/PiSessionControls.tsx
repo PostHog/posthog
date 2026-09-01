@@ -142,8 +142,13 @@ export function PiModelSelector({
   }
 
   const currentValue = currentModel ? modelKey(currentModel) : "";
-  const selectedModel =
-    models.find((model) => modelKey(model) === currentValue) ?? currentModel;
+  const catalogModel = models.find((model) => modelKey(model) === currentValue);
+  const selectedModel = catalogModel ?? currentModel;
+  // The composer offers every gateway model, so a session can run one the
+  // curated Pi catalog hides. Listing it keeps the running model reachable
+  // after the user tries another.
+  const menuModels =
+    catalogModel || !selectedModel ? models : [selectedModel, ...models];
   const currentLabel = modelLabel(selectedModel);
   const thinkingLabel = thinkingLevel
     ? (thinkingLevelLabels[thinkingLevel] ?? thinkingLevel)
@@ -207,7 +212,7 @@ export function PiModelSelector({
                 <DropdownMenuRadioGroup
                   value={currentValue}
                   onValueChange={(value) => {
-                    const model = models.find(
+                    const model = menuModels.find(
                       (candidate) => modelKey(candidate) === value,
                     );
                     if (model) {
@@ -215,7 +220,7 @@ export function PiModelSelector({
                     }
                   }}
                 >
-                  {models.map((model) => (
+                  {menuModels.map((model) => (
                     <DropdownMenuRadioItem
                       key={modelKey(model)}
                       value={modelKey(model)}

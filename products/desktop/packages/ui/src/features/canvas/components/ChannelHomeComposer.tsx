@@ -324,9 +324,12 @@ export const ChannelHomeComposer = forwardRef<
   );
   const handleModelChange = useCallback(
     (value: string) => {
+      // A harness switch clears the options while the new config loads, and
+      // the menu stays open through that window. Recording the pick first
+      // lets the reload restore it instead of dropping it silently.
+      setLastUsedModel(value);
       if (modelOption) {
         setConfigOption(modelOption.id, value);
-        setLastUsedModel(value);
       }
     },
     [modelOption, setConfigOption, setLastUsedModel],

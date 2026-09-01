@@ -64,6 +64,7 @@ export function LoopModelFields({
         glm53Enabled: modelFlags.glm53,
         glm53FlashEnabled: modelFlags.glm53Flash,
         kimiEnabled: modelFlags.kimi,
+        deepseekEnabled: modelFlags.deepseek,
         pinnedModel: model,
       }),
     ],

@@ -139,6 +139,42 @@ describe("loopModelOptions", () => {
     ).toEqual(expected);
   });
 
+  it.each([
+    {
+      name: "hides a served DeepSeek model when the flag is off",
+      deepseekEnabled: false,
+      pinnedModel: "",
+      expectedValues: ["claude-sonnet-5"],
+    },
+    {
+      name: "shows a served DeepSeek model when the flag is on",
+      deepseekEnabled: true,
+      pinnedModel: "",
+      expectedValues: ["claude-sonnet-5", "deepseek-ai/deepseek-v4-flash-0731"],
+    },
+    {
+      name: "keeps a pinned DeepSeek model visible with the flag off",
+      deepseekEnabled: false,
+      pinnedModel: "deepseek-ai/deepseek-v4-flash-0731",
+      expectedValues: ["claude-sonnet-5", "deepseek-ai/deepseek-v4-flash-0731"],
+    },
+  ])("$name", ({ deepseekEnabled, pinnedModel, expectedValues }) => {
+    const options = modelConfigOption([
+      { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
+      {
+        value: "deepseek-ai/deepseek-v4-flash-0731",
+        name: "DeepSeek V4 Flash",
+      },
+    ]);
+
+    const values = loopModelOptions("claude", options, {
+      glmEnabled: true,
+      deepseekEnabled,
+      pinnedModel,
+    }).map((option) => option.value);
+    expect(values).toEqual(expectedValues);
+  });
+
   it.each<{
     name: string;
     adapter: LoopSchemas.LoopRuntimeAdapterEnum;
