@@ -50,9 +50,12 @@ from posthog.schema import (
     MetricSummary,
     MultipleBreakdownType,
     PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
     Series as InsightActorsQuerySeries,
+    SessionPropertyFilter,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -66,6 +69,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -3415,37 +3419,83 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off_no_breakdown", False, None, False),
+            ("flag_off_no_breakdown", False, None, None, False),
             (
                 "flag_off_session_multi",
                 False,
                 BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                None,
                 False,
             ),
-            ("flag_on_no_breakdown", True, None, False),
+            ("flag_on_no_breakdown", True, None, None, False),
             (
                 "flag_on_event_multi",
                 True,
                 BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]),
+                None,
                 False,
             ),
             (
                 "flag_on_session_multi",
                 True,
                 BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                None,
                 True,
             ),
             (
                 "flag_on_session_legacy",
                 True,
                 BreakdownFilter(breakdown_type=BreakdownType.SESSION, breakdown="$channel_type"),
+                None,
                 True,
             ),
             (
                 "flag_on_event_legacy",
                 True,
                 BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+                None,
                 False,
+            ),
+            # A session-property WHERE filter enables pre-aggregation even without a breakdown —
+            # this is the shape that exhausted memory when it was left uncovered.
+            (
+                "flag_on_session_filter_no_breakdown",
+                True,
+                None,
+                [SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Paid Search")],
+                True,
+            ),
+            (
+                "flag_off_session_filter_no_breakdown",
+                False,
+                None,
+                [SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Paid Search")],
+                False,
+            ),
+            (
+                "flag_on_event_filter_only",
+                True,
+                None,
+                [EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                False,
+            ),
+            # Session filter nested inside a property group must still be detected.
+            (
+                "flag_on_session_filter_nested_group",
+                True,
+                None,
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                SessionPropertyFilter(key="$entry_pathname", operator=PropertyOperator.EXACT, value="/")
+                            ],
+                        )
+                    ],
+                ),
+                True,
             ),
         ]
     )
@@ -3455,15 +3505,41 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         flag_enabled: bool,
         breakdown_filter: Optional[BreakdownFilter],
+        properties: Any,
         expected: bool,
         patch_feature_enabled,
     ):
         patch_feature_enabled.return_value = flag_enabled
         runner = TrendsQueryRunner(
             team=self.team,
-            query=TrendsQuery(series=[EventsNode(event="$pageview")], breakdownFilter=breakdown_filter),
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=breakdown_filter,
+                properties=properties,
+            ),
         )
         assert runner.modifiers.sessionPropertyPreAggregation is expected
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
+    def test_session_property_filter_on_series_enables_pre_aggregation(self, patch_feature_enabled):
+        # A session filter set on a single series, not the query root, must also count.
+        patch_feature_enabled.return_value = True
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="$pageview",
+                        properties=[
+                            SessionPropertyFilter(
+                                key="$channel_type", operator=PropertyOperator.EXACT, value="Paid Search"
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is True
 
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
@@ -3524,6 +3600,42 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             str(e.exception),
             "Error thrown inside thread",
         )
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
+    def test_session_filter_oom_error_names_the_session_property(self, patch_execute):
+        oom = ClickHouseQueryMemoryLimitExceeded()
+        oom.is_per_query_limit = True
+        patch_execute.side_effect = oom
+
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                properties=[
+                    SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Paid Search")
+                ],
+            ),
+        )
+
+        with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as context:
+            runner.calculate()
+
+        detail = str(context.exception.detail)
+        assert "$channel_type" in detail
+        assert "session-property filter" in detail
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
+    def test_oom_error_unchanged_without_session_filter(self, patch_execute):
+        oom = ClickHouseQueryMemoryLimitExceeded()
+        oom.is_per_query_limit = True
+        patch_execute.side_effect = oom
+
+        runner = TrendsQueryRunner(team=self.team, query=TrendsQuery(series=[EventsNode(event="$pageview")]))
+
+        with self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as context:
+            runner.calculate()
+
+        assert "session-property filter" not in str(context.exception.detail)
 
     def test_to_actors_query_options(self):
         self._create_test_events()

@@ -1164,6 +1164,26 @@ GROUP BY chan
             "argMinMerge(raw_sessions.initial_utm_source)"
         ), "Expected initial_utm_source count unchanged — small inner must not materialize unreferenced channel columns"
 
+    @parameterized.expand([("on", True), ("off", False)])
+    def test_channel_type_filter_without_breakdown(self, _name: str, modifier_on: bool):
+        # The reported OOM: a high-volume event filtered by the session property $channel_type,
+        # with no breakdown. Without the modifier the raw_sessions GROUP BY materializes every
+        # channel-source column for every session in the date range before the filter applies.
+        query = """
+SELECT count() AS total
+FROM events
+WHERE events.event = '$pageview'
+  AND events.timestamp >= '2026-03-01 00:00:00'
+  AND events.timestamp <= '2026-03-31 23:59:59'
+  AND events.session.$channel_type = 'Paid Search'
+"""
+        actual = self.print_query(query, modifier_on=modifier_on)
+        normalized = " ".join(actual.split())
+        has_pre_agg = (
+            "in(raw_sessions.session_id_v7" in normalized or "globalIn(raw_sessions.session_id_v7" in normalized
+        )
+        assert has_pre_agg == modifier_on, f"Expected pre-agg={modifier_on}; got:\n{actual}"
+
     def test_no_pre_agg_when_no_session_filter(self):
         query = """
 SELECT count(), events.session.$channel_type AS chan
