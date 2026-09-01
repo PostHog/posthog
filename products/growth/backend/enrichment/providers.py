@@ -74,7 +74,7 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
     name = "harmonic"
 
     async def enrich_by_domain(self, domain: str) -> ProviderLookup:
-        async with AsyncHarmonicClient() as client:
+        async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
             lookup = await client.enrich_company_by_domain_strict(domain)
             company = lookup.company
             fields = transform_harmonic_company(company)
@@ -83,7 +83,7 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
         return ProviderLookup(fields=fields, raw_payload=company, enrichment_urn=lookup.enrichment_urn)
 
     async def enrichment_status_for(self, urn: str) -> Optional[str]:
-        async with AsyncHarmonicClient() as client:
+        async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
             statuses = await client.get_enrichment_status([urn])
         entry = statuses.get(urn)
         status = entry.get("status") if isinstance(entry, dict) else None

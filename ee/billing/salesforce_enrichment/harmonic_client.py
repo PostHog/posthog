@@ -6,6 +6,9 @@ from django.conf import settings
 import aiohttp
 
 from posthog.dataclasses import frozen
+from posthog.egress.harmonic.limiter import pace_seconds_harmonic
+from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 
 from .constants import (
@@ -29,31 +32,38 @@ class HarmonicCompanyLookup:
     enrichment_urn: Optional[str]
 
 
-# Harmonic rate limit is 5 req/s; well under that at one request per batch.
+# Harmonic documents this as the per-call cap on /enrichment_status URNs.
 _ENRICHMENT_STATUS_BATCH_SIZE = 50
 
 
 class AsyncHarmonicClient:
-    """Async Harmonic API client with controlled concurrency.
+    """Async Harmonic API client, gated and recorded through the Harmonic egress transport.
 
     Enriches company domains using Harmonic's GraphQL API with:
-    - 5 concurrent requests (configurable)
-    - 30s timeout per request
+    - Every outbound call routed through posthog.egress.harmonic.transport.harmonic_request
+    - 30s timeout per request (two endpoints override to a shorter cap; see their docstrings)
     - Domain variation fallbacks (www., non-www)
     - Automatic session management via context manager
 
+    ``priority`` defaults to CRITICAL: the interactive callers (signup enrichment, the ICP
+    re-enrichment sweep) run inside a 90-second Temporal activity budget and must never be
+    starved or shed. The weekly bulk job passes ``Priority.BATCH`` explicitly so it yields to
+    that traffic instead.
+
     Usage:
-        async with AsyncHarmonicClient() as client:
+        async with AsyncHarmonicClient(priority=Priority.BATCH, source="my_job") as client:
             data = await client.enrich_company_by_domain("posthog.com")
     """
 
-    def __init__(self):
+    def __init__(self, *, priority: Priority = Priority.CRITICAL, source: str = "harmonic_client") -> None:
         self.api_key = settings.HARMONIC_API_KEY
         if not self.api_key:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
 
         self.session: Optional[aiohttp.ClientSession] = None
         self._session_cm: Any = None
+        self.priority = priority
+        self.source = source
 
     async def __aenter__(self):
         """Async context manager entry - create session."""
@@ -82,8 +92,6 @@ class AsyncHarmonicClient:
         Returns:
             Company data dict or None if not found
         """
-        # Rate limiting: 5 requests per second
-        await asyncio.sleep(0.2)
         domain = self._clean_domain(domain)
 
         # Try domain variations
@@ -95,23 +103,28 @@ class AsyncHarmonicClient:
 
                 if self.session is None:
                     raise RuntimeError("HTTP session not initialized. Use async context manager.")
-                async with self.session.post(
+                response = await harmonic_request(
+                    self.session,
+                    "POST",
                     f"{HARMONIC_BASE_URL}/graphql",
-                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    source=self.source,
+                    priority=self.priority,
+                    endpoint="/graphql",
                     # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
                     # so a URL-borne key would leak into exception telemetry when a lookup raises.
-                    headers={"Content-Type": "application/json", "apikey": self.api_key},
-                ) as response:
-                    response.raise_for_status()
-                    data = await response.json()
+                    headers={"apikey": self.api_key},
+                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                )
+                response.raise_for_status()
+                data = await response.json()
 
-                    if "errors" in data:
-                        continue
+                if "errors" in data:
+                    continue
 
-                    result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
-                    if result.get("companyFound"):
-                        company_data = result.get("company")
-                        return company_data
+                result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
+                if result.get("companyFound"):
+                    company_data = result.get("company")
+                    return company_data
 
             except Exception as e:
                 capture_exception(e)
@@ -137,13 +150,20 @@ class AsyncHarmonicClient:
         outage for a missing company. On the mixed path — a clean not-found suppressing a
         sibling error — the suppressed error is captured rather than discarded, since that is
         exactly the failure mode that let the original bug hide with no signal anywhere.
+
+        A shed variation (the egress limiter denying the call) is never eligible for that
+        suppression, even when a sibling variation came back a clean not-found: unlike a network
+        error, a shed means Harmonic was never asked, so a sibling's not-found is not evidence
+        about it. Swallowing a shed into a not-found would write an "org has no Harmonic company"
+        result the re-enrichment sweep would not revisit for up to 90 days, purely because our
+        own budget was tight when this call landed — always re-raise it instead.
         """
-        await asyncio.sleep(0.2)
         domain = self._clean_domain(domain)
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
 
         last_error: Optional[Exception] = None
         last_error_variation: Optional[str] = None
+        shed_error: Optional[HarmonicEgressBudgetExhausted] = None
         saw_clean_not_found = False
         not_found_urn: Optional[str] = None
         for domain_variation in domain_variations:
@@ -152,32 +172,42 @@ class AsyncHarmonicClient:
 
                 if self.session is None:
                     raise RuntimeError("HTTP session not initialized. Use async context manager.")
-                async with self.session.post(
+                response = await harmonic_request(
+                    self.session,
+                    "POST",
                     f"{HARMONIC_BASE_URL}/graphql",
-                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    source=self.source,
+                    priority=self.priority,
+                    endpoint="/graphql",
                     # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
                     # so a URL-borne key would leak into exception telemetry when a lookup raises.
-                    headers={"Content-Type": "application/json", "apikey": self.api_key},
-                ) as response:
-                    response.raise_for_status()
-                    data = await response.json()
+                    headers={"apikey": self.api_key},
+                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                )
+                response.raise_for_status()
+                data = await response.json()
 
-                    if "errors" in data:
-                        raise RuntimeError(f"Harmonic GraphQL errors for {domain_variation}: {data['errors']}")
+                if "errors" in data:
+                    raise RuntimeError(f"Harmonic GraphQL errors for {domain_variation}: {data['errors']}")
 
-                    result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
-                    if result.get("companyFound"):
-                        return HarmonicCompanyLookup(
-                            company=result.get("company"), enrichment_urn=result.get("enrichmentUrn")
-                        )
-                    if result.get("companyFound") is False:
-                        saw_clean_not_found = True
-                        not_found_urn = not_found_urn or result.get("enrichmentUrn")
+                result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
+                if result.get("companyFound"):
+                    return HarmonicCompanyLookup(
+                        company=result.get("company"), enrichment_urn=result.get("enrichmentUrn")
+                    )
+                if result.get("companyFound") is False:
+                    saw_clean_not_found = True
+                    not_found_urn = not_found_urn or result.get("enrichmentUrn")
+            except HarmonicEgressBudgetExhausted as e:
+                shed_error = e
+                continue
             except Exception as e:
                 last_error = e
                 last_error_variation = domain_variation
                 continue
 
+        if shed_error is not None:
+            raise shed_error
         if last_error is not None and not saw_clean_not_found:
             raise last_error
         if last_error is not None:
@@ -195,18 +225,22 @@ class AsyncHarmonicClient:
 
         if self.session is None:
             raise RuntimeError("HTTP session not initialized. Use async context manager.")
-        await asyncio.sleep(0.2)
         # Short cap: a single profile fetch, and it shares the signup activity's 90s budget with
         # the up-to-60s domain lookup — inheriting the session's 30s total would eat all headroom.
-        async with self.session.get(
+        response = await harmonic_request(
+            self.session,
+            "GET",
             f"{HARMONIC_BASE_URL}/companies/{company_id}",
+            source=self.source,
+            priority=self.priority,
+            endpoint="/companies/{id}",
             headers={"apikey": self.api_key},
             timeout=aiohttp.ClientTimeout(total=10),
-        ) as response:
-            if response.status == 404:
-                return None
-            response.raise_for_status()
-            return await response.json()
+        )
+        if response.status == 404:
+            return None
+        response.raise_for_status()
+        return await response.json()
 
     async def get_enrichment_status(self, urns: list[str]) -> dict[str, dict[str, Any]]:
         """Poll Harmonic's /enrichment_status for a set of tracking URNs, keyed by entity_urn.
@@ -220,17 +254,21 @@ class AsyncHarmonicClient:
         statuses: dict[str, dict[str, Any]] = {}
         for start in range(0, len(urns), _ENRICHMENT_STATUS_BATCH_SIZE):
             batch = urns[start : start + _ENRICHMENT_STATUS_BATCH_SIZE]
-            await asyncio.sleep(0.2)
             # Same short cap as get_company_by_urn: this shares the recheck activity's 90s
             # budget with the domain lookup, so it must not inherit the session's 30s total.
-            async with self.session.get(
+            response = await harmonic_request(
+                self.session,
+                "GET",
                 f"{HARMONIC_BASE_URL}/enrichment_status",
+                source=self.source,
+                priority=self.priority,
+                endpoint="/enrichment_status",
                 params=[("urns", urn) for urn in batch],
                 headers={"apikey": self.api_key},
                 timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                response.raise_for_status()
-                data = await response.json()
+            )
+            response.raise_for_status()
+            data = await response.json()
 
             if not isinstance(data, list):
                 raise ValueError(f"unexpected enrichment_status body: {type(data).__name__}")
@@ -250,6 +288,12 @@ class AsyncHarmonicClient:
         """
         if not domains:
             return []
+
+        # Paced once per batch, not once per domain: pacing inside each gathered task would let
+        # every task's wait elapse in parallel, so the batch would still fire all at once anyway.
+        pace = pace_seconds_harmonic(self.priority)
+        if pace > 0:
+            await asyncio.sleep(pace)
 
         tasks = [self.enrich_company_by_domain(domain) for domain in domains]
 

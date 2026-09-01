@@ -10,6 +10,7 @@ from dateutil import parser
 from simple_salesforce.format import format_soql
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 
@@ -745,7 +746,7 @@ async def _enrich_specific_domain_debug(
     if not accounts:
         return _build_debug_error_result(chunk_number, start_time, domain, "No Salesforce accounts found")
 
-    async with AsyncHarmonicClient() as harmonic_client:
+    async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_debug") as harmonic_client:
         harmonic_results = await harmonic_client.enrich_companies_batch([domain])
         harmonic_result = harmonic_results[0] if harmonic_results else None
 
@@ -882,8 +883,8 @@ async def enrich_accounts_chunked_async(
     total_failed = 0
     update_records = []
 
-    # Process in batches with rate limiting (5 req/sec)
-    async with AsyncHarmonicClient() as harmonic_client:
+    # Process in batches; each Harmonic call is gated by the shared egress limiter (BATCH priority).
+    async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_bulk") as harmonic_client:
         for batch_start in range(0, len(account_data), HARMONIC_BATCH_SIZE):
             batch_end = min(batch_start + HARMONIC_BATCH_SIZE, len(account_data))
             batch = account_data[batch_start:batch_end]
