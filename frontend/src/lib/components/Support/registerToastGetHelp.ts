@@ -13,8 +13,7 @@ export function registerToastGetHelp(): void {
         // it offers a ticket only to plans entitled to one. Self-hosted has no Support tab, and a scene
         // without a panel (onboarding, login) would fall through to the support modal, which asks for a
         // message from every plan. Both keep a link out to the support options docs.
-        const isCloudOrDev =
-            preflightLogic.findMounted()?.values.preflight?.cloud || process.env.NODE_ENV === 'development'
+        const isCloudOrDev = preflightLogic.findMounted()?.values.isCloudOrDev
         const sidePanelAvailable = sidePanelStateLogic.findMounted()?.values.sidePanelAvailable
         if (!isCloudOrDev || !sidePanelAvailable) {
             openSupportOptions()
