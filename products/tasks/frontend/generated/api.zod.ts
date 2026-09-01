@@ -953,6 +953,8 @@ export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
 
 export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
 
+export const taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax = 365
+
 export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -968,6 +970,14 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(taskChannelsPartialUpdateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories inherited by new tasks in this channel.'),
+    auto_archive_after_days: zod
+        .number()
+        .min(1)
+        .max(taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax)
+        .nullish()
+        .describe(
+            'Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.'
+        ),
 })
 
 /**
@@ -1836,6 +1846,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -1982,6 +1998,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .nullish()
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2422,6 +2444,12 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
+        benjamin_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+            ),
     })
     .describe('Request body for creating a task run without starting execution yet.')
 
@@ -2672,7 +2700,11 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemSourceMax)
                     .default(tasksRunsArtifactsCreateBodyArtifactsItemSourceDefault)
                     .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
-                content: zod.string().describe('Artifact contents encoded according to content_encoding'),
+                content: zod
+                    .string()
+                    .describe(
+                        'Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead.'
+                    ),
                 content_encoding: zod
                     .enum(['utf-8', 'base64'])
                     .describe('\* `utf-8` - utf-8\n\* `base64` - base64')
@@ -3401,7 +3433,9 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         github_integration: zod
             .number()
             .nullish()
-            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
+            .describe(
+                "Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it."
+            ),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)

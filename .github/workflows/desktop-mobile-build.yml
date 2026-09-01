@@ -31,7 +31,7 @@ concurrency:
 jobs:
     build:
         name: Build (${{ matrix.platform }})
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 120
         strategy:
             fail-fast: false

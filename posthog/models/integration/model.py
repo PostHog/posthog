@@ -284,6 +284,11 @@ class Integration(models.Model):
 
         return f"ID: {self.integration_id}"
 
+    def can_be_managed_by_creator(self, user_id: int | None) -> bool:
+        return (
+            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
+        )
+
     @property
     def access_token(self) -> str | None:
         return _decrypted_sensitive_value(self, "access_token")

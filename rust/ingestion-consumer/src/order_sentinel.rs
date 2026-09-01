@@ -565,7 +565,7 @@ pub struct SentinelContext {
     key_sentinel: Arc<KeyOrderSentinel>,
     /// Bumped on every partition assignment; the gRPC transport stamps it on
     /// sub-batches so the worker's feed-order sentinel rebaselines across
-    /// rebalances. `None` on the HTTP transport.
+    /// rebalances.
     assignment_epoch: Option<Arc<AtomicU64>>,
 }
 

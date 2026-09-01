@@ -2089,6 +2089,24 @@ class SurveyFilterSet(FilterSet):
         field_name="id",
         label="Filter to a comma-separated list of survey IDs. IDs that don't exist are silently omitted rather than erroring.",
     )
+    created_by = django_filters.NumberFilter(
+        field_name="created_by_id",
+        label="Filter surveys by the ID of the user who created them.",
+    )
+    status = django_filters.ChoiceFilter(
+        choices=[("draft", "Draft"), ("running", "Running"), ("complete", "Complete")],
+        method="filter_status",
+        label="Filter surveys by their current status.",
+    )
+
+    def filter_status(self, queryset: QuerySet, _name: str, value: str) -> QuerySet:
+        if value == "draft":
+            return queryset.filter(start_date__isnull=True)
+        if value == "running":
+            return queryset.filter(start_date__isnull=False, end_date__isnull=True)
+        if value == "complete":
+            return queryset.filter(end_date__isnull=False)
+        return queryset
 
     class Meta:
         model = Survey
@@ -3534,7 +3552,11 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # external_survey case in their type enums at all.
         .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
+        .prefetch_related("actions")
+        # SDKs display one popover at a time and break appearance-delay ties by payload
+        # order, so this ordering decides which of two colliding surveys a user sees.
+        # Launch order (oldest first) keeps that winner deterministic across cache rebuilds.
+        .order_by("start_date", "created_at", "id"),
         many=True,
     ).data
 

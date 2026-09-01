@@ -2112,6 +2112,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.tryInitReplayer()
         },
         tryInitReplayer: () => {
+            if (values.hasOversizedMutations) {
+                actions.setPlayer(null)
+                return
+            }
             // Tries to initialize a new player
             const windowId = values.segmentForTimestamp(values.currentTimestamp)?.windowId
 
@@ -2492,6 +2496,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         syncSnapshotsWithPlayer: async (_, breakpoint) => {
+            // Never feed the replayer events it cannot survive applying
+            if (values.hasOversizedMutations) {
+                return
+            }
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd: eventWithTime[] = []
@@ -2616,7 +2624,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.retrySnapshotLoading()
         },
         setPlay: () => {
-            // Clicking or pressing space on the "unable to play" card must not start the load anyway
             if (values.recordingTooLargeToPlay || values.hasOversizedMutations) {
                 return
             }

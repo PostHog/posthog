@@ -45,6 +45,7 @@ export type SkillButtonId =
 export type CommandMenuAction =
   | "home"
   | "new-task"
+  | "create-channel"
   | "settings"
   | "logout"
   | "toggle-theme"
@@ -297,18 +298,18 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
+export type TaskListSurface = "sidebar" | "space" | "saved_search";
+
 export interface TaskListGroupingChangedProperties {
   group_by: "repository" | "date";
   sort_by: "updated" | "created" | "alpha";
-  /** Which list was regrouped: the app sidebar's, or a space's session list. */
-  surface: "sidebar" | "space";
+  surface: TaskListSurface;
 }
 
 export interface TaskListAppearanceChangedProperties {
   secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
   secondary_field_count: number;
-  /** Which list it was changed from. The setting applies to both. */
-  surface: "sidebar" | "space";
+  surface: TaskListSurface;
 }
 
 export interface BrainrotActivatedProperties {
@@ -610,6 +611,11 @@ export interface AiConsentGateShownProperties {
   surface: "onboarding_step" | "standalone_gate";
 }
 
+export interface ConsentAdminLinkCopiedProperties {
+  consent_type: "ai" | "desktop_beta_terms";
+  success: boolean;
+}
+
 // Setup / onboarding events
 type SetupDiscoveredTaskCategory =
   | "bug"
@@ -659,7 +665,7 @@ export interface SetupTaskDismissedProperties {
 }
 
 // Inbox events
-export type InboxReportOpenMethod =
+type InboxReportOpenMethod =
   | "click"
   | "click_cmd"
   | "click_shift"
@@ -680,6 +686,7 @@ export type InboxReportActionType =
   | "reingest"
   | "create_pr"
   | "open_pr"
+  | "open_task"
   | "copy_link"
   | "discuss"
   | "expand_signal"
@@ -699,7 +706,23 @@ export type InboxReportActionSurface =
   | "detail_footer"
   | "toolbar"
   | "keyboard"
-  | "list_row";
+  | "list_row"
+  | "triage";
+
+export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
+
+export interface InboxTriageStartedProperties {
+  queue_size: number;
+  scope: InboxReviewerScope;
+  has_active_filters: boolean;
+}
+
+export interface InboxTriageEndedProperties
+  extends InboxTriageStartedProperties {
+  reports_reviewed: number;
+  duration_ms: number;
+  end_reason: "completed" | "exited";
+}
 
 /** Sentiment captured by the report usefulness thumbs. */
 export type InboxReportFeedbackSentiment = "positive" | "negative";
@@ -732,6 +755,8 @@ export interface InboxViewedProperties {
    */
   pulls_tab_count?: number;
   reports_tab_count?: number;
+  /** Reviewer scope on Desktop. Mobile omits this until it exposes the same control. */
+  scope?: InboxReviewerScope;
 }
 
 export interface InboxReportOpenedProperties {
@@ -883,7 +908,7 @@ export type ScoutSurface =
   | "empty_state"
   | "scout_findings";
 
-export type ScoutActionType =
+type ScoutActionType =
   | "expand_run"
   | "collapse_run"
   | "expand_emission"
@@ -903,12 +928,30 @@ export type ScoutActionType =
   | "filter_findings"
   | "sort_findings";
 
+/**
+ * How the fleet materialization that preceded this view ended. Without it an
+ * `is_empty: true` view from a viewer whose sync was refused looks exactly like
+ * one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+  /** The sync ran and answered with the fleet. */
+  | "synced"
+  /** No sync was issued — no project was resolved when the section opened. */
+  | "not_attempted"
+  /** 403: a member without `signal_scout:write`. The list query still fills the section. */
+  | "skipped_permission"
+  /** 404: a stale project id. */
+  | "not_found"
+  /** Anything else, including a 5xx. */
+  | "failed";
+
 export interface ScoutFleetViewedProperties {
   scout_count: number;
   enabled_count: number;
   dry_run_count: number;
   custom_count: number;
   is_empty: boolean;
+  sync_outcome: ScoutFleetSyncOutcome;
 }
 
 export interface ScoutDetailViewedProperties {
@@ -970,7 +1013,7 @@ export interface SignalSourceConnectedProperties {
 }
 
 // Agents page events (the `/agents` configuration surface)
-export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
+type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {
   /** Whether code access (GitHub) is connected — gates responder configuration. */
@@ -1013,7 +1056,7 @@ export type ChannelsSurface =
   | "activity"
   | "canvases_pane";
 
-export type ChannelActionType =
+type ChannelActionType =
   | "enter_space"
   | "leave_space"
   | "toggle_channels"
@@ -1046,7 +1089,7 @@ export type ChannelActionType =
   | "open_mention"
   | "activity_tab_change";
 
-export type TaskFeedActionType = "create" | "update" | "delete" | "open";
+type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
 export interface TaskFeedActionProperties {
   action_type: TaskFeedActionType;
@@ -1077,7 +1120,7 @@ export interface ChannelActionProperties {
   success?: boolean;
 }
 
-export type DashboardActionType =
+type DashboardActionType =
   | "open"
   | "create"
   | "delete"
@@ -1179,7 +1222,7 @@ export interface ChannelsSpaceViewedProperties {
 
 // Subscription / billing events
 
-export type UpgradePromptShownSurface =
+type UpgradePromptShownSurface =
   | "usage_limit_modal"
   | "titlebar_card"
   | "billing_announcement"
@@ -1194,7 +1237,7 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-export type UpgradePromptCause = "model_gate" | "org_limit";
+type UpgradePromptCause = "model_gate" | "org_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1219,7 +1262,7 @@ export type ClaudeSessionImportSource = "inline_card" | "picker_dialog";
  * the suggestions, so an import is only ever started from a "new" or "updated"
  * one; the wider union mirrors the domain status field.
  */
-export type ClaudeSessionImportStatus = "new" | "imported" | "updated";
+type ClaudeSessionImportStatus = "new" | "imported" | "updated";
 
 export interface ClaudeSessionsShownProperties {
   /** Resumable Claude Code CLI sessions surfaced for the repo. */
@@ -1528,6 +1571,7 @@ export const ANALYTICS_EVENTS = {
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
+  CONSENT_ADMIN_LINK_COPIED: "Consent admin link copied",
   DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
   DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
@@ -1560,6 +1604,8 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_TRIAGE_STARTED: "Inbox triage started",
+  INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
 
   // Agents page events
@@ -1728,6 +1774,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;
+  [ANALYTICS_EVENTS.CONSENT_ADMIN_LINK_COPIED]: ConsentAdminLinkCopiedProperties;
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 
@@ -1760,6 +1807,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
 
   // Agents page events
@@ -1838,7 +1887,7 @@ export type EventPropertyMap = {
  *
  * Keep this in sync with the inbox entries in `EventPropertyMap` above.
  */
-export const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
+const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_VIEWED,
   ANALYTICS_EVENTS.INBOX_REPORT_OPENED,
   ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,

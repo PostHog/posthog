@@ -15,7 +15,7 @@ export function defaultEligibleModel(
  * adapters mark models the caller's org can't use so pickers render them
  * locked behind an upgrade gate instead of omitting them.
  */
-export const RESTRICTED_MODEL_META_KEY = "posthog.code/restrictedModel";
+const RESTRICTED_MODEL_META_KEY = "posthog.code/restrictedModel";
 
 export function restrictedModelMeta(): Record<string, unknown> {
   return { [RESTRICTED_MODEL_META_KEY]: true };

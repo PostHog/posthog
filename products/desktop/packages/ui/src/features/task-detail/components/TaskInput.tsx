@@ -108,6 +108,8 @@ import {
   useSettingsStore,
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
+import { cloudTargetIds } from "../cloudTargets";
+import { useCloudTargetSelection } from "../hooks/useCloudTarget";
 import {
   areReposReady,
   useInitialRepoSelectionFromFolderId,
@@ -119,6 +121,7 @@ import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
+import { shouldShowChannelContextChip } from "./channelContext";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
@@ -341,19 +344,13 @@ export function TaskInput({
   const [selectedEnvironment, setSelectedEnvironmentRaw] = useState<
     string | null
   >(null);
-  const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
-    null,
-  );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
+  const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const [activeReportAssociation, setActiveReportAssociation] = useState(
     reportAssociation ?? null,
   );
 
-  // Channel CONTEXT.md is included by default; the chip lets the user drop it
-  // from this task's prompt. Re-include whenever the source context changes
-  // (e.g. switching channels) so a dismissal doesn't stick across channels.
+  // Legacy CONTEXT.md is optional. A resolved context-layer page is a pointer
+  // into the session-wide mount and stays connected for the whole session.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
   const channelContextSource = channelContextPath ?? channelContext;
   const lastChannelContextRef = useRef(channelContextSource);
@@ -364,7 +361,7 @@ export function TaskInput({
     }
   }, [channelContextSource]);
   const includeChannelContext =
-    !!channelContextSource && !channelContextDismissed;
+    !!channelContextPath || (!!channelContext && !channelContextDismissed);
 
   const adapter = lastUsedAdapter;
   const codexSubscription = useCodexSubscription();
@@ -800,6 +797,7 @@ export function TaskInput({
   }
 
   const effectiveWorkspaceMode = workspaceMode;
+  const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -880,8 +878,8 @@ export function TaskInput({
     runtimeAdapter: adapter ?? null,
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
-    sandboxEnvironmentId: workspaceMode === "cloud" ? selectedCloudEnvId : null,
-    customImageId: workspaceMode === "cloud" ? selectedCustomImageId : null,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
+    customImageId: cloudIds.customImageId ?? null,
   });
 
   const branchForTaskCreation =
@@ -1020,14 +1018,8 @@ export function TaskInput({
     onTaskCreated,
     onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
-    sandboxEnvironmentId:
-      effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
-        ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      effectiveWorkspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
-        : undefined,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+    customImageId: cloudIds.customImageId,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
     channelContextPath: includeChannelContext ? channelContextPath : undefined,
@@ -1304,10 +1296,8 @@ export function TaskInput({
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
                   adapter={runtime === "pi" ? undefined : adapter}
-                  selectedCloudEnvironmentId={selectedCloudEnvId}
-                  onCloudEnvironmentChange={setSelectedCloudEnvId}
-                  selectedCustomImageId={selectedCustomImageId}
-                  onCustomImageChange={setSelectedCustomImageId}
+                  cloudTarget={cloudTarget}
+                  onCloudTargetChange={setCloudTarget}
                   size="1"
                 />
                 {repoOptional && (
@@ -1508,7 +1498,10 @@ export function TaskInput({
                           </button>
                         ) : null}
                       </span>
-                    ) : includeChannelContext ? (
+                    ) : shouldShowChannelContextChip(
+                        includeChannelContext,
+                        channelContextPath,
+                      ) ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}

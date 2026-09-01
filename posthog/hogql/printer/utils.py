@@ -149,11 +149,23 @@ def prepare_ast_for_printing(
                 timings=context.timings,
                 bypass_warehouse_access_control=context.bypass_warehouse_access_control,
                 use_cached_sources=context.use_cached_sources,
+                trigger="printer",
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
+
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            normalize_trino_ast,
+        )
+        from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_source_ast,
+        )
+
+        with context.timings.measure("validate_trino_source_ast"):
+            validate_trino_source_ast(node)
 
     # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
     # the printer wraps the JSON blob in JSONDropKeys, and property resolution declines backing columns (and reads a
@@ -234,6 +246,19 @@ def prepare_ast_for_printing(
         # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
         # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
         context.cte_database_table_cache.clear()
+
+    if dialect == "trino":
+        with context.timings.measure("trino_structural_lowering"):
+            node = cast(_T_AST, normalize_trino_ast(node, context))
+        with context.timings.measure("resolve_types_after_trino_structural_lowering"):
+            node = clone_expr(node, clear_types=True)
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
 
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
@@ -341,6 +366,18 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_ready_ast,
+        )
+
+        with context.timings.measure("finalize_trino_lowering"):
+            node = cast(_T_AST, normalize_trino_ast(node, context))
+        with context.timings.measure("finalize_trino_property_access"):
+            node = lower_property_access(node, context)
+        with context.timings.measure("validate_trino_ready_ast"):
+            validate_trino_ready_ast(node, context)
+
     # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
     if dialect == "clickhouse":
         with context.timings.measure("simplify_argmax_over_non_nullable"):
@@ -361,7 +398,14 @@ def print_prepared_ast(
     with context.timings.measure("printer"):
         printer_stack = cast(list[ast.AST], stack or [])
 
-        printer_class = PRINTER_CLASSES.get(dialect)
+        if dialect == "trino":
+            from posthog.hogql.printer.trino import (  # noqa: PLC0415 -- other dialects do not need the Trino backend
+                TrinoPrinter,
+            )
+
+            printer_class: type[BasePrinter] | None = TrinoPrinter
+        else:
+            printer_class = PRINTER_CLASSES.get(dialect)
         if printer_class is None:
             raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 

@@ -677,7 +677,6 @@ use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
-use crate::sinks;
 use crate::time::TimeSource;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
@@ -914,14 +913,15 @@ impl TestStateBuilder {
             [(SinkName::Msk, boxed_sink)].into_iter().collect();
         let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
 
-        // Legacy sink — no-op since V1 tests go through v1_sink_router
-        let legacy_sink: Arc<dyn sinks::Event + Send + Sync> =
-            Arc::new(crate::sinks::noop::NoOpSink::new());
+        // Legacy produce surface — no-op since V1 tests go through v1_sink_router
+        let legacy_outputs = Arc::new(crate::outputs::OutputRegistry::single(
+            crate::sinks::noop::NoOpSink::new(),
+        ));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
 
         let state = router::State {
-            sink: legacy_sink,
+            outputs: legacy_outputs,
             timesource,
             redis,
             global_rate_limiter_token_distinctid: self.global_rate_limiter,

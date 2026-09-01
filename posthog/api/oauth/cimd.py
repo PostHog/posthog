@@ -682,7 +682,6 @@ def _create_cimd_application(
         algorithm="RS256",
         skip_authorization=False,
         is_cimd_client=True,
-        cimd_metadata_url=url,
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,

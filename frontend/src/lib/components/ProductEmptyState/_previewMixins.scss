@@ -95,11 +95,13 @@ $preview-swap-duration: 250ms;
 }
 
 // One of the window dots in a preview's fake browser or app chrome.
+// `--color-bg-fill-tertiary`, not `--color-fill-secondary`: the latter is not
+// defined in the main app, so it computes to transparent and the dots vanish.
 @mixin preview-chrome-dot {
     &__chrome-dot {
         width: 7px;
         height: 7px;
-        background: var(--color-fill-secondary);
+        background: var(--color-bg-fill-tertiary);
         border-radius: 50%;
     }
 }

@@ -159,3 +159,22 @@ TRUNK_MERGE_QUEUE_COLUMNS: dict[str, dict[str, str]] = {
     "skip_the_line": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
     "state_changed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
+
+# The Trunk quarantined-tests snapshot (TrunkIo source, QuarantinedTests endpoint): one row per
+# currently quarantined test case, keyed by the (name, parent, file, classname, variant) tuple
+# because Trunk documents ``test_case_id`` as unstable. Verified against a real connected source;
+# every column lands Nullable(String), timestamps included.
+TRUNK_QUARANTINED_TESTS_COLUMNS: dict[str, dict[str, str]] = {
+    "file": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "labels": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "parent": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "status": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "variant": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "classname": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "codeowners": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "test_case_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "quarantined_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "quarantine_setting": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "status_last_updated_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}

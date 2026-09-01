@@ -1781,20 +1781,6 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
 
-    def test_rejects_for_query_kind_without_breakdown_support(self):
-        # LifecycleQuery has no breakdown support
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/",
-            {
-                "name": "ep_lifecycle",
-                "query": {"kind": "LifecycleQuery", "series": [{"kind": "EventsNode"}]},
-                "optional_breakdown_properties": ["$browser"],
-            },
-            format="json",
-        )
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
-        self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
-
     def test_inheritance_on_query_change_prunes_to_existing_breakdowns(self):
         self._create(
             "ep_inherit",

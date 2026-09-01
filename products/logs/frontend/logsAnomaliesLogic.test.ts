@@ -21,6 +21,8 @@ function seriesBandsResponse(seriesCount: number): LogsSeriesBandsResponseApi {
             severity: `severity-${index}`,
             total_count: 100 - index,
             baseline_weeks: 5,
+            history_start: '2026-07-13T10:00:00Z',
+            band_ready_at: null,
             buckets: [],
         })),
     }
