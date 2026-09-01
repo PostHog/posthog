@@ -5952,7 +5952,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthog-hogland", specifier = "==0.3.1" },
+    { name = "posthog-hogland", specifier = "==0.4.1" },
     { name = "posthog-owners", editable = "tools/owners" },
     { name = "posthoganalytics", specifier = "==7.44.2" },
     { name = "protobuf", specifier = "~=5.29.6" },
@@ -6094,16 +6094,16 @@ sentiment = [
 
 [[package]]
 name = "posthog-hogland"
-version = "0.3.1"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/41/ec/dc5991a1015bf2beeb901d023f784be17322162b5011ef6e2b49eb2051f6/posthog_hogland-0.3.1.tar.gz", hash = "sha256:6cffa11ebc66c3f6cb4a38f8aadfd59ec658969fdb0f111a2bf9d81e5501d6c4", size = 46155, upload-time = "2026-07-06T08:55:16.003Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/ca/c67965f512f9d4e2afc805bd878650f8cb5a5b91eb530f1ee9004fb5fb4b/posthog_hogland-0.4.1.tar.gz", hash = "sha256:9f89e6768ba28eb29ffa8868797f8229d196caa9e3e6e56e85df598981325462", size = 51084, upload-time = "2026-09-01T14:21:02.617Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/69/57f187f0497072a2d776417514b69959bbeb79c939a9d0a369cd81a04ccf/posthog_hogland-0.3.1-py3-none-any.whl", hash = "sha256:cd565d9839163d6f5567952c7e8b998d88123b02aaa8f86df3daafdefbc11c00", size = 34955, upload-time = "2026-07-06T08:55:14.798Z" },
+    { url = "https://files.pythonhosted.org/packages/35/2a/527ef6d0c3eee98b676bf5c9878c3010e749601210eb1b32dd99548b51b4/posthog_hogland-0.4.1-py3-none-any.whl", hash = "sha256:2bc2fd6bf4a710df8eaf4e5bfa1a4ffd8d29751eb13edc650b89bdcba045eaf2", size = 38357, upload-time = "2026-09-01T14:21:01.536Z" },
 ]
 
 [[package]]
