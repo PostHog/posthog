@@ -4,14 +4,9 @@ import { gunzip, gzip } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { sanitizeForUTF8 } from '~/common/utils/strings'
-import {
-    UUIDT,
-    castTimestampOrNow,
-    clickHouseTimestampToDateTime,
-    clickHouseTimestampToISO,
-} from '~/common/utils/utils'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToDateTime } from '~/common/utils/utils'
 
-import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
+import { ClickHouseTimestamp, ISOTimestamp, RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
@@ -35,18 +30,27 @@ export const getPersonDisplayName = (team: Team, distinctId: string, properties:
     return (customIdentifier || String(distinctId))?.trim()
 }
 
-// A test-invocation body can carry a `clickhouse_event` that is not an event, such as the `{}` a
-// caller sends for an optional field it has no value for. The timestamp is the only field whose
-// absence throws, so the parse below mirrors the one in the converter.
-export function isConvertibleClickHouseEvent(event: unknown): event is RawClickHouseEvent {
-    if (!event || typeof event !== 'object') {
-        return false
-    }
-    const timestamp = (event as RawClickHouseEvent).timestamp
+// TRICKY: the timestamp can be an ISO one, for example when it comes from the test api, so both
+// formats are accepted. Returns null rather than throwing, because a test-invocation body can carry
+// a `clickhouse_event` that is not an event at all, such as the `{}` a caller sends for an optional
+// field it has no value for.
+export function parseClickHouseEventTimestamp(timestamp: unknown): ISOTimestamp | null {
     if (typeof timestamp !== 'string') {
-        return false
+        return null
     }
-    return DateTime.fromISO(timestamp).isValid || clickHouseTimestampToDateTime(timestamp).isValid
+    if (DateTime.fromISO(timestamp).isValid) {
+        return timestamp as ISOTimestamp
+    }
+    const parsed = clickHouseTimestampToDateTime(timestamp as ClickHouseTimestamp)
+    return parsed.isValid ? (parsed.toISO() as ISOTimestamp) : null
+}
+
+export function isConvertibleClickHouseEvent(event: unknown): event is RawClickHouseEvent {
+    return (
+        !!event &&
+        typeof event === 'object' &&
+        parseClickHouseEventTimestamp((event as RawClickHouseEvent).timestamp) !== null
+    )
 }
 
 // that we can keep to as a contract
@@ -72,17 +76,8 @@ export function convertToHogFunctionInvocationGlobals(
         }
     }
 
-    // TRICKY: the timsestamp can sometimes be an ISO for example if coming from the test api
-    // so we need to handle that case
-    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
-        ? event.timestamp
-        : clickHouseTimestampToISO(event.timestamp)
-
-    const eventCapturedAt = event.captured_at
-        ? DateTime.fromISO(event.captured_at).isValid
-            ? event.captured_at
-            : clickHouseTimestampToISO(event.captured_at)
-        : null
+    const eventTimestamp = parseClickHouseEventTimestamp(event.timestamp)!
+    const eventCapturedAt = parseClickHouseEventTimestamp(event.captured_at)
 
     const context: HogFunctionInvocationGlobals = {
         project: {
