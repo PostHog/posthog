@@ -13,7 +13,6 @@ from django.utils import timezone
 import httpx
 import structlog
 
-
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
