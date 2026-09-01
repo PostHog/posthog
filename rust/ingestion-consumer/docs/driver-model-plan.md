@@ -26,10 +26,10 @@ Both stacks start from this plan branch ([#91468](https://github.com/PostHog/pos
 
 | Stack | Branch sequence | Scope |
 | --- | --- | --- |
-| Cycle 1 | `c1-delete-eager-flush` -> `c1-fence-safe-send-resolution` | Changes 1 and 2, one PR per plan step. |
-| Cycle 2 | `c2-common-ledger` -> `c2-ledger-shadow` -> `c2-ledger-active` -> `c2-ledger-cleanup` | Changes 3 through 6, one PR per plan step. |
+| Cycle 1 | `c1-delete-eager-flush` | Change 1. |
+| Cycle 2 | `c2-common-ledger` -> `c2-ledger-shadow` -> `c2-ledger-active` -> `c2-ledger-cleanup` | Changes 2 through 5, one PR per plan step. |
 
-The stacks are independent: cycle 2 can begin without cycle 1. The merge gates remain part of the plan: change 5 cannot merge until change 4 has soaked with a zero mismatch counter, and change 6 cannot merge until change 5 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
+The stacks are independent: cycle 2 can begin without cycle 1. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
 
 ## The cycle model
 
@@ -51,13 +51,13 @@ Rules:
 - Every cycle names its verify evidence: the metrics to read and the exit criterion.
 - Old code is deleted in cleanup, never edited.
 - Dead code is deleted before a seam is extracted around it. A cleanup of a switch that never shipped can open a cycle (change 1).
-- A structural outcome with no behavior change needs no switchover. Review and the e2e tests control its risk. The table labels such a change Structure (change 20).
+- A structural outcome with no behavior change needs no switchover. Review and the e2e tests control its risk. The table labels such a change Structure (change 19).
 - A cycle's cleanup lands only after its switchover is stable on all lanes.
 - Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
 - A change must not alter the meaning of an existing metric. Metrics of deleted machinery are deleted with it.
 - The commit sentinel and the key-order sentinel stay enabled through every cycle.
 
-Cycle 1 lands first: two fast changes that remove complexity, preserve behavior, and depend on nothing else.
+Cycle 1 lands first: one fast change that removes complexity, preserves behavior, and depends on nothing else.
 After that, the cycles run in order, with two exceptions.
 Cycle 3 does not depend on cycle 2, so it can proceed while cycle 2 soaks.
 Cycle 4 needs only cycle 3's switchover, so it can proceed while cycle 3's cleanup soaks.
@@ -76,49 +76,48 @@ A change that adds metrics lists their names.
 
 | # | Cycle | Phase | Change |
 | --- | --- | --- | --- |
-| 1 | 1 one resolve protocol | Cleanup | Delete the dead eager flush |
-| 2 | 1 one resolve protocol | Prepare | Extract fence-safe send resolution |
-| 3 | 2 frontier commits | Implement | Add the common Kafka consumer crate and offset ledger |
-| 4 | 2 frontier commits | Verify | Run the ledger in shadow mode |
-| 5 | 2 frontier commits | Switchover | Commit from the ledger frontier |
-| 6 | 2 frontier commits | Cleanup | Delete the old commit computation |
-| 7 | 3 one request per key | Prepare | Demux polls into groups |
-| 8 | 3 one request per key | Prepare | Encapsulate the worker batcher |
-| 9 | 3 one request per key | Prepare | Extract the scheduler seam |
-| 10 | 3 one request per key | Implement | Build the key-table scheduler |
-| 11 | 3 one request per key | Switchover | Switch to the key-table scheduler |
-| 12 | 3 one request per key | Cleanup | Delete the old scheduler |
-| 13 | 4 target-sized requests | Implement | Add the packer |
-| 14 | 4 target-sized requests | Switchover | Set the packing targets |
-| 15 | 5 partial redelivery | Implement | Add partial settlement and the request time budget |
-| 16 | 5 partial redelivery | Switchover | Set the request time budgets |
-| 17 | 6 adaptive concurrency | Implement | Add the governor |
-| 18 | 6 adaptive concurrency | Switchover | Enable RTT adaptation |
-| 19 | 6 adaptive concurrency | Cleanup | Remove the fixed per-worker cap |
-| 20 | 7 single-owner batcher | Structure | Collapse the batcher into one event loop |
-| 21 | 7 single-owner batcher | Cleanup | Remove the stream fences |
-| 22 | 8 decoupled commits | Switchover | Switch completion to group granularity |
-| 23 | 8 decoupled commits | Cleanup | Delete the per-poll completion path |
-| 24 | 9 bounded replay | Implement | Add the budget accounting |
-| 25 | 9 bounded replay | Switchover | Enable the budget |
-| 26 | 9 bounded replay | Cleanup | Remove the in-flight admission cap |
-| 27 | 10 clean handoff | Prepare | Add revoke and drained markers |
-| 28 | 10 clean handoff | Implement | Build the drain |
-| 29 | 10 clean handoff | Switchover | Enable the drain |
-| 30 | 10 clean handoff | Cleanup | Delete the no-drain path |
+| 1 | 1 one send origin | Cleanup | Delete the dead eager flush |
+| 2 | 2 frontier commits | Implement | Add the common Kafka consumer crate and offset ledger |
+| 3 | 2 frontier commits | Verify | Run the ledger in shadow mode |
+| 4 | 2 frontier commits | Switchover | Commit from the ledger frontier |
+| 5 | 2 frontier commits | Cleanup | Delete the old commit computation |
+| 6 | 3 one request per key | Prepare | Demux polls into groups |
+| 7 | 3 one request per key | Prepare | Encapsulate the worker batcher |
+| 8 | 3 one request per key | Prepare | Extract the scheduler seam |
+| 9 | 3 one request per key | Implement | Build the key-table scheduler |
+| 10 | 3 one request per key | Switchover | Switch to the key-table scheduler |
+| 11 | 3 one request per key | Cleanup | Delete the old scheduler |
+| 12 | 4 target-sized requests | Implement | Add the packer |
+| 13 | 4 target-sized requests | Switchover | Set the packing targets |
+| 14 | 5 partial redelivery | Implement | Add partial settlement and the request time budget |
+| 15 | 5 partial redelivery | Switchover | Set the request time budgets |
+| 16 | 6 adaptive concurrency | Implement | Add the governor |
+| 17 | 6 adaptive concurrency | Switchover | Enable RTT adaptation |
+| 18 | 6 adaptive concurrency | Cleanup | Remove the fixed per-worker cap |
+| 19 | 7 single-owner batcher | Structure | Collapse the batcher into one event loop |
+| 20 | 7 single-owner batcher | Cleanup | Remove the stream fences |
+| 21 | 8 decoupled commits | Switchover | Switch completion to group granularity |
+| 22 | 8 decoupled commits | Cleanup | Delete the per-poll completion path |
+| 23 | 9 bounded replay | Implement | Add the budget accounting |
+| 24 | 9 bounded replay | Switchover | Enable the budget |
+| 25 | 9 bounded replay | Cleanup | Remove the in-flight admission cap |
+| 26 | 10 clean handoff | Prepare | Add revoke and drained markers |
+| 27 | 10 clean handoff | Implement | Build the drain |
+| 28 | 10 clean handoff | Switchover | Enable the drain |
+| 29 | 10 clean handoff | Cleanup | Delete the no-drain path |
 
-## Cycle 1: one send origin, one resolve protocol
+## Cycle 1: one send origin
 
-Outcome: the eager send path is gone, and every send resolves through one fence-safe helper.
-This cycle has no switchover: the eager flush was never enabled, and the helper encodes the current order.
+Outcome: the eager send path is gone.
+This cycle has no switchover: the eager flush was never enabled.
 
-**Verify:** the e2e suite. Both changes preserve behavior. The stash gauges (`ingestion_consumer_dispatcher_stashed_*`) must not change shape after the eager deletion.
+**Verify:** the e2e suite. The change preserves behavior. The stash gauges (`ingestion_consumer_dispatcher_stashed_*`) must not change shape after the eager deletion.
 
 ### 1. Delete the dead eager flush (cleanup)
 
 **Task:** Remove the eager deferred flush. The flag that enables it is off everywhere.
 
-**Goal:** One send origin fewer before change 9 extracts the scheduler seam.
+**Goal:** One send origin fewer before change 8 extracts the scheduler seam.
 
 - `DISPATCHER_EAGER_DEFERRED_FLUSH` is default off, and no deployment sets it. Confirm against a fresh charts checkout and the live deployments before this ships.
 - The completion-time flush already does all the draining in production. Behavior does not change.
@@ -129,30 +128,14 @@ This cycle has no switchover: the eager flush was never enabled, and the helper 
 - Remove `EagerFlush`, `run_eager_flush_loop`, `send_eager_flush`, and `DISPATCHER_EAGER_DEFERRED_FLUSH`.
 - Modify `Dispatcher`: remove `set_eager_flush_sender`, `release_next_groups`, `eager_flush_*`, `take_eager_accepted`, and the eager pending and accepted accounting.
 
-### 2. Extract fence-safe send resolution (prepare)
-
-**Task:** Move the send-and-resolve protocol into one helper. Every send path uses it.
-
-**Goal:** Fence handling exists in one place and cannot be forgotten.
-
-- The protocol is spread over the scatter and flush paths today: begin the send at the ordering point, await the pending send, then resolve.
-- On success: ack the key offsets, resolve the dispatcher state, record health.
-- On failure: defer the messages, then drop the `fence_guard`, then resolve, then record health. This order is the contract. A guard dropped early lets newer work overtake a fenced failure.
-- No behavior change. The helper encodes the current order.
-
-**Interfaces:**
-
-- Add a resolve helper in `consumer.rs` that owns the success and failure sequences.
-- Modify `scatter` and the flush path to call it. `SendError` and `PendingSubBatch` do not change.
-
 ## Cycle 2: commits come from the frontier
 
 Outcome: commit contiguity is a property of a data structure, not of completion order.
 
-**Verify:** change 4 compares the frontier with every real commit on all lanes.
+**Verify:** change 3 compares the frontier with every real commit on all lanes.
 Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `ingestion_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
 
-### 3. Add the common Kafka consumer crate and offset ledger (implement)
+### 2. Add the common Kafka consumer crate and offset ledger (implement)
 
 **Task:** Create `rust/common/kafka-consumer` and add `ledger.rs` with a per-partition offset ring. Do not wire it into a consumer yet.
 
@@ -163,7 +146,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - Do not take `Accumulator`, `Budget`, `PartitionDriver`, `PartitionManager`, or `CommitManager`; those implement later cycles and would make this PR cross several plan boundaries. The ledger module must not depend on `rdkafka`, `ingestion-consumer`, or service-specific metrics. The shared config module may retain its `rdkafka` dependency.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
-- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 24.
+- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 23.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns one past the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix below the frontier.
 - The frontier is in Kafka's committed-offset representation: the next offset to read, not the last offset processed. The current commit path already commits in this representation (the poll's max offset plus one), so the frontier is commit-ready as returned — no call site adds or subtracts one.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
@@ -178,13 +161,13 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - Add `OffsetLedger` in `ledger.rs`: `charge`, `complete`, `frontier` (non-mutating), `take_frontier` (consuming). No runtime callers yet. The name avoids a clash with the stream runner's internal un-acked ledger.
 - Modify `ingestion-consumer` to import the moved config builder from the common crate.
 
-### 4. Run the ledger in shadow mode (verify)
+### 3. Run the ledger in shadow mode (verify)
 
 **Task:** Wire the ledger next to the commit path. Compare its frontier with each real commit. Do not change what the consumer commits.
 
 **Goal:** Prove the ledger against production traffic before it owns the commits.
 
-- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 5 ships `active`.
+- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 4 ships `active`.
 - Charge every delivered offset into its partition ledger during `collect_batch`.
 - When a poll completes, mark all its offsets complete.
 - At each commit, compare the partition's `frontier` — the non-mutating read — with the offset the current path commits. Both are next-to-read offsets, so with oldest-first completion the two must be equal, with no offset arithmetic in the comparison.
@@ -204,14 +187,14 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - Add `ingestion_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
 - Add `ingestion_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
 
-### 5. Commit from the ledger frontier (switchover)
+### 4. Commit from the ledger frontier (switchover)
 
 **Task:** Set the ledger mode to `active`. The frontier becomes the committed offset. Keep oldest-first completion.
 
-**Goal:** The frontier produces the same commits as the old code, and change 4 already proved that.
+**Goal:** The frontier produces the same commits as the old code, and change 3 already proved that.
 
 - Commit each partition's frontier instead of the poll's max offset plus one. Both are next-to-read offsets: with oldest-first completion, the committed value does not change.
-- The ledger calls do not change: both modes already charge, complete, compare, and consume at the same points (change 4). This switchover changes only which value the consumer commits.
+- The ledger calls do not change: both modes already charge, complete, compare, and consume at the same points (change 3). This switchover changes only which value the consumer commits.
 - With oldest-first completion, the output is identical to the old path.
 - The commit sentinel stays on and checks contiguity and monotonicity.
 - Rollback is the config switch back to `shadow`.
@@ -219,9 +202,9 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 **Interfaces:**
 
 - Modify `Config`: default the ledger mode to `active`.
-- Modify `IngestionConsumer::commit_offsets`: read the committed offset from the ledger. The old computation survives as the shadow comparison until change 6.
+- Modify `IngestionConsumer::commit_offsets`: read the committed offset from the ledger. The old computation survives as the shadow comparison until change 5.
 
-### 6. Delete the old commit computation (cleanup)
+### 5. Delete the old commit computation (cleanup)
 
 **Task:** Remove the old commit computation after `active` is stable on all lanes.
 
@@ -239,12 +222,12 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 Outcome: the scheduler sends at most one request per key at a time, and that alone preserves per-key order. Pins, the stash, and the flush paths are gone.
 
-**Verify:** the deterministic seam tests in change 10 script arrivals, settlements, and failures.
+**Verify:** the deterministic seam tests in change 9 script arrivals, settlements, and failures.
 A production shadow is impossible here: the scheduler's decisions change which sends exist, so state diverges immediately.
-The canary in change 11 is the production proof.
+The canary in change 10 is the production proof.
 Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transport_duration_seconds` and the `ingestion_consumer_messages_processed_total` rate unchanged, and the no-progress watchdog quiet.
 
-### 7. Demux polls into groups (prepare)
+### 6. Demux polls into groups (prepare)
 
 **Task:** Change `collect_batch` to output groups. A group is one poll's consecutive messages for one routing key on one partition.
 
@@ -252,7 +235,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
-- Change 8 submits them to the batcher as the accumulator.
+- Change 7 submits them to the batcher as the accumulator.
 
 **Interfaces:**
 
@@ -260,7 +243,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Modify `CollectedBatch`: carries `Vec<Group>` instead of a flat message list.
 - Modify `Dispatcher::assign_and_send`: takes groups and flattens them. `group_messages_by_routing_key` moves to the collect path.
 
-### 8. Encapsulate the worker batcher (prepare)
+### 7. Encapsulate the worker batcher (prepare)
 
 **Task:** Put today's dispatch orchestration behind one boundary. The consumer loop and the batcher exchange plain values.
 
@@ -270,14 +253,14 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: one completion event per group, with its partition, offsets, and accepted count.
 - This is the design doc's boundary: accumulators in, completions out. It is the final shape and does not change again.
 - No batch identity crosses the boundary. The facade creates an internal batch id per accumulator for the old machinery and the wire request. The consumer correlates completions by partition and offset — the same key the ledger uses.
-- The facade breaks each resolved send into its groups. The resolve helper (change 2) already carries them (`routing_keys`, `key_offsets`), and a send is all-or-nothing.
-- Only orchestration moves inside the boundary: assignment, scatter, the deferred flush, and the resolve helper.
+- The facade breaks each resolved send into its groups. The send resolution in `scatter` already carries them (`routing_keys` and `key_offsets` on `PendingSubBatch`), and a send is all-or-nothing.
+- Only orchestration moves inside the boundary: assignment, scatter with its send resolution, and the deferred flush.
 - `GrpcTransport`, `Router`, and `WorkerRegistry` keep their construction and ownership in `main.rs`. The batcher takes shared handles. Readiness gating, discovery reconciliation, the reaper, and the debug endpoints do not change.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion — moving code without changing it — not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the admission cap. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
 - The no-progress watchdog survives the move: a poll that gains no completions for the stall window fails the process and replays, exactly as the deferred-flush timeout does today. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
 - The consumer discards a completion for a partition it no longer owns (the revoke dropped its ledger) and counts it. Cycle 10 replaces this with the assignment-epoch check.
-- Changes 9 and 10 extract the scheduler seam inside this boundary.
+- Changes 8 and 9 extract the scheduler seam inside this boundary.
 
 **Interfaces:**
 
@@ -292,7 +275,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 - Add `ingestion_consumer_group_completions_total` (counter) and its accepted-message sum. Cross-check: the sum tracks `ingestion_consumer_messages_processed_total`.
 
-### 9. Extract the scheduler seam (prepare)
+### 8. Extract the scheduler seam (prepare)
 
 **Task:** Move every ordering and placement decision inside the batcher behind one interface. Keep the current semantics.
 
@@ -303,7 +286,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
-- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 20 mechanical: the seam's handlers become the loop's select arms.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
@@ -313,7 +296,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns `PinTable` and `Stash` unchanged.
 - Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
 
-### 10. Build the key-table scheduler (implement)
+### 9. Build the key-table scheduler (implement)
 
 **Task:** Write the target scheduler as a second implementation of the seam. Do not select it.
 
@@ -334,7 +317,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 - Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter).
 
-### 11. Switch to the key-table scheduler (switchover)
+### 10. Switch to the key-table scheduler (switchover)
 
 **Task:** Select the key-table scheduler with config. Canary one lane, then roll out.
 
@@ -352,14 +335,14 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Modify the batcher construction: select `KeyTableScheduler` or `PinStashScheduler`.
 - No interface shapes change.
 
-### 12. Delete the old scheduler (cleanup)
+### 11. Delete the old scheduler (cleanup)
 
-**Task:** Remove the old scheduler implementation after change 11 is stable on all lanes.
+**Task:** Remove the old scheduler implementation after change 10 is stable on all lanes.
 
 **Goal:** The old concurrency goes in one deletion, not in edits.
 
 - Removes: the pin table, the stash, the completion-time flush, and the scheduler switch.
-- The plan never edits this machinery. It is isolated in change 9, bypassed in change 11, and deleted here.
+- The plan never edits this machinery. It is isolated in change 8, bypassed in change 10, and deleted here.
 
 **Interfaces:**
 
@@ -378,7 +361,7 @@ A scheduler rollback also reverts packing: the packer exists only in the key-tab
 **Verify:** with the pack budget at zero, the packer emits on arrival and the e2e suite passes unchanged.
 Exit criterion after the targets: the request-size histograms center near T, and `ingestion_lag_ms` does not regress.
 
-### 13. Add the packer (implement)
+### 12. Add the packer (implement)
 
 **Task:** Add the packer to the scheduler, with target size T and `PACK_LATENCY_BUDGET`. Ship with the pack budget at zero: send-on-arrival, behavior unchanged.
 
@@ -401,7 +384,7 @@ Exit criterion after the targets: the request-size histograms center near T, and
 - Add `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` (histograms): the size of each sent request.
 - Add `ingestion_consumer_pack_emits_total` (counter, reason `arrival`, `full`, or `deadline`).
 
-### 14. Set the packing targets (switchover)
+### 13. Set the packing targets (switchover)
 
 **Task:** Set T and the pack budget per lane.
 
@@ -427,7 +410,7 @@ It sizes the budget against cycle 4's request size. Its cap on request RTT matte
 **Verify:** a generous budget on one lane enforces rarely and exercises the real partial-ack path at negligible volume.
 Exit criterion: partial acks resolve and their remainders redeliver in order, zero key-order sentinel violations, and ack-watchdog teardowns (`ingestion_consumer_worker_stream_teardowns_total`) fall.
 
-### 15. Add partial settlement and the request time budget (implement)
+### 14. Add partial settlement and the request time budget (implement)
 
 **Task:** Teach the transport the `PARTIAL` ack and the scheduler a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
 
@@ -448,7 +431,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 
 - Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_timed_out_messages_total` (counter). The names match the wire: a `PARTIAL` ack with a `timed_out` index list.
 
-### 16. Set the request time budgets (switchover)
+### 15. Set the request time budgets (switchover)
 
 **Task:** Set the soft budget per lane: first generous, then real.
 
@@ -469,16 +452,16 @@ It needs cycle 4: packing makes request sizes uniform, so the RTT signal tunes a
 It comes after cycle 5, so the governor tunes once, against budget-capped RTT: set `REQUEST_LATENCY_BUDGET` below the soft budget, or it never shrinks.
 The growth signal — ready work waiting on permits — comes from the key-table scheduler's ready queue.
 
-**Verify:** with adaptation off, change 17 reports the decisions it would make.
+**Verify:** with adaptation off, change 16 reports the decisions it would make.
 Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink signals under induced worker latency and stays quiet under normal load.
 
-### 17. Add the governor (implement)
+### 16. Add the governor (implement)
 
 **Task:** Add the permit pool and the RTT EWMA (an exponentially weighted moving average). Ship with adaptation off: permits mirror the current per-worker cap.
 
 **Goal:** The governor exists and observes before it constrains.
 
-- The governor gates the pack pass: a dispatch takes a permit, and a settlement returns it. The integration surface is thin, and change 20 later moves the calls into the event loop unchanged.
+- The governor gates the pack pass: a dispatch takes a permit, and a settlement returns it. The integration surface is thin, and change 19 later moves the calls into the event loop unchanged.
 - Grow the pool by one when ready work waits, no permit is free, and RTT is within budget.
 - Shrink the pool by one when the RTT EWMA exceeds `REQUEST_LATENCY_BUDGET`.
 - With adaptation off, compute and report every decision without applying it. The signal is verifiable before it constrains.
@@ -496,7 +479,7 @@ Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink sig
 - Add `ingestion_consumer_governor_permits` (gauge) and `ingestion_consumer_request_rtt_seconds` (gauge, the EWMA).
 - Add `ingestion_consumer_governor_adjustments_total` (counter, direction `grow` or `shrink`). With adaptation off, it counts would-be decisions.
 
-### 18. Enable RTT adaptation (switchover)
+### 17. Enable RTT adaptation (switchover)
 
 **Task:** Turn adaptation on. Request RTT governs the permit pool.
 
@@ -509,7 +492,7 @@ Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink sig
 
 - Modify `Config`: enable adaptation.
 
-### 19. Remove the fixed per-worker cap (cleanup)
+### 18. Remove the fixed per-worker cap (cleanup)
 
 **Task:** Remove the per-worker `max_unacked` cap after adaptation is stable on all lanes.
 
@@ -526,7 +509,7 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 
 **Verify:** the e2e suite and review. The change is behavior-identical, and the consumer-facing metrics must not move.
 
-### 20. Collapse the batcher into one event loop (structure)
+### 19. Collapse the batcher into one event loop (structure)
 
 **Task:** Move the scheduler and its plumbing into one single-owner task.
 
@@ -542,13 +525,13 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 - Modify `Batcher`: one single-owner task replaces the lock, the resolve callbacks, and the per-send tasks. `Dispatcher` dissolves into the loop and is removed.
 - Keep `Scheduler` and `Governor` as the loop's components. The consumer-facing interface does not change.
 
-### 21. Remove the stream fences (cleanup)
+### 20. Remove the stream fences (cleanup)
 
 **Task:** Delete `FenceGuard` and the fence-settle loop from `grpc_transport.rs`.
 
 **Goal:** Keep only the failure logic the new invariant needs.
 
-- Fences go only after the batcher is single-owner. Change 12 makes requeue-before-release a scheduler invariant; change 20 makes it mechanical: one task performs settlement, requeue, and the next dispatch, so no window exists for a newer send to overtake a failure.
+- Fences go only after the batcher is single-owner. Change 11 makes requeue-before-release a scheduler invariant; change 19 makes it mechanical: one task performs settlement, requeue, and the next dispatch, so no window exists for a newer send to overtake a failure.
 - A stream failure returns each request's messages to the key table. That is sufficient.
 - This change is deferrable. With one send origin, fences are redundant protection; their only cost is the code.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
@@ -567,7 +550,7 @@ Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 **Verify:** the commit sentinel checks every commit, and `ingestion_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
 Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
 
-### 22. Switch completion to group granularity (switchover)
+### 21. Switch completion to group granularity (switchover)
 
 **Task:** Add a completion granularity, `poll` or `group`. At `group` granularity, mark the ledger per group and stop waiting for whole polls.
 
@@ -586,7 +569,7 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 - Modify `Config`: add the completion granularity.
 - Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
 
-### 23. Delete the per-poll completion path (cleanup)
+### 22. Delete the per-poll completion path (cleanup)
 
 **Task:** Remove the per-poll completion path after `group` granularity is stable on all lanes.
 
@@ -594,22 +577,22 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 
 **Interfaces:**
 
-- Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 8, and the completion granularity from `Config`.
+- Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 7, and the completion granularity from `Config`.
 
 ## Cycle 9: replay exposure is bounded by B
 
 Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-flight admission cap is gone.
 
-**Verify:** change 24's gauges run on all lanes with the budget unset.
+**Verify:** change 23's gauges run on all lanes with the budget unset.
 Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admission cap's occupancy, and the pause gauge stays flat at zero.
 
-### 24. Add the budget accounting (implement)
+### 23. Add the budget accounting (implement)
 
 **Task:** Track uncommitted work in events and bytes. Ship with no budget set: the admission cap still governs alone.
 
 **Goal:** The budget exists and reports before it constrains.
 
-- Charge each message on poll. The ledger slots already carry the costs (change 3).
+- Charge each message on poll. The ledger slots already carry the costs (change 2).
 - Refund the charge when the commit that covers the message is issued.
 - Gauge the outstanding charge per partition and in total.
 - New config: the budget in events and in bytes. Unset means no constraint.
@@ -622,9 +605,9 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 **Metrics:**
 
 - Add `ingestion_consumer_budget_outstanding_events` and `ingestion_consumer_budget_outstanding_bytes` (gauges).
-- Add `ingestion_consumer_budget_paused` (gauge, 0 or 1) and `ingestion_consumer_budget_pauses_total` (counter). Both stay flat until change 25.
+- Add `ingestion_consumer_budget_paused` (gauge, 0 or 1) and `ingestion_consumer_budget_pauses_total` (counter). Both stay flat until change 24.
 
-### 25. Enable the budget (switchover)
+### 24. Enable the budget (switchover)
 
 **Task:** Set the budget per lane. Pause the poll at the limit and resume on refund.
 
@@ -639,7 +622,7 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 
 - None in this repository. Config values only.
 
-### 26. Remove the in-flight admission cap (cleanup)
+### 25. Remove the in-flight admission cap (cleanup)
 
 **Task:** Remove `max_in_flight_batches` after the budget is stable on all lanes.
 
@@ -657,10 +640,10 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 Outcome: a revocation drains in bounded time, and a wedged partition fails the process instead of hanging. Needs cycle 3.
 Until this cycle, revocation keeps today's behavior: no drain, uncommitted work replays on the new owner, and the old owner's in-flight sends finish as duplicate work. Nothing in cycles 1 to 9 changes that.
 
-**Verify:** e2e rebalance tests with the drain on, then the canary rebalance in change 29.
+**Verify:** e2e rebalance tests with the drain on, then the canary rebalance in change 28.
 Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the deadline, and `ingestion_consumer_drain_dropped_messages_total` matches the expected replay volume.
 
-### 27. Add revoke and drained markers (prepare)
+### 26. Add revoke and drained markers (prepare)
 
 **Task:** Extend the batcher boundary with a revoke marker in and a drained marker out. Nothing consumes them yet.
 
@@ -670,7 +653,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 - Modify `Batcher`: add the marker types to the submit and completion channels. `GroupCompletion` does not change shape.
 
-### 28. Build the drain (implement)
+### 27. Build the drain (implement)
 
 **Task:** Implement the drain sequence from section 4 of the design doc, behind a config switch that ships off.
 
@@ -694,7 +677,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 - Add `ingestion_consumer_drain_duration_seconds` (histogram) and `ingestion_consumer_drain_dropped_messages_total` (counter): drain time and replay volume per revocation.
 - Add `ingestion_consumer_partition_stalls_total` (counter): stall-deadline expiries.
 
-### 29. Enable the drain (switchover)
+### 28. Enable the drain (switchover)
 
 **Task:** Turn the drain on. Canary one lane through a rebalance.
 
@@ -706,7 +689,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 - Modify `Config`: enable the drain.
 
-### 30. Delete the no-drain path (cleanup)
+### 29. Delete the no-drain path (cleanup)
 
 **Task:** Remove the no-drain revoke path after the drain is stable on all lanes.
 
@@ -737,7 +720,7 @@ A dashed arrow is an ordering preference: its reason is stated in the target cyc
 
 ```mermaid
 flowchart LR
-    C1["1: one resolve protocol"]
+    C1["1: one send origin"]
     C2["2: frontier commits"]
     C3["3: one request per key"]
     C4["4: target-sized requests"]
