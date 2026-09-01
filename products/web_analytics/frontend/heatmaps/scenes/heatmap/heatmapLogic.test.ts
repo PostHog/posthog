@@ -64,6 +64,19 @@ describe('heatmapLogic', () => {
             expect.objectContaining({ type: 'screenshot' })
         )
     })
+
+    it('surfaces an error banner when the save fails on switching to screenshot', async () => {
+        jest.mocked(savedPartialUpdate).mockRejectedValue(new Error('save failed'))
+
+        await expectLogic(logic, () => {
+            logic.actions.changeCaptureMethod('screenshot')
+        }).toDispatchActions(['changeCaptureMethod', 'regenerateScreenshot', 'setScreenshotError'])
+
+        // The failed save must leave an error the Retry banner can show, not a blank pane, and it must
+        // never reach the render request.
+        expect(logic.values.screenshotError).not.toBeNull()
+        expect(savedRegenerateCreate).not.toHaveBeenCalled()
+    })
 })
 
 describe('computeLockedWidth', () => {

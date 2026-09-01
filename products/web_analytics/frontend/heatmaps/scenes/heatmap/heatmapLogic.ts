@@ -381,7 +381,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         // Awaiting the updateHeatmap action only awaits the dispatch, not the save, so callers that
         // need the heatmap to be persisted before their next request call this directly.
-        const persistHeatmap = async (): Promise<{ ok: boolean; renderTriggered: boolean }> => {
+        const persistHeatmap = async (): Promise<{ ok: boolean; renderTriggered: boolean; error?: string }> => {
             actions.setLoading(true)
             const previousSavedUrl = values.savedDisplayUrl
             const previousBlockConsentModals = values.savedBlockConsentModals
@@ -411,8 +411,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 if (values.displayUrl !== previousSavedUrl) {
                     actions.setDisplayUrl(previousSavedUrl)
                 }
-                lemonToast.error(getApiErrorMessage(error, 'Failed to update heatmap'))
-                return { ok: false, renderTriggered: false }
+                const message = getApiErrorMessage(error, 'Failed to update heatmap')
+                lemonToast.error(message)
+                return { ok: false, renderTriggered: false, error: message }
             } finally {
                 actions.setLoading(false)
             }
@@ -578,7 +579,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 // The server rejects a render request for a heatmap it still holds as an iframe one, so
                 // the local edits must land first. This also lets Retry recover from a failed save.
                 const saved = await persistHeatmap()
-                if (!saved.ok || saved.renderTriggered) {
+                if (!saved.ok) {
+                    // Show the save error so Retry stays reachable; otherwise the switch leaves a blank pane.
+                    actions.setScreenshotError(saved.error ?? 'Failed to regenerate screenshot')
+                    return
+                }
+                if (saved.renderTriggered) {
                     return
                 }
                 actions.setScreenshotError(null)
