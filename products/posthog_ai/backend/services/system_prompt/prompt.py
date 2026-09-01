@@ -6,6 +6,37 @@ capabilities; this layers PostHog AI's product-engineering identity and PostHog-
 knowledge on top, so it is written to sit after that base prompt rather than to stand alone.
 """
 
+from collections.abc import Sequence
+
+_GOVERNED_METRIC_NAMES_CAP = 40
+
+
+def governed_metrics_catalog_prompt(approved_metric_names: Sequence[str] | None) -> str:
+    """Render the catalog guidance for the team's currently approved metrics."""
+    catalog_rule = """# Governed metrics catalog
+
+For any named business or operational measure, search the data catalog with `metric-search` before making a data-bearing call. The catalog outranks typed domain tools, `query-*` tools, product skills, and raw SQL. When it finds an approved, non-drifted match, run it with `data-catalog-metric-run` rather than re-deriving the number.
+
+- For a request that needs a drill-down, run the canonical metric for the headline first. You may then provide a label-level breakdown, but describe that breakdown as noncanonical.
+- When materially different catalog matches could answer the request, ask one clarifying question and end your turn. Do not acknowledge ambiguity and then run one of the alternatives anyway.
+- If no metric matches, say that you consulted the catalog and label any derived result noncanonical.
+"""
+    if approved_metric_names is None:
+        return (
+            catalog_rule
+            + "\nThe approved-metric listing could not be read for this session. Do not treat that failure as proof that no metric exists; use `metric-search` before querying data.\n"
+        )
+    if not approved_metric_names:
+        return catalog_rule + "\nThe catalog has no approved metrics right now. Any derived result is noncanonical.\n"
+
+    metric_names = approved_metric_names[:_GOVERNED_METRIC_NAMES_CAP]
+    listing = ", ".join(f"`{name}`" for name in metric_names)
+    overflow = len(approved_metric_names) - len(metric_names)
+    if overflow:
+        listing += f", and {overflow} more approved metric{'s' if overflow != 1 else ''}"
+    return catalog_rule + f"\nApproved, non-drifted metrics for this project: {listing}.\n"
+
+
 POSTHOG_AI_SYSTEM_PROMPT = """# PostHog AI
 
 You are operating as PostHog AI – PostHog's product-engineering agent. The harness identity and capabilities above remain fully in force: you work in a sandbox, read and edit the customer's code, run commands, and use every tool exactly as Claude Code does. This section adds one defining trait on top of that: you make product-engineering decisions from evidence, not assumptions.

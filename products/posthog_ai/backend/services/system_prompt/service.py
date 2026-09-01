@@ -9,15 +9,20 @@ bare string would replace the preset entirely. Project context, groups, billing,
 reachable via the PostHog MCP server, so they are not duplicated here; per-turn context is delivered
 separately via the ``<posthog_context>`` wrapper.
 
-The service is pure over its inputs — no side effects.
+The service reads the team's approved metrics once while creating a Run, and keeps that catalog
+lookup fail-open when the catalog is temporarily unavailable.
 """
 
 from typing import Literal
 
 from typing_extensions import TypedDict
 
+from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.posthog_ai.backend.helpers import BaseSandboxService
-from products.posthog_ai.backend.services.system_prompt.prompt import POSTHOG_AI_SYSTEM_PROMPT
+from products.posthog_ai.backend.services.system_prompt.prompt import (
+    POSTHOG_AI_SYSTEM_PROMPT,
+    governed_metrics_catalog_prompt,
+)
 
 
 class ClaudeCodeSystemPrompt(TypedDict):
@@ -33,7 +38,7 @@ class ClaudeCodeSystemPrompt(TypedDict):
 
 
 class PromptService(BaseSandboxService):
-    """Provide the systemPrompt suffix for a PostHog AI sandbox Run. Stateless over its inputs."""
+    """Provide the systemPrompt suffix for a PostHog AI sandbox Run."""
 
     def build(self) -> ClaudeCodeSystemPrompt:
         """Return the PostHog AI systemPrompt as a Claude Code preset-plus-append suffix.
@@ -42,4 +47,9 @@ class PromptService(BaseSandboxService):
         ``clientConnection.newSession({ _meta: { systemPrompt } })``; the sandbox appends ``append``
         after Claude Code's own system prompt rather than replacing it.
         """
-        return {"type": "preset", "preset": "claude_code", "append": POSTHOG_AI_SYSTEM_PROMPT}
+        try:
+            approved_metric_names = approved_metric_names_for_team(self.team, self.user)
+        except Exception:
+            approved_metric_names = None
+        prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt(approved_metric_names)
+        return {"type": "preset", "preset": "claude_code", "append": prompt}
