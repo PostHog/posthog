@@ -130,6 +130,4 @@ export type TrpcRouter = typeof trpcRouter;
  * When this assignment errors, its expected type names the missing routes.
  */
 type MissingHostRoutes = Exclude<keyof HostRouter, keyof TrpcRouter>;
-export const servesEveryHostRoute: [MissingHostRoutes] extends [never]
-  ? true
-  : MissingHostRoutes = true;
+true satisfies [MissingHostRoutes] extends [never] ? true : MissingHostRoutes;

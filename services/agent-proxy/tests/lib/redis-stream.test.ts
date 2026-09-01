@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 
+import { STREAM_COMPLETED_TTL_SECONDS } from '@/lib/constants.js'
 import {
     TaskRunRedisStream,
     getStreamKey,
@@ -18,6 +19,8 @@ import {
     getCompletedKey,
     getAgentActiveKey,
     getHeartbeatKey,
+    getFirstCommandKey,
+    getFirstActivityKey,
 } from '@/lib/redis-stream.js'
 import {
     TaskRunStreamError,
@@ -468,6 +471,8 @@ describe('redis-stream', () => {
             expect(getCompletedKey(streamKey)).toBe('task-run-stream:abc-123:completed')
             expect(getAgentActiveKey(streamKey)).toBe('task-run-stream:abc-123:ingest-agent-active')
             expect(getHeartbeatKey(streamKey)).toBe('task-run-stream:abc-123:ingest-heartbeat')
+            expect(getFirstCommandKey(streamKey)).toBe('task-run-stream:abc-123:ingest-first-agent-command')
+            expect(getFirstActivityKey(streamKey)).toBe('task-run-stream:abc-123:ingest-first-agent-activity')
         })
     })
 
@@ -664,7 +669,7 @@ describe('redis-stream', () => {
             expect(data).toHaveLength(1)
         })
 
-        it('refreshes stream TTL on completion', async () => {
+        it('drops stream TTL to the drain window on completion', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.markComplete()
@@ -672,6 +677,20 @@ describe('redis-stream', () => {
             const exp = redis.getExpiryMs(streamKey)
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now())
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
+        })
+
+        it('drops stream TTL to the drain window when already completed', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            await stream.writeEvent({ type: 'msg' })
+            await redis.set(getCompletedKey(streamKey), '1')
+
+            await stream.markComplete()
+
+            const exp = redis.getExpiryMs(streamKey)
+            expect(exp).not.toBeNull()
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
         })
     })
 
@@ -770,7 +789,7 @@ describe('redis-stream', () => {
             expect((error as string).length).toBe(500)
         })
 
-        it('refreshes stream TTL when writing the error sentinel', async () => {
+        it('drops stream TTL to the drain window when writing the error sentinel', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.markError('oops')
@@ -778,6 +797,18 @@ describe('redis-stream', () => {
             const exp = redis.getExpiryMs(streamKey)
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now())
+            expect(exp!).toBeLessThanOrEqual(Date.now() + STREAM_COMPLETED_TTL_SECONDS * 1000)
+        })
+
+        it('sets the completed key so later sequenced writes are rejected', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            await stream.markError('oops')
+
+            expect(redis.getStringValue(getCompletedKey(streamKey))).toBe('1')
+            await expect(stream.writeEventWithSequence({ type: 'late' }, 1)).rejects.toThrow(
+                TaskRunStreamAlreadyCompleted
+            )
         })
     })
 
@@ -870,6 +901,39 @@ describe('redis-stream', () => {
             expect(exp).not.toBeNull()
             expect(exp!).toBeGreaterThan(Date.now() + 25_000)
             expect(exp!).toBeLessThan(Date.now() + 35_000)
+        })
+    })
+
+    describe.each([
+        {
+            name: 'command',
+            claim: (stream: TaskRunRedisStream) => stream.claimFirstAgentCommand(),
+            release: (stream: TaskRunRedisStream) => stream.releaseFirstAgentCommand(),
+            key: getFirstCommandKey,
+        },
+        {
+            name: 'activity',
+            claim: (stream: TaskRunRedisStream) => stream.claimFirstAgentActivity(),
+            release: (stream: TaskRunRedisStream) => stream.releaseFirstAgentActivity(),
+            key: getFirstActivityKey,
+        },
+    ])('first agent $name claim', ({ claim, release, key }) => {
+        it('claims once and allows retry after release', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            const first = await claim(stream)
+            const second = await claim(stream)
+
+            expect(first).toBe(true)
+            expect(second).toBe(false)
+            const exp = redis.getExpiryMs(key(streamKey))
+            expect(exp).not.toBeNull()
+            expect(exp!).toBeGreaterThan(Date.now() + 50_000)
+            expect(exp!).toBeLessThan(Date.now() + 70_000)
+
+            await release(stream)
+
+            expect(await claim(stream)).toBe(true)
         })
     })
 
@@ -1225,12 +1289,14 @@ describe('redis-stream', () => {
     // -----------------------------------------------------------------------
 
     describe('deleteStream', () => {
-        it('returns true and removes all five keys', async () => {
+        it('returns true and removes all seven keys', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.writeEventWithSequence({ type: 'a' }, 1)
             await stream.setAgentActive(true)
             await stream.claimAgentActiveHeartbeat(30)
+            await stream.claimFirstAgentCommand()
+            await stream.claimFirstAgentActivity()
 
             const deleted = await stream.deleteStream()
 
@@ -1240,6 +1306,8 @@ describe('redis-stream', () => {
             expect(redis.getStringValue(getCompletedKey(streamKey))).toBeNull()
             expect(redis.getStringValue(getAgentActiveKey(streamKey))).toBeNull()
             expect(redis.getStringValue(getHeartbeatKey(streamKey))).toBeNull()
+            expect(redis.getStringValue(getFirstCommandKey(streamKey))).toBeNull()
+            expect(redis.getStringValue(getFirstActivityKey(streamKey))).toBeNull()
         })
 
         it('returns false (no error thrown) when stream does not exist', async () => {

@@ -12,6 +12,7 @@ import {
     BLOCK_MS,
     READ_COUNT,
     SEQUENCE_TTL_SECONDS,
+    STREAM_COMPLETED_TTL_SECONDS,
     STREAM_MAX_LENGTH,
     STREAM_PREFIX,
     STREAM_TTL_SECONDS,
@@ -50,6 +51,14 @@ export function getAgentActiveKey(streamKey: string): string {
 
 export function getHeartbeatKey(streamKey: string): string {
     return `${streamKey}:ingest-heartbeat`
+}
+
+export function getFirstCommandKey(streamKey: string): string {
+    return `${streamKey}:ingest-first-agent-command`
+}
+
+export function getFirstActivityKey(streamKey: string): string {
+    return `${streamKey}:ingest-first-agent-activity`
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +127,7 @@ export class TaskRunRedisStream {
     private readonly redis: Redis
     private readonly timeout: number
     private readonly sequenceTimeout: number
+    private readonly completedTimeout: number
     private readonly maxLength: number
 
     constructor(
@@ -133,6 +143,7 @@ export class TaskRunRedisStream {
         this.timeout = opts?.timeout ?? STREAM_TTL_SECONDS
         // sequence key TTL must be at least timeout + SEQUENCE_TTL_SECONDS
         this.sequenceTimeout = Math.max(this.timeout, SEQUENCE_TTL_SECONDS)
+        this.completedTimeout = Math.min(this.timeout, STREAM_COMPLETED_TTL_SECONDS)
         this.maxLength = opts?.maxLength ?? STREAM_MAX_LENGTH
     }
 
@@ -336,10 +347,10 @@ export class TaskRunRedisStream {
 
     // XADD + EXPIRE; no sequence check. Returns Redis stream ID string.
     // Refreshes TTL on every write (sliding window).
-    async writeEvent(event: Record<string, unknown>): Promise<string> {
+    async writeEvent(event: Record<string, unknown>, ttl?: number): Promise<string> {
         const raw = JSON.stringify(event)
         const streamId = await this.redis.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
-        await this.redis.expire(this.streamKey, this.timeout)
+        await this.redis.expire(this.streamKey, ttl ?? this.timeout)
         return normalizeStreamId(streamId)
     }
 
@@ -373,6 +384,24 @@ export class TaskRunRedisStream {
     async claimAgentActiveHeartbeat(throttleSeconds: number): Promise<boolean> {
         const result = await this.redis.set(getHeartbeatKey(this.streamKey), '1', 'EX', throttleSeconds, 'NX')
         return result === 'OK'
+    }
+
+    async claimFirstAgentCommand(): Promise<boolean> {
+        const result = await this.redis.set(getFirstCommandKey(this.streamKey), '1', 'EX', this.timeout, 'NX')
+        return result === 'OK'
+    }
+
+    async releaseFirstAgentCommand(): Promise<void> {
+        await this.redis.del(getFirstCommandKey(this.streamKey))
+    }
+
+    async claimFirstAgentActivity(): Promise<boolean> {
+        const result = await this.redis.set(getFirstActivityKey(this.streamKey), '1', 'EX', this.timeout, 'NX')
+        return result === 'OK'
+    }
+
+    async releaseFirstAgentActivity(): Promise<void> {
+        await this.redis.del(getFirstActivityKey(this.streamKey))
     }
 
     // WATCH/MULTI optimistic retry loop (never the TEST shortcut).
@@ -444,12 +473,13 @@ export class TaskRunRedisStream {
             const completedExists = (await this.redis.exists(completedKey)) > 0
             if (completedExists) {
                 await this.redis.unwatch()
+                await this.redis.expire(this.streamKey, this.completedTimeout)
                 return
             }
 
             const pipeline = this.redis.multi()
             pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
-            pipeline.expire(this.streamKey, this.timeout)
+            pipeline.expire(this.streamKey, this.completedTimeout)
             pipeline.set(completedKey, '1', 'EX', this.sequenceTimeout)
 
             const results = await pipeline.exec()
@@ -480,6 +510,7 @@ export class TaskRunRedisStream {
 
             if (completedExists) {
                 await this.redis.unwatch()
+                await this.redis.expire(this.streamKey, this.completedTimeout)
                 return
             }
 
@@ -492,7 +523,7 @@ export class TaskRunRedisStream {
 
             const pipeline = this.redis.multi()
             pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
-            pipeline.expire(this.streamKey, this.timeout)
+            pipeline.expire(this.streamKey, this.completedTimeout)
             // Only EXPIRE the sequence key if it existed before the transaction;
             // matches Python: `if last_sequence_raw is not None: pipe.expire(sequence_key, ...)`
             if (seqKeyExisted) {
@@ -513,23 +544,29 @@ export class TaskRunRedisStream {
 
     // No WATCH/MULTI. XADD error sentinel, truncated to 500 chars.
     async markError(error: string): Promise<void> {
-        await this.writeEvent({ type: 'STREAM_STATUS', status: 'error', error: error.slice(0, 500) })
+        await this.writeEvent(
+            { type: 'STREAM_STATUS', status: 'error', error: error.slice(0, 500) },
+            this.completedTimeout
+        )
+        await this.redis.set(getCompletedKey(this.streamKey), '1', 'EX', this.sequenceTimeout)
     }
 
-    // DEL all five keys atomically. Returns true if at least one key was deleted.
-    // Catches all exceptions; returns false on failure.
     async deleteStream(): Promise<boolean> {
         try {
             const sequenceKey = getSequenceKey(this.streamKey)
             const completedKey = getCompletedKey(this.streamKey)
             const agentActiveKey = getAgentActiveKey(this.streamKey)
             const heartbeatKey = getHeartbeatKey(this.streamKey)
+            const firstCommandKey = getFirstCommandKey(this.streamKey)
+            const firstActivityKey = getFirstActivityKey(this.streamKey)
             const deleted = await this.redis.del(
                 this.streamKey,
                 sequenceKey,
                 completedKey,
                 agentActiveKey,
-                heartbeatKey
+                heartbeatKey,
+                firstCommandKey,
+                firstActivityKey
             )
             return deleted > 0
         } catch {

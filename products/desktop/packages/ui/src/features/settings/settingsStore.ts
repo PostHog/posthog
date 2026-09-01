@@ -25,7 +25,7 @@ import { persist } from "zustand/middleware";
 
 // ---------- Types ----------
 
-export type DefaultRunMode = "local" | "cloud" | "last_used";
+type DefaultRunMode = "local" | "cloud" | "last_used";
 export type LocalWorkspaceMode = "worktree" | "local";
 
 export const DEFAULT_WORKSPACE_MODE: WorkspaceMode = "cloud";
@@ -103,12 +103,13 @@ export const DEFAULT_HINT_MAX = 3;
  * Whether a lesson has stopped offering itself: someone answered it, or it ran
  * out of showings. Reset is what brings either back.
  */
-function isHintRetired(key: string, hint: HintState | undefined): boolean {
+export function isHintRetired(
+  key: string,
+  hint: HintState | undefined,
+): boolean {
   if (!hint) return false;
   if (hint.learned) return true;
-  const showings = TIP_SHOWINGS[key as TipKey];
-  if (showings?.kind === "answered-only") return false;
-  return hint.count >= (showings?.max ?? DEFAULT_HINT_MAX);
+  return hint.count >= (TIP_SHOWINGS[key as TipKey]?.max ?? DEFAULT_HINT_MAX);
 }
 
 /** How many of a person's saved lessons have stopped offering themselves. */

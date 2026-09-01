@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::error::VmError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "Value")]
 pub enum Operation {
     GetGlobal = 1,

@@ -35,7 +35,7 @@ export type CodexMcpServerConfig =
  * sanitization gets a numeric suffix, because a plain map write would silently
  * drop one of the colliding servers.
  */
-export function codexMcpServerName(name: string): string {
+function codexMcpServerName(name: string): string {
   return sanitizeMcpServerName(name) || "mcp-server";
 }
 

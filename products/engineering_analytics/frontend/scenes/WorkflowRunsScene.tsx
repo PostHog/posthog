@@ -315,8 +315,8 @@ export function WorkflowRunsScene(): JSX.Element {
                 <MetricTile
                     label="Pass rate"
                     tooltip={`${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
-                        healthSummary.completedRuns
-                    )} completed runs passed.`}
+                        healthSummary.conclusiveRuns
+                    )} runs with a pass-or-fail result passed.`}
                     value={percent(healthSummary.passRate)}
                     loading={runsLoading}
                 />
@@ -333,7 +333,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 />
                 <MetricTile
                     label="Duration p50"
-                    tooltip="Wall-clock, over completed runs."
+                    tooltip="Wall-clock, over successful runs."
                     value={
                         healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
                     }

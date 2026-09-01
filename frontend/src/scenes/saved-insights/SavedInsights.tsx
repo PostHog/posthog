@@ -26,7 +26,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { isNonEmptyObject } from 'lib/utils/guards'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
 import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
@@ -95,6 +95,7 @@ export function SavedInsights(): JSX.Element {
     const {
         insights,
         insightsLoading,
+        insightsLoadFailed,
         filters,
         sorting,
         pagination,
@@ -379,7 +380,11 @@ export function SavedInsights(): JSX.Element {
                     <LemonTable
                         loading={insightsLoading}
                         columns={columns}
-                        dataSource={draftInsightRow ? [draftInsightRow, ...insights.results] : insights.results}
+                        dataSource={
+                            draftInsightRow && !(insightsLoadFailed && insights.results.length < 1)
+                                ? [draftInsightRow, ...insights.results]
+                                : insights.results
+                        }
                         rowClassName={(record) => (isDraftInsightRow(record) ? 'bg-warning-highlight' : null)}
                         pagination={pagination}
                         noSortingCancellation
@@ -396,7 +401,11 @@ export function SavedInsights(): JSX.Element {
                         nouns={['insight', 'insights']}
                         hideSortingIndicatorWhenInactive
                         emptyState={
-                            !insightsLoading && insights.count < 1 ? (
+                            !insightsLoading && insightsLoadFailed && insights.results.length < 1 ? (
+                                <div className="py-8">
+                                    <SavedInsightsErrorState onRetry={() => loadInsights(false)} />
+                                </div>
+                            ) : !insightsLoading && insights.count < 1 ? (
                                 <div className="py-8">
                                     <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                                 </div>

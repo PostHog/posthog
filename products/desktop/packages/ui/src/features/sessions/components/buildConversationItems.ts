@@ -403,7 +403,7 @@ export function buildAgentConversationItems(
   };
 }
 
-export function processAgentConversationEvent(
+function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
