@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("cohorts", "0001_squash_2026_08_21_initial"),
-        ("cohorts", "0011_cohort_import_resolution_counts"),
+        ("cohorts", "0012_cohortbackfillchunk_next_attempt_at_and_more"),
     ]
 
     operations = [

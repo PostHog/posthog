@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("signals", "0001_squash_2026_08_21_initial"),
         ("tasks", "0001_squash_2026_08_21_initial"),
-        ("tasks", "0107_remove_code_invites_from_state"),
+        ("tasks", "0108_channel_auto_archive_after_days"),
     ]
 
     operations = [
