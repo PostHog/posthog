@@ -454,12 +454,14 @@ class SkillRenderer:
         from products.posthog_ai.scripts.hogql_example import render_hogql_example
         from products.posthog_ai.scripts.hogql_functions import hogql_functions
         from products.posthog_ai.scripts.pydantic_schema import pydantic_schema
+        from products.posthog_ai.scripts.schema_columns import schema_columns
 
         self.env = _create_jinja_env(
             pydantic_schema=pydantic_schema,
             render_hogql_example=render_hogql_example,
             hogql_functions=hogql_functions,
             audit_constants=audit_constants,
+            schema_columns=schema_columns,
         )
 
     def render(self, source_file: Path) -> str:
