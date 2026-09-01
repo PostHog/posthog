@@ -733,6 +733,31 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
+                  # A PR uses cancel-in-progress, so a force-push kills the in-flight
+                  # shards and they end as "cancelled". A superseded run is not a
+                  # failure. If every non-success dependency is a cancellation, and no
+                  # real failure is present, do not turn the required check red. A genuine
+                  # failure still falls through to the per-dependency checks below.
+                  had_failure=false
+                  had_cancelled=false
+                  for result in \
+                      "${{ needs.changes.result }}" \
+                      "${{ needs.build-storybook.result }}" \
+                      "${{ needs.select-stories.result }}" \
+                      "${{ needs.visual-regression.result }}" \
+                      "${{ needs.vr-setup.result }}" \
+                      "${{ needs.vr-complete.result }}"; do
+                    case "$result" in
+                      success|skipped) ;;
+                      cancelled) had_cancelled=true ;;
+                      *) had_failure=true ;;
+                    esac
+                  done
+                  if [[ "$had_failure" == false && "$had_cancelled" == true ]]; then
+                    echo "Run was superseded by a newer push (a dependency was cancelled, none failed). Not failing the gate."
+                    exit 0
+                  fi
+
                   # Change detection is the root of the graph: if it fails, build-storybook
                   # (and everything after) is skipped, which the checks below would read as
                   # a pass. Fail here so a broken paths-filter/checkout can't launder into a
