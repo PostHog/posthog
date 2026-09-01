@@ -36,6 +36,12 @@ class LLMSkill(UUIDModel):
                 name="unique_llm_skill_latest_per_team",
             ),
         ]
+        indexes = [
+            # The lazy-seed reconcilers read every version of one skill, tombstones included, so
+            # they pass no `deleted` predicate and the partial unique indexes above cannot serve
+            # them. Without this index Postgres scans the team's whole skill history per lookup.
+            models.Index(fields=["team", "name", "-version"], name="llm_skill_team_name_ver_idx"),
+        ]
 
     # Required by Agent Skills spec (https://agentskills.io/specification)
     name = models.CharField(max_length=64)
