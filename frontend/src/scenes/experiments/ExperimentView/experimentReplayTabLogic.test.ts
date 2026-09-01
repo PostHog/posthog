@@ -78,6 +78,7 @@ const DELTA_RESPONSE = {
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
     too_early: false,
+    empty_reason: null,
 }
 
 const PURCHASE_METRIC = {

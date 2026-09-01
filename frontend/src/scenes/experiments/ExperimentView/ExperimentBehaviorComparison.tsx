@@ -14,6 +14,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
@@ -21,6 +22,7 @@ import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     ExperimentWatchCardStrengthEnumApi,
     ExperimentWatchCardKindEnumApi,
+    ExperimentWatchEmptyReasonEnumApi,
     type ExperimentSessionEventDeltaResponseApi,
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
@@ -457,6 +459,42 @@ export function ExperimentBehaviorComparison({
     )
 }
 
+/**
+ * Why there is nothing to watch, said in the terms the reader needs. The three reasons ask
+ * different things of them: one is worth coming back for, one is already the answer, and one is
+ * fixed in the project's replay settings. A single "nothing found" line sends two of those three
+ * readers looking for something that was never coming.
+ */
+function EmptyShelf({
+    reason,
+    ended,
+}: {
+    reason: Exclude<ExperimentWatchEmptyReasonEnumApi, 'too_early'>
+    ended: boolean
+}): JSX.Element {
+    if (reason === ExperimentWatchEmptyReasonEnumApi.NoRecordings) {
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'Replay settings',
+                    to: urls.settings('environment-replay'),
+                }}
+            >
+                Nothing to watch here. Some events separated the variants, but none of those sessions has a recording to
+                open. Check your session replay sampling and retention settings.
+            </LemonBanner>
+        )
+    }
+    return (
+        <LemonBanner type="info">
+            {ended
+                ? "Nothing separated the variants. People did the same things in every variant's recorded sessions, which is a result in itself. Differences small enough to be chance never get a card."
+                : "Nothing separated the variants yet. People did the same things in every variant's recorded sessions, which is a result in itself. Differences small enough to be chance never get a card, so check back as more people are exposed."}
+        </LemonBanner>
+    )
+}
+
 function WatchShelves({
     deltas,
     ended,
@@ -472,13 +510,28 @@ function WatchShelves({
     recordingsById: Map<string, ExperimentReplayRecording>
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
 }): JSX.Element {
-    if (deltas.too_early) {
+    if (deltas.empty_reason === ExperimentWatchEmptyReasonEnumApi.TooEarly) {
+        // No caption above this one: nothing was compared, so the window it would describe covers
+        // nothing, and naming a stretch of days would claim coverage that never happened.
         return (
             <LemonBanner type="info">
                 Too early to compare behavior: this needs at least{' '}
                 {pluralize(deltas.min_arm_persons, 'exposed person', 'exposed people')} in two variants, and has{' '}
-                {deltas.arms.map((arm) => `${humanFriendlyNumber(arm.persons)} in ${arm.key}`).join(', ')}.
+                {deltas.arms.map((arm) => `${humanFriendlyNumber(arm.persons)} in ${arm.key}`).join(', ')}. Check back
+                once more people are exposed.
             </LemonBanner>
+        )
+    }
+
+    if (deltas.empty_reason !== null) {
+        // The caption stays: how much of the run was covered, and whether it was truncated or had
+        // test accounts taken out, is what decides how much "the variants behaved the same" is
+        // worth.
+        return (
+            <div className="flex flex-col gap-3">
+                <ShelfCaption deltas={deltas} />
+                <EmptyShelf reason={deltas.empty_reason} ended={ended} />
+            </div>
         )
     }
 

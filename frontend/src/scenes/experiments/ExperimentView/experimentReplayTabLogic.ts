@@ -999,6 +999,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             const kindCount = (kind: ExperimentWatchCardKindEnumApi): number => cardsByKind[kind]?.length ?? 0
             actions.reportExperimentBehaviorComparisonLoaded(props.experiment.id, {
                 too_early: sessionEventDeltas.too_early,
+                empty_reason: sessionEventDeltas.empty_reason,
                 behavior_cards: kindCount(ExperimentWatchCardKindEnumApi.Behavior),
                 friction_cards: kindCount(ExperimentWatchCardKindEnumApi.Friction),
                 variant_only_cards: kindCount(ExperimentWatchCardKindEnumApi.VariantOnly),

@@ -306,6 +306,24 @@ class WatchCardKind(StrEnum):
     METRIC = "metric"
 
 
+class WatchEmptyReason(StrEnum):
+    """Why a shelf carries no cards, which is not one thing.
+
+    Set whenever the shelf is empty, and never set when it is not. The three cases ask different
+    things of a reader: one is worth coming back for, one is an answer already, and one is fixed in
+    the replay settings rather than by waiting. A single "nothing found" would send every reader
+    down the same wrong path for two of the three.
+    """
+
+    # Fewer than two arms cleared MIN_ARM_PERSONS, so nothing was compared at all.
+    TOO_EARLY = "too_early"
+    # The arms were compared and no event told them apart. A result rather than a failure.
+    NO_SEPARATION = "no_separation"
+    # Events did tell the arms apart, but no recording behind any of them can be opened, so there
+    # is nothing to watch.
+    NO_RECORDINGS = "no_recordings"
+
+
 @dataclass(frozen=True)
 class ExperimentWatchHighlight:
     """One recording a card names first, and everything it carries that earned it the place.
@@ -410,6 +428,19 @@ class ExperimentWatchResult:
     # cached across viewers and the duplicate cut runs on the shelf a viewer actually gets.
     dropped_duplicate_cards: int
     too_early: bool
+    # Why there is nothing on the shelf, or None when there is something on it. Settled per viewer
+    # in `finalize_watch_cards`, because a viewer's own recording access decides which cards reach
+    # them, and a shelf that loses its findings on the way out is as empty as one that never had
+    # any.
+    empty_reason: Optional[WatchEmptyReason]
+
+
+@dataclass(frozen=True)
+class _Shelf:
+    """The cards a reader gets, and why they get none when they get none."""
+
+    cards: list[ExperimentWatchCard]
+    empty_reason: Optional[WatchEmptyReason]
 
 
 def all_card_session_ids(result: ExperimentWatchResult) -> list[str]:
@@ -449,7 +480,35 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
                 replace(card, recording_count=len(session_ids), session_ids=session_ids, highlights=highlights)
             )
     deduped = _drop_duplicate_recording_sets(cards)
-    return replace(result, cards=_assign_highlights(deduped), dropped_duplicate_cards=len(cards) - len(deduped))
+    # Re-applied here and not only in the scan, because the access cut above can take the last
+    # finding off a shelf the scan built with one. What is left is shortcuts, which is the shelf
+    # this rule exists to suppress, whichever step emptied it.
+    shelf = _findings_or_nothing(_assign_highlights(deduped), result.empty_reason)
+    return replace(
+        result,
+        cards=shelf.cards,
+        dropped_duplicate_cards=len(cards) - len(deduped),
+        empty_reason=shelf.empty_reason,
+    )
+
+
+def _findings_or_nothing(cards: list[ExperimentWatchCard], empty_reason: Optional[WatchEmptyReason]) -> _Shelf:
+    """The shelf, unless every card left on it is a metric shortcut, in which case there is none.
+
+    A shortcut offers recordings of an event one of the experiment's own metrics counts, and says
+    nothing about how that metric moved. Beside a finding that is a second useful thing to watch.
+    Alone it fills the shelf with what reads as a result while telling the reader only what the
+    results tab already told them, so the empty state is the more honest answer: it at least says
+    which of the three things happened.
+    """
+    if any(card.kind != WatchCardKind.METRIC for card in cards):
+        return _Shelf(cards=cards, empty_reason=None)
+    # A reason is already set when the comparison itself produced no finding. It is not when this
+    # viewer's own recording access removed the findings, and that case cannot be named: saying the
+    # shelf lost cards would tell the viewer that recordings denied to them ran through this
+    # experiment, which is the fact the object-level control withholds. "No recordings" is what
+    # they have either way.
+    return _Shelf(cards=[], empty_reason=empty_reason or WatchEmptyReason.NO_RECORDINGS)
 
 
 def get_experiment_session_event_deltas(team: Team, user: User, experiment: Experiment) -> ExperimentWatchResult:
@@ -537,71 +596,14 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     qualified_arms = [arm.key for arm in arms if arm.persons >= MIN_ARM_PERSONS]
     too_early = len(qualified_arms) < 2
 
-    cards: list[ExperimentWatchCard] = []
-    if not too_early:
-        named_metric_events, nodes_by_metric_event = _metric_events_by_name(metrics, experiment)
-        comparison_candidates = _pick_behavior_cards(
-            scan,
-            arm_keys=qualified_arms,
-            metric_names_by_event={named.event: named.metric_name for named in named_metric_events},
-        )
-        carded_events = {candidate.event for candidate in comparison_candidates}
-        metric_cards = _metric_card_candidates(
-            named_metric_events,
-            arm_keys=qualified_arms,
-            never_linked=exposure.never_linked,
-            # An event that already won a comparison card is not offered a second time as a
-            # shortcut to the same recordings, which on a two-metric experiment would be half the
-            # shelf restating the other half.
-            carded_events=carded_events,
-        )
-        # A metric's property filters narrow the recordings behind its *shortcut* cards only. A
-        # comparison card was ranked on the bare event name, so filtering its recordings would show
-        # a narrower set than the one that earned it the card, and could leave it with none.
-        resolved = _resolve_cards(
-            setup,
-            candidates=[*comparison_candidates, *metric_cards],
-            metric_nodes=_shortcut_nodes(metric_cards, nodes_by_metric_event),
-            covered_from=scan.covered_from,
-        )
-        comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
-        shortcut_by_pair = {(card.event, card.variant): card for card in resolved if card.kind == WatchCardKind.METRIC}
-
-        # The shortcut selection is decided again now that survival is known: a comparison
-        # candidate that died on the replay existence check must not keep suppressing its event's
-        # shortcuts, or an event the experiment measures vanishes from the shelf just because the
-        # one arm that earned its comparison card had nothing recorded. Re-running the selection,
-        # rather than appending a recovery batch, keeps the shelf inside MAX_METRIC_CARD_EVENTS
-        # and keeps a recovered event at its display-order position instead of after lower-ranked
-        # ones, which can also displace a lower-ranked event's already-resolved shortcut cards.
-        final_shortcuts = _metric_card_candidates(
-            named_metric_events,
-            arm_keys=qualified_arms,
-            never_linked=exposure.never_linked,
-            carded_events={card.event for card in comparison_cards},
-        )
-        queried_events = {card.event for card in metric_cards}
-        unqueried = [card for card in final_shortcuts if card.event not in queried_events]
-        if unqueried:
-            shortcut_by_pair.update(
-                {
-                    (card.event, card.variant): card
-                    for card in _resolve_cards(
-                        setup,
-                        candidates=unqueried,
-                        metric_nodes=_shortcut_nodes(unqueried, nodes_by_metric_event),
-                        covered_from=scan.covered_from,
-                    )
-                }
-            )
-        cards = comparison_cards + [
-            shortcut_by_pair[(card.event, card.variant)]
-            for card in final_shortcuts
-            if (card.event, card.variant) in shortcut_by_pair
-        ]
+    shelf = (
+        _Shelf(cards=[], empty_reason=WatchEmptyReason.TOO_EARLY)
+        if too_early
+        else _build_shelf(setup, scan=scan, metrics=metrics, arm_keys=qualified_arms)
+    )
 
     result = ExperimentWatchResult(
-        cards=cards,
+        cards=shelf.cards,
         arms=arms,
         multiple_variant_persons=scan.persons.get(("", MULTIPLE_VARIANT_KEY), 0),
         multiple_variant_handling=multiple_variant_handling.value,
@@ -620,6 +622,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         # Settled per viewer in `finalize_watch_cards`; the cached shelf carries a placeholder.
         dropped_duplicate_cards=0,
         too_early=too_early,
+        empty_reason=shelf.empty_reason,
     )
     safe_cache_set(cache_key, result, timeout=DELTA_CACHE_TTL)
     return result
@@ -776,7 +779,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v8_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v9_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -1012,6 +1015,89 @@ def _query_event_deltas(
         events_truncated=events_truncated,
         sessions_truncated=covered_sessions >= MAX_DELTA_SCAN_SESSIONS,
         covered_from=covered_from,
+    )
+
+
+def _build_shelf(
+    setup: _QuerySetup, *, scan: SessionEventDeltaScan, metrics: list[MetricEventSource], arm_keys: list[str]
+) -> _Shelf:
+    """The cards this comparison earned, or the reason it earned none.
+
+    Nothing is looked up once the ranking finds no candidate: the only cards left to build would be
+    metric shortcuts, and a shelf of nothing but shortcuts is not shown, so the recordings behind
+    them are never needed. That is the common empty shelf, and this is what keeps it from paying
+    for the follow-up reads.
+    """
+    named_metric_events, nodes_by_metric_event = _metric_events_by_name(metrics, setup.experiment)
+    comparison_candidates = _pick_behavior_cards(
+        scan,
+        arm_keys=arm_keys,
+        metric_names_by_event={named.event: named.metric_name for named in named_metric_events},
+    )
+    if not comparison_candidates:
+        return _Shelf(cards=[], empty_reason=WatchEmptyReason.NO_SEPARATION)
+
+    metric_cards = _metric_card_candidates(
+        named_metric_events,
+        arm_keys=arm_keys,
+        never_linked=setup.exposure.never_linked,
+        # An event that already won a comparison card is not offered a second time as a shortcut to
+        # the same recordings, which on a two-metric experiment would be half the shelf restating
+        # the other half.
+        carded_events={candidate.event for candidate in comparison_candidates},
+    )
+    # A metric's property filters narrow the recordings behind its *shortcut* cards only. A
+    # comparison card was ranked on the bare event name, so filtering its recordings would show a
+    # narrower set than the one that earned it the card, and could leave it with none.
+    resolved = _resolve_cards(
+        setup,
+        candidates=[*comparison_candidates, *metric_cards],
+        metric_nodes=_shortcut_nodes(metric_cards, nodes_by_metric_event),
+        covered_from=scan.covered_from,
+    )
+    comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
+    if not comparison_cards:
+        # Every finding died on the replay existence check, so whatever shortcuts survived are the
+        # whole shelf and the shelf is not shown. Returning here also skips the shortcut recovery
+        # below, whose only purpose is to fill slots beside a finding.
+        return _Shelf(cards=[], empty_reason=WatchEmptyReason.NO_RECORDINGS)
+    shortcut_by_pair = {(card.event, card.variant): card for card in resolved if card.kind == WatchCardKind.METRIC}
+
+    # The shortcut selection is decided again now that survival is known: a comparison candidate
+    # that died on the replay existence check must not keep suppressing its event's shortcuts, or
+    # an event the experiment measures vanishes from the shelf just because the one arm that earned
+    # its comparison card had nothing recorded. Re-running the selection, rather than appending a
+    # recovery batch, keeps the shelf inside MAX_METRIC_CARD_EVENTS and keeps a recovered event at
+    # its display-order position instead of after lower-ranked ones, which can also displace a
+    # lower-ranked event's already-resolved shortcut cards.
+    final_shortcuts = _metric_card_candidates(
+        named_metric_events,
+        arm_keys=arm_keys,
+        never_linked=setup.exposure.never_linked,
+        carded_events={card.event for card in comparison_cards},
+    )
+    queried_events = {card.event for card in metric_cards}
+    unqueried = [card for card in final_shortcuts if card.event not in queried_events]
+    if unqueried:
+        shortcut_by_pair.update(
+            {
+                (card.event, card.variant): card
+                for card in _resolve_cards(
+                    setup,
+                    candidates=unqueried,
+                    metric_nodes=_shortcut_nodes(unqueried, nodes_by_metric_event),
+                    covered_from=scan.covered_from,
+                )
+            }
+        )
+    return _Shelf(
+        cards=comparison_cards
+        + [
+            shortcut_by_pair[(card.event, card.variant)]
+            for card in final_shortcuts
+            if (card.event, card.variant) in shortcut_by_pair
+        ],
+        empty_reason=None,
     )
 
 

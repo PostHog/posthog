@@ -2424,6 +2424,20 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
 } as const
 
 /**
+ * * `too_early` - too_early
+ * * `no_separation` - no_separation
+ * * `no_recordings` - no_recordings
+ */
+export type ExperimentWatchEmptyReasonEnumApi =
+    (typeof ExperimentWatchEmptyReasonEnumApi)[keyof typeof ExperimentWatchEmptyReasonEnumApi]
+
+export const ExperimentWatchEmptyReasonEnumApi = {
+    TooEarly: 'too_early',
+    NoSeparation: 'no_separation',
+    NoRecordings: 'no_recordings',
+} as const
+
+/**
  * The recordings worth watching for this experiment, grouped into cards.
  *
  * Descriptive, never a result: cards say where behavior visibly differed and hand over the
@@ -2431,7 +2445,7 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
  * state the magnitudes. Nothing here says a variant is winning.
  */
 export interface ExperimentSessionEventDeltaResponseApi {
-    /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
+    /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
     cards: ExperimentWatchCardApi[]
     /** Every variant's compared population, in the flag's variant order. */
     arms: ExperimentWatchArmApi[]
@@ -2462,8 +2476,14 @@ export interface ExperimentSessionEventDeltaResponseApi {
     max_card_recordings: number
     /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
     dropped_duplicate_cards: number
-    /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+    /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. The same fact as empty_reason being 'too_early', kept as its own field because the arms' counts are what a reader needs next. */
     too_early: boolean
+    /** Why cards is empty, and null whenever cards is not empty. Report which of the three happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_arm_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+     *
+     * * `too_early` - too_early
+     * * `no_separation` - no_separation
+     * * `no_recordings` - no_recordings */
+    empty_reason: ExperimentWatchEmptyReasonEnumApi | null
 }
 
 export interface ShipVariantApi {

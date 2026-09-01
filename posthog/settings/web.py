@@ -724,12 +724,14 @@ SPECTACULAR_SETTINGS = {
         "CanvasLayoutSchemaVersionEnum": [(1, 1)],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
-        # `strength` and `kind` are generic enough that the next one added anywhere would collide,
-        # and `multiple_variant_handling` would otherwise generate a bare `MultipleVariantHandling`
-        # sitting next to the schema type of the same name. One prefix for all three.
+        # `strength`, `kind` and `empty_reason` are generic enough that the next one added anywhere
+        # would collide, and `multiple_variant_handling` would otherwise generate a bare
+        # `MultipleVariantHandling` sitting next to the schema type of the same name. One prefix
+        # for all four.
         "ExperimentWatchCardKindEnum": ["behavior", "friction", "metric"],
         "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
         "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
+        "ExperimentWatchEmptyReasonEnum": ["too_early", "no_separation", "no_recordings"],
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],

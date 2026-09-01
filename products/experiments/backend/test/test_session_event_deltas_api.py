@@ -226,14 +226,12 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert self._cards(data, "behavior") == []
         assert self._cards(data, "friction") == []
         assert self._cards(data, "variant_only") == []
-        # Shortcuts survive an empty shelf: they offer to show a metric event happening rather
-        # than claiming a difference, so "nothing to find" must not take them down too.
-        assert [(card["event"], card["variant"]) for card in self._cards(data, "metric")] == [
-            ("purchase", "control"),
-            ("purchase", "test"),
-        ]
-        # Not the too-early empty state: both arms are populated, there is genuinely nothing to
-        # find, and the frontend words those two cases differently.
+        # Shortcuts go down with the findings. On their own they only restate what the results tab
+        # already answers, so a shelf of nothing else reads as a finding while carrying none.
+        assert self._cards(data, "metric") == []
+        # ...and the empty state says which of the three things happened. Not too early: both arms
+        # are populated, so "the variants behaved the same" is an answer rather than a wait.
+        assert data["empty_reason"] == "no_separation"
         assert data["too_early"] is False
         assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 30), ("test", 30)]
         # A clean shelf reports a clean caveat: no card was deduped away.
@@ -377,13 +375,17 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_metric_event_the_arms_share_falls_back_to_a_shortcut_card(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SERVER_SIDE_METRIC])
-        self._arm("control", [["purchase"], ["purchase"]])
+        # `pricing_faq` is the finding. Shortcuts only reach the shelf beside one, so without it
+        # this fixture would test the suppression instead of the fallback it is about.
+        self._arm("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"]])
         self._arm("test", [["purchase"], ["purchase"]])
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
 
-        assert self._cards(data, "behavior") == []
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == [
+            ("pricing_faq", "control")
+        ]
         metric_cards = self._cards(data, "metric")
         assert [(card["event"], card["variant"], card["strength"]) for card in metric_cards] == [
             ("purchase", "control", None),
@@ -397,7 +399,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_metric_event_whose_comparison_card_has_no_recordings_falls_back_to_shortcuts(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [["purchase"], ["purchase"], [], []])
+        # `pricing_faq` is the finding that keeps the shelf on screen at all.
+        self._arm("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"], [], []])
         # `purchase` over-fires in test, so the comparison candidate lands there — but none of
         # test's sessions were recorded, so that card dies on the replay existence check. The
         # shortcut route must come back for the other arms' playable recordings, or the
@@ -408,7 +411,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        assert self._cards(data, "behavior") == []
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == [
+            ("pricing_faq", "control")
+        ]
         metric_cards = self._cards(data, "metric")
         assert [(card["event"], card["variant"], card["metric_name"]) for card in metric_cards] == [
             ("purchase", "control", "Purchases")
@@ -421,8 +426,11 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # `purchase` outranks `signup` on the metrics page, and wins a comparison candidate, so
         # `signup` takes the one shortcut slot at first. When purchase's comparison card then dies
         # on the replay existence check, purchase must reclaim the slot rather than land after
-        # signup or beside it over budget.
-        self._arm("control", [["purchase", "signup"], ["purchase", "signup"], ["signup"], ["signup"]])
+        # signup or beside it over budget. `pricing_faq` is the finding that keeps the shelf up.
+        self._arm(
+            "control",
+            [["purchase", "signup", "pricing_faq"], ["purchase", "signup", "pricing_faq"], ["signup"], ["signup"]],
+        )
         for _ in range(4):
             self._session(variants=["test"], events=["purchase", "signup"], recorded=False)
         flush_persons_and_events()
@@ -439,7 +447,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # first. Reading storage order instead puts the shelf on a metric nobody prioritized.
         experiment.primary_metrics_ordered_uuids = [SIGNUP_METRIC["uuid"], PURCHASE_METRIC["uuid"]]
         experiment.save()
-        self._arm("control", [["purchase", "signup"]] * 2)
+        # `pricing_faq` is the finding that keeps the shelf up; shortcuts alone never reach it.
+        self._arm("control", [["purchase", "signup", "pricing_faq"]] * 2)
         self._arm("test", [["purchase", "signup"]] * 2)
         flush_persons_and_events()
 
@@ -465,8 +474,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             ]
         )
         # Both arms purchase at the same rate, so the event earns no comparison card and the
-        # shortcut card this test is about is the one that survives.
-        self._arm("control", [["purchase"], ["purchase"]])
+        # shortcut card this test is about is the one that survives. `pricing_faq` is the finding
+        # that keeps the shelf up; shortcuts alone never reach it.
+        self._arm("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"]])
         matching = self._session(variants=["test"], events=["purchase"], properties={"plan": "enterprise"})
         self._session(variants=["test"], events=["purchase"], properties={"plan": "free"})
         flush_persons_and_events()
@@ -655,6 +665,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # Two people against a floor of fifty: an empty shelf here would read as "the variants
         # behaved identically", which two people cannot establish.
         assert data["too_early"] is True
+        assert data["empty_reason"] == "too_early"
         assert data["cards"] == []
         assert data["min_arm_persons"] == session_event_deltas.MIN_ARM_PERSONS
 
@@ -861,6 +872,46 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # The cut leaves no trace: acknowledging it would tell the viewer that recordings denied
         # to them ran through this experiment.
         assert "recordings_excluded_by_access" not in data
+
+    @rank_anything
+    def test_findings_nobody_can_watch_are_reported_as_such_rather_than_as_a_shortcut_shelf(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [["purchase"], ["purchase"]])
+        # The one thing that separates the arms happened only in sessions replay never kept. The
+        # shortcut to `purchase` would still resolve against control's recordings, and a shelf of
+        # that alone says nothing the results tab doesn't. The reader needs the reason instead,
+        # and this reason is fixed in the replay settings rather than by waiting.
+        for _ in range(2):
+            self._session(variants=["test"], events=["pricing_faq", "purchase"], recorded=False)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert data["cards"] == []
+        assert data["empty_reason"] == "no_recordings"
+        assert data["too_early"] is False
+
+    @rank_anything
+    def test_a_viewer_who_cannot_open_the_findings_is_left_with_no_shelf_either(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [["purchase"], ["purchase"]])
+        denied = [self._session(variants=["test"], events=["pricing_faq", "purchase"]) for _ in range(2)]
+        # Object-level controls can only target a recording that has a Postgres row.
+        for session_id in denied:
+            SessionRecording.objects.create(team=self.team, session_id=session_id)
+        flush_persons_and_events()
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, *args, **kwargs: getattr(obj, "session_id", None) not in denied,
+        ):
+            data = self._post_deltas(experiment).json()
+
+        # The shelf the scan built has a finding on it, and this viewer may open none of its
+        # recordings. Suppressing shortcut-only shelves in the scan alone would leave exactly the
+        # shelf the rule exists to prevent, so the cut has to run again after the access filter.
+        assert data["cards"] == []
+        assert data["empty_reason"] == "no_recordings"
 
     @rank_anything
     def test_a_card_the_viewer_can_still_watch_survives_its_duplicate_being_cut(self) -> None:

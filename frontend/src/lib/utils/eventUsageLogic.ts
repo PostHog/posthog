@@ -156,6 +156,10 @@ export interface ExperimentRecordingsFilterContext {
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
+    /** Why the shelf carried no cards, null when it carried some. Says how often a reader gets a
+     * finding rather than one of the three empty states, which is what the suppression of
+     * shortcut-only shelves is measured on. */
+    empty_reason: string | null
     behavior_cards: number
     friction_cards: number
     variant_only_cards: number
