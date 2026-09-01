@@ -1,20 +1,40 @@
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { humanList } from 'lib/utils/strings'
 
-import { DomainScopeEnumApi, OrganizationDomainApi } from '~/generated/core/api.schemas'
+import { ConfigScopeEnumApi, DomainScopeEnumApi, OrganizationDomainApi } from '~/generated/core/api.schemas'
+
+import { IDENTITY_PROVIDER_FEATURES } from './identityProviderConfigUtils'
 
 export function IdentityProviderDomainScope({
+    configScope,
     domainScope,
     domains,
     disabled,
+    showScopeWarning,
 }: {
+    configScope: ConfigScopeEnumApi
     domainScope: DomainScopeEnumApi
     domains: OrganizationDomainApi[]
     disabled: boolean
+    showScopeWarning: boolean
 }): JSX.Element {
     return (
         <div className="space-y-4">
+            {showScopeWarning && (
+                <LemonBanner type="warning">
+                    Changing this value can affect your{' '}
+                    {humanList(
+                        Object.values(ConfigScopeEnumApi)
+                            .filter((scope) => scope !== configScope)
+                            .map((scope) => IDENTITY_PROVIDER_FEATURES[scope].name)
+                    )}{' '}
+                    configurations.
+                </LemonBanner>
+            )}
             <LemonField name="domain_scope" label="Domains">
                 {({ value, onChange }) => (
                     <LemonRadio

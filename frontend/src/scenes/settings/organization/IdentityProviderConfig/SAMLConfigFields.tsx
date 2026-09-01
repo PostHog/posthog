@@ -17,6 +17,7 @@ export function SAMLConfigFields({
     return (
         <div className="space-y-4">
             <p>
+                Configure SAML for your organization.{' '}
                 <Link to="https://posthog.com/docs/data/sso#setting-up-saml" target="_blank" targetBlankIcon>
                     Read the SAML setup guide
                 </Link>

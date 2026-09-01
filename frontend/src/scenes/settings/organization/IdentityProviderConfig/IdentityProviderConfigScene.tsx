@@ -80,7 +80,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-8">
             <SceneTitleSection
                 name={`Configure ${feature.name}`}
                 description={feature.description}
@@ -152,9 +152,11 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
 
                             <LemonDivider />
                             <IdentityProviderDomainScope
+                                configScope={configScope}
                                 domainScope={identityProviderConfigForm.domain_scope}
                                 domains={organizationDomains ?? []}
                                 disabled={isIdentityProviderConfigFormSubmitting}
+                                showScopeWarning={identityProviderConfig?.config_scope === null}
                             />
                             <div className="flex flex-wrap gap-2">
                                 <LemonButton

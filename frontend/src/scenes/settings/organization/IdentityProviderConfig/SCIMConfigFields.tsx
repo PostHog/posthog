@@ -38,6 +38,7 @@ export function SCIMConfigFields({
     return (
         <div className="space-y-4">
             <p>
+                Configure SCIM for your organization.{' '}
                 <Link to="https://posthog.com/docs/data/sso#setting-up-scim" target="_blank" targetBlankIcon>
                     Read the SCIM setup guide
                 </Link>

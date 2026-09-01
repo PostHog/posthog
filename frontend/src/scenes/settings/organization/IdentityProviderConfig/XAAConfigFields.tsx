@@ -9,6 +9,7 @@ export function XAAConfigFields({ isReady }: { isReady: boolean }): JSX.Element 
     return (
         <div className="space-y-4">
             <p>
+                Configure XAA for your organization.{' '}
                 <Link to="https://posthog.com/docs/settings/id-jag" target="_blank" targetBlankIcon>
                     Read the XAA setup guide
                 </Link>

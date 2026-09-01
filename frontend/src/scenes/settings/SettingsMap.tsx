@@ -1800,6 +1800,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
             },
             {
+                id: 'enforce-verified-domains',
+                title: 'Domain enforcement',
+                component: <EnforceVerifiedDomains />,
+                keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
+            },
+            {
                 id: 'saml-configuration',
                 title: 'SAML single sign-on',
                 description:
@@ -1827,12 +1833,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
                 flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
                 keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
-            },
-            {
-                id: 'enforce-verified-domains',
-                title: 'Domain enforcement',
-                component: <EnforceVerifiedDomains />,
-                keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
             },
         ],
     },

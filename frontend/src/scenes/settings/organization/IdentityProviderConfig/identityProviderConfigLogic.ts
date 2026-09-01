@@ -70,6 +70,7 @@ type IdentityProviderConfigWritePayload = Pick<IdentityProviderConfigApi, 'domai
     >
 
 const NEW_CONFIG_ID = 'new'
+const ORGANIZATION_DOMAINS_PAGE_SIZE = 100
 
 const emptyIdentityProviderConfigForm = (): IdentityProviderConfigForm => ({
     domain_scope: DomainScopeEnumApi.All,
@@ -369,8 +370,23 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
         organizationDomains: [
             null as OrganizationDomainApi[] | null,
             {
-                loadOrganizationDomains: async () =>
-                    (await api.domainsList(values.currentOrganizationId, { limit: 100 })).results,
+                loadOrganizationDomains: async () => {
+                    const organizationDomains: OrganizationDomainApi[] = []
+                    let offset = 0
+                    let next: string | null | undefined
+
+                    do {
+                        const page = await api.domainsList(values.currentOrganizationId, {
+                            limit: ORGANIZATION_DOMAINS_PAGE_SIZE,
+                            offset,
+                        })
+                        organizationDomains.push(...page.results)
+                        offset += ORGANIZATION_DOMAINS_PAGE_SIZE
+                        next = page.next
+                    } while (next)
+
+                    return organizationDomains
+                },
             },
         ],
         regeneratedScimToken: [
