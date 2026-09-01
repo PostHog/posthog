@@ -400,8 +400,8 @@ class ComposeFingerprint:
     # The resolved recipient person link the create writes onto the ticket. Two composes with the
     # same body but a different recipient point at different people, so they must not collapse.
     distinct_id: str
-    # The private note the compose opens the ticket with. Two composes that send the same email but
-    # record different context are different requests, so they must not collapse either.
+    # The private note the compose opens the ticket with. The same email recorded with different
+    # context is a different request, so it must not collapse either.
     internal_context: str
 
     @classmethod
@@ -415,7 +415,7 @@ class ComposeFingerprint:
         message: Any,
         rich_content: Any,
         distinct_id: Any,
-        internal_context: Any = "",
+        internal_context: Any,
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -461,9 +461,9 @@ class ComposeFingerprint:
             or (ticket.distinct_id or "") != self.distinct_id
         ):
             return False
-        # A compose writes two comments: the private note it opens with, and the outbound message.
-        # Confirm both bodies. A second pitch to the same recipient in the window is a distinct
-        # ticket if either the message or the recorded context differs.
+        # A compose writes the outbound message, and the private note it opens with when there is
+        # one. Confirm both bodies: the same pitch recorded with different context is another
+        # ticket.
         opening = list(
             Comment.objects.filter(
                 team_id=self.team_id, scope=SUPPORT_TICKET_SCOPE, item_id=str(ticket.id), deleted=False

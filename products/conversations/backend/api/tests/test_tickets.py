@@ -2123,6 +2123,7 @@ class TestComposeTicketAPI(APIBaseTest):
             message="Great idea, we logged it.",
             rich_content=None,
             distinct_id="pitch@test.com",
+            internal_context="",
         )
         assert fingerprint is not None
         # Another request holds the reservation and hasn't finished creating yet.

@@ -125,11 +125,7 @@ export function ComposeTicketModal(): JSX.Element | null {
                         minRows={2}
                         maxLength={5000}
                     />
-                    {/* The guarantee stays on screen while someone types. In a placeholder it would
-                        disappear on the first keystroke, when they most need to read it. */}
-                    <span className="text-xs text-muted">
-                        Starts the ticket with a note only your team can see. The recipient never gets it.
-                    </span>
+                    <span className="text-xs text-muted">Starts the ticket with a note only your team can see.</span>
                 </div>
             </div>
         </LemonModal>

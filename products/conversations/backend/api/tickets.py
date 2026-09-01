@@ -1675,6 +1675,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         recipient_email = data["recipient_email"]
         distinct_id = data.get("recipient_distinct_id", "") or recipient_email
+        # Stripped once, so the note and the fingerprint that has to match it agree.
+        internal_context = data.get("internal_context", "").strip()
 
         person: Person | None = None
         if distinct_id != recipient_email:
@@ -1715,9 +1717,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 )
 
                 # Created before the outbound message so the thread opens on it. Private, so it
-                # never reaches the recipient and never lands in the ticket's denormalized
-                # preview fields.
-                internal_context = data.get("internal_context", "").strip()
+                # never reaches the recipient.
                 if internal_context:
                     Comment.objects.create(
                         team=team,
@@ -1749,7 +1749,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             message=data["message"],
             rich_content=data.get("rich_content"),
             distinct_id=distinct_id,
-            internal_context=data.get("internal_context", ""),
+            internal_context=internal_context,
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
