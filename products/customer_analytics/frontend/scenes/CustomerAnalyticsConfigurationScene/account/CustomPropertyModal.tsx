@@ -428,9 +428,9 @@ function PersonSourceEditor(): JSX.Element {
                         </LemonButton>
                     </div>
                     <span className="text-secondary text-xs">
-                        Mapping every column keeps the warehouse column names. The {keyColumnLabelText} is left out, because
-                        its values identify the {entityLabel} rather than describing it. Nothing is saved until you
-                        create the property, so you can edit or remove any row first.
+                        Mapping every column keeps the warehouse column names. The {keyColumnLabelText} is left out,
+                        because its values identify the {entityLabel} rather than describing it. Nothing is saved until
+                        you create the property, so you can edit or remove any row first.
                     </span>
                 </div>
             )}
