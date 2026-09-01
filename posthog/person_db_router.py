@@ -70,7 +70,6 @@ PERSONS_DB_MODELS = {
     "personoverridemapping",
     "personoverride",
     "pendingpersonoverride",
-    "flatpersonoverride",
     "featureflaghashkeyoverride",
     "cohortpeople",
     "group",

@@ -95,7 +95,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Event",
         "SessionRecordingEvent",
         # --- Persons system (managed separately, not looked up by user input) ---
-        "FlatPersonOverride",
         "Group",
         "PendingPersonOverride",
         "Person",
