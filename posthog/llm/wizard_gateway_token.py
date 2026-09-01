@@ -11,7 +11,6 @@ attempt fast instead of retrying into the CLI's timeout.
 """
 
 import json
-from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -21,6 +20,8 @@ import requests
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -51,7 +52,7 @@ WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG = "wizard-gateway-limit-override"
 _MAX_MINTS_PER_DAY = 1000
 
 
-@dataclass(frozen=True)
+@frozen
 class WizardLimitOverride:
     """Limits the override flag grants a user; None keeps the configured default."""
 

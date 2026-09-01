@@ -225,11 +225,20 @@ class TestParseLimitOverride:
     @pytest.mark.parametrize(
         "raw,expected",
         [
-            ({"cap_usd": "200", "mints_per_day": 100}, WizardLimitOverride(Decimal("200.000000"), 100)),
-            ('{"cap_usd": 12.5, "mints_per_day": "50"}', WizardLimitOverride(Decimal("12.500000"), 50)),
-            ({"mints_per_day": 100}, WizardLimitOverride(None, 100)),
-            ({"cap_usd": "lots", "mints_per_day": 100}, WizardLimitOverride(None, 100)),
-            ({"cap_usd": "200", "mints_per_day": 0}, WizardLimitOverride(Decimal("200.000000"), None)),
+            (
+                {"cap_usd": "200", "mints_per_day": 100},
+                WizardLimitOverride(cap_usd=Decimal("200.000000"), mints_per_day=100),
+            ),
+            (
+                '{"cap_usd": 12.5, "mints_per_day": "50"}',
+                WizardLimitOverride(cap_usd=Decimal("12.500000"), mints_per_day=50),
+            ),
+            ({"mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
+            ({"cap_usd": "lots", "mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
+            (
+                {"cap_usd": "200", "mints_per_day": 0},
+                WizardLimitOverride(cap_usd=Decimal("200.000000"), mints_per_day=None),
+            ),
             (None, NO_OVERRIDE),
             ("not json", NO_OVERRIDE),
             ([], NO_OVERRIDE),
@@ -258,7 +267,7 @@ class TestWizardLimitOverride:
                 distinct_id="d1", email="eng@posthog.com", organization_id="org_1", team_id=7
             )
 
-        assert override == WizardLimitOverride(Decimal("200.000000"), None)
+        assert override == WizardLimitOverride(cap_usd=Decimal("200.000000"), mints_per_day=None)
         get_payload.assert_called_once_with(
             "wizard-gateway-limit-override",
             "d1",
