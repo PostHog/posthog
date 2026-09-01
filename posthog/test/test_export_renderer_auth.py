@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.test import APIClient
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.team import Team
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.exports.backend.models.exported_asset import ExportedAsset
 
 
@@ -123,6 +125,63 @@ class TestExportRendererAuthentication(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
+
+    def test_screenshot_token_accepts_content_and_heatmap_data(self) -> None:
+        export_context = {
+            "heatmap_url": f"https://example.com/api/environments/{self.team.id}/heatmap_screenshots/42/content/?width=1400",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "screenshot",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d"},
+            "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+        }
+        token = self._make_export_renderer_token(export_context=export_context)
+        client = self._unauthenticated_client()
+
+        content_response = client.get(
+            f"/api/environments/{self.team.id}/heatmap_screenshots/42/content/?width=1400",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        data_response = client.get(self._heatmap_url(), headers={"authorization": f"Bearer {token}"})
+
+        assert content_response.status_code == status.HTTP_404_NOT_FOUND
+        assert data_response.status_code == status.HTTP_200_OK
+
+    @patch("products.web_analytics.backend.api.heatmaps_api._heatmaps_cohort_filter_enabled", return_value=False)
+    def test_heatmap_token_rejects_unavailable_cohort_filter(self, _mock_filter_enabled) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Export cohort")
+        export_context = {
+            "heatmap_url": "https://example.com",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "click",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d", "cohort_ids": [cohort.id]},
+            "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+        }
+        token = self._make_export_renderer_token(export_context=export_context)
+        response = self._unauthenticated_client().get(
+            f"{self._heatmap_url()}&cohort_ids=[{cohort.id}]", headers={"authorization": f"Bearer {token}"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.web_analytics.backend.api.heatmaps_api._heatmaps_event_filter_enabled", return_value=False)
+    def test_heatmap_token_rejects_unavailable_event_filter(self, _mock_filter_enabled) -> None:
+        events = '[{"id":"$pageview","properties":[]}]'
+        export_context = {
+            "heatmap_url": "https://example.com",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "click",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d", "events": [{"id": "$pageview", "properties": []}]},
+            "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+        }
+        token = self._make_export_renderer_token(export_context=export_context)
+        response = self._unauthenticated_client().get(
+            f"{self._heatmap_url()}&events={events}", headers={"authorization": f"Bearer {token}"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [

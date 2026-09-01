@@ -711,9 +711,9 @@ class ExportRendererHeatmapPermission(BasePermission):
             return True
 
         export_context = authenticator.export_context
-        if export_context.get("heatmap_type") == "screenshot":
+        if export_context.get("heatmap_type") == "screenshot" and view.action == "content":
             heatmap_url = export_context.get("heatmap_url")
-            if not isinstance(heatmap_url, str) or view.action != "content":
+            if not isinstance(heatmap_url, str):
                 return False
             expected_url = urlparse(heatmap_url)
             path_parts = expected_url.path.rstrip("/").split("/")
@@ -733,7 +733,14 @@ class ExportRendererHeatmapPermission(BasePermission):
         actual_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": view.team})
         if not expected_serializer.is_valid() or not actual_serializer.is_valid():
             return False
-        return actual_serializer.validated_data == expected_serializer.validated_data
+        expected_filters = expected_serializer.validated_data
+        if expected_filters.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
+            cast(User, request.user), view.team
+        ):
+            return False
+        if expected_filters.get("events") and not _heatmaps_event_filter_enabled(cast(User, request.user), view.team):
+            return False
+        return actual_serializer.validated_data == expected_filters
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

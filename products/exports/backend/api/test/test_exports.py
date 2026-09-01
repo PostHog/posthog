@@ -1,3 +1,4 @@
+import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -1919,8 +1920,6 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
         ]
     )
     def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
-        import ipaddress
-
         with (
             patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
@@ -1934,6 +1933,29 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("http", "http://app.example.com:80", "http://app.example.com/heatmap"),
+            ("https", "https://app.example.com:443", "https://app.example.com/heatmap"),
+        ]
+    )
+    def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
+        with (
+            self.settings(SITE_URL=site_url),
+            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
+        ):
+            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "image/png",
+                    "export_context": {"heatmap_url": heatmap_url, "heatmap_type": "screenshot"},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
 
 class TestExportMixin(APIBaseTest):
