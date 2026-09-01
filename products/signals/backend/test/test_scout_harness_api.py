@@ -3526,13 +3526,9 @@ _LIGHTHOUSE_REPORT = {
 }
 
 
+# The endpoint's metering lives here rather than in the tool tests because the ordering under
+# test — validate, then reserve under the row lock, then load the page — lives in the view.
 class TestScoutHarnessLighthouseAPI(APIBaseTest):
-    """The endpoint's metering: what spends a slot, what doesn't, and what the cap does.
-
-    Covered here rather than at the tool level because the ordering under test — validate, then
-    reserve under the row lock, then load the page — lives in the view.
-    """
-
     def setUp(self) -> None:
         super().setUp()
         # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
@@ -3542,7 +3538,6 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/lighthouse-audit/"
 
     def _post(self, run: SignalScoutRun, url: str = "https://posthog.com/pricing", **setting_overrides):
-        """POST an audit with Browserless mocked, returning (response, browserless_mock)."""
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = _LIGHTHOUSE_REPORT
         settings_used = {
@@ -3655,3 +3650,22 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         browserless.assert_not_called()
+
+    def test_a_sandbox_token_may_only_spend_its_own_runs_budget(self) -> None:
+        # Team scoping alone leaves the per-run cap in name only: a scout can list its siblings
+        # and spend each one's five slots, and every slot is a real browser session. Both halves
+        # matter — without the first, refusing everything would pass just as well.
+        own_run = _make_run(self.team)
+        sibling_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=own_run.task_run.task_id)
+
+        allowed, browserless_for_own = self._post(own_run)
+        refused, browserless_for_sibling = self._post(sibling_run)
+
+        assert allowed.status_code == status.HTTP_200_OK, allowed.json()
+        assert browserless_for_own.call_count == 1
+        assert self._spent(own_run) == 1
+
+        assert refused.status_code == status.HTTP_404_NOT_FOUND
+        browserless_for_sibling.assert_not_called()
+        assert self._spent(sibling_run) == 0

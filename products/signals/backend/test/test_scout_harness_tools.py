@@ -1627,13 +1627,10 @@ class TestReportEventUuid:
         assert _report_event_uuid("edit", "x", structured=True) == str(legacy)
 
 
+# Lighthouse 13 carries the LCP element and its phase table on *insight* audits and drops the
+# legacy per-check audit ids entirely, so a fixture written in the legacy shape passes against a
+# parser that reads nothing on the version the fleet runs.
 def _lighthouse_payload(**overrides) -> dict:
-    """A Browserless `/performance` body in the Lighthouse 13 shape the fleet actually returns.
-
-    Lighthouse 13 carries the LCP element and its phase table on *insight* audits and drops the
-    legacy per-check audit ids entirely, so a fixture written in the legacy shape passes against
-    a parser that reads nothing on the version we run. See `_legacy_lighthouse_payload`.
-    """
     report = {
         "lighthouseVersion": "13.4.1",
         "requestedUrl": "https://posthog.com/pricing",
@@ -1691,8 +1688,8 @@ def _lighthouse_payload(**overrides) -> dict:
     return {"data": report}
 
 
+# Pre-Lighthouse-12, where the element lived on `largest-contentful-paint-element`.
 def _legacy_lighthouse_payload() -> dict:
-    """A pre-Lighthouse-12 report, where the element lived on `largest-contentful-paint-element`."""
     return {
         "data": {
             "lighthouseVersion": "11.7.1",
@@ -1740,7 +1737,6 @@ _AUDIT_SETTINGS = {
 
 
 def _no_flag_payload():
-    """No `signals-lighthouse-audit` payload, so enablement falls back to settings."""
     return patch(
         "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
         return_value=None,
@@ -1748,8 +1744,6 @@ def _no_flag_payload():
 
 
 class TestLighthouseAudit:
-    """The audit's fences, and the reduction that turns a huge report into a citable one."""
-
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload
@@ -1884,8 +1878,6 @@ class TestLighthouseAudit:
 
 
 class TestLighthouseTeamGate:
-    """`enabled_team_ids` — the runtime gate that lets prod be switched on without a deploy."""
-
     @parameterized.expand(
         [
             ("no_payload", None, {_AUDIT_TEAM_ID}),
@@ -1915,8 +1907,6 @@ class TestLighthouseTeamGate:
 
 
 class TestAuditsRemainingForRun:
-    """The per-run budget, read off the run's own metadata counter."""
-
     @parameterized.expand(
         [
             ("absent", None, MAX_AUDITS_PER_RUN),

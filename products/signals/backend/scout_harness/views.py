@@ -1169,11 +1169,14 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description=(
                     "The url is not on an allowed host, is not https, redirected off the allowed hosts "
                     "(the login-wall case), the run is not in progress, or the run has spent its audit "
-                    "budget. Also returned when the page could not be loaded at all. Every 400 carries "
-                    "`audits_remaining`, so a rejection is distinguishable from an exhausted budget."
+                    "budget. Also returned when the page could not be loaded at all. Every message ends "
+                    "with how many audits the run has left, so a rejection is distinguishable from an "
+                    "exhausted budget."
                 )
             ),
-            404: OpenApiResponse(description="Run not found for this project."),
+            404: OpenApiResponse(
+                description="No such run in this project, or the run belongs to a different scout."
+            ),
             429: OpenApiResponse(description="Audit rate limit exceeded; retry later."),
             501: OpenApiResponse(description="Lighthouse audits are not configured on this deployment."),
         },
@@ -1204,6 +1207,14 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             .first()
         )
         if run is None:
+            raise exceptions.NotFound()
+        # A sandbox token is minted for one run, so it may only spend that run's budget. Team
+        # scoping alone leaves the cap per-run in name only: a scout can list its siblings, and
+        # spending each one's five slots costs five more browser sessions every time. Answered as
+        # 404 like another team's run, so a caller learns nothing about a run it may not touch.
+        # A caller with no bound task is unaffected, the internal scope being server-mint-only.
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
             raise exceptions.NotFound()
         if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise exceptions.ValidationError(
