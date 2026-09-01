@@ -29,11 +29,11 @@ CONSTANCE_CONFIG = {
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS": (
         # Off in tests: test classes share one team while patching flag evaluation differently per
         # test, so a cached decision from one test would leak into the next.
-        get_from_env("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS", 0.0 if TEST else 30.0, type_cast=float),
+        get_from_env("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS", 0 if TEST else 30, type_cast=int),
         "How long each HogQL database build reuses a team's feature-flag decisions (managed viewsets, "
         "data quality checks, warehouse access control) before re-evaluating. A flag flip reaches "
         "HogQL queries within this many seconds. 0 re-evaluates on every build.",
-        float,
+        int,
     ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),

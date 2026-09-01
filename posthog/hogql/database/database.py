@@ -357,7 +357,7 @@ def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -
     # setting has its own short in-process cache, so this read costs no query per build.
     from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
 
-    ttl = float(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
+    ttl = int(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
     if ttl <= 0:
         return evaluate()
     cache_key = (str(team.uuid), flag_key)
