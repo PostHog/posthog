@@ -68,6 +68,7 @@ import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
+    AnnotationScope,
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
@@ -4178,6 +4179,9 @@ const api = {
             limit?: number
             offset?: number
             hidden_in_user_interface?: boolean
+            date_from?: string
+            date_to?: string
+            scope?: AnnotationScope
         }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
@@ -4185,6 +4189,9 @@ const api = {
                     limit: params?.limit,
                     offset: params?.offset,
                     hidden_in_user_interface: params?.hidden_in_user_interface,
+                    date_from: params?.date_from,
+                    date_to: params?.date_to,
+                    scope: params?.scope,
                 })
                 .get()
         },
