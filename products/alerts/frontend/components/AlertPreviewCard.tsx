@@ -17,7 +17,12 @@ import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'p
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
-import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'
+import {
+    AlertThresholdLine,
+    getBreakdownPreviewSummary,
+    shouldUseLogScale,
+    thresholdReferenceLines,
+} from './AlertPreviewCard.utils'
 import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
 const handleChartError = makeChartErrorHandler('alerts-preview-chart')
@@ -59,10 +64,34 @@ function AlertPreviewChart({
     )
 }
 
+function BreakdownAlertPreview({ previews }: { previews: TrendsAlertPreviewSeries[] }): JSX.Element {
+    const summary = getBreakdownPreviewSummary(previews)
+
+    if (summary === null) {
+        return (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                No breakdown data available to preview.
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex min-h-24 items-center rounded border border-border bg-bg-light px-3 text-sm">
+            Across {summary.valueCount} breakdown values, the latest {summary.relative ? 'changes' : 'values'} range
+            from{' '}
+            <strong className="mx-1">
+                {humanFriendlyNumber(summary.lowestValue)}–{humanFriendlyNumber(summary.highestValue)}
+            </strong>
+            . The alert fires if any value breaches the threshold.
+        </div>
+    )
+}
+
 export interface AlertPreviewCardProps {
     alertForm: AlertFormType
     trendsValues: number[] | null
     trendsLabels?: string[] | null
+    trendsBreakdownValues?: number[][] | null
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
@@ -74,6 +103,7 @@ export function AlertPreviewCard({
     alertForm,
     trendsValues,
     trendsLabels,
+    trendsBreakdownValues,
     funnelPreview,
     hogqlPreview,
     checkPreview,
@@ -88,6 +118,15 @@ export function AlertPreviewCard({
               alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
           )
         : null
+    const trendsBreakdownPreviews = trendsBreakdownValues?.map((values) =>
+        deriveTrendsAlertPreviewSeries(
+            values,
+            undefined,
+            alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
+            alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
+        )
+    )
+    const isBreakdownPreview = isTrendsAlertConfig(config) && trendsBreakdownPreviews !== undefined
     const referenceLines = thresholdReferenceLines(alertForm)
     const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
     const checkPreviewValues = checkPreview?.values
@@ -131,6 +170,8 @@ export function AlertPreviewCard({
                 No activity to preview for this series.
             </div>
         )
+    } else if (isBreakdownPreview) {
+        body = <BreakdownAlertPreview previews={trendsBreakdownPreviews} />
     } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
         body = (
             <AlertPreviewChart
@@ -168,8 +209,16 @@ export function AlertPreviewCard({
     let lastValue: number | null = null
     if (checkPreviewValues?.length) {
         lastValue = checkPreviewValues[checkPreviewValues.length - 1]
-    } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length) {
+    } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length && !isBreakdownPreview) {
         lastValue = trendsPreview.values[trendsPreview.values.length - 1]
+    }
+
+    let previewTooltip =
+        'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
+    if (checkPreview !== undefined) {
+        previewTooltip = 'Values recorded by recent alert evaluations.'
+    } else if (isBreakdownPreview) {
+        previewTooltip = 'Summary of the latest values across every breakdown value this alert monitors.'
     }
 
     return (
@@ -177,14 +226,7 @@ export function AlertPreviewCard({
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
                     <span>{checkPreview !== undefined ? 'Recent evaluations' : 'Preview'}</span>
-                    <Tooltip
-                        title={
-                            checkPreview !== undefined
-                                ? 'Values recorded by recent alert evaluations.'
-                                : 'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
-                        }
-                        delayMs={0}
-                    >
+                    <Tooltip title={previewTooltip} delayMs={0}>
                         <IconInfo className="text-muted size-3.5" />
                     </Tooltip>
                 </div>
