@@ -174,6 +174,9 @@ class TestMetronomeSourceResponse:
 
         assert response.primary_keys == primary_keys
         assert response.partition_keys == ([partition_key] if partition_key else None)
+        # Each of these tables walks the resume path, whose checkpoint advances per page, so the
+        # batcher must flush one page at a time or a resumed sync appends past unflushed pages.
+        assert response.chunk_size == 1
 
     @patch(f"{TRANSPORT}.rest_api_resource")
     def test_resume_state_seeds_the_paginator_cursor(self, mock_rest_api_resource) -> None:
@@ -270,6 +273,9 @@ class TestMetronomeBodyFanout:
             [{"id": "contract_1", "customer_id": "cust_1"}],
             [{"id": "contract_2", "customer_id": "cust_2"}],
         ]
+        # Fan-out tables don't resume, so they keep the default chunk size — a per-page flush here
+        # would cost a Delta commit per page on the largest tables for no durability gain.
+        assert response.chunk_size is None
         child_calls = client.paginate.call_args_list[1:]
         assert [call.kwargs["json"] for call in child_calls] == [
             {"include_archived": True, "customer_id": "cust_1"},

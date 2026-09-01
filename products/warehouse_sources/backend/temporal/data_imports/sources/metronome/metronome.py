@@ -248,6 +248,7 @@ def _body_fanout_pages(client: RESTClient, config: MetronomeEndpointConfig) -> I
 def _make_source_response(
     config: MetronomeEndpointConfig,
     items_fn: Callable[[], Iterable[Any]],
+    chunk_size: int | None = None,
 ) -> SourceResponse:
     # `audit_logs` is the only table that syncs incrementally, and it pins `sort=date_asc`, so the
     # default ascending `sort_mode` matches the order rows actually arrive in. Metronome documents
@@ -261,6 +262,7 @@ def _make_source_response(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        chunk_size=chunk_size,
     )
 
 
@@ -363,7 +365,13 @@ def metronome_source(
         resume_hook=resume_hook,
         initial_paginator_state=initial_paginator_state,
     )
-    return _make_source_response(endpoint_config, lambda: resource)
+    # The resume checkpoint advances after every yielded page — rest_client fires the resume hook
+    # right after each yield — so each page has to reach Delta before the bookmark moves past it.
+    # Each yielded item is already a whole API page, so chunk_size=1 flushes it on its own rather
+    # than letting several pages sit in the batcher's buffer; a mid-sync worker shutdown would
+    # otherwise resume past the buffered pages and finish the full-refresh table with silent gaps.
+    # The fan-out tables above don't resume, so they keep the default and avoid a commit per page.
+    return _make_source_response(endpoint_config, lambda: resource, chunk_size=1)
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
