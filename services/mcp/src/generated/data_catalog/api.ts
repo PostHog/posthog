@@ -297,7 +297,7 @@ export const DataCatalogMetricsSearchListParams = /* @__PURE__ */ zod.object({
 
 export const dataCatalogMetricsSearchListQueryNameMax = 128
 
-export const dataCatalogMetricsSearchListQueryQueryMax = 255
+export const dataCatalogMetricsSearchListQueryQueryMax = 200
 
 export const DataCatalogMetricsSearchListQueryParams = /* @__PURE__ */ zod.object({
     name: zod
@@ -311,7 +311,9 @@ export const DataCatalogMetricsSearchListQueryParams = /* @__PURE__ */ zod.objec
         .min(1)
         .max(dataCatalogMetricsSearchListQueryQueryMax)
         .optional()
-        .describe("Text to match against a metric's name, display name, or description."),
+        .describe(
+            "Text to match against a metric's name, display name, or description. Literal matches return first; when none exist, typo-tolerant trigram matches return instead. This does not match synonyms."
+        ),
 })
 
 /**

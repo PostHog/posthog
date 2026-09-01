@@ -14,12 +14,19 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import IntegerField, QuerySet, Value
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_FIELD,
+    NAME_FIELD,
+    TrigramSearchField,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+)
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
@@ -529,14 +536,29 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
+_METRIC_SEARCH_FIELDS = (
+    NAME_FIELD,
+    TrigramSearchField("display_name", include_full=True),
+    DESCRIPTION_FIELD,
+)
+
+
 def search_metrics_for_team(team: Team, *, query: str | None = None, name: str | None = None) -> QuerySet[Metric]:
-    """Search live metrics by text, or retrieve one by its exact run handle."""
+    """Search live metrics by exact text first, then typo-tolerant text similarity."""
     metrics = metrics_for_team(team)
     if name:
-        return metrics.filter(name=name)
+        return metrics.filter(name=name).annotate(_is_exact=Value(1, output_field=IntegerField()))
     if not query:
         return metrics.none()
-    return metrics.filter(Q(name__icontains=query) | Q(display_name__icontains=query) | Q(description__icontains=query))
+    return drop_similar_when_exact_exists(
+        apply_trigram_search(
+            metrics,
+            query,
+            span_prefix="data_catalog.metric_search",
+            fields=_METRIC_SEARCH_FIELDS,
+            tiebreakers=("name",),
+        )
+    )
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
