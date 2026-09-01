@@ -365,7 +365,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 return Response(
                     {
                         "error": (
-                            "Your account is awaiting verification. Please check your email for a verification link."
+                            "Your account is awaiting verification. Log in with your password to enter the code we emailed you."
                         )
                     },
                     status=status.HTTP_400_BAD_REQUEST,

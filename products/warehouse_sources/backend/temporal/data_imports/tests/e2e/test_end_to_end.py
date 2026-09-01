@@ -91,7 +91,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient as PostHogRESTClient,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import XminBounds
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    XminBounds,
+    _TableChunking,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -1809,7 +1812,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         # Set up merge mock chain (needed for v3 where batch 1 merges into the table created by batch 0)
         mock_merge.return_value.when_matched_update_all.return_value.when_not_matched_insert_all.return_value.execute.return_value = {}
 
-        mock_chunk_size.return_value = 1
+        mock_chunk_size.return_value = _TableChunking(batch_rows=1, fetch_rows=1)
         await _run(
             team=team,
             schema_name="test_table",
@@ -1897,6 +1900,11 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
     await postgres_connection.execute(
         "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
     )
+    await postgres_connection.commit()
+    # Without stats the row-size probe has no catalog estimate, falls back to sampling 1% of
+    # pages, and on a one-page table draws nothing 99 times in 100 — which lands on the
+    # unmeasurable-sample path instead of the uncapped chunk this test is about.
+    await postgres_connection.execute("ANALYZE {schema}.test_table".format(schema=postgres_config["schema"]))
     await postgres_connection.commit()
 
     with (
@@ -2006,7 +2014,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     ):
         mock_merge.return_value.when_matched_update_all.return_value.when_not_matched_insert_all.return_value.execute.return_value = {}
 
-        mock_chunk_size.return_value = 1
+        mock_chunk_size.return_value = _TableChunking(batch_rows=1, fetch_rows=1)
         await _execute_run(
             str(uuid.uuid4()),
             ExternalDataWorkflowInputs(
