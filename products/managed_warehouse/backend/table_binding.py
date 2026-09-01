@@ -44,12 +44,9 @@ def build_trino_table_locators(
     table_names: ManagedWarehouseTableNames,
 ) -> dict[str, TrinoTableLocator]:
     """Build explicit Trino targets from the relations managed warehouse provisions."""
-    from posthog.hogql.database.database import get_data_warehouse_table_name
-
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.managed_warehouse.backend.facade import team_state as team_state_facade
-    from products.warehouse_sources.backend.facade.duckgres import duckgres_data_imports_table_name_for_version
-    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.ducklake import list_ducklake_imported_tables
 
     locators: dict[str, TrinoTableLocator] = {
         "events": (catalog_name, "posthog", table_names.events_table),
@@ -69,25 +66,9 @@ def build_trino_table_locators(
             )
 
     naming_version = team_state_facade.data_imports_table_naming_version(team_id)
-    source_tables = (
-        DataWarehouseTable.objects.queryable()
-        .filter(team_id=team_id, external_data_source__isnull=False)
-        .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
-        .prefetch_related("externaldataschema_set__source")
-    )
-    for table in source_tables:
-        external_schema = next(iter(table.externaldataschema_set.all()), None)
-        if external_schema is None:
-            continue
-        physical_table_name = duckgres_data_imports_table_name_for_version(
-            external_schema.source.source_type,
-            external_schema.source.prefix,
-            external_schema.normalized_name,
-            naming_version,
-        )
-        locator = (catalog_name, table_names.data_imports_schema, physical_table_name)
-        logical_names = (table.name, get_data_warehouse_table_name(external_schema.source, table.name))
-        for logical_name in dict.fromkeys(logical_names):
+    for table in list_ducklake_imported_tables(team_id, naming_version):
+        locator = (catalog_name, table_names.data_imports_schema, table.physical_table_name)
+        for logical_name in table.logical_table_names:
             if database.has_table(logical_name):
                 locators[logical_name] = locator
 
