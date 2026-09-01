@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_CREATE_TIME_COLUMN,
     FIRESTORE_DOCUMENT_ID_FIELD,
     FIRESTORE_ID_COLUMN,
+    FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT,
     FIRESTORE_INCREMENTAL_VALUE_TYPES,
     FIRESTORE_MAX_INTEGER,
     FIRESTORE_MAX_TIMESTAMP,
@@ -483,6 +484,20 @@ def get_incremental_fields(
     ]
     if not collections:
         return {}
+
+    if len(collections) > FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT:
+        # A specific sync-settings request already narrows `table_names` to the one table it's asking
+        # about, so this only fires for a "list every table" request against a project with an unusually
+        # large number of collections. Sampling every one of them, one synchronous request at a time,
+        # would tie up a worker for the length of the request; the tables past the limit still appear in
+        # the schema list, just without incremental candidates, and get sampled if a later request asks
+        # about one of them by name.
+        LOGGER.warning(
+            f"Sampling incremental fields for the first {FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT} of "
+            f"{len(collections)} Firestore collections; the rest offer full refresh only until asked "
+            "about individually."
+        )
+        collections = collections[:FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT]
 
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
     api_session = _api_session(credentials)

@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_CREATE_TIME_COLUMN,
     FIRESTORE_DOCUMENT_ID_FIELD,
     FIRESTORE_ID_COLUMN,
+    FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT,
     FIRESTORE_MAX_INTEGER,
     FIRESTORE_MAX_TIMESTAMP,
     FIRESTORE_PATH_COLUMN,
@@ -744,6 +745,24 @@ class TestFirestoreIncrementalFieldDiscovery:
             found = get_incremental_fields(credentials(), ["firestore_secrets", "firestore_rooms", AUTH_USERS_TABLE])
 
         assert list(found) == ["firestore_rooms"]
+
+    def test_a_list_every_table_request_samples_only_up_to_the_discovery_limit(self) -> None:
+        # A sync-settings request for one table never reaches this: it passes `table_names=[that
+        # table]`, well under the limit. Only a "list every table" request against a project with an
+        # unusually large number of collections can hit it, and that request must not turn into one
+        # synchronous HTTP call per collection with no upper bound.
+        table_count = FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT + 1
+        tables = [f"firestore_c{index}" for index in range(table_count)]
+        responses = [
+            FakeResponse(payload={"documents": [timestamped_document("a", "2026-01-01T00:00:00Z")]})
+            for _ in range(table_count)
+        ]
+        session = FakeSession(responses, [FakeResponse(payload=TOKEN_PAYLOAD)])
+        with mock.patch(_SESSION_FACTORY, return_value=session):
+            found = get_incremental_fields(credentials(), tables)
+
+        assert len(session.requests) == FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT
+        assert list(found) == tables[:FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT]
 
 
 class TestAuthUsersPagination:

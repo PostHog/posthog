@@ -37,6 +37,14 @@ REALTIME_DATABASE_PAGE_SIZE: Final[int] = 500
 # Hard stop so an endpoint that keeps handing back a page token can't page forever.
 MAX_PAGES: Final[int] = 100_000
 
+# `get_incremental_fields` samples one collection at a time, synchronously, to build the cursor-field
+# picker. The `names` filter already bounds this to the handful of tables a sync-settings request asks
+# about, but a first-time "list every table" request passes every collection in the project, and
+# `MAX_PAGES` lets that list run into the hundreds of thousands. Past this many collections, the
+# remainder still gets listed as a table but is offered full refresh only, rather than tying up a
+# worker sampling collections one HTTP request at a time.
+FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT: Final[int] = 200
+
 REQUEST_TIMEOUT_SECONDS: Final[int] = 120
 
 # Byte caps on response bodies. The page sizes above bound the row count but not the byte count —
