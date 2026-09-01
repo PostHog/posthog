@@ -206,7 +206,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     data_warehouse: {
         icon: <IconDatabase />,
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
     link: {
         icon: <IconExternal />,

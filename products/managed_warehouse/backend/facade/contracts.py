@@ -46,6 +46,7 @@ __all__ = [
     "ServiceCredential",
     "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
+    "TrinoCompiledQuery",
 ]
 
 
@@ -298,6 +299,15 @@ class DuckLakeCompiledQuery:
     values: dict[str, Any]
     hogql: str
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+
+
+@frozen
+class TrinoCompiledQuery:
+    """A HogQL query compiled to Trino SQL with named parameter bindings."""
+
+    sql: str
+    values: dict[str, Any]
+    hogql: str
 
 
 @dataclass
