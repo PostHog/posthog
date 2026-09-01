@@ -507,13 +507,9 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # Team-scoped pool, so the org id is the constant this instance already holds. Annotate it
-        # from memory instead of joining posthog_team, which keeps `_row_matches` able to read it.
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=Value(self._team.organization_id)).filter(
-                self._filter_options({"team_id": self._team.id})
-            )
-        )
+        # No org-id annotation: this team-scoped pool is only ever matched on team_id (never
+        # team__organization_id), so `_row_matches` never reads that attribute off these rows.
+        return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
 
     @property
     def user(self) -> User:
