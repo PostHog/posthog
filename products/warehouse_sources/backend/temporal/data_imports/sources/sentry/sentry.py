@@ -15,11 +15,15 @@ from dateutil import parser as dateutil_parser
 from requests import Request, Response
 from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    CLOUDFLARE_TRANSIENT_STATUSES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -54,7 +58,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
 _MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
-_RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# Statuses tenacity retries as the single retry layer. Mirrors the adapter policy it replaces
+# (DEFAULT_RETRY) so disabling that policy on `_request_with_retry` keeps the Cloudflare 52x
+# coverage the adapter provided.
+_RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES)
 # Upper bound on a server-provided 429 wait, so a misreported Retry-After or reset header cannot
 # park a worker. Matches the shared REST client's MAX_RETRY_AFTER_SECONDS.
 _MAX_RETRY_AFTER_SECONDS = 300.0
@@ -364,7 +371,11 @@ def _request_with_retry(
     params: dict[str, Any] | None,
     timeout: int = _REQUEST_TIMEOUT,
 ) -> Response:
-    return make_tracked_session().get(url, headers=headers, params=params, timeout=timeout)
+    # The tenacity policy above is the single retry authority for these requests. Disable the
+    # session adapter's own retry policy (DEFAULT_RETRY) so a 429 or 5xx is not retried again
+    # beneath each tenacity attempt, which would multiply both the request count and the
+    # Retry-After sleeps against an endpoint that is already throttling us.
+    return make_tracked_session(retry=Retry(total=0)).get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _iter_endpoint_rows(
