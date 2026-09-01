@@ -219,6 +219,17 @@ class TestConversionWarming(APIBaseTest):
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_pool_warms_every_team(self, ensure_mock):
+        # The parallel fan-out must process every team, not just the first — a pool that dropped teams
+        # would leave them cold. Three teams, each with a precomputable goal, must all warm.
+        teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C")]
+        ids = ",".join(str(team.pk) for team in teams)
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ids}):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0}
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
     def test_touchpoints_window_reaches_back_past_attribution_window(self, ensure_mock):
         team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
         expected = PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days

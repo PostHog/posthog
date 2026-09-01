@@ -34,8 +34,12 @@ var overrides the audience (comma-separated team IDs; set it to empty to disable
 
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from typing import NamedTuple
+
+from django.db import connections
 
 import dagster
 import structlog
@@ -113,6 +117,11 @@ SELECTED_TEAM_IDS_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_IDS"
 # we want anyway.
 ACTIVE_DAYS_ENV_VAR = "MARKETING_PRECOMPUTE_ACTIVE_DAYS"
 DEFAULT_ACTIVE_DAYS = 30
+
+# Teams warmed in parallel per run. Warming is I/O-bound (ClickHouse INSERTs), so threads overlap the
+# waits; the ceiling keeps concurrent ClickHouse load and DB connections bounded. Tunable per environment.
+TEAM_CONCURRENCY_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_CONCURRENCY"
+DEFAULT_TEAM_CONCURRENCY = 8
 
 _TOUCHPOINTS_TABLE_LABEL = LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED.value
 _CONVERSIONS_TABLE_LABEL = LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED.value
@@ -264,15 +273,16 @@ def _ensure_conversions_for_team(
     context: dagster.OpExecutionContext,
     team: Team,
     config: MarketingAnalyticsConfig,
+    goals: list,
     start: datetime,
     end: datetime,
     chunk_days: int,
 ) -> tuple[int, int]:
     """Warm the per-goal conversions table over [start, end] (no attribution backfill — the conversion
     event itself must fall in-range). One lazy job per precomputable goal; ineligible goals are skipped
-    with the same rule the read path uses (is_goal_precomputable). Returns (goals_warmed, failures).
+    with the same rule the read path uses (is_goal_precomputable). `goals` are converted on the main
+    thread (see _plan_team) so this does no Django ORM. Returns (goals_warmed, failures).
     """
-    goals = convert_team_conversion_goals_to_objects(team.marketing_analytics_config.conversion_goals, team.pk)
     goals_warmed = 0
     failures = 0
     for index, goal in enumerate(goals):
@@ -353,24 +363,125 @@ def _ensure_costs_for_team(
     return warmed, failures
 
 
+class _TeamWarmPlan(NamedTuple):
+    """What to warm for one team, decided on the main thread so worker threads do no Django ORM reads.
+
+    `from_team` primes the flag + `marketing_analytics_config` caches on the `team` instance, so the
+    worker's downstream accesses (e.g. reading conversion goals) are cache hits, not queries that would
+    deadlock against the test transaction — and in production keep the parallel section to ClickHouse.
+    """
+
+    team: Team
+    config: MarketingAnalyticsConfig
+    conversion_goals: list
+    attribution_window_days: int
+    warm_costs: bool
+
+    @property
+    def warm_conversions(self) -> bool:
+        return bool(self.conversion_goals)
+
+
+def _plan_team(team: Team) -> _TeamWarmPlan | None:
+    """Main-thread setup: read config, flags and goals so worker threads do no Django ORM. None on failure.
+
+    Every DB read the warming does happens here — flag evaluation, the conversion goals, and the
+    cost-source check — so a worker thread never queries Postgres (which would deadlock against the test
+    transaction and, in production, serialise the parallel section behind DB round-trips).
+    """
+    try:
+        config = MarketingAnalyticsConfig.from_team(team)
+        ma_config = team.marketing_analytics_config
+        conversion_goals = (
+            convert_team_conversion_goals_to_objects(ma_config.conversion_goals, team.pk)
+            if config.conversion_goal_precomputation_enabled and ma_config.conversion_goals
+            else []
+        )
+        return _TeamWarmPlan(
+            team=team,
+            config=config,
+            conversion_goals=conversion_goals,
+            attribution_window_days=ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS,
+            warm_costs=bool(config.costs_precomputation_enabled and _team_has_cost_sources(team)),
+        )
+    except Exception:
+        MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="setup").inc()
+        logger.exception("marketing_precompute_setup_failed", team_id=team.pk)
+        return None
+
+
+def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: datetime) -> tuple[int, int, int]:
+    """Warm one planned team's precomputes over the rolling window.
+
+    Returns (conversion_teams, costs_teams, failures) increments. Runs in a worker thread of the op's
+    pool, so it: re-tags for query_log attribution (threads don't inherit the op's contextvars), reads no
+    Django ORM (the plan primed every cache on the main thread), contains every error (a raise would abort
+    sibling teams still in `pool.map`), and closes its thread-local connections on the way out.
+    """
+    # Pool threads don't inherit the op's query tags, so re-tag here — otherwise this team's warm INSERTs
+    # and schema introspection would be un-attributable in query_log.
+    tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
+    team = plan.team
+    conversion_teams = 0
+    costs_teams = 0
+    failures = 0
+    try:
+        # Conversions and costs are independent products behind independent flags — isolate each so a
+        # failure in one (e.g. Database.create_for on a broken warehouse source) still lets the other run.
+        if plan.warm_conversions:
+            try:
+                # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
+                # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
+                tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
+                failures += _ensure_touchpoints_for_team(context, team, tp_start, end, PRECOMPUTE_CHUNK_DAYS)
+                # Conversions need no attribution backfill — the conversion event must fall in the query range.
+                # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
+                # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
+                conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                _goals_warmed, conv_failures = _ensure_conversions_for_team(
+                    context, team, plan.config, plan.conversion_goals, conv_start, end, PRECOMPUTE_CHUNK_DAYS
+                )
+                failures += conv_failures
+                conversion_teams += 1
+            except Exception:
+                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="conversions").inc()
+                logger.exception("marketing_precompute_conversions_failed", team_id=team.pk)
+                failures += 1
+
+        if plan.warm_costs:
+            try:
+                costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                _sources_warmed, costs_failures = _ensure_costs_for_team(
+                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
+                )
+                failures += costs_failures
+                costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised
+            except Exception:
+                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="costs").inc()
+                logger.exception("marketing_precompute_costs_failed", team_id=team.pk)
+                failures += 1
+    finally:
+        connections.close_all()
+    return conversion_teams, costs_teams, failures
+
+
 @dagster.op
 def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[str, int]:
     """Drive ensure_precomputed for the marketing precompute tables over the rolling window per team.
 
-    Per team, gated on the same flags the read path checks: touchpoints + conversions when the
-    conversion precompute flag is on and the team has goals; costs when the costs precompute flag is on
-    and the team has warehouse tables. Each team's setup and each warming block is isolated: an
-    unexpected error (e.g. a broken warehouse source failing Database.create_for) is logged and counted,
-    never aborting the rest of the allowlist.
+    Teams are warmed in parallel (`_warm_team` in a thread pool, `MARKETING_PRECOMPUTE_TEAM_CONCURRENCY`
+    workers), since warming is I/O-bound on ClickHouse and the active fleet is hundreds of teams. Each
+    team is gated on the same flags the read path checks: touchpoints + conversions when the conversion
+    precompute flag is on and the team has goals; costs when the costs precompute flag is on and the team
+    has warehouse tables. Every team, and each warming block within it, is isolated — one failure never
+    aborts the rest.
 
     `conversion_teams` / `costs_teams` count teams whose block ran to completion without an unexpected
     error (flag on + its raw material present — goals / warehouse tables), symmetric to each other. They
     are not success counts: per-chunk outcomes live in `failures` and the MARKETING_PRECOMPUTE_CHUNK_*
     metrics (a block can complete having warmed zero chunks, e.g. all goals ineligible).
     """
-    # Tag every ClickHouse query this op drives (schema introspection during Database.create_for and the
-    # materialization INSERTs) so warmer-driven load is attributable in query_log, distinct from the
-    # on-read materialization the query runner triggers. The read path is tagged via its runner context.
+    # Tag the op thread too (workers re-tag themselves). Keeps any op-thread ClickHouse work attributable.
     tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
 
     end = datetime.now(UTC)
@@ -386,75 +497,37 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
         return result
 
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
+    teams = [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id]
+    if len(teams) != len(team_ids):
+        context.log.warning(f"marketing_precompute_teams_missing count={len(team_ids) - len(teams)}")
 
+    # Plan on the main thread: evaluate flags + prerequisites and prime each team's caches, so the worker
+    # threads do only ClickHouse warming (no Django ORM). Setup failures are counted here.
     failures = 0
-    processed = 0
+    plans: list[_TeamWarmPlan] = []
+    for team in teams:
+        plan = _plan_team(team)
+        if plan is None:
+            failures += 1
+        else:
+            plans.append(plan)
+
+    concurrency = int(os.getenv(TEAM_CONCURRENCY_ENV_VAR, str(DEFAULT_TEAM_CONCURRENCY)))
     conversion_teams = 0
     costs_teams = 0
-    for team_id in team_ids:
-        team = teams_by_id.get(team_id)
-        if team is None:
-            context.log.warning(f"marketing_precompute_team_missing team_id={team_id}")
-            continue
-        processed += 1
-
-        try:
-            # from_team evaluates both precompute flags once (cached on the team instance) — the same
-            # evaluation the runners use, so the warmer and read path always agree on what to precompute.
-            config = MarketingAnalyticsConfig.from_team(team)
-            ma_config = team.marketing_analytics_config
-        except Exception:
-            MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="setup").inc()
-            context.log.exception(f"marketing_precompute_setup_failed team={team_id}")
-            failures += 1
-            continue
-
-        # Conversions and costs are independent products behind independent flags — isolate each so a
-        # failure in one (e.g. Database.create_for on a broken warehouse source) still lets the other run.
-        if config.conversion_goal_precomputation_enabled and ma_config.conversion_goals:
-            try:
-                attribution_window_days = ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS
-                # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
-                # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
-                tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + attribution_window_days)
-                failures += _ensure_touchpoints_for_team(context, team, tp_start, end, PRECOMPUTE_CHUNK_DAYS)
-                # Conversions need no attribution backfill — the conversion event must fall in the query range.
-                # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
-                # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
-                conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
-                _goals_warmed, conv_failures = _ensure_conversions_for_team(
-                    context, team, config, conv_start, end, PRECOMPUTE_CHUNK_DAYS
-                )
-                failures += conv_failures
-                conversion_teams += 1
-            except Exception:
-                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="conversions").inc()
-                context.log.exception(f"marketing_precompute_conversions_failed team={team_id}")
-                failures += 1
-
-        # Symmetric with the conversions gate: costs' prerequisite "raw material" is warehouse tables
-        # (every cost adapter needs one) the way conversions' is goals. Gating here also skips the
-        # ~550ms Database.create_for for teams that can't have any cost source.
-        if config.costs_precomputation_enabled:
-            try:
-                if _team_has_cost_sources(team):
-                    costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
-                    _sources_warmed, costs_failures = _ensure_costs_for_team(
-                        context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
-                    )
-                    failures += costs_failures
-                    costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised
-            except Exception:
-                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="costs").inc()
-                context.log.exception(f"marketing_precompute_costs_failed team={team_id}")
-                failures += 1
+    if plans:
+        with ThreadPoolExecutor(max_workers=max(1, min(concurrency, len(plans))), thread_name_prefix="ma_warm") as pool:
+            for conv_inc, costs_inc, fail_inc in pool.map(lambda plan: _warm_team(context, plan, end), plans):
+                conversion_teams += conv_inc
+                costs_teams += costs_inc
+                failures += fail_inc
 
     context.log.info(
-        f"marketing_precompute_complete teams={processed} conversion_teams={conversion_teams} "
+        f"marketing_precompute_complete teams={len(teams)} conversion_teams={conversion_teams} "
         f"costs_teams={costs_teams} failures={failures}"
     )
     result = {
-        "teams": processed,
+        "teams": len(teams),
         "conversion_teams": conversion_teams,
         "costs_teams": costs_teams,
         "failures": failures,
@@ -467,9 +540,10 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
     description=(
         f"Warms the marketing analytics precompute tables ({_TOUCHPOINTS_TABLE_LABEL}, "
         f"{_CONVERSIONS_TABLE_LABEL}, {_COSTS_TABLE_LABEL}) over the trailing {PRECOMPUTE_WINDOW_DAYS} "
-        f"days for the teams in the {SELECTED_TEAM_IDS_ENV_VAR} allowlist, gated per table on the same "
-        f"precompute flags the read path checks, by driving the lazy-computation framework's "
-        f"ensure_precomputed. No-op when the allowlist is empty. Re-runs only recompute expired windows."
+        f"days for every recently-active team with a conversion goal (or the {SELECTED_TEAM_IDS_ENV_VAR} "
+        f"override), warming teams in parallel and gating per table on the same precompute flags the read "
+        f"path checks, by driving the lazy-computation framework's ensure_precomputed. Re-runs only "
+        f"recompute expired windows."
     ),
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
