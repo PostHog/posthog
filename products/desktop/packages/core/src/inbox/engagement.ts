@@ -1,6 +1,7 @@
 import type {
   InboxReportActionProperties,
   InboxReportActionSurface,
+  InboxReviewerScope,
   InboxViewedProperties,
 } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/domain-types";
@@ -44,80 +45,6 @@ export function reportAgeHours(createdAt: string | null | undefined): number {
   const ageMs = Date.now() - new Date(createdAt).getTime();
   if (!Number.isFinite(ageMs)) return 0;
   return Math.max(0, Math.round((ageMs / 3_600_000) * 10) / 10);
-}
-
-/** Live tracker snapshot for the currently-open report. */
-export interface OpenReportSnapshot {
-  reportId: string;
-  rank: number;
-  reportPriority: string | null;
-  reportActionability: string | null;
-}
-
-export type ResolvedActionProperties = Pick<
-  InboxReportActionProperties,
-  "rank" | "list_size" | "priority" | "actionability"
->;
-
-export interface ResolveActionPropertiesInput {
-  reportId: string;
-  rankOverride?: number;
-  listSizeOverride?: number;
-  priorityOverride?: string | null;
-  actionabilityOverride?: string | null;
-  openSnapshot: OpenReportSnapshot | null;
-  visibleReports: SignalReport[];
-}
-
-/**
- * Resolve rank / list_size / priority / actionability for an INBOX_REPORT_ACTION event.
- *
- * Precedence: explicit override -> live open-info snapshot (current report only) ->
- * a one-shot lookup in the visible list. Callers firing after an async mutation should
- * pass pre-mutation overrides; by then the visible list has been re-queried without the
- * affected report.
- */
-export function resolveActionProperties(
-  input: ResolveActionPropertiesInput,
-): ResolvedActionProperties {
-  const {
-    reportId,
-    rankOverride,
-    listSizeOverride,
-    priorityOverride,
-    actionabilityOverride,
-    openSnapshot,
-    visibleReports,
-  } = input;
-
-  const currentInfo =
-    openSnapshot && openSnapshot.reportId === reportId ? openSnapshot : null;
-  const matchedReport = currentInfo
-    ? null
-    : (visibleReports.find((r) => r.id === reportId) ?? null);
-
-  const rank =
-    rankOverride !== undefined
-      ? rankOverride
-      : currentInfo
-        ? currentInfo.rank
-        : visibleReports.findIndex((r) => r.id === reportId);
-  const listSize =
-    listSizeOverride !== undefined ? listSizeOverride : visibleReports.length;
-  const priority =
-    priorityOverride !== undefined
-      ? priorityOverride
-      : currentInfo
-        ? currentInfo.reportPriority
-        : (matchedReport?.priority ?? null);
-  const actionability =
-    actionabilityOverride !== undefined
-      ? actionabilityOverride
-      : currentInfo
-        ? currentInfo.reportActionability
-        : (matchedReport?.actionability ?? null);
-
-  return { rank, list_size: listSize, priority, actionability };
 }
 
 /** Bulk-capable report actions fired from the selection toolbar / dismiss flows. */
@@ -176,29 +103,19 @@ interface InboxViewedFilterStateBase {
   priorityFilter: string[];
 }
 
-export interface DesktopInboxViewedFilterState
-  extends InboxViewedFilterStateBase {
+interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "desktop";
   searchQuery: string;
-  /**
-   * True when the reviewer scope is the default ("For you"). False when the
-   * user has narrowed to a teammate or the whole project — treated as an
-   * active filter for `has_active_filters`.
-   */
-  isDefaultScope: boolean;
+  /** Canonical scope value. Teammate UUIDs must not enter analytics. */
+  scope: InboxReviewerScope;
 }
 
-export interface MobileInboxViewedFilterState
-  extends InboxViewedFilterStateBase {
+interface MobileInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "mobile";
   statusFilter: readonly string[];
   defaultStatusFilter: readonly string[];
   suggestedReviewerFilter: string[];
 }
-
-export type InboxViewedFilterState =
-  | DesktopInboxViewedFilterState
-  | MobileInboxViewedFilterState;
 
 interface BuildInboxViewedInputBase {
   /**
@@ -214,7 +131,7 @@ export type BuildInboxViewedInput =
   | (BuildInboxViewedInputBase & {
       filters: DesktopInboxViewedFilterState;
       /** Tab badge counts shown in the desktop header. */
-      tabCounts: { pulls: number; reports: number };
+      tabCounts?: { pulls: number; reports: number };
     })
   | (BuildInboxViewedInputBase & {
       filters: MobileInboxViewedFilterState;
@@ -233,7 +150,7 @@ export function buildInboxViewedProperties(
   input: BuildInboxViewedInput,
 ): InboxViewedProperties {
   const { visibleReports, totalCount, filters } = input;
-  const tabCounts = input.tabCounts ?? { pulls: 0, reports: totalCount };
+  const tabCounts = input.tabCounts;
 
   const priorityCounts = { P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, unknown: 0 };
   const actionabilityCounts = {
@@ -276,7 +193,7 @@ export function buildInboxViewedProperties(
     statusFiltered ||
     (filters.surface === "mobile" &&
       filters.suggestedReviewerFilter.length > 0) ||
-    (filters.surface === "desktop" && !filters.isDefaultScope);
+    (filters.surface === "desktop" && filters.scope !== "for-you");
 
   return {
     report_count: visibleReports.length,
@@ -299,7 +216,12 @@ export function buildInboxViewedProperties(
       actionabilityCounts.requires_human_input,
     actionability_not_actionable_count: actionabilityCounts.not_actionable,
     actionability_unknown_count: actionabilityCounts.unknown,
-    pulls_tab_count: tabCounts.pulls,
-    reports_tab_count: tabCounts.reports,
+    ...(filters.surface === "desktop" ? { scope: filters.scope } : {}),
+    ...(tabCounts
+      ? {
+          pulls_tab_count: tabCounts.pulls,
+          reports_tab_count: tabCounts.reports,
+        }
+      : {}),
   };
 }

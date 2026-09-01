@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { DEFAULT_PATTERN_MAX_INPUT_CHARS, DEFAULT_PATTERN_MAX_OUTPUT_CHARS } from './config'
-import { MASK_RULES, computeLogPattern } from './log-pattern-mask'
+import { MASK_RULES, PATTERN_VERSION, computeLogPattern } from './log-pattern-mask'
 import type { LogRecord } from './log-record-avro'
 import type { PipelineStage } from './pipeline/log-processing-pipeline'
 
@@ -49,7 +49,7 @@ export const logsPatternForcedDecodeCounter = new Counter({
 
 export const logsPatternStageErrorCounter = new Counter({
     name: 'logs_ingestion_pattern_stage_error_total',
-    help: 'Batches where the pattern masking stage threw. The records survive; only these metrics are lost.',
+    help: 'Batches where the pattern masking stage threw. The records survive. Any record the throw came before keeps its stamp, and the rest stay unstamped, which reads as version 0.',
 })
 
 const positiveIntOr = (value: number, fallback: number): number =>
@@ -63,7 +63,7 @@ export function makePatternMaskingStage(maxInputChars: number, maxOutputChars: n
         name: 'pattern_masking',
         run: (records) => {
             try {
-                measureBatch(records, inputCap, outputCap)
+                stampBatch(records, inputCap, outputCap)
             } catch {
                 logsPatternStageErrorCounter.inc()
             }
@@ -71,7 +71,7 @@ export function makePatternMaskingStage(maxInputChars: number, maxOutputChars: n
     }
 }
 
-function measureBatch(records: LogRecord[], inputCap: number, outputCap: number): void {
+function stampBatch(records: LogRecord[], inputCap: number, outputCap: number): void {
     const kindCounts = new Map<string, number>()
     const ruleFires: number[] = new Array(MASK_RULES.length).fill(0)
     let inputCapped = 0
@@ -79,6 +79,8 @@ function measureBatch(records: LogRecord[], inputCap: number, outputCap: number)
     for (const record of records) {
         const start = performance.now()
         const result = computeLogPattern(record.body, inputCap, outputCap)
+        record.pattern = result.pattern
+        record.pattern_version = PATTERN_VERSION
         logsPatternMaskingDurationHistogram.observe((performance.now() - start) / 1000)
 
         logsPatternMaskedLengthHistogram.observe(result.maskedLength)

@@ -33,6 +33,7 @@ interface InboxSignalsFilterActions {
   setSort: (field: SignalSortField, direction: SignalSortDirection) => void;
   setSearchQuery: (query: string) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
+  setSourceProductFilter: (sources: SourceProduct[]) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
   setPrFilter: (prFilter: InboxPrFilter) => void;
@@ -50,18 +51,18 @@ type InboxSignalsFilterStore = InboxSignalsFilterState &
  * list, so it does not count. This is the single definition of "filtered" used
  * by the empty states and the filter bar.
  *
- * `includePrFilter` defaults to true. Surfaces that neither apply nor expose the
- * PR filter (the legacy Reports and Pull requests tabs) pass false, so a stored
- * PR filter they ignore does not make their empty state read as "filtered".
+ * Surfaces can exclude filters they do not expose, so a stored value they
+ * ignore does not make their empty state read as "filtered".
  */
 export function hasActiveInboxFilters(
   state: InboxSignalsFilterState,
-  options?: { includePrFilter?: boolean },
+  options?: { includePrFilter?: boolean; includeSourceFilter?: boolean },
 ): boolean {
   const includePrFilter = options?.includePrFilter ?? true;
+  const includeSourceFilter = options?.includeSourceFilter ?? true;
   return (
     state.searchQuery.trim().length > 0 ||
-    state.sourceProductFilter.length > 0 ||
+    (includeSourceFilter && state.sourceProductFilter.length > 0) ||
     state.priorityFilter.length > 0 ||
     (includePrFilter && state.prFilter !== "all")
   );
@@ -92,6 +93,8 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
             : [...current, source];
           return { sourceProductFilter: next };
         }),
+      setSourceProductFilter: (sources) =>
+        set({ sourceProductFilter: Array.from(new Set(sources)) }),
       togglePriority: (priority) =>
         set((state) => {
           const current = state.priorityFilter;

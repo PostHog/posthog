@@ -4,7 +4,7 @@ import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
@@ -15,6 +15,7 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
+import { resolveScopePreset } from '@/lib/scope-preset'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
@@ -64,6 +65,9 @@ function buildBaseProperties(
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
         $mcp_auth_method: requestContext.authMethod,
+        // Which kind of caller minted this token — scout, research run, implementation run, or
+        // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
+        $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,
@@ -75,10 +79,6 @@ function buildBaseProperties(
             : {}),
         mcp_runtime: 'hono',
         mcp_vendor_client: clientIdentity.mcpVendorClient,
-        // Stamped on every event so catalog-on vs catalog-off cohorts can be split
-        // in analytics; the flag only gates instructions content, so nothing else
-        // on the event reveals whether the agent was steered toward the catalog.
-        mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }

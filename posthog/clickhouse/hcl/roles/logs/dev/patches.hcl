@@ -68,12 +68,4 @@ SQL
     }
   }
 
-  patch_materialized_view "kafka_logs34_avro_mv" {
-    modify_column "_bytes_uncompressed" {
-      type = "Nullable(Float64)"
-    }
-    modify_column "_bytes_compressed" {
-      type = "Nullable(Float64)"
-    }
-  }
 }

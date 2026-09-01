@@ -196,7 +196,7 @@ export function ImageDetailPage({
         {/* filePath drives the language mode, so this is a real YAML editor. */}
         {/* A definite height: the editor fills its parent and scrolls inside,
             so min/max alone would clip instead of scroll. */}
-        <div className="h-[380px] overflow-hidden rounded-(--radius-3) border border-(--gray-5)">
+        <div className="h-[380px] overflow-hidden rounded-(--radius-3) border border-border">
           {/* Seed from the server value, not the live-edited spec: feeding
               edits back as content would recreate the editor each keystroke
               and lose the caret. Edits are captured through onContentChange. */}

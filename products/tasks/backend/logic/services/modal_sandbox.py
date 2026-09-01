@@ -346,6 +346,7 @@ class ImageCandidate:
     image: modal.Image
     label: str
     restored_from_snapshot: bool = False
+    has_dev_stack: bool = False
     # The image is a Modal sandbox filesystem snapshot (a resume snapshot or the
     # published dev-stack image), so a boot from it needs the post-create health probe —
     # snapshot restores can come up dead with every RPC succeeding.
@@ -743,6 +744,7 @@ class ModalSandbox(AgentServerLaunchMixin):
             # when creating from the previous image fails (e.g. its overlay image build errors),
             # so a broken overlay costs the local packages, never the snapshot or custom image.
             candidates: list[ImageCandidate] = []
+            requested_dev_stack = config.is_dev_stack_image
             if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
                 overlaid_snapshot = _attach_local_package_mounts(
                     snapshot_image, config.template, install_dependencies=False
@@ -754,6 +756,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                             f"snapshot image {snapshot_external_id} with local package overlay",
                             restored_from_snapshot=True,
                             snapshot_derived=True,
+                            has_dev_stack=requested_dev_stack,
                         )
                     )
                 candidates.append(
@@ -762,6 +765,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                         f"snapshot image {snapshot_external_id}",
                         restored_from_snapshot=True,
                         snapshot_derived=True,
+                        has_dev_stack=requested_dev_stack,
                     )
                 )
             if custom_image is not None and custom_image_bare is not None:
@@ -775,6 +779,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                             custom_image,
                             f"custom image {config.custom_image_name} with local package overlay",
                             snapshot_derived=custom_is_snapshot,
+                            has_dev_stack=requested_dev_stack,
                         )
                     )
                 candidates.append(
@@ -782,6 +787,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                         custom_image_bare,
                         f"custom image {config.custom_image_name}",
                         snapshot_derived=custom_is_snapshot,
+                        has_dev_stack=requested_dev_stack,
                     )
                 )
             candidates.append(ImageCandidate(base_image, "base image"))
@@ -925,7 +931,8 @@ class ModalSandbox(AgentServerLaunchMixin):
         re-enter this chain (the wedged-restore recovery) can describe what they landed on.
         """
         for index, candidate in enumerate(candidates):
-            attempt_kwargs = {**create_kwargs, "image": candidate.image}
+            config.dev_stack_present = candidate.has_dev_stack
+            attempt_kwargs = {**create_kwargs, "image": candidate.image, **_resource_create_kwargs(config)}
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
@@ -1126,7 +1133,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
         return _ModalExecutionStream(process)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
@@ -1138,7 +1145,9 @@ class ModalSandbox(AgentServerLaunchMixin):
         try:
             self._sandbox.filesystem.write_bytes(payload, temp_path)
             mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(
+                mv_command, timeout_seconds=timeout_seconds or self.config.default_execution_timeout_seconds
+            )
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -1189,6 +1198,15 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._sandbox_url = credentials.url
 
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
+        return AgentServerResult(url=credentials.url, token=credentials.token)
+
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
+
+        credentials = self._sandbox.create_connect_token(user_metadata=user_metadata, port=port)
+
+        logger.info(f"Minted preview connect credentials for sandbox {self.id} on port {port}")
         return AgentServerResult(url=credentials.url, token=credentials.token)
 
     def _termination_failure_reason(self) -> str:

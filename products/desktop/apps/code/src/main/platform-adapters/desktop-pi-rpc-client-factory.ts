@@ -5,6 +5,7 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
+import type { TaskContext } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
@@ -52,18 +53,27 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     // Four independent round-trips: proxy URL, auth proxy, MCP config, wiki mount.
     const [baseUrl, enrichmentApiUrl, mcpConfiguration, contextWikiPath] =
       await Promise.all([
-        this.getProxyUrl(credentials.region, projectId, input.taskId),
+        this.getProxyUrl(
+          credentials.region,
+          projectId,
+          input.taskContext.taskId,
+        ),
         this.authProxy.start(access.apiHost),
         this.mcpServerSource.getMcpRuntimeConfiguration(),
         this.mountContextWiki(projectId),
       ]);
     const runtimeMcpServers = createRuntimeMcpServers(mcpConfiguration.servers);
+    const taskContext: TaskContext = {
+      projectId,
+      apiHost: access.apiHost,
+      environment: "local",
+      ...input.taskContext,
+    };
 
     return createPiRpcClient({
-      cwd: input.cwd,
       model: input.model,
       sessionFile: input.sessionFile,
-      projectTrusted: input.projectTrusted,
+      taskContext,
       enrichment: {
         apiUrl: enrichmentApiUrl,
         publicApiUrl: access.apiHost,

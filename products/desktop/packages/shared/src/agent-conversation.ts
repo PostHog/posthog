@@ -47,13 +47,13 @@ export interface AgentResourceLinkContent {
   title?: string | null;
 }
 
-export interface AgentTextResource {
+interface AgentTextResource {
   uri: string;
   mimeType?: string | null;
   text: string;
 }
 
-export interface AgentBlobResource {
+interface AgentBlobResource {
   uri: string;
   mimeType?: string | null;
   blob: string;

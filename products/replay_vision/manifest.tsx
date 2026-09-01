@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
                 'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/replay-vision',
         },
         ReplayVisionScanner: {
             name: 'Replay vision scanner',
@@ -67,6 +68,7 @@ export const manifest: ProductManifest = {
         '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
         '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
         '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+        '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
         '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
@@ -83,6 +85,7 @@ export const manifest: ProductManifest = {
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
         replayVisionTemplates: (): string => '/replay-vision/new/template',
         replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+        replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
         replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
