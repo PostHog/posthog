@@ -38,6 +38,11 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (!broadcast) {
             return <NotFound object="broadcast" />
         }
+        // Any workflow id resolves on this route, and the wizard would rewrite whatever graph it
+        // opened into a broadcast's trigger/email/exit on the next save. Only open real broadcasts.
+        if (broadcast.kind !== 'broadcast') {
+            return <NotFound object="broadcast" />
+        }
         if (broadcast.status !== 'draft') {
             return <BroadcastSummary />
         }
