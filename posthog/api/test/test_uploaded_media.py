@@ -537,13 +537,39 @@ class TestMediaLibraryAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
             assert UploadedMedia.objects.filter(id=media_id).count() == 0
 
-    def test_complete_upload_rejects_an_oversized_object(self) -> None:
+    def test_complete_upload_rejects_an_oversized_object_and_cleans_up(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload()
             object_storage.write(media_location, b"1" * (FOUR_MEGABYTES + 1))
 
             response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.filter(id=media_id).count() == 0
+
+    def test_complete_upload_stays_retryable_if_the_db_save_fails_after_copying(self) -> None:
+        """The staging object must outlive the DB write that points away from it. Deleting it
+        first would mean a save failure (a dropped connection, a deadlock) leaves the row
+        permanently pointing at a location that no longer exists — unrecoverable, since a retry
+        reads from wherever the row currently points."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, media_location = self._start_upload()
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                gif_bytes = image.read()
+            object_storage.write(media_location, gif_bytes)
+
+            with patch.object(UploadedMedia, "save", side_effect=Exception("simulated DB failure")):
+                failed_response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/"
+                )
+            assert failed_response.status_code >= 500
+            assert UploadedMedia.objects.get(id=media_id).pending is True
+
+            # Retrying without the simulated failure must still succeed — proves the staging
+            # object was never deleted out from under the still-pointing-at-it row.
+            retry_response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/"
+            )
+            self.assertEqual(retry_response.status_code, status.HTTP_200_OK, retry_response.json())
 
     def test_complete_upload_for_a_non_pending_row_returns_404(self) -> None:
         """Guards against completing (and re-validating) an already-live row twice."""

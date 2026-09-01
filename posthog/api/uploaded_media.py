@@ -365,6 +365,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError(code="upload_not_found", detail="No file was uploaded to the upload URL.")
 
         if len(content) > FOUR_MEGABYTES:
+            uploaded_media.delete()
+            object_storage.delete(uploaded_media.media_location)
             raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
 
         sniffed_content_type = sniff_image_content_type(content)
@@ -376,16 +378,22 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # The presigned POST stays valid (and thus rewritable) until it expires — moving
         # the verified bytes to a key it was never signed for is what makes a later reuse
         # of that form harmless, rather than just re-checking on every future read.
+        #
+        # Order matters for retry safety: copy, then save, then delete the staging object
+        # last. If save() fails, staging still exists and a retry re-reads from it. Deleting
+        # staging before save() commits would mean a save failure leaves the row pointing at
+        # a location that no longer exists, with no way back.
         staging_location = uploaded_media.media_location
         permanent_location = UploadedMedia.build_media_location(self.team_id, uploaded_media.pk)
         object_storage.copy(staging_location, permanent_location)
-        object_storage.delete(staging_location)
 
         uploaded_media.media_location = permanent_location
         uploaded_media.content_type = sniffed_content_type
         uploaded_media.size_bytes = len(content)
         uploaded_media.pending = False
         uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
+
+        object_storage.delete(staging_location)
 
         statsd.incr(
             "uploaded_media.uploaded",
