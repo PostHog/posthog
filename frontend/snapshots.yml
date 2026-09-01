@@ -1856,6 +1856,14 @@ snapshots:
         hash: v1.k794b7964.78d06d6c9f11d54919ad81abffe6a5d409dd1b4e7ba08a822a17485f8503617f.owccqODY_2d4-T-mAhHHfXx-rjYgbeohS0xVOLc5FXQ
     components-product-empty-state--replay-vision-needs-setup--light:
         hash: v1.k794b7964.251eee6169c98d22d57c361fdcf9747e16187d832d3ce775d93ce9418b67466a.QZzU0myILKJWAjynyGeUQybg5UwVqniqT1Q1TuT-jkE
+    components-product-empty-state--session-replay-needs-setup--dark:
+        hash: v1.k794b7964.df47e82b994f7ef3a3015ee0cc0c2744ae54badd8382b885549901d6935213a5.ZHU7jAayHU1qzdeAGgXqY9GLRexVyv7RQKamYEOzYZY
+    components-product-empty-state--session-replay-needs-setup--light:
+        hash: v1.k794b7964.f4359d8ea9ba08eb83ebcd19655f1f0772474b505b9ed557851d6a90415232c3.87yxPfiw4wvAnIuGBIupYBTSTWkpLllKEl-bg4tzxMM
+    components-product-empty-state--session-replay-waiting-for-data--dark:
+        hash: v1.k794b7964.cc8c1c17fa808feef5b537443040ff1f820bfacfd6c9a3875da35e6897747bf2.2etdmMjx52jxI4KVTTu5zVtIPwBXSuVwpgrjAu7OI14
+    components-product-empty-state--session-replay-waiting-for-data--light:
+        hash: v1.k794b7964.16cc3b59102cec6204dd171dfaa10f539ee30670ffd3d9243dd0dde38f9b937d.dR77we_J-giW8Eg7VC7LLYHrSweLA-W83Ib8GVfBtNY
     components-product-empty-state--skills-needs-setup--dark:
         hash: v1.k794b7964.7fb1bfe531cab39785cf3d98edc3fed01122cbe04f2fc10b23054648455ed423.VhFzyJUt9ckAydjv1P6BL83AKLhlKl3NRrb5fL1o2M8
     components-product-empty-state--skills-needs-setup--light:
@@ -5733,9 +5741,9 @@ snapshots:
     replay-tabs-home-success--recent-recordings--light:
         hash: v1.k794b7964.1c15c6439072ba99bc539ede94d6546436b78c44e4a026d638130a59e2bed515.RAh0r3lyA4w8xpZ1b0HeY_EBMhyx7A4GXQhD4Q1fzSA
     replay-tabs-home-success--recent-recordings-empty--dark:
-        hash: v1.k794b7964.7af42d273f62a6845cc834e1201b40750ce493f9e61d3595d8e3dd0124fb98b9.xMGDUrSSoQOsMXOuwt_whrN_drdBkS1Hcuy7Q01-C48
+        hash: v1.k794b7964.b96eb8ff3becd42ef223773f142db0fb5a5c7d743adcce158cb164940f170c20.5aj7iROHwfdLWjLstJZEx3YzsXaFoHJbn4sok-n-0XM
     replay-tabs-home-success--recent-recordings-empty--light:
-        hash: v1.k794b7964.0793b6f9179c6157206c54b391e5a5867b92d592789a268d4809af399121335c.dbuvjEe-sCNHJA8GhvTtmquD1WvzE-kxUlaoI_rMGGU
+        hash: v1.k794b7964.0c42a8397f876b6118b6003b38e691b849bccef88f7ce8b04d433149c387272c.AjQt0-zv3hc11T4bFY_chc_VTPx0aZVqQyNWKxWt4NA
     replay-tabs-home-success--recordings-play-list-no-pinned-recordings--dark:
         hash: v1.k794b7964.77abb01d4f00305236c2ebd0377e0aee47cd50743c75c68f692ae8fec111371d.iVejWxmTZ4MtP2WYTK-jLSresCBRZ-d57bcPFhoCDlc
     replay-tabs-home-success--recordings-play-list-no-pinned-recordings--light:
