@@ -161,6 +161,7 @@ describe('Hog Executor', () => {
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
+                conversionWatchers: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
