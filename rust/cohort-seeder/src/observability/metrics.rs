@@ -376,6 +376,32 @@ mod tests {
         }
     }
 
+    /// A blob no condition reads is the reading [`PROJECTION_KEYS`] exists to make visible, and it
+    /// is only visible while the ladder has a bucket that holds nothing else. Drop the `0` bound and
+    /// a chunk that read no keys and a chunk that read one both land in the first bucket, so the
+    /// series stops answering "is this team still projecting?" while still rendering.
+    #[test]
+    fn the_projection_key_ladder_separates_zero_keys_from_one() {
+        assert_eq!(
+            PROJECTION_KEYS_BUCKETS.first(),
+            Some(&0.0),
+            "the ladder no longer starts at 0, so an unread blob shares a bucket with a read one"
+        );
+        let recorder = configured_builder()
+            .expect("the configured bucket ladders are non-empty")
+            .build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            histogram!(PROJECTION_KEYS).record(0.0);
+            histogram!(PROJECTION_KEYS).record(1.0);
+        });
+        let rendered = handle.render();
+        assert!(
+            rendered.contains(&format!("{PROJECTION_KEYS}_bucket{{le=\"0\"}} 1")),
+            "the zero-key sample did not land alone in the le=0 bucket:\n{rendered}"
+        );
+    }
+
     /// The person planning timer spans a ClickHouse scan and a Postgres insert, so it must not
     /// share the scan ladder, whose 1.0s floor erases every sub-second planning pass. Two teams
     /// apart in size have to land in different buckets for the metric to say anything.

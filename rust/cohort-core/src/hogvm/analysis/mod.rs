@@ -63,14 +63,19 @@ pub enum Projection {
     FullColumns(FullColumnsReason),
 }
 
-/// Why a condition fell back to every column. The two bare-root cases are ordinary programs whose
-/// reads genuinely cannot be narrowed; [`FullColumnsReason::Unanalyzable`] is the fail-closed arm.
+/// Why a condition fell back to every column. Every case but [`FullColumnsReason::Unanalyzable`] is
+/// an ordinary program the analysis understood and still cannot narrow; that one is the fail-closed
+/// arm, where the model lost track of the program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullColumnsReason {
     /// The program passes the whole `properties` dict somewhere, for example to a function.
     BarePropertiesRoot,
     /// The program passes the whole `person` object somewhere.
     BarePersonRoot,
+    /// The program calls a native that reads how a number was spelled rather than what it is, so a
+    /// caller supplying the claimed paths from re-serialized JSON would change the answer. The read
+    /// set itself is exact; what cannot be narrowed is how it may be supplied.
+    RepresentationSensitiveCall,
     Unanalyzable(UnanalyzableReason),
 }
 
@@ -80,6 +85,7 @@ impl FullColumnsReason {
         match self {
             Self::BarePropertiesRoot => "bare_properties_root",
             Self::BarePersonRoot => "bare_person_root",
+            Self::RepresentationSensitiveCall => "representation_sensitive_call",
             Self::Unanalyzable(reason) => reason.as_str(),
         }
     }
@@ -88,6 +94,7 @@ impl FullColumnsReason {
     pub fn op(&self) -> Option<Operation> {
         match self {
             Self::Unanalyzable(reason) => reason.op(),
+            Self::RepresentationSensitiveCall => Some(Operation::CallGlobal),
             Self::BarePropertiesRoot | Self::BarePersonRoot => None,
         }
     }

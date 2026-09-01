@@ -350,6 +350,23 @@ mod tests {
         );
     }
 
+    /// The mirror image, which is what proves each blob rebuilds from its own column under its own
+    /// alias. A rebuild that read `e.properties` for both, or aliased both as `properties`, still
+    /// matches the case above and its golden.
+    #[test]
+    fn the_person_blob_rebuilds_from_its_own_column_and_alias() {
+        let projection = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Keep,
+            elements_chain: ScalarColumn::Empty,
+            properties: BlobSource::Full,
+            person_properties: BlobSource::Keys(keys(&["email", "plan"])),
+        });
+        assert_eq!(
+            select_list_of(&scan_sql(&unbanded_spec(), &projection)),
+            "toString(e.uuid) AS uuid, e.event, e.properties, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       if(JSONType(e.person_properties) != 'Object', e.person_properties, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 IN ('email', 'plan'), JSONExtractKeysAndValuesRaw(e.person_properties))), ','), '}')) AS person_properties, '' AS elements_chain"
+        );
+    }
+
     /// Property keys are customer-defined, so they reach the SQL through the same escaping the
     /// event names use — a quote would otherwise close the literal and the rest of the key would
     /// parse as SQL. The `?` doubling matters as much here: an unescaped one never reaches

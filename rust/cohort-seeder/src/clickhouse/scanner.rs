@@ -47,16 +47,21 @@ impl ChunkScanner {
         Self { client, allowlist }
     }
 
+    /// `analyses` is the run's, not the chunk's: it is a pure function of the pinned bytecode, so
+    /// every chunk of a run — and every retry of one, on any replica — narrows from the same answer.
+    /// Only [`ConditionAnalyses::projection`] is per chunk, over the conditions active on its day.
     pub async fn scan(
         &self,
         chunk: ClaimedChunk,
         run: &PinnedRun,
+        analyses: &ConditionAnalyses,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
         self.scan_at(
             chunk,
             run,
+            analyses,
             Utc::now().timestamp_millis(),
             lease_cancel,
             shutdown,
@@ -68,12 +73,13 @@ impl ChunkScanner {
         &self,
         chunk: ClaimedChunk,
         run: &PinnedRun,
+        analyses: &ConditionAnalyses,
         now_ms: i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
         match self
-            .scan_tiles(&chunk, run, now_ms, lease_cancel, shutdown)
+            .scan_tiles(&chunk, run, analyses, now_ms, lease_cancel, shutdown)
             .await
         {
             Ok((tiles, volume)) => Ok(chunk.into_scanned(tiles, volume)),
@@ -86,6 +92,7 @@ impl ChunkScanner {
         &self,
         chunk: &ClaimedChunk,
         run: &PinnedRun,
+        analyses: &ConditionAnalyses,
         now_ms: i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
@@ -111,11 +118,7 @@ impl ChunkScanner {
                 return Ok((Vec::new(), ScanVolume::default()));
             }
         };
-        // Derived per chunk rather than cached on the run: it is a pure function of the pinned
-        // bytecode, so a chunk retried on another replica derives the identical projection, and the
-        // analysis is bounded per condition rather than per run.
-        let projection =
-            ConditionAnalyses::build(&run.conditions, &run.filters).projection(&active);
+        let projection = analyses.projection(&active);
         self.record_projection(run.team_id, &projection);
 
         let mut cursor = self
@@ -183,7 +186,7 @@ fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>
     let keys = match source {
         BlobSource::Full => return,
         BlobSource::Empty => 0,
-        BlobSource::Keys(keys) => keys.len(),
+        BlobSource::Keys(keys) => keys.count(),
     };
     histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
 }
@@ -362,7 +365,8 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        plan_days, Boundary, ClaimEpoch, ConditionHash, Lookback, PlanCaps, RunId, SChunkMs,
+        plan_days, Boundary, ClaimEpoch, ColumnPlan, ConditionHash, Lookback, PlanCaps,
+        ProjectedKeys, RunId, SChunkMs, ScalarColumn,
     };
 
     const HASH: &str = "aaaaaaaaaaaaaaaa";
@@ -465,6 +469,75 @@ mod tests {
         let tiles = accumulator.into_tiles(&domain, RunId(Uuid::nil()), ClaimEpoch(1));
         assert_eq!(tiles.len(), 1);
         assert_eq!(tiles[0].count(), 1);
+    }
+
+    /// The projection metrics are the only report of what a chunk narrowed to, and a dashboard
+    /// reads them by label. This pins the three sampling rules the recorder applies, which no test
+    /// over the projection types themselves can see: a full blob takes no key sample at all, an
+    /// unread one takes a `0`, and the outcome label follows the arm.
+    ///
+    /// The recorder here is a plain one, not the configured one — which ladder
+    /// [`PROJECTION_KEYS`] renders under is `observability::metrics`'s question, and answering it
+    /// twice would let the two answers drift.
+    #[test]
+    fn the_projection_metrics_report_each_blob_by_its_own_rule() {
+        let scanner = ChunkScanner::new(
+            clickhouse::Client::default(),
+            TeamAllowlist::Only(std::collections::HashSet::from([2])),
+        );
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            scanner.record_projection(
+                TeamId(2),
+                &ChunkProjection::Projected(ColumnPlan {
+                    uuid: ScalarColumn::Empty,
+                    elements_chain: ScalarColumn::Empty,
+                    properties: BlobSource::Keys(
+                        ProjectedKeys::new(BTreeSet::from([
+                            "plan".to_string(),
+                            "utm_source".to_string(),
+                        ]))
+                        .expect("two keys are not empty"),
+                    ),
+                    person_properties: BlobSource::Empty,
+                }),
+            );
+            scanner.record_projection(TeamId(2), &ChunkProjection::FullColumns);
+        });
+        let rendered = handle.render();
+
+        for outcome in ["projected", "full_columns"] {
+            assert!(
+                rendered.contains(&format!(
+                    "{CHUNKS_PROJECTED}{{outcome=\"{outcome}\",team_id=\"2\"}} 1"
+                )),
+                "{outcome} chunk was not counted under its own label:\n{rendered}"
+            );
+        }
+        // Two keys read, and one blob read at nothing — the reading the whole change exists for.
+        assert!(
+            rendered.contains(&format!(
+                "{PROJECTION_KEYS}_sum{{blob=\"properties\",team_id=\"2\"}} 2"
+            )),
+            "the kept-key count is not the number of keys:\n{rendered}"
+        );
+        assert!(
+            rendered.contains(&format!(
+                "{PROJECTION_KEYS}_sum{{blob=\"person_properties\",team_id=\"2\"}} 0"
+            )),
+            "an unread blob did not record a zero:\n{rendered}"
+        );
+        // The wide chunk's blobs take no sample, so the two series hold one reading each rather
+        // than a sentinel that a dashboard would average in as a real key count.
+        for blob in ["properties", "person_properties"] {
+            assert!(
+                rendered.contains(&format!(
+                    "{PROJECTION_KEYS}_count{{blob=\"{blob}\",team_id=\"2\"}} 1"
+                )),
+                "{blob} took a sample from the full-columns chunk:\n{rendered}"
+            );
+        }
     }
 
     #[test]

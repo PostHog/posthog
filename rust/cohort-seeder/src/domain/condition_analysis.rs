@@ -80,9 +80,9 @@ impl ConditionClass {
             (EvaluationClass::EventOnly { .. }, Projection::FullColumns(reason))
             | (EvaluationClass::General, Projection::FullColumns(reason)) => match reason {
                 FullColumnsReason::Unanalyzable(_) => Self::Unanalyzable,
-                FullColumnsReason::BarePropertiesRoot | FullColumnsReason::BarePersonRoot => {
-                    Self::FullColumns
-                }
+                FullColumnsReason::BarePropertiesRoot
+                | FullColumnsReason::BarePersonRoot
+                | FullColumnsReason::RepresentationSensitiveCall => Self::FullColumns,
             },
             (EvaluationClass::General, Projection::Reads(_)) => Self::Projectable,
         }

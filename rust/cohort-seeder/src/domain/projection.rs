@@ -75,12 +75,11 @@ impl ProjectedKeys {
         self.0.iter().map(String::as_str)
     }
 
-    pub fn len(&self) -> usize {
+    /// How many keys the rebuild keeps, always at least one. Named `count` rather than `len`
+    /// because the pair `len`/`is_empty` would advertise an emptiness this type cannot have — see
+    /// [`ProjectedKeys::new`].
+    pub fn count(&self) -> usize {
         self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 

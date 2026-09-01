@@ -39,8 +39,19 @@ use super::person_plan::PersonPlanRequest;
 
 /// A run validated to the point of claim eligibility, by kind.
 pub(super) enum PreparedRun {
-    Behavioral(Arc<PinnedRun>),
+    Behavioral(Arc<PreparedBehavioral>),
     Person(Arc<PinnedPersonRun>),
+}
+
+/// A behavioral run and the static analysis of its conditions, which every chunk of it shares.
+///
+/// The analysis lives here rather than on the scan because it is a pure function of the pinned
+/// payload: a run's answer is the same for all of its chunks, for a chunk retried after a failure,
+/// and on whichever replica claims it. Deriving it per chunk instead would re-walk the whole
+/// condition catalog up to once per planned day per attempt, on the worker that owes the scan.
+pub(super) struct PreparedBehavioral {
+    pub(super) run: PinnedRun,
+    pub(super) analyses: ConditionAnalyses,
 }
 
 /// One refresh pass's result: the claim-eligible runs plus the person runs still needing their
@@ -90,7 +101,7 @@ pub(super) async fn refresh_runs(
         match prepare_run(pool, store, allowlist, plan_caps, reported_runs, run).await {
             PrepareOutcome::Eligible(prepared) => {
                 let run_id = match &prepared {
-                    PreparedRun::Behavioral(run) => run.run_id,
+                    PreparedRun::Behavioral(prepared) => prepared.run.run_id,
                     PreparedRun::Person(run) => run.run_id,
                 };
                 eligible.insert(run_id, prepared);
@@ -199,9 +210,10 @@ async fn prepare_behavioral(
         }
     };
     let lookback_truncated = lookback_was_truncated(&validated.run, plan_caps);
+    let analyses = ConditionAnalyses::build(&validated.run.conditions, &validated.run.filters);
     if reported_runs.insert(run_id) {
         record_pinned_warnings(&validated.warnings);
-        record_condition_census(allowlist, run_id, &validated.run);
+        record_condition_census(allowlist, run_id, &validated.run, &analyses);
         if lookback_truncated {
             counter!(LOOKBACK_TRUNCATED).increment(1);
         }
@@ -260,7 +272,10 @@ async fn prepare_behavioral(
             return PrepareOutcome::Skipped;
         }
     }
-    PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(validated.run)))
+    PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(PreparedBehavioral {
+        run: validated.run,
+        analyses,
+    })))
 }
 
 /// The person pipeline: validate the pinned payload (zero surviving hashes with an active
@@ -400,24 +415,23 @@ async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote)
     }
 }
 
-/// Publish what a static read of the run's condition bytecode found.
+/// Publish what a static read of the run's condition bytecode found: which event names a projection
+/// narrows, and what blocks the rest.
 ///
-/// The analysis is built here rather than during validation, so it runs exactly once per run per
-/// stretch: this is already behind the `reported_runs` gate, where validation is not. Validation
-/// runs every poll tick, and the decode is the one place the seeder interprets an untrusted catalog
-/// value.
-///
-/// This runs inline on the task that owes the liveness heartbeat, so its cost has to be bounded by
-/// the run rather than by the condition: nothing caps behavioral conditions on a run, and the
-/// `reported_runs` gate does not help after a restart, when every active run is new again.
-/// `ConditionAnalyses::build` gives the run's conditions one shared budget for that. The gate is
-/// still what keeps the *ordinary* cost small — the same tick already parses every discovered run's
-/// whole pinned payload during validation, which is more work than analyzing that payload once.
-///
-/// Nothing consumes the analysis yet. The point is to learn the shape of real catalogs before any
-/// scan is built on one: which event names a projection could narrow, and what blocks the rest.
-fn record_condition_census(allowlist: &TeamAllowlist, run_id: RunId, run: &PinnedRun) {
-    let census = ConditionAnalyses::build(&run.conditions, &run.filters).census(&run.conditions);
+/// Reports once per run per stretch, behind the `reported_runs` gate, while the analysis it reads is
+/// built for every eligible run on every poll tick — the scan needs it, so it cannot sit behind a
+/// report gate. That cost is bounded per run rather than per condition, which matters because
+/// nothing caps behavioral conditions on a run and this runs inline on the task that owes the
+/// liveness heartbeat: `ConditionAnalyses::build` gives the run's conditions one shared budget. The
+/// same tick already parses every discovered run's whole pinned payload during validation, which is
+/// more work than analyzing that payload once.
+fn record_condition_census(
+    allowlist: &TeamAllowlist,
+    run_id: RunId,
+    run: &PinnedRun,
+    analyses: &ConditionAnalyses,
+) {
+    let census = analyses.census(&run.conditions);
     if census.total() == 0 {
         return;
     }
