@@ -1,6 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Group, GroupTypeIndex } from '~/types'
@@ -39,17 +40,17 @@ export async function cachedFindGroups(
         return {}
     }
     const resolved: Record<string, Group | null> = {}
-    const unresolved: string[] = []
+    const unresolved = new Set<string>()
     for (const groupKey of groupKeys) {
         const k = cacheKey(teamId, groupTypeIndex, groupKey)
         if (groupLookupCache.has(k)) {
             resolved[groupKey] = groupLookupCache.get(k) ?? null
-        } else if (!unresolved.includes(groupKey)) {
-            unresolved.push(groupKey)
+        } else {
+            unresolved.add(groupKey)
         }
     }
-    for (let i = 0; i < unresolved.length; i += FIND_GROUPS_CHUNK_SIZE) {
-        const found = await findGroups(teamId, groupTypeIndex, unresolved.slice(i, i + FIND_GROUPS_CHUNK_SIZE))
+    for (const batch of chunk([...unresolved], FIND_GROUPS_CHUNK_SIZE)) {
+        const found = await findGroups(teamId, groupTypeIndex, batch)
         // Only cache a definitive result (a group, or null for a 404 miss).
         // Transient failures are absent from `found`, so we leave them uncached
         // and the next lookup retries them.

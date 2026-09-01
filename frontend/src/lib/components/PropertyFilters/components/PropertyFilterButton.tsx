@@ -19,6 +19,7 @@ import {
     formatPropertyLabel,
     groupTypeIndexForFilterKey,
     isBehavioralPropertyFilter,
+    isPropertyFilterWithOperator,
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
@@ -81,7 +82,8 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             item.key,
             item.type,
             groupTypeIndex as GroupTypeIndex | undefined,
-            groupTypes
+            groupTypes,
+            isPropertyFilterWithOperator(item) ? item.operator : undefined
         )
         const showGroupCard = groupCardTypeIndex !== null && groupKeys.length === 1
 

@@ -34,13 +34,18 @@ describe('PropertyValue', () => {
                 '/api/projects/:team/groups_types': [{ group_type: 'organization', group_type_index: 0 }],
                 '/api/environments/:team/groups/find': ({ request }) => {
                     const groupKey = new URL(request.url).searchParams.get('group_key')
-                    return groupKey === 'uuid-001'
+                    const groups: Record<string, Record<string, any>> = {
+                        'uuid-001': { name: 'Fjellride AB' },
+                        // A real group that simply has no name set
+                        'uuid-nameless': {},
+                    }
+                    return groupKey && groupKey in groups
                         ? [
                               200,
                               {
                                   group_type_index: 0,
-                                  group_key: 'uuid-001',
-                                  group_properties: { name: 'Fjellride AB' },
+                                  group_key: groupKey,
+                                  group_properties: groups[groupKey],
                                   created_at: '2024-01-01',
                               },
                           ]
@@ -322,7 +327,7 @@ describe('PropertyValue', () => {
     })
 
     it('labels an `organization_id` person filter with the organization name', async () => {
-        // A list of raw org UUIDs is unreadable, so each value is labelled with the
+        // A list of raw org UUIDs is unreadable, so each value is labeled with the
         // name of the group it resolves to, keeping the id for copying and searching.
         render(
             <Provider>
@@ -331,7 +336,7 @@ describe('PropertyValue', () => {
                     type={PropertyFilterType.Person}
                     operator={PropertyOperator.Exact}
                     onSet={jest.fn()}
-                    value={['uuid-001', 'uuid-unknown']}
+                    value={['uuid-001', 'uuid-unknown', 'uuid-nameless']}
                 />
             </Provider>
         )
@@ -339,5 +344,25 @@ describe('PropertyValue', () => {
         expect(await screen.findByText('(Fjellride AB) uuid-001')).toBeInTheDocument()
         // An id that resolves to no group keeps showing as itself.
         expect(screen.getByText('uuid-unknown')).toBeInTheDocument()
+        // So does a group with no name — `groupDisplayId` falls back to the key
+        // there, which would otherwise render the useless "(uuid) uuid".
+        expect(screen.getByText('uuid-nameless')).toBeInTheDocument()
+        expect(screen.queryByText('(uuid-nameless) uuid-nameless')).not.toBeInTheDocument()
+    })
+
+    it('does not resolve group names for an `is set` filter, whose value is a bare boolean', () => {
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="organization_id"
+                    type={PropertyFilterType.Person}
+                    operator={PropertyOperator.IsSet}
+                    onSet={jest.fn()}
+                    value={[true]}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('true')).toBeInTheDocument()
     })
 })

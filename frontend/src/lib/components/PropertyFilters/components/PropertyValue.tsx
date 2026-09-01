@@ -130,15 +130,15 @@ export function PropertyValue({
     // name and a read-only group-info card, so a list of pasted UUIDs is readable
     // and the user can confirm each one resolves to the right group. Display only
     // — it falls back to the plain value when the lookup isn't a real group key.
-    const groupCardTypeIndex = groupTypeIndexForFilterKey(propertyKey, type, groupTypeIndex, groupTypes)
+    const groupCardTypeIndex = groupTypeIndexForFilterKey(propertyKey, type, groupTypeIndex, groupTypes, operator)
     const showGroupCardOnValue = groupCardTypeIndex !== null
     const selectedValues = useMemo(
         () => (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(String),
         [value]
     )
-    const groupNames = useGroupKeyNames(groupCardTypeIndex, showGroupCardOnValue ? selectedValues : [])
-    const withGroupName = (groupKey: string): string =>
-        groupNames[groupKey] ? `(${groupNames[groupKey]}) ${groupKey}` : groupKey
+    const groupNames = useGroupKeyNames(groupCardTypeIndex, selectedValues)
+    const withGroupName = (groupKey: string, display: string = groupKey): string =>
+        groupNames[groupKey] ? `(${groupNames[groupKey]}) ${display}` : display
     const groupCardTooltip = (groupKey: string): JSX.Element => (
         <GroupKeyFilterTooltip
             groupTypeIndex={groupCardTypeIndex as GroupTypeIndex}
@@ -354,8 +354,8 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    const formattedValues = selectedValues.map((label) =>
+        String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
     if (!editable) {
@@ -363,10 +363,9 @@ export function PropertyValue({
             const displayValues = selectedValues.map((key) => groupKeyNames[key] || key)
             return <>{displayValues.join(' or ')}</>
         }
-        if (showGroupCardOnValue) {
-            return <>{selectedValues.map(withGroupName).join(' or ')}</>
-        }
-        return <>{formattedValues.join(' or ')}</>
+        // Keyed on the raw value the group lookup used, but displaying the formatted
+        // one, so decorating a value never costs it `formatPropertyValueForDisplay`.
+        return <>{formattedValues.map((v, i) => withGroupName(selectedValues[i], v)).join(' or ')}</>
     }
 
     if (isDurationProperty) {
@@ -529,10 +528,10 @@ export function PropertyValue({
                 options={[
                     ...displayOptions.map(({ name: _name }, index) => {
                         const name = toString(_name)
-                        const label = showGroupCardOnValue ? withGroupName(name) : name
+                        const groupName = showGroupCardOnValue ? groupNames[name] : undefined
                         return {
                             key: name,
-                            label,
+                            label: withGroupName(name),
                             value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                             tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
                             labelComponent: (
@@ -540,11 +539,12 @@ export function PropertyValue({
                                     key={name}
                                     data-attr={'prop-val-' + index}
                                     className="ph-no-capture flex items-center gap-1.5"
-                                    title={label}
+                                    title={withGroupName(name)}
                                 >
-                                    {showGroupCardOnValue
-                                        ? label
-                                        : formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                    {/* Prefixed rather than replaced, so the group name doesn't cost
+                                        the value its `(empty string)` marker or boolean formatting. */}
+                                    {groupName ? `(${groupName}) ` : ''}
+                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
                                 </span>
                             ),
                         }
@@ -552,9 +552,14 @@ export function PropertyValue({
                     // A pasted group id is a custom value absent from the suggestions, so add an
                     // option for each selected value to carry its name and group card on its snack.
                     ...(showGroupCardOnValue
-                        ? formattedValues
-                              .filter((v) => !displayOptions.some((o) => toString(o.name) === v))
-                              .map((v) => ({ key: v, label: withGroupName(v), tooltip: groupCardTooltip(v) }))
+                        ? selectedValues
+                              .map((raw, i) => [raw, formattedValues[i]] as const)
+                              .filter(([, v]) => !displayOptions.some((o) => toString(o.name) === v))
+                              .map(([raw, v]) => ({
+                                  key: v,
+                                  label: withGroupName(raw, v),
+                                  tooltip: groupCardTooltip(raw),
+                              }))
                         : []),
                 ]}
             />

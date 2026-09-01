@@ -86,6 +86,23 @@ describe('groupTypeIndexForFilterKey()', () => {
             groupTypeIndexForFilterKey('organization_id', PropertyFilterType.Person, undefined, new Map())
         ).toBeNull()
     })
+
+    // `is set` carries a bare `true` and the partial-match operators carry a fragment,
+    // so resolving either as a group key looks up a value that cannot exist.
+    it.each([
+        { operator: PropertyOperator.Exact, expected: 0 },
+        { operator: PropertyOperator.IsNot, expected: 0 },
+        { operator: undefined, expected: 0 },
+        { operator: PropertyOperator.IsSet, expected: null },
+        { operator: PropertyOperator.IsNotSet, expected: null },
+        { operator: PropertyOperator.IContains, expected: null },
+        { operator: PropertyOperator.NotIContains, expected: null },
+        { operator: PropertyOperator.Regex, expected: null },
+    ])('returns $expected for operator=$operator', ({ operator, expected }) => {
+        expect(
+            groupTypeIndexForFilterKey('organization_id', PropertyFilterType.Person, undefined, groupTypes, operator)
+        ).toBe(expected)
+    })
 })
 
 describe('isValidPropertyFilter()', () => {
