@@ -29,6 +29,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
+from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
@@ -125,7 +126,11 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         await _send_json(send, error.status_code, error.payload)
         return True
 
-    redis_stream = TaskRunRedisStream(get_task_run_stream_key(claims.run_id))
+    redis_stream = TaskRunRedisStream(
+        get_task_run_stream_key(claims.run_id),
+        presence_gated=claims.presence_gated,
+        origin_product=claims.origin_product,
+    )
 
     try:
         result = await _ingest_event_lines(
@@ -195,16 +200,18 @@ async def _ingest_event_lines(
             sequence = parsed_line.sequence
             event = parsed_line.event
             rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
-            stream_id = await redis_stream.write_event_with_sequence(
+            write = await redis_stream.write_event_with_sequence(
                 event,
                 sequence,
                 pending_side_effect=RTK_SAVINGS_SIDE_EFFECT if rtk_savings_properties is not None else None,
             )
             await _capture_rtk_savings_if_needed(redis_stream, claims, sequence, rtk_savings_properties)
-            if stream_id is None:
+            if not write.accepted:
                 result.duplicate += 1
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
                 continue
+            if write.skipped:
+                observe_stream_write_skipped("ingest", claims.origin_product)
 
             result.accepted += 1
             result.last_accepted_seq = sequence
