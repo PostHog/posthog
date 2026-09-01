@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from clickhouse_pool import ChPool
 
@@ -139,6 +140,21 @@ def test_get_http_kwargs_reads_file_backed_credential_fresh(monkeypatch, tmp_pat
 
     token.write_text("tok-1")  # a rotation must reach the short-lived HTTP client, not a value cached at build
     assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-1"
+
+
+def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatch, tmp_path):
+    settings.CLICKHOUSE_USE_HTTP = True
+    token = tmp_path / "token"
+    token.write_text("tok-0")
+    _file_backed_default(monkeypatch, token)
+
+    with patch.object(connection, "get_http_client") as mock_http_client:
+        connection.get_client_from_pool(Workload.ONLINE)
+
+    # The HTTP dispatch must route through get_http_kwargs so a rotated token reaches the client.
+    # Asserting the credential handed to get_http_client, not that the helper was called, keeps this
+    # green if the kwargs building is ever inlined.
+    assert mock_http_client.call_args.kwargs["password"] == "tok-0"
 
 
 def test_refreshing_pool_stamps_current_credential(tmp_path):
