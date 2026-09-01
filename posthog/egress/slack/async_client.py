@@ -6,7 +6,11 @@ from slack_sdk.http_retry.response import HttpResponse
 from slack_sdk.http_retry.state import RetryState
 from slack_sdk.web.async_client import AsyncWebClient
 
-from posthog.egress.slack.observability import record_slack_api_exception, record_slack_api_response
+from posthog.egress.slack.observability import (
+    record_slack_api_exception,
+    record_slack_api_response,
+    slack_endpoint_from_url,
+)
 
 
 class SlackAsyncObservabilityHandler(AsyncRetryHandler):
@@ -24,7 +28,7 @@ class SlackAsyncObservabilityHandler(AsyncRetryHandler):
         response: HttpResponse | None = None,
         error: Exception | None = None,
     ) -> bool:
-        endpoint = request.url.rsplit("/", 1)[-1]
+        endpoint = slack_endpoint_from_url(request.url)
         if response is not None:
             record_slack_api_response(
                 response,
