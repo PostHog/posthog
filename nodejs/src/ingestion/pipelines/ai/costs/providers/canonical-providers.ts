@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-31 20:02:44 UTC
+// Generated at: 2026-09-01 10:05:45 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -141,7 +141,6 @@ export type CanonicalProvider =
     | 'openai-default'
     | 'openai-fast'
     | 'openai-flex'
-    | 'openai-priority'
     | 'parasail-bf16'
     | 'parasail-fp16'
     | 'parasail-fp4'
