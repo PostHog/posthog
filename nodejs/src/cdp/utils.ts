@@ -4,7 +4,12 @@ import { gunzip, gzip } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { sanitizeForUTF8 } from '~/common/utils/strings'
-import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '~/common/utils/utils'
+import {
+    UUIDT,
+    castTimestampOrNow,
+    clickHouseTimestampToDateTime,
+    clickHouseTimestampToISO,
+} from '~/common/utils/utils'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { CdpInternalEvent } from './schema'
@@ -30,15 +35,18 @@ export const getPersonDisplayName = (team: Team, distinctId: string, properties:
     return (customIdentifier || String(distinctId))?.trim()
 }
 
-// A test-invocation body can carry `clickhouse_event: {}`, which is truthy but has no timestamp for
-// the converter to parse, so it throws before any Hog code runs.
+// A test-invocation body can carry a `clickhouse_event` that is not an event, such as the `{}` a
+// caller sends for an optional field it has no value for. The timestamp is the only field whose
+// absence throws, so the parse below mirrors the one in the converter.
 export function isConvertibleClickHouseEvent(event: unknown): event is RawClickHouseEvent {
-    return (
-        !!event &&
-        typeof event === 'object' &&
-        typeof (event as RawClickHouseEvent).event === 'string' &&
-        typeof (event as RawClickHouseEvent).timestamp === 'string'
-    )
+    if (!event || typeof event !== 'object') {
+        return false
+    }
+    const timestamp = (event as RawClickHouseEvent).timestamp
+    if (typeof timestamp !== 'string') {
+        return false
+    }
+    return DateTime.fromISO(timestamp).isValid || clickHouseTimestampToDateTime(timestamp).isValid
 }
 
 // that we can keep to as a contract

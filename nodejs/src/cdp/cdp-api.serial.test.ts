@@ -165,6 +165,10 @@ describe('CDP API', () => {
         ['an empty clickhouse_event', { clickhouse_event: {} }],
         ['a clickhouse_event with no timestamp', { clickhouse_event: { event: '$pageview' } }],
         ['a clickhouse_event with a numeric timestamp', { clickhouse_event: { event: '$pageview', timestamp: 1 } }],
+        [
+            'a clickhouse_event with an unparseable timestamp',
+            { clickhouse_event: { event: '$pageview', timestamp: 'not-a-date' } },
+        ],
     ])('errors if the body carries %s', async (_name, body) => {
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
@@ -174,6 +178,17 @@ describe('CDP API', () => {
         expect(res.body).toEqual({
             error: 'Missing event',
         })
+    })
+
+    it('still converts a clickhouse_event that has a timestamp but no event name', async () => {
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({
+                clickhouse_event: { uuid: new UUIDT().toString(), timestamp: '2021-09-28 14:00:00.000' },
+                mock_async_functions: true,
+            })
+
+        expect(res.status).toEqual(200)
     })
 
     it('uses the given globals when clickhouse_event carries no event', async () => {
