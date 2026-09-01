@@ -1,16 +1,15 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import {
-  applyCodexModelAccess,
-  shouldShowCodexSubscriptionControls,
-  useCodexSubscription,
-} from "@posthog/ui/features/settings/useCodexSubscription";
+  applyModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
+import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { registerCodexSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { registerAdapterSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useState } from "react";
 
@@ -18,7 +17,7 @@ const SIGN_IN_POLL_TIMEOUT_MS = 10 * 60_000 + 15_000;
 const SIGN_IN_LAUNCH_FEEDBACK_MS = 4_000;
 
 export function CodexSubscriptionSettings(): ReactElement | null {
-  const subscription = useCodexSubscription();
+  const subscription = useAdapterSubscription("codex");
   const hostTRPC = useHostTRPC();
   const queryClient = useQueryClient();
   const [awaitingLogin, setAwaitingLogin] = useState(false);
@@ -29,16 +28,19 @@ export function CodexSubscriptionSettings(): ReactElement | null {
     ...statusQuery,
     enabled: subscription.flagEnabled,
     refetchInterval: (query) =>
-      awaitingLogin && query.state.data?.appLoggedIn !== true ? 2000 : false,
+      awaitingLogin && query.state.data?.loggedIn !== true ? 2000 : false,
   });
-  const loggedIn = status?.appLoggedIn === true;
+  const loggedIn = status?.loggedIn === true;
 
   useEffect(() => {
     if (!awaitingLogin || !loggedIn) return;
     setAwaitingLogin(false);
     track(ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED);
-    applyCodexModelAccess("own-subscription", true);
-    registerCodexSubscription({ access: "own-subscription", connected: true });
+    applyModelAccess("codex", "own-subscription", true);
+    registerAdapterSubscription("codex", {
+      access: "own-subscription",
+      connected: true,
+    });
   }, [awaitingLogin, loggedIn]);
 
   const login = useMutation({
@@ -75,8 +77,8 @@ export function CodexSubscriptionSettings(): ReactElement | null {
     ...hostTRPC.agent.codexSubscriptionSignOut.mutationOptions(),
     onSuccess: () => {
       track(ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT);
-      applyCodexModelAccess("posthog-gateway", false);
-      registerCodexSubscription({
+      applyModelAccess("codex", "posthog-gateway", false);
+      registerAdapterSubscription("codex", {
         access: "posthog-gateway",
         connected: false,
       });
@@ -91,11 +93,7 @@ export function CodexSubscriptionSettings(): ReactElement | null {
     },
   });
 
-  const visible = shouldShowCodexSubscriptionControls({
-    flagEnabled: subscription.flagEnabled,
-    adapter: "codex",
-  });
-  if (!visible) {
+  if (!subscription.flagEnabled) {
     return null;
   }
 

@@ -1,9 +1,4 @@
-import type {
-  Adapter,
-  CodexModelAccess,
-  ModelAccess,
-  PostHogAPIConfig,
-} from "@posthog/shared";
+import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
@@ -70,7 +65,7 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;

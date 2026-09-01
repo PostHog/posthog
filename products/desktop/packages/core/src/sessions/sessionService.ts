@@ -24,7 +24,6 @@ import {
   type AgentSession,
   type BedrockGatewayVariant,
   type CloudRegion,
-  type CodexModelAccess,
   classifyGatewayLimitError,
   type ExecutionMode,
   flattenSelectOptions,
@@ -500,7 +499,7 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
-    codexModelAccess?: CodexModelAccess;
+    codexModelAccess?: ModelAccess;
     claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
@@ -534,13 +533,18 @@ type AuthCredentialsStatus =
   | { kind: "restoring" }
   | { kind: "missing" };
 
+export interface AdapterModelAccess {
+  codex?: ModelAccess;
+  claude?: ModelAccess;
+}
+
 export interface ConnectParams {
   task: Task;
   repoPath: string;
   initialPrompt?: ContentBlock[];
   executionMode?: ExecutionMode;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
   model?: string;
   reasoningLevel?: string;
@@ -2070,8 +2074,7 @@ export class SessionService {
           importedSessionId,
           contextWindow,
           fastMode,
-          codexModelAccess,
-          claudeModelAccess,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
       }
     } catch (error) {
@@ -2636,8 +2639,7 @@ export class SessionService {
     importedSessionId?: string,
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
-    codexModelAccess?: CodexModelAccess,
-    claudeModelAccess?: ModelAccess,
+    modelAccess?: AdapterModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2657,10 +2659,10 @@ export class SessionService {
       codexModelAccess: settingsCodexModelAccess,
       claudeModelAccess: settingsClaudeModelAccess,
     } = this.d.settings;
-    const resolvedCodexModelAccess =
-      codexModelAccess ?? settingsCodexModelAccess;
-    const resolvedClaudeModelAccess =
-      claudeModelAccess ?? settingsClaudeModelAccess;
+    const resolvedModelAccess: AdapterModelAccess = {
+      codex: modelAccess?.codex ?? settingsCodexModelAccess,
+      claude: modelAccess?.claude ?? settingsClaudeModelAccess,
+    };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2670,8 +2672,8 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
-      codexModelAccess: resolvedCodexModelAccess,
-      claudeModelAccess: resolvedClaudeModelAccess,
+      codexModelAccess: resolvedModelAccess.codex,
+      claudeModelAccess: resolvedModelAccess.claude,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2689,8 +2691,8 @@ export class SessionService {
     session.channel = result.channel;
     session.status = "connected";
     session.adapter = adapter;
-    session.codexModelAccess = resolvedCodexModelAccess;
-    session.claudeModelAccess = resolvedClaudeModelAccess;
+    session.codexModelAccess = resolvedModelAccess.codex;
+    session.claudeModelAccess = resolvedModelAccess.claude;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -6122,8 +6124,7 @@ export class SessionService {
         undefined,
         contextWindow,
         fastMode,
-        codexModelAccess,
-        claudeModelAccess,
+        { codex: codexModelAccess, claude: claudeModelAccess },
       );
       return;
     }

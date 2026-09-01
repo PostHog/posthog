@@ -5,7 +5,6 @@ import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
 import { SUBAGENT_REWRITES } from "../hooks";
-import { MACHINE_CLAUDE_CONFIG_DIR_ENV } from "../machine-config-dir";
 import {
   buildSessionOptions,
   buildSystemPrompt,
@@ -448,12 +447,15 @@ describe("buildSessionOptions", () => {
     );
   });
 
-  describe("useMachineAuth (own Claude subscription)", () => {
+  describe("machineAuth (own Claude subscription)", () => {
     const STRIPPED_KEYS = [
       "ANTHROPIC_BASE_URL",
       "ANTHROPIC_AUTH_TOKEN",
       "ANTHROPIC_API_KEY",
       "ANTHROPIC_CUSTOM_HEADERS",
+      "CLAUDE_CODE_ENABLE_TELEMETRY",
+      "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "TRACEPARENT",
     ] as const;
     const original: Partial<Record<string, string | undefined>> = {};
 
@@ -477,10 +479,10 @@ describe("buildSessionOptions", () => {
       delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
     });
 
-    it("strips ambient and gateway ANTHROPIC_* credentials and sends no x-posthog headers", () => {
+    it("strips ambient and gateway credentials and telemetry, and sends no x-posthog headers", () => {
       const env = buildSessionOptions({
         ...makeParams(),
-        useMachineAuth: true,
+        machineAuth: {},
         gatewayEnv: {
           anthropicBaseUrl: "https://gateway.example.com",
           anthropicAuthToken: "gateway-token",
@@ -498,7 +500,6 @@ describe("buildSessionOptions", () => {
       expect(env?.OPENAI_BASE_URL).toBeUndefined();
       expect(env?.OPENAI_API_KEY).toBeUndefined();
       expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("user-oauth-token");
-      expect(env?.CLAUDE_CODE_ENABLE_TELEMETRY).toBeUndefined();
       for (const [key, value] of Object.entries(env ?? {})) {
         expect(value).not.toContain("x-posthog-");
         expect(key).not.toMatch(/X-PostHog/i);
@@ -506,26 +507,21 @@ describe("buildSessionOptions", () => {
     });
 
     it.each([
-      { machineDir: undefined, expected: undefined },
-      { machineDir: "/home/me/.claude", expected: "/home/me/.claude" },
+      { configDir: undefined, expected: undefined },
+      { configDir: "/home/me/.claude", expected: "/home/me/.claude" },
     ])(
-      "runs against the machine config dir $machineDir, not the app one",
-      ({ machineDir, expected }) => {
+      "runs against the machine config dir $configDir, not the app one",
+      ({ configDir, expected }) => {
         process.env.CLAUDE_CONFIG_DIR = "/app-data/claude";
-        if (machineDir) {
-          process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV] = machineDir;
-        }
         try {
           const env = buildSessionOptions({
             ...makeParams(),
-            useMachineAuth: true,
+            machineAuth: { configDir },
           }).env;
 
           expect(env?.CLAUDE_CONFIG_DIR).toBe(expected);
-          expect(env?.[MACHINE_CLAUDE_CONFIG_DIR_ENV]).toBeUndefined();
         } finally {
           delete process.env.CLAUDE_CONFIG_DIR;
-          delete process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV];
         }
       },
     );
@@ -533,7 +529,7 @@ describe("buildSessionOptions", () => {
     it("keeps session behavior flags and the Electron node mode", () => {
       const env = buildSessionOptions({
         ...makeParams(),
-        useMachineAuth: true,
+        machineAuth: {},
       }).env;
 
       expect(env?.CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL).toBe("true");
@@ -544,7 +540,7 @@ describe("buildSessionOptions", () => {
     it("skips the pinned gateway-era fallback model", () => {
       const options = buildSessionOptions({
         ...makeParams(),
-        useMachineAuth: true,
+        machineAuth: {},
       });
 
       expect(options.fallbackModel).toBeUndefined();

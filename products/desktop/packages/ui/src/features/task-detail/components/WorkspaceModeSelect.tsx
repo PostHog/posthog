@@ -25,15 +25,8 @@ import {
   MenuLabel,
 } from "@posthog/quill";
 import type { Adapter, WorkspaceMode } from "@posthog/shared";
+import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import {
-  shouldShowClaudeSubscriptionControls,
-  useClaudeSubscription,
-} from "@posthog/ui/features/settings/useClaudeSubscription";
-import {
-  shouldShowCodexSubscriptionControls,
-  useCodexSubscription,
-} from "@posthog/ui/features/settings/useCodexSubscription";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -46,6 +39,11 @@ import { useCloudModeEnabled } from "../hooks/useCloudModeEnabled";
 import { useCloudTargetOptions } from "../hooks/useCloudTarget";
 
 export type { WorkspaceMode };
+
+const SUBSCRIPTION_IN_USE_LABEL: Record<Adapter, string> = {
+  codex: "Using Codex subscription",
+  claude: "Using Claude subscription",
+};
 
 interface WorkspaceModeSelectProps {
   value: WorkspaceMode;
@@ -96,8 +94,19 @@ export function WorkspaceModeSelect({
 }: WorkspaceModeSelectProps) {
   const { localWorkspaces } = useHostCapabilities();
   const cloudModeEnabled = useCloudModeEnabled();
-  const codexSubscription = useCodexSubscription();
-  const claudeSubscription = useClaudeSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
+  const adapterSubscription = adapter
+    ? { codex: codexSubscription, claude: claudeSubscription }[adapter]
+    : undefined;
+  const showSubscriptionControls = adapterSubscription?.flagEnabled === true;
+  const subscriptionInUseLabel =
+    adapter &&
+    showSubscriptionControls &&
+    adapterSubscription.subscriptionOn &&
+    adapterSubscription.loggedIn
+      ? SUBSCRIPTION_IN_USE_LABEL[adapter]
+      : null;
 
   const { options, favoriteKey, toggleFavorite } = useCloudTargetOptions();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -182,35 +191,13 @@ export function WorkspaceModeSelect({
         {localModes.length > 0 && (
           <div className="flex items-center justify-between px-2 py-1">
             <MenuLabel className="p-0">Local</MenuLabel>
-            {(shouldShowCodexSubscriptionControls({
-              flagEnabled: codexSubscription.flagEnabled,
-              adapter,
-            }) ||
-              shouldShowClaudeSubscriptionControls({
-                flagEnabled: claudeSubscription.flagEnabled,
-                adapter,
-              })) && (
+            {showSubscriptionControls && (
               <div className="flex items-center gap-1.5">
-                {shouldShowCodexSubscriptionControls({
-                  flagEnabled: codexSubscription.flagEnabled,
-                  adapter,
-                }) &&
-                  codexSubscription.subscriptionOn &&
-                  codexSubscription.loggedIn && (
-                    <span className="text-[11px] text-muted-foreground">
-                      Using Codex subscription
-                    </span>
-                  )}
-                {shouldShowClaudeSubscriptionControls({
-                  flagEnabled: claudeSubscription.flagEnabled,
-                  adapter,
-                }) &&
-                  claudeSubscription.subscriptionOn &&
-                  claudeSubscription.loggedIn && (
-                    <span className="text-[11px] text-muted-foreground">
-                      Using Claude subscription
-                    </span>
-                  )}
+                {subscriptionInUseLabel && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {subscriptionInUseLabel}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => {

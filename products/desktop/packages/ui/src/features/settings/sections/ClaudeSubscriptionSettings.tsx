@@ -1,21 +1,21 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import {
-  shouldShowClaudeSubscriptionControls,
-  useClaudeSubscription,
-} from "@posthog/ui/features/settings/useClaudeSubscription";
+  applyModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
+import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   type ClaudeAuthAction,
   ClaudeAuthTerminalDialog,
 } from "./ClaudeAuthTerminalDialog";
 
 export function ClaudeSubscriptionSettings(): ReactElement | null {
-  const subscription = useClaudeSubscription();
+  const subscription = useAdapterSubscription("claude");
   const hostTRPC = useHostTRPC();
   const queryClient = useQueryClient();
   const [authAction, setAuthAction] = useState<ClaudeAuthAction | null>(null);
@@ -31,14 +31,30 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     enabled: subscription.flagEnabled,
   });
   const loggedIn = status?.loggedIn === true;
+  const settled = !isPending && !isError;
 
-  const visible = shouldShowClaudeSubscriptionControls({
-    flagEnabled: subscription.flagEnabled,
-    adapter: "claude",
-  });
-  if (!visible) {
+  const lastKnownLoggedIn = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!settled) return;
+    const previous = lastKnownLoggedIn.current;
+    lastKnownLoggedIn.current = loggedIn;
+    if (previous === null || previous === loggedIn) return;
+    if (loggedIn) {
+      track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED);
+      applyModelAccess("claude", "own-subscription", true);
+      return;
+    }
+    track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT);
+    applyModelAccess("claude", "posthog-gateway", false);
+  }, [settled, loggedIn]);
+
+  if (!subscription.flagEnabled) {
     return null;
   }
+
+  const refreshStatus = (): void => {
+    void queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
+  };
 
   const summary = loggedIn
     ? "Local and worktree Claude sessions run on your Claude plan instead of PostHog credits. Cloud tasks always use PostHog credits"
@@ -67,7 +83,7 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
         />
         {statusLine.label}
       </span>
-      {!loggedIn && !isPending && !isError ? (
+      {!loggedIn && settled ? (
         <span className="text-[11px] text-muted-foreground">
           Log in here, or run claude in a terminal and use /login
         </span>
@@ -94,14 +110,7 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
           size="sm"
           loading={isFetching}
           disabled={isFetching}
-          onClick={() => {
-            void queryClient.invalidateQueries({
-              queryKey: statusQuery.queryKey,
-            });
-            if (loggedIn) {
-              track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED);
-            }
-          }}
+          onClick={refreshStatus}
         >
           Re-check
         </Button>
@@ -110,9 +119,7 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
           checked={subscription.subscriptionOn}
           onCheckedChange={(checked) => {
             subscription.setSubscriptionOn(checked === true);
-            void queryClient.invalidateQueries({
-              queryKey: statusQuery.queryKey,
-            });
+            refreshStatus();
           }}
         />
       </span>
@@ -120,11 +127,7 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
         <ClaudeAuthTerminalDialog
           action={authAction}
           onClose={() => setAuthAction(null)}
-          onFinished={() => {
-            void queryClient.invalidateQueries({
-              queryKey: statusQuery.queryKey,
-            });
-          }}
+          onFinished={refreshStatus}
         />
       ) : null}
     </SettingsCardRow>

@@ -149,8 +149,7 @@ describe("SessionService.clearSessionError retry config", () => {
       undefined,
       "1m",
       true,
-      "own-subscription",
-      "own-subscription",
+      { codex: "own-subscription", claude: "own-subscription" },
     );
   });
 

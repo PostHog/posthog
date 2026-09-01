@@ -19,6 +19,7 @@ import {
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent";
+import { machineClaudeAuth } from "@posthog/agent/adapters/claude/machine-auth";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
 import {
@@ -81,9 +82,9 @@ import {
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
-  type CodexModelAccess,
   type ExecutionMode,
   isAuthError,
+  type ModelAccess,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -293,8 +294,8 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
-  claudeModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -533,9 +534,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private codexAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
-    if (this.codexLogin) return { appLoggedIn: false };
+    if (this.codexLogin) return { loggedIn: false };
     return {
-      appLoggedIn: await hasCodexChatgptLogin({
+      loggedIn: await hasCodexChatgptLogin({
         binaryPath: this.getCodexBinaryPath(),
       }),
     };
@@ -545,6 +546,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return {
       loggedIn: await hasClaudeLogin({
         claudeCliPath: this.getClaudeCliPath(),
+        machineAuth: machineClaudeAuth(),
         logger: this.log,
       }),
     };
@@ -554,6 +556,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     const { command, env } = claudeAuthTerminalCommand(
       action,
       this.getClaudeCliPath(),
+      machineClaudeAuth(),
     );
     return {
       command,

@@ -10,7 +10,6 @@ import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
-  CodexModelAccess,
   ExecutionMode,
   ModelAccess,
   WorkspaceMode,
@@ -134,7 +133,7 @@ export interface SyncedCustomInstructions {
 
 // ---------- Store shape ----------
 
-interface SettingsStore {
+export interface SettingsStore {
   // Run mode + last-used flow defaults
   defaultRunMode: DefaultRunMode;
   lastUsedRunMode: "local" | "cloud";
@@ -284,7 +283,7 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
-  codexModelAccess: CodexModelAccess;
+  codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
@@ -292,7 +291,7 @@ interface SettingsStore {
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
-  setCodexModelAccess: (mode: CodexModelAccess) => void;
+  setCodexModelAccess: (mode: ModelAccess) => void;
   setClaudeModelAccess: (mode: ModelAccess) => void;
 
   // Terminal

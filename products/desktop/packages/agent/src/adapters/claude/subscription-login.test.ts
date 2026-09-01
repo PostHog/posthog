@@ -16,7 +16,6 @@ vi.mock("node:fs", async () => {
   return { ...actual, existsSync: vi.fn(actual.existsSync) };
 });
 
-import { MACHINE_CLAUDE_CONFIG_DIR_ENV } from "./machine-config-dir";
 import { hasClaudeLogin } from "./subscription-login";
 
 class FakeChildProcess extends EventEmitter {
@@ -65,19 +64,28 @@ describe("hasClaudeLogin", () => {
   }
 
   it("reports logged in when `claude auth status` exits 0", async () => {
-    const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude" });
+    const result = hasClaudeLogin({
+      claudeCliPath: "/bundled/claude",
+      machineAuth: {},
+    });
     exit(0);
     await expect(result).resolves.toBe(true);
   });
 
   it("reports logged out when the CLI exits non-zero", async () => {
-    const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude" });
+    const result = hasClaudeLogin({
+      claudeCliPath: "/bundled/claude",
+      machineAuth: {},
+    });
     exit(1);
     await expect(result).resolves.toBe(false);
   });
 
   it("reports logged out when the CLI cannot start", async () => {
-    const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude" });
+    const result = hasClaudeLogin({
+      claudeCliPath: "/bundled/claude",
+      machineAuth: {},
+    });
     queueMicrotask(() => child.emit("error", new Error("spawn failed")));
     await expect(result).resolves.toBe(false);
   });
@@ -85,13 +93,16 @@ describe("hasClaudeLogin", () => {
   it("reports logged out when the bundled binary is missing", async () => {
     vi.mocked(existsSync).mockReturnValue(false);
     await expect(
-      hasClaudeLogin({ claudeCliPath: "/bundled/claude" }),
+      hasClaudeLogin({ claudeCliPath: "/bundled/claude", machineAuth: {} }),
     ).resolves.toBe(false);
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
   it("spawns the bundled binary with ambient credentials stripped", async () => {
-    const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude" });
+    const result = hasClaudeLogin({
+      claudeCliPath: "/bundled/claude",
+      machineAuth: {},
+    });
     exit(0);
     await result;
 
@@ -110,17 +121,17 @@ describe("hasClaudeLogin", () => {
   });
 
   it.each([
-    { machineDir: undefined, expected: undefined },
-    { machineDir: "/home/me/.claude", expected: "/home/me/.claude" },
+    { configDir: undefined, expected: undefined },
+    { configDir: "/home/me/.claude", expected: "/home/me/.claude" },
   ])(
-    "checks the machine config dir $machineDir, not the app one",
-    async ({ machineDir, expected }) => {
+    "checks the machine config dir $configDir, not the app one",
+    async ({ configDir, expected }) => {
       process.env.CLAUDE_CONFIG_DIR = "/app-data/claude";
-      if (machineDir) {
-        process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV] = machineDir;
-      }
       try {
-        const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude" });
+        const result = hasClaudeLogin({
+          claudeCliPath: "/bundled/claude",
+          machineAuth: { configDir },
+        });
         exit(0);
         await result;
 
@@ -130,16 +141,17 @@ describe("hasClaudeLogin", () => {
           { env: NodeJS.ProcessEnv },
         ];
         expect(spawnOptions.env.CLAUDE_CONFIG_DIR).toBe(expected);
-        expect(spawnOptions.env[MACHINE_CLAUDE_CONFIG_DIR_ENV]).toBeUndefined();
       } finally {
         delete process.env.CLAUDE_CONFIG_DIR;
-        delete process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV];
       }
     },
   );
 
   it("runs a legacy cli.js through the current JS runtime", async () => {
-    const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude/cli.js" });
+    const result = hasClaudeLogin({
+      claudeCliPath: "/bundled/claude/cli.js",
+      machineAuth: {},
+    });
     exit(0);
     await result;
 
@@ -153,6 +165,7 @@ describe("hasClaudeLogin", () => {
     try {
       const result = hasClaudeLogin({
         claudeCliPath: "/bundled/claude",
+        machineAuth: {},
         timeoutMs: 100,
       });
       vi.advanceTimersByTime(200);

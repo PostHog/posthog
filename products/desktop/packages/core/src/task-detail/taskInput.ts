@@ -3,7 +3,6 @@ import type {
   Adapter,
   AgentRuntime,
   CloudMcpServerRelayDesignation,
-  CodexModelAccess,
   McpServerConnection,
   ModelAccess,
   TaskCreationInput,
@@ -23,7 +22,7 @@ export interface PrepareTaskInputOptions {
   reuseExistingWorktree?: boolean;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;

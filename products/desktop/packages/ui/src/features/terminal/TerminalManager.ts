@@ -54,7 +54,13 @@ interface TerminalInstance {
   cwd?: string;
   taskId?: string;
   command?: string;
+  commandEnv?: CommandEnv;
   recoveryPromise: Promise<void> | null;
+}
+
+export interface CommandEnv {
+  additionalEnv?: Record<string, string>;
+  unsetEnv?: string[];
 }
 
 interface CreateOptions {
@@ -239,6 +245,7 @@ class TerminalManagerImpl {
       cwd,
       taskId,
       command,
+      commandEnv: { additionalEnv, unsetEnv },
       recoveryPromise: null,
     };
 
@@ -269,10 +276,7 @@ class TerminalManagerImpl {
     instance.cleanups.push(() => exitSub.unsubscribe());
 
     // Initialize shell session
-    this.initializeSession(sessionId, instance, cwd, taskId, command, {
-      additionalEnv,
-      unsetEnv,
-    });
+    this.initializeSession(sessionId, instance);
 
     this.instances.set(sessionId, instance);
     return instance;
@@ -281,14 +285,8 @@ class TerminalManagerImpl {
   private async initializeSession(
     sessionId: string,
     instance: TerminalInstance,
-    cwd?: string,
-    taskId?: string,
-    command?: string,
-    commandEnv?: {
-      additionalEnv?: Record<string, string>;
-      unsetEnv?: string[];
-    },
   ): Promise<void> {
+    const { cwd, taskId, command, commandEnv } = instance;
     try {
       const sessionExists = await resolveService<ShellClient>(
         SHELL_CLIENT,
@@ -450,8 +448,6 @@ class TerminalManagerImpl {
     instance.recoveryPromise = this.initializeSession(
       sessionId,
       instance,
-      instance.cwd,
-      instance.taskId,
     ).finally(() => {
       instance.recoveryPromise = null;
     });

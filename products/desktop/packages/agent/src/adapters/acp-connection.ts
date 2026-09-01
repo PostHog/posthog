@@ -14,6 +14,7 @@ import {
   type StreamPair,
 } from "../utils/streams";
 import { ClaudeAcpAgent } from "./claude/claude-agent";
+import type { MachineClaudeAuth } from "./claude/machine-auth";
 import type { GatewayEnv } from "./claude/session/options";
 import { nativeCodexBinaryPath } from "./codex-app-server/binary-path";
 import { CodexAppServerAgent } from "./codex-app-server/codex-app-server-agent";
@@ -38,7 +39,7 @@ export type AcpConnectionConfig = {
   enricherEnabled?: boolean;
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
-  claudeUseMachineAuth?: boolean;
+  claudeMachineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 };
@@ -126,7 +127,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
-      useMachineAuth: config.claudeUseMachineAuth === true,
+      machineAuth: config.claudeMachineAuth,
       contextWiki: config.contextWiki,
     });
     return agent;

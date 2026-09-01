@@ -97,7 +97,7 @@ describe("Agent", () => {
     const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
       [AcpConnectionConfig],
     ];
-    expect(config.claudeUseMachineAuth).toBe(true);
+    expect(config.claudeMachineAuth).toBeDefined();
     expect(config.claudeGatewayEnv).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -121,7 +121,7 @@ describe("Agent", () => {
     const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
       [AcpConnectionConfig],
     ];
-    expect(config.claudeUseMachineAuth).toBe(false);
+    expect(config.claudeMachineAuth).toBeUndefined();
     expect(config.claudeGatewayEnv).toEqual(
       expect.objectContaining({
         anthropicBaseUrl: expect.any(String),

@@ -109,6 +109,7 @@ import {
   taskStateToPlanEntries,
 } from "./conversion/task-state";
 import type { EnrichedReadCache } from "./hooks";
+import type { MachineClaudeAuth } from "./machine-auth";
 import { createLocalToolsMcpServer } from "./mcp/local-tools";
 import {
   clearMcpToolMetadataCache,
@@ -342,7 +343,7 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
-  useMachineAuth?: boolean;
+  machineAuth?: MachineClaudeAuth;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -2782,7 +2783,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
-      useMachineAuth: this.options?.useMachineAuth,
+      machineAuth: this.options?.machineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {
