@@ -88,7 +88,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
+    get_licensed_users_available = noop
 
 
 def login_required(view):

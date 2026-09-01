@@ -58604,6 +58604,30 @@ export namespace Schemas {
       results: TrendingInsight[];
     }
 
+    export interface UploadedMedia {
+      readonly id: string;
+      /** The file's original name. */
+      readonly name: string;
+      /** @nullable */
+      readonly purpose: string | null;
+      /** @nullable */
+      readonly content_type: string | null;
+      /** @nullable */
+      readonly size_bytes: number | null;
+      /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+      readonly url: string;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedUploadedMediaList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UploadedMedia[];
+    }
+
     export interface UserGitHubAccount {
       /**
          * GitHub account type for the installation (e.g. User or Organization).
@@ -77411,6 +77435,21 @@ export namespace Schemas {
          * @nullable
          */
       mentioning_slack_user_id: string | null;
+      /**
+         * Temporal workflow id of the per-conversation mention queue (`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's messages before any run exists. Null when the workspace id cannot be resolved.
+         * @nullable
+         */
+      queue_workflow_id: string | null;
+      /**
+         * Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.
+         * @nullable
+         */
+      queue_workflow_url: string | null;
+      /**
+         * Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.
+         * @nullable
+         */
+      mapping_admin_url: string | null;
     }
 
     /**
@@ -77434,6 +77473,8 @@ export namespace Schemas {
       created_at: string;
       /** Absolute URL to the task detail page in the PostHog app. */
       url: string;
+      /** Absolute URL to the Task row in Django admin. */
+      admin_url: string;
     }
 
     /**
@@ -77492,6 +77533,8 @@ export namespace Schemas {
       log_url: string | null;
       /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
       repo_research: SlackThreadContextRepoResearch | null;
+      /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */
+      admin_url: string;
     }
 
     /**
@@ -85682,6 +85725,35 @@ export namespace Schemas {
     export interface UploadVersionRequest {
       /** Zip archive containing the Streamlit app sources (max 10 MB). */
       file: string;
+    }
+
+    export interface UploadedMediaStartUpload {
+      /**
+         * The file's display name, e.g. 'logo.png'.
+         * @maxLength 1000
+         */
+      name: string;
+      /**
+         * Library to add this image to once uploaded, e.g. 'email'.
+         * @maxLength 100
+         */
+      purpose: string;
+    }
+
+    /**
+     * Extra form fields to send alongside the file in the same POST.
+     */
+    export type UploadedMediaUploadStartedFormFields = {[key: string]: string};
+
+    export interface UploadedMediaUploadStarted {
+      /** Id of the pending upload — pass this to complete_upload. */
+      readonly id: string;
+      /** POST the image file here as multipart/form-data. */
+      readonly upload_url: string;
+      /** Extra form fields to send alongside the file in the same POST. */
+      readonly form_fields: UploadedMediaUploadStartedFormFields;
+      /** Seconds before upload_url expires. */
+      readonly expires_in: number;
     }
 
     /**
@@ -99140,6 +99212,45 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UploadedMediaListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * The library to list.
+     */
+    purpose: UploadedMediaListPurpose;
+    };
+
+    export type UploadedMediaListPurpose = typeof UploadedMediaListPurpose[keyof typeof UploadedMediaListPurpose];
+
+
+    export const UploadedMediaListPurpose = {
+      Email: 'email',
+    } as const;
+
+    /**
+     * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+     */
+    export type UploadedMediaCreateBodyPurpose = typeof UploadedMediaCreateBodyPurpose[keyof typeof UploadedMediaCreateBodyPurpose];
+
+
+    export const UploadedMediaCreateBodyPurpose = {
+      Email: 'email',
+    } as const;
+
+    export type UploadedMediaCreateBody = {
+      /** Image file. Must be under 4MB and a real, decodable image. */
+      image: Blob;
+      /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+      purpose?: UploadedMediaCreateBodyPurpose;
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
