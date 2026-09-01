@@ -259,6 +259,13 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
+        },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
             "examples": [
@@ -287,7 +294,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -2013,6 +2021,17 @@
             "label": "Issue name",
             "type": "String"
         },
+        "$issue_severity": {
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "label": "Issue severity",
+            "type": "String"
+        },
         "$last_posthog_reset": {
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
@@ -3273,12 +3292,12 @@
             "used_for_debug": true
         },
         "$set": {
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
         "$set_once": {
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },
@@ -4838,6 +4857,13 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
+        },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
             "examples": [
@@ -4866,7 +4892,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -7004,6 +7031,17 @@
             "label": "Issue name",
             "type": "String"
         },
+        "$issue_severity": {
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "label": "Issue severity",
+            "type": "String"
+        },
         "$last_posthog_reset": {
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
@@ -8270,12 +8308,12 @@
             "used_for_debug": true
         },
         "$set": {
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
         "$set_once": {
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },

@@ -21,24 +21,24 @@ export const DEFAULT_CANVAS_LIST_SETTINGS: CanvasListSettings = {
   grouping: DEFAULT_CANVAS_LIST_GROUPING,
 };
 
-export interface CanvasListSpace {
+interface CanvasListSpace {
   id: string;
   name: string;
   channelType: "public" | "personal";
 }
 
-export interface CanvasListUser {
+interface CanvasListUser {
   uuid: string;
   name: string;
 }
 
-export interface CanvasCreatorOption {
+interface CanvasCreatorOption {
   value: string | null;
   label: string;
   searchLabel?: string;
 }
 
-export interface CanvasListSection {
+interface CanvasListSection {
   key: string;
   label: string | null;
   canvases: DashboardRecord[];

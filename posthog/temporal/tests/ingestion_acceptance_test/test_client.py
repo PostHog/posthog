@@ -51,6 +51,22 @@ class TestCaptureEvent:
             uuid=event_uuid,
         )
 
+    def test_captured_events_are_tracked_per_test_and_cleared_when_taken(
+        self, client: PostHogClient, mock_posthog_sdk: MagicMock
+    ) -> None:
+        event_uuid = client.capture_event(event_name="$test", distinct_id="user_1")
+        alias_uuid = client.alias("alias_1", "user_1")
+        merge_uuid = client.merge_dangerously("user_1", "user_2")
+
+        captured = client.take_captured_events()
+
+        assert [(c.uuid, c.event, c.distinct_id) for c in captured] == [
+            (event_uuid, "$test", "user_1"),
+            (alias_uuid, "$create_alias", "user_1"),
+            (merge_uuid, "$merge_dangerously", "user_1"),
+        ]
+        assert client.take_captured_events() == []
+
     def test_uses_empty_dict_when_no_properties(self, client: PostHogClient, mock_posthog_sdk: MagicMock) -> None:
         client.capture_event(event_name="test_event", distinct_id="user_123")
 

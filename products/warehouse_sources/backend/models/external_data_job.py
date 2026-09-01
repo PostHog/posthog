@@ -1,12 +1,14 @@
+from collections.abc import Collection
 from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Prefetch
+from django.db.models import OuterRef, Prefetch, Subquery
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
 
 
@@ -55,6 +57,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["updated_at"],
                 name="idx_extdatajob_updated_at",
             ),
+            # Serves the rows-synced aggregates (usage report, source health): equality on
+            # pipeline/status with a finished_at range. Without it the FK index walks every
+            # job for the pipeline and filters most of them out.
+            models.Index(
+                fields=["pipeline", "status", "finished_at"],
+                name="idx_extdatajob_pipe_stat_fin",
+            ),
         ]
 
     def folder_path(self) -> str:
@@ -77,6 +86,34 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
+
+
+def latest_completed_job_prefetch(
+    team_id: int, lookup: str, to_attr: str, source_ids: Collection[UUID | str] | None = None
+) -> Prefetch:
+    """Prefetch each source's newest completed job as a one-element list on `to_attr`.
+
+    Do not replace this with a sliced prefetch queryset (`order_by("-created_at")[:1]`). Django
+    compiles that to a ROW_NUMBER window over every completed job of every listed source, so
+    Postgres reads and sorts the team's whole job history to keep one row per source. Selecting
+    each source's newest job id in a correlated subquery costs one index probe per source.
+
+    The probes run for every live source of the team unless `source_ids` narrows them, because a
+    prefetch queryset cannot see which parent rows it is loaded for.
+    """
+    sources = ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
+    if source_ids is not None:
+        sources = sources.filter(id__in=source_ids)
+    latest_job_ids = sources.values(
+        latest_job_id=Subquery(
+            ExternalDataJob.objects.filter(
+                pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED
+            )
+            .order_by("-created_at")
+            .values("id")[:1]
+        )
+    )
+    return Prefetch(lookup, queryset=ExternalDataJob.objects.filter(id__in=latest_job_ids), to_attr=to_attr)
 
 
 @database_sync_to_async

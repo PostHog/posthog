@@ -448,6 +448,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "activity_score": ANY,
                 "external_references": [],
                 "matches_filters": True,
+                "total_size": None,
+                "event_count": None,
             },
         ]
 
@@ -799,6 +801,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "activity_score": None,
             "external_references": [],
             "matches_filters": True,
+            "total_size": 0,
+            "event_count": 0,
         }
 
     def test_single_session_recording_clamps_negative_inactive_seconds(self):

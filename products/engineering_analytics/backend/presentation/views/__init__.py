@@ -12,6 +12,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     EngineeringAnalyticsViewSetBase,
 )
 from products.engineering_analytics.backend.presentation.views.ci_signals import CISignalsConfigMixin
+from products.engineering_analytics.backend.presentation.views.dora import DoraActionsMixin
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
 from products.engineering_analytics.backend.presentation.views.suite_health import SuiteHealthActionsMixin
@@ -27,6 +28,7 @@ class EngineeringAnalyticsViewSet(
     WorkflowActionsMixin,
     SuiteHealthActionsMixin,
     TeamActionsMixin,
+    DoraActionsMixin,
     EngineeringAnalyticsViewSetBase,
 ):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
@@ -40,6 +42,7 @@ class EngineeringAnalyticsViewSet(
         *WorkflowActionsMixin.READ_ACTIONS,
         *SuiteHealthActionsMixin.READ_ACTIONS,
         *TeamActionsMixin.READ_ACTIONS,
+        *DoraActionsMixin.READ_ACTIONS,
     ]
     scope_object_write_actions: list[str] = [
         *CISignalsConfigMixin.WRITE_ACTIONS,

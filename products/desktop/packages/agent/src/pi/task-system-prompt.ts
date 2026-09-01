@@ -36,11 +36,16 @@ export function buildTaskContextPrompt(taskId: string): string {
 This is task ${taskId}. Keep material provided as task context, including customer conversations, support tickets, logs, and internal threads, out of code, tests, comments, commit messages, and pull request text. Rewriting or anonymizing that material does not make it safe to publish.`;
 }
 
-export function buildLocalAttributionPrompt(taskId: string): string {
-  return `## Attribution
-Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
-
-Instead, add the following trailers to EVERY commit message (after a blank line at the end):
+export function buildAttributionPrompt(
+  taskId: string,
+  environment: TaskContext["environment"],
+): string {
+  const commitInstructions =
+    environment === "cloud"
+      ? `In cloud tasks, call \`git_signed_commit\` to create commits. It automatically adds these trailers:
+  Generated-By: PostHog Desktop
+  Task-Id: ${taskId}`
+      : `Add the following trailers to every commit message after a blank line:
   Generated-By: PostHog Desktop
   Task-Id: ${taskId}
 
@@ -53,7 +58,12 @@ Generated-By: PostHog Desktop
 Task-Id: ${taskId}
 EOF
 )"
-\`\`\`
+\`\`\``;
+
+  return `## Attribution
+Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
+
+${commitInstructions}
 
 When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
 
@@ -62,6 +72,10 @@ When creating pull requests, add the following footer at the end of the PR descr
 ---
 *Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
 \`\`\``;
+}
+
+export function buildLocalAttributionPrompt(taskId: string): string {
+  return buildAttributionPrompt(taskId, "local");
 }
 
 export function buildQuestionsPrompt(
@@ -134,11 +148,8 @@ export function buildTaskSystemPrompt(
     buildTaskContextPrompt(context.taskId),
   ];
 
-  if (context.environment === "local") {
-    sections.push(buildLocalAttributionPrompt(context.taskId));
-  }
-
   sections.push(
+    buildAttributionPrompt(context.taskId, context.environment),
     buildQuestionsPrompt(capabilities.structuredInput === true),
     buildPullRequestLinksPrompt(),
     buildShellEfficiencyPrompt(),

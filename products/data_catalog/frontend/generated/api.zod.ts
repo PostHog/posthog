@@ -18,8 +18,8 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.uuid().optional().describe('Warehouse table id to certify (XOR the other targets).'),
         saved_query_id: zod.uuid().optional().describe('Warehouse view (saved query) id to certify.'),
-        table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
-        view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
+        table_name: zod.string().optional().describe('Queryable HogQL table name; 409 with candidates if ambiguous.'),
+        view_name: zod.string().optional().describe('Queryable HogQL view name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
         proposed_status: zod
             .enum(['certified', 'deprecated'])

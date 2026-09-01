@@ -163,6 +163,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
+    "RealTimeUsage": {"product": Product.BILLING, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -277,6 +278,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
@@ -297,6 +299,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+            | NodeKind.MCP_MISSING_CAPABILITIES_QUERY
         ):
             return {"product": Product.MCP_ANALYTICS}
         case (

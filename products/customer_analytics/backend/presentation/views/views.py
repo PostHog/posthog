@@ -45,6 +45,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
+    TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_authenticator_scopes,
@@ -2475,8 +2476,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
 
     scope_object = "account"
     scope_object_read_actions = ["list"]
-    # Same gate as IntegrationViewSet: any member can read status, starting a run needs admin.
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [TeamMemberAccessPermission]
     serializer_class = CalendarSyncTriggerSerializer
     pagination_class = None  # a team connects a handful of calendars — nothing to paginate
     queryset = None  # no model — state lives in integration config, reached through the facade
@@ -2494,7 +2494,17 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="sync_now")
     def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        result = api.trigger_calendar_sync(self.team_id, request.validated_data["integration_id"])
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        try:
+            result = api.trigger_calendar_sync(
+                self.team_id,
+                request.validated_data["integration_id"],
+                user_id=getattr(request.user, "id", None),
+                has_management_access=has_management_access,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied("Only the person who connected this Google account or a project admin can sync it.")
         if result is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)
