@@ -399,6 +399,33 @@ def test_the_janitor_leaves_unknown_dictionaries_alone(cluster: ClickhouseCluste
 
 
 @pytest.mark.django_db
+def test_the_janitor_reaps_past_a_run_it_cannot_reap(cluster: ClickhouseCluster, persons_database):
+    # One unreapable run must not shadow the later ones, or they stay stranded on every sweep.
+    instance = dagster.DagsterInstance.ephemeral()
+    dead_a = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.FAILURE)
+    dead_b = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.FAILURE)
+    first, second = sorted([dead_a.run_id, dead_b.run_id])
+    dict_first = _foreign_run_dictionary(cluster, first)
+    _foreign_run_dictionary(cluster, second)
+
+    real = clickhouse_cleanup._kill_and_drop_run_assets
+
+    def fail_on_first(cluster_arg, run_id):
+        if run_id == first.replace("-", "_"):
+            raise RuntimeError("unreapable")
+        return real(cluster_arg, run_id)
+
+    try:
+        with patch.object(clickhouse_cleanup, "_kill_and_drop_run_assets", side_effect=fail_on_first):
+            result = run_job(cluster, persons_database, instance=instance)
+        assert result.success
+        assert cluster.any_host(dictionaries_for_run(second)).result() == 0
+        assert cluster.any_host(dictionaries_for_run(first)).result() == 1
+    finally:
+        cluster.map_all_hosts(dict_first.drop).result()
+
+
+@pytest.mark.django_db
 def test_the_janitor_kills_a_stranded_runs_mutations_before_dropping(
     cluster: ClickhouseCluster, persons_database, monkeypatch
 ):

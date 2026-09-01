@@ -1223,7 +1223,12 @@ def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: Click
             if stranded_run.status not in _TERMINAL_RUN_STATUSES:
                 continue
             context.log.warning("reaping stranded assets of finished run %s", run_id)
-            _kill_and_drop_run_assets(cluster, run_id)
+            try:
+                _kill_and_drop_run_assets(cluster, run_id)
+            except Exception:
+                # One unreapable run must not shadow the later ones, or block them forever.
+                context.log.exception("failed to reap run %s", run_id)
+                continue
             reaped.append(run_id)
 
         if reaped:
