@@ -245,6 +245,26 @@ describe("ReportVerdictBanner", () => {
     expect(createPrReport).not.toHaveBeenCalled();
   });
 
+  it("withholds Create PR when the task lookup failed", () => {
+    // An unresolved lookup cannot rule out live implementation work, so offering
+    // Create PR here would bill a second agent PR on work that already has one.
+    useReportTasks.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    });
+
+    render(
+      <ReportVerdictBanner
+        report={{ ...report, actionability: "immediately_actionable" }}
+        variant="triage-actions"
+        surface="triage"
+      />,
+    );
+
+    expect(screen.queryByText("Create PR")).not.toBeInTheDocument();
+  });
+
   it("keeps triage direction before creating the implementation task", async () => {
     const user = userEvent.setup();
     render(

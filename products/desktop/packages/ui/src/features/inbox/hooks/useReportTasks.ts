@@ -1,3 +1,5 @@
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import type {
   SignalReportStatus,
@@ -59,6 +61,62 @@ const PURPOSE_ORDER: ReportTaskPurpose[] = [
   "other",
 ];
 
+type ReportTaskClient = Pick<
+  PostHogAPIClient,
+  "getSignalReportArtefacts" | "getTask"
+>;
+
+export async function fetchReportTasks(
+  client: ReportTaskClient,
+  reportId: string,
+): Promise<ReportTaskData[]> {
+  // task_run artefacts ARE the task↔report association — one entry per associated task,
+  // keyed by content.task_id (earliest artefact wins for startedAt). The runtime `type`
+  // check is authoritative (the generic fallback artefact keeps `type: string` and
+  // defeats static narrowing).
+  const artefacts = await client.getSignalReportArtefacts(reportId);
+  const taskRunByTaskId = new Map<
+    string,
+    { product: string; type: string; startedAt: string }
+  >();
+  for (const artefact of artefacts.results) {
+    if (artefact.type !== "task_run") continue;
+    const content = artefact.content as TaskRunArtefactContent;
+    const existing = taskRunByTaskId.get(content.task_id);
+    if (existing && existing.startedAt <= artefact.created_at) continue;
+    taskRunByTaskId.set(content.task_id, {
+      product: content.product,
+      type: content.type,
+      startedAt: artefact.created_at,
+    });
+  }
+
+  const relevant = [...taskRunByTaskId.entries()].flatMap(([taskId, run]) => {
+    const derived = derivePurpose(run);
+    return derived ? [{ taskId, startedAt: run.startedAt, ...derived }] : [];
+  });
+
+  const tasks = await Promise.all(
+    relevant.map(async ({ taskId, startedAt, purpose, purposeLabel }) => {
+      // Nothing deletes the artefact when its task goes, so a deleted task leaves a
+      // dangling pointer here. Drop that one row: failing the whole fetch would empty
+      // the Runs list and read downstream as "no implementation task", which unlocks
+      // the duplicate-PR action. Any other error still fails the query.
+      const task = await client.getTask(taskId).catch((error: unknown) => {
+        if (requestErrorStatus(error) === 404) return null;
+        throw error;
+      });
+      return task ? { task, purpose, purposeLabel, startedAt } : null;
+    }),
+  );
+  return tasks
+    .filter((task) => task !== null)
+    .sort(
+      (a, b) =>
+        PURPOSE_ORDER.indexOf(a.purpose) - PURPOSE_ORDER.indexOf(b.purpose),
+    );
+}
+
 export function useReportTasks(
   reportId: string,
   reportStatus: SignalReportStatus,
@@ -70,53 +128,7 @@ export function useReportTasks(
 
   return useAuthenticatedQuery<ReportTaskData[]>(
     ["inbox", "report-tasks", reportId],
-    async (client) => {
-      // task_run artefacts ARE the task↔report association — one entry per associated task,
-      // keyed by content.task_id (earliest artefact wins for startedAt). The runtime `type`
-      // check is authoritative (the generic fallback artefact keeps `type: string` and
-      // defeats static narrowing).
-      const artefacts = await client.getSignalReportArtefacts(reportId);
-      const taskRunByTaskId = new Map<
-        string,
-        { product: string; type: string; startedAt: string }
-      >();
-      for (const artefact of artefacts.results) {
-        if (artefact.type !== "task_run") continue;
-        const content = artefact.content as TaskRunArtefactContent;
-        const existing = taskRunByTaskId.get(content.task_id);
-        if (existing && existing.startedAt <= artefact.created_at) continue;
-        taskRunByTaskId.set(content.task_id, {
-          product: content.product,
-          type: content.type,
-          startedAt: artefact.created_at,
-        });
-      }
-
-      const relevant = [...taskRunByTaskId.entries()].flatMap(
-        ([taskId, run]) => {
-          const derived = derivePurpose(run);
-          return derived
-            ? [{ taskId, startedAt: run.startedAt, ...derived }]
-            : [];
-        },
-      );
-
-      const tasks = await Promise.all(
-        relevant.map(async ({ taskId, startedAt, purpose, purposeLabel }) => {
-          const task = await client.getTask(taskId);
-          return {
-            task,
-            purpose,
-            purposeLabel,
-            startedAt,
-          };
-        }),
-      );
-      return tasks.sort(
-        (a, b) =>
-          PURPOSE_ORDER.indexOf(a.purpose) - PURPOSE_ORDER.indexOf(b.purpose),
-      );
-    },
+    (client) => fetchReportTasks(client, reportId),
     {
       enabled: !!reportId,
       staleTime: isActive ? 5_000 : 10_000,
