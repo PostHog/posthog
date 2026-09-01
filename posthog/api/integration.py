@@ -152,11 +152,12 @@ class SlackIntegrationMissingScopeError(SlackIntegrationInactiveError):
 
 
 class SlackIntegrationTransientError(APIException):
-    # Slack failed on its side, not the install. A 503 with picker copy that says try again keeps
-    # the channel picker from dead-ending on a bare "server error" toast when Slack blips.
+    # Slack failed on its side, not the install. A 503 with copy that says try again keeps the
+    # channel and member pickers from dead-ending on a bare "server error" toast when Slack blips.
+    # The copy names no resource because both pickers reach this through the same reraise helper.
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "slack_integration_transient"
-    default_detail = "Slack couldn't load your channels just now. Wait a moment and try again."
+    default_detail = "Slack ran into a problem just now. Wait a moment and try again."
 
 
 def _reraise_slack_users_api_error(error: SlackApiError) -> NoReturn:
