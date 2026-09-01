@@ -53,6 +53,15 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Meta:
         unique_together = ("team", "short_id")
         db_table = "posthog_notebook"
+        indexes = [
+            # The notebook list reads live, default-visibility notebooks for one team,
+            # ordered by most recently modified.
+            models.Index(
+                fields=["team", "-last_modified_at"],
+                name="notebook_team_modified_idx",
+                condition=models.Q(deleted=False, visibility="default"),
+            ),
+        ]
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
