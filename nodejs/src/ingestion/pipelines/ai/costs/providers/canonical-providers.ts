@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-28 14:00:55 UTC
+// Generated at: 2026-09-01 10:05:45 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -42,7 +42,6 @@ export type CanonicalProvider =
     | 'chutes-mxfp4'
     | 'claude-on-aws'
     | 'cloudflare'
-    | 'cloudflare-fast'
     | 'cloudflare-fp8'
     | 'cohere'
     | 'coreweave-bf16'
@@ -99,8 +98,6 @@ export type CanonicalProvider =
     | 'ionstream-fp4'
     | 'liquid-fp8'
     | 'makora'
-    | 'makora-fp4'
-    | 'makora-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -111,9 +108,9 @@ export type CanonicalProvider =
     | 'mistral'
     | 'mistral-eu'
     | 'mistral-zdr'
+    | 'modal'
     | 'modal-fp8'
     | 'modal-mxfp4'
-    | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
@@ -139,13 +136,11 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-nvfp4'
-    | 'open-inference-bf16'
-    | 'open-inference-fp4'
+    | 'open-inference-fp8'
     | 'openai'
     | 'openai-default'
     | 'openai-fast'
     | 'openai-flex'
-    | 'openai-priority'
     | 'parasail-bf16'
     | 'parasail-fp16'
     | 'parasail-fp4'

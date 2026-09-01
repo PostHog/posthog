@@ -73,6 +73,11 @@ _HOST_IS_URL_ERROR = (
     "password, port, or path."
 )
 
+_HOST_HAS_PORT_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com). Put the port number "
+    "in the port field instead."
+)
+
 # ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
 # route to. The common cause is a host that only accepts IPv6 (PostHog egresses over IPv4) — for
 # example a Supabase direct-connection host — or a firewall dropping PostHog's IPs. Deterministic
@@ -1210,6 +1215,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # credentials). Catch it early with an actionable message that never reflects the input.
         if "://" in config.host:
             return False, _HOST_IS_URL_ERROR
+
+        # A bare "host:port" pasted into the host field (no scheme, so the URL guard above misses it)
+        # otherwise fails DNS with a confusing "check the spelling" message that echoes the value
+        # back. A bare IPv6 literal has several colons, so guard only the single-colon host:port shape.
+        host_value = config.host.strip()
+        if host_value.count(":") == 1 and not host_value.startswith("["):
+            return False, _HOST_HAS_PORT_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)

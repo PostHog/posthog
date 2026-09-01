@@ -25,7 +25,7 @@ import { useCallback, useState } from "react";
 const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
 const GRAVATAR_IMAGE_SIZE = 144;
 
-export type ProfilePictureStatus = "unknown" | "found" | "missing";
+type ProfilePictureStatus = "unknown" | "found" | "missing";
 
 interface ProfilePictureRowProps {
   user: AvatarPerson;
@@ -61,7 +61,7 @@ function probeStatus(result: ImageProbeResult): ProfilePictureStatus {
   }
 }
 
-export function ProfilePictureRow({
+function ProfilePictureRow({
   user,
   imageUrl,
   status,

@@ -424,7 +424,6 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     hasSessionPromptEventForTaskRun: mockHasSessionPromptEventForTaskRun,
     isAbsoluteFolderPath: actual.isAbsoluteFolderPath,
     isFatalSessionError: actual.isFatalSessionError,
-    isRateLimitError: actual.isRateLimitError,
     isSteerPromptParams: actual.isSteerPromptParams,
     isTurnCompleteEvent: actual.isTurnCompleteEvent,
     normalizePromptToBlocks: vi.fn((p) =>

@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
 import {
+    clearPendingVerificationEmail,
     isValidVerificationCode,
     normalizeVerificationCode,
     verificationCodeErrorMessage,
@@ -217,6 +218,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             token,
                             uuid,
                         })
+                        clearPendingVerificationEmail()
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
                         redirectAfterVerification(response, values)
@@ -254,6 +256,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             uuid,
                             code,
                         })
+                        clearPendingVerificationEmail()
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
                         redirectAfterVerification(response, values)
