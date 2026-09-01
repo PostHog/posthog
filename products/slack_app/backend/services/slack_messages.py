@@ -562,8 +562,8 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     return context_block(" · ".join(segments))
 
 
-def reply_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
-    """The reply menu as a standalone block, for replies with no section to hang it on.
+def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
+    """The fork menu as a standalone block, for replies with no section to hang it on.
 
     A streamed answer arrives as markdown chunks and the chart delivery puts the answer
     in the card message, so neither has a `section` whose accessory the menu could be.
@@ -572,84 +572,71 @@ def reply_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
     return {"type": "actions", "elements": [element]}
 
 
-# The wire value predates the menu carrying anything but the fork, and messages already
-# posted still send it, so it stays as it is.
-REPLY_MENU_ACTION_ID = "slack_app_fork_thread"
-
-# Which entry of the menu was picked. An option posted before this field existed carries
-# no `action` at all, which every reader of the value treats as the fork.
-REPLY_MENU_FORK = "fork"
-REPLY_MENU_FEEDBACK = "feedback"
+FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
 
 
-# Slack rejects an overflow whose option value runs past this, and it rejects the whole
-# `blocks` payload with it — the message then falls back to plain text and loses its footer
-# too. So an option value carries the least that identifies what was picked: the run, and
-# nothing derivable from it.
-_MENU_OPTION_VALUE_LIMIT = 150
-
-
-def reply_menu_element(
-    integration_id: int,
-    *,
-    include_fork: bool,
-    feedback_run_id: str | None = None,
-) -> dict[str, Any] | None:
-    """The overflow menu the footer carries as its accessory, or `None` when it would be empty.
+def fork_menu_element(integration_id: int) -> dict[str, Any]:
+    """The overflow menu the footer carries as its accessory.
 
     An overflow renders as a bare "…" with no label, which is as close to invisible as
-    an interactive element gets — the answer above it is what the reader came for. It is
-    also where each new thing a reader can do with a reply goes, instead of the reply
-    growing another control.
+    an interactive element gets — the answer above it is what the reader came for. It
+    also has somewhere to put the next destination ("fork to a channel") without
+    growing a second control.
 
     Returned as a bare element rather than wrapped in an `actions` block so it can be a
     `section` accessory, which is what puts it on the footer's own line. Slack offers no
     inline interactive element, so an accessory — right-aligned beside the text — is as
     close to trailing the footer as Block Kit gets.
 
-    Every option value carries the integration so the cross-region interactivity router
-    can tell whose click this is. The rating options carry the run they are about, and
-    only that — the task is read back from the run row, and the channel and thread the
-    reply sits in ride on the `block_actions` payload.
+    The option value carries the integration so the cross-region interactivity router
+    can tell whose click this is. Everything else the fork needs — the channel, and the
+    thread the reply is sitting in — rides on the `block_actions` payload.
     """
-    options: list[dict[str, Any]] = []
-    if feedback_run_id:
-        target = {
-            "integration_id": integration_id,
-            "action": REPLY_MENU_FEEDBACK,
-            "run_id": feedback_run_id,
-        }
-        options.append(
-            {
-                "text": {"type": "plain_text", "text": "Good response", "emoji": True},
-                "value": _option_value({**target, "sentiment": "positive"}),
-            }
-        )
-        options.append(
-            {
-                "text": {"type": "plain_text", "text": "Bad response", "emoji": True},
-                "value": _option_value({**target, "sentiment": "negative"}),
-            }
-        )
-    if include_fork:
-        options.append(
+    return {
+        "type": "overflow",
+        "action_id": FORK_THREAD_ACTION_ID,
+        "options": [
             {
                 "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                "value": _option_value({"integration_id": integration_id, "action": REPLY_MENU_FORK}),
+                "value": json.dumps({"integration_id": integration_id}),
             }
-        )
-    if not options:
-        return None
-    return {"type": "overflow", "action_id": REPLY_MENU_ACTION_ID, "options": options}
+        ],
+    }
 
 
-def _option_value(payload: dict[str, Any]) -> str:
-    """One option's value, compact enough to survive Slack's cap.
+TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"
 
-    Compact separators rather than the default spaced ones: the difference is a handful of
-    characters, and the budget is small enough that a handful matters.
+
+def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
+    """The thumbs a reader rates one agent answer with.
+
+    Slack's own feedback element rather than a pair of buttons: it renders as the two
+    small icons a reader already knows from other AI apps, and Slack keeps the chosen
+    thumb selected afterwards, so a rating stays visible without us rewriting the reply.
+
+    Both buttons carry the same run plus their own sentiment, because Slack sends back
+    only the button that was clicked. The integration rides along so the cross-region
+    interactivity router can tell whose click this is, the same way the fork menu's
+    option value does. The task is not carried: it is read back from the run row.
     """
-    return json.dumps(payload, separators=(",", ":"))
+    target = {"integration_id": integration_id, "run_id": run_id}
+    return {
+        "type": "context_actions",
+        "elements": [
+            {
+                "type": "feedback_buttons",
+                "action_id": TURN_FEEDBACK_ACTION_ID,
+                "positive_button": {
+                    "text": {"type": "plain_text", "text": "Good response"},
+                    "value": json.dumps({**target, "sentiment": "positive"}),
+                },
+                "negative_button": {
+                    "text": {"type": "plain_text", "text": "Bad response"},
+                    "value": json.dumps({**target, "sentiment": "negative"}),
+                },
+            }
+        ],
+    }
 
 
 def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:

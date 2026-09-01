@@ -239,7 +239,7 @@ class TestForkMenuDispatch(TestCase):
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T12345", config={})
 
     def _click(self, integration_id: int, team_id: str = "T12345"):
-        from products.slack_app.backend.services.slack_messages import REPLY_MENU_ACTION_ID
+        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID
 
         payload = {
             "type": "block_actions",
@@ -251,10 +251,8 @@ class TestForkMenuDispatch(TestCase):
             "actions": [
                 {
                     "type": "overflow",
-                    "action_id": REPLY_MENU_ACTION_ID,
+                    "action_id": FORK_THREAD_ACTION_ID,
                     # An overflow reports the chosen entry under `selected_option`, not `value`.
-                    # Named no action, which is the shape of an option posted before the
-                    # menu carried ratings — those messages are still in Slack and still fork.
                     "selected_option": {
                         "text": {"type": "plain_text", "text": "Fork to DM"},
                         "value": json.dumps({"integration_id": integration_id, "option": "fork_to_dm"}),
@@ -303,13 +301,12 @@ class TestForkMenuBlock(TestCase):
         # Bare, not wrapped in an `actions` block, so it can be the footer's accessory
         # and share its line. The integration in the option value is what lets the
         # cross-region interactivity router claim the click.
-        from products.slack_app.backend.services.slack_messages import REPLY_MENU_ACTION_ID, reply_menu_element
+        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, fork_menu_element
 
-        element = reply_menu_element(42, include_fork=True)
+        element = fork_menu_element(42)
 
-        assert element is not None
         assert element["type"] == "overflow"
-        assert element["action_id"] == REPLY_MENU_ACTION_ID
+        assert element["action_id"] == FORK_THREAD_ACTION_ID
         assert len(element["options"]) == 1
         assert element["options"][0]["text"]["text"] == "Fork to DM"
         assert json.loads(element["options"][0]["value"])["integration_id"] == 42

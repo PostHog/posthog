@@ -83,7 +83,11 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
-from products.slack_app.backend.services.slack_messages import REPLY_MENU_ACTION_ID, post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import (
+    FORK_THREAD_ACTION_ID,
+    TURN_FEEDBACK_ACTION_ID,
+    post_slack_thread_reply,
+)
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -4751,9 +4755,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
-    # The menu's own hint covers every entry it carries; the rating modal it opens has no
-    # action to read, so its id comes from the view instead.
-    menu_integration_id = _extract_action_value_hints(payload, REPLY_MENU_ACTION_ID)[
+    # Both controls a reply carries, and the modal a thumbs-down opens, claim the same
+    # workspace, so one hint serves all three.
+    reply_control_integration_id = _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)[
         0
     ] or turn_feedback.extract_turn_feedback_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
@@ -4812,13 +4816,14 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and menu_integration_id:
-        # The reply menu rides on a bot reply anyone in the thread can see, so any reader
-        # may use it, and the same goes for the rating modal it opens. Routing only claims
-        # the workspace; who the fork runs as, and whether they may, is settled in the fork
-        # activity, and a rating is matched to its run in the feedback handler.
+    elif slack_team_id and reply_control_integration_id:
+        # The fork menu and the thumbs ride on a bot reply anyone in the thread can see, so
+        # any reader may use them, and the same goes for the modal a thumbs-down opens.
+        # Routing only claims the workspace; who the fork runs as, and whether they may, is
+        # settled in the fork activity, and a rating is matched to its run in the feedback
+        # handler.
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=menu_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            id=reply_control_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -4908,13 +4913,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
-            if action_id == REPLY_MENU_ACTION_ID:
-                # One overflow carries everything a reader can do with a reply, so which
-                # entry they picked is what decides the handler. Forking is the default:
-                # an option posted before ratings existed names no action at all.
-                if turn_feedback.selected_feedback_value(payload):
-                    return turn_feedback.handle_turn_feedback_click(payload)
+            if action_id == FORK_THREAD_ACTION_ID:
                 return _handle_fork_thread_submit(payload)
+            if action_id == TURN_FEEDBACK_ACTION_ID:
+                return turn_feedback.handle_turn_feedback_click(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_DENY:

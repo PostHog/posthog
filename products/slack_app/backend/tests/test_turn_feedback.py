@@ -13,14 +13,11 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.services.slack_messages import (
-    _MENU_OPTION_VALUE_LIMIT,
-    REPLY_MENU_ACTION_ID,
-    reply_menu_element,
-)
+from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
 from products.slack_app.backend.services.turn_feedback import (
     _MODAL_TEXT_ACTION_ID,
     _MODAL_TEXT_BLOCK_ID,
+    FEEDBACK_TEXT_MAX_LENGTH,
     TURN_FEEDBACK_MODAL_CALLBACK_ID,
 )
 from products.slack_app.backend.tests.helpers import sign_slack_request
@@ -29,7 +26,7 @@ from products.slack_app.backend.tests.helpers import sign_slack_request
 @override_settings(DEBUG=True)
 class TestTurnFeedback(TestCase):
     """A rating is only worth collecting if it lands on the run it was given about, so these
-    drive the real menu the reply carries rather than a hand-written payload: producer and
+    drive the real thumbs the reply carries rather than a hand-written payload: producer and
     consumer sit in different modules and would otherwise drift apart unnoticed."""
 
     signing_secret = "posthog-code-test-secret"
@@ -80,27 +77,18 @@ class TestTurnFeedback(TestCase):
             HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
-    def _menu(self, run_id: str | None = None) -> dict:
-        menu = reply_menu_element(
-            self.integration.id,
-            include_fork=True,
-            feedback_run_id=run_id or str(self.task_run.id),
-        )
-        assert menu is not None
-        return menu
+    def _thumb_value(self, sentiment: str, run_id: str | None = None) -> str:
+        element = turn_feedback_block(self.integration.id, run_id or str(self.task_run.id))["elements"][0]
+        button = "positive_button" if sentiment == "positive" else "negative_button"
+        return element[button]["value"]
 
-    def _menu_option(self, sentiment: str, run_id: str | None = None) -> dict:
-        options = self._menu(run_id)["options"]
-        return next(o for o in options if json.loads(o["value"]).get("sentiment") == sentiment)
+    def test_the_modal_input_fits_slack_cap(self):
+        # Slack caps a plain_text_input at 3000 and rejects the whole view past it, so the
+        # modal never opens and a thumbs-down collects no reason. Raising this to match
+        # another client's limit is the mistake this guards.
+        assert FEEDBACK_TEXT_MAX_LENGTH <= 3000
 
-    def test_option_values_fit_slack_cap(self):
-        # Slack rejects an overflow option value past 150 characters, and rejects the whole
-        # blocks payload with it — the reply then posts as plain text with no footer and no
-        # menu at all. Anything added to a value has to fit in what is left.
-        for option in self._menu()["options"]:
-            assert len(option["value"]) <= _MENU_OPTION_VALUE_LIMIT, option["text"]["text"]
-
-    def _pick(self, option: dict):
+    def _pick(self, value: str):
         return self._post(
             {
                 "type": "block_actions",
@@ -110,14 +98,14 @@ class TestTurnFeedback(TestCase):
                 "message": {"ts": "222.1", "thread_ts": "111.1"},
                 "trigger_id": "trigger-1",
                 "actions": [
-                    {"type": "overflow", "action_id": REPLY_MENU_ACTION_ID, "selected_option": option},
+                    {"type": "button", "action_id": TURN_FEEDBACK_ACTION_ID, "value": value},
                 ],
             }
         )
 
     @parameterized.expand([("positive", "good", False), ("negative", "bad", True)])
     def test_picking_a_rating_reports_it_against_the_run(self, sentiment, rating, asks_for_a_reason):
-        response = self._pick(self._menu_option(sentiment))
+        response = self._pick(self._thumb_value(sentiment))
 
         assert response.status_code == 200
         self.mock_analytics.capture.assert_called_once()
@@ -143,7 +131,7 @@ class TestTurnFeedback(TestCase):
         )
         other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
-        response = self._pick(self._menu_option("negative", run_id=str(other_run.id)))
+        response = self._pick(self._thumb_value("negative", run_id=str(other_run.id)))
 
         assert response.status_code == 200
         self.mock_analytics.capture.assert_not_called()
@@ -160,7 +148,6 @@ class TestTurnFeedback(TestCase):
                         {
                             "integration_id": self.integration.id,
                             "run_id": str(self.task_run.id),
-                            "task_id": str(self.task.id),
                             "turn_id": "222.1",
                         }
                     ),

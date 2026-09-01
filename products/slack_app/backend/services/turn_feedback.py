@@ -25,7 +25,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.services.slack_messages import REPLY_MENU_ACTION_ID, REPLY_MENU_FEEDBACK
+from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID
 
 logger = structlog.get_logger(__name__)
 
@@ -39,10 +39,10 @@ _MODAL_TEXT_ACTION_ID = "text"
 # (``posthog_code``) under one metric, split by this property.
 AI_PRODUCT = "posthog_slack"
 
-# The same bound the desktop client applies. Capture only rejects megabyte-scale events,
-# so this is a product limit rather than a technical one; the modal enforces it first and
-# the slice below is the guard for anything Slack lets through regardless.
-FEEDBACK_TEXT_MAX_LENGTH = 4000
+# Slack's own cap on a `plain_text_input`, and Slack rejects the whole view past it, so the
+# modal would not open at all. Below the desktop client's 4000 on purpose: a reason typed
+# into this modal can never be longer, so one number serves the field and the truncation.
+FEEDBACK_TEXT_MAX_LENGTH = 3000
 
 _RATINGS: dict[str, Literal["good", "bad"]] = {"positive": "good", "negative": "bad"}
 
@@ -74,22 +74,17 @@ def _parse_action_value(raw: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def selected_feedback_value(payload: dict) -> dict[str, Any]:
-    """The reply menu's picked option, when the pick was a rating.
+def clicked_feedback_value(payload: dict) -> dict[str, Any]:
+    """The thumb that was clicked, as its value. Empty when this click is not a rating.
 
-    One overflow menu carries every action a reader can take on a reply, so the entry
-    they chose is what says whether this click is ours. An option posted before ratings
-    existed carries no ``action`` and is the fork's, which is why the check is for the
-    rating rather than against the fork.
+    Slack sends back only the button the reader pressed, so the value alone says which
+    thumb it was.
     """
     action = next(
-        (a for a in payload.get("actions", []) or () if a.get("action_id") == REPLY_MENU_ACTION_ID),
+        (a for a in payload.get("actions", []) or () if a.get("action_id") == TURN_FEEDBACK_ACTION_ID),
         None,
     )
-    if action is None:
-        return {}
-    value = _parse_action_value((action.get("selected_option") or {}).get("value"))
-    return value if value.get("action") == REPLY_MENU_FEEDBACK else {}
+    return _parse_action_value(action.get("value")) if action else {}
 
 
 def _modal_metadata(payload: dict) -> dict[str, Any]:
@@ -102,11 +97,11 @@ def _modal_metadata(payload: dict) -> dict[str, Any]:
 def extract_turn_feedback_hints(payload: dict) -> int | None:
     """The integration id a rating interaction carries, for region-ownership routing.
 
-    Only the reason modal needs this: a rating picked from the reply menu is already
-    routed by the menu's own hint, but a modal submission carries no action, so the id
-    rides in ``private_metadata`` instead.
+    Both halves are covered: a clicked thumb carries it in the button's ``value``, and
+    the reason modal carries it in ``private_metadata``, where there is no action to read.
     """
-    integration_id = _modal_metadata(payload).get("integration_id")
+    value = clicked_feedback_value(payload) or _modal_metadata(payload)
+    integration_id = value.get("integration_id")
     return integration_id if isinstance(integration_id, int) else None
 
 
@@ -277,12 +272,12 @@ def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
 
 
 def handle_turn_feedback_click(payload: dict) -> HttpResponse:
-    """Record a rating picked from the reply menu, and ask a bad one what went wrong.
+    """Record a clicked thumb, and ask a thumbs-down what went wrong.
 
-    The reply is left as it is. A rating is one reader's view of an answer everyone in
-    the thread can see, so rewriting the message would announce it to all of them.
+    Slack keeps the clicked thumb selected on the message itself, so nothing here has to
+    rewrite the reply to show that the rating landed.
     """
-    value = selected_feedback_value(payload)
+    value = clicked_feedback_value(payload)
     sentiment = value.get("sentiment")
     rating = _RATINGS.get(sentiment) if isinstance(sentiment, str) else None
     if rating is None:
