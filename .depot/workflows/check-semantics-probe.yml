@@ -1,0 +1,133 @@
+# Throwaway probe. Records how this engine reports job results as GitHub check runs.
+# A twin workflow runs the identical job graph on the other engine, so the two check
+# lists can be diffed name by name and conclusion by conclusion.
+name: Check semantics probe (Depot)
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened]
+        paths:
+            - .github/workflows/ci-check-semantics-probe.yml
+            - .depot/workflows/check-semantics-probe.yml
+    workflow_dispatch: {}
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    plan:
+        name: Plan
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            never: ${{ steps.out.outputs.never }}
+            empty_matrix: ${{ steps.out.outputs.empty_matrix }}
+        steps:
+            - id: out
+              run: |
+                  echo "never=false" >> "$GITHUB_OUTPUT"
+                  echo 'empty_matrix=[]' >> "$GITHUB_OUTPUT"
+
+    plain-success:
+        name: Plain success
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo ok
+
+    skipped-by-literal-if:
+        name: Skipped by literal if
+        if: false
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo unreachable
+
+    skipped-by-expression:
+        name: Skipped by expression
+        needs: plan
+        if: needs.plan.outputs.never == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo unreachable
+
+    skipped-by-needs-cascade:
+        name: Skipped by needs cascade
+        needs: skipped-by-literal-if
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo unreachable
+
+    skipped-by-empty-matrix:
+        name: Skipped by empty matrix
+        needs: plan
+        strategy:
+            matrix:
+                shard: ${{ fromJSON(needs.plan.outputs.empty_matrix) }}
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo unreachable
+
+    two-cell-matrix:
+        name: Two cell matrix
+        strategy:
+            matrix:
+                shard: [1, 2]
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: echo "shard ${{ matrix.shard }}"
+
+    failure-swallowed:
+        name: Failure swallowed by continue-on-error
+        continue-on-error: true
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: exit 1
+
+    step-level-continue-on-error:
+        name: Step level continue-on-error
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: exit 1
+              continue-on-error: true
+            - run: echo reached
+
+    hard-failure:
+        name: Hard failure
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: exit 1
+
+    gate:
+        name: Probe gate
+        if: always()
+        needs:
+            - plan
+            - plain-success
+            - skipped-by-literal-if
+            - skipped-by-expression
+            - skipped-by-needs-cascade
+            - skipped-by-empty-matrix
+            - two-cell-matrix
+            - failure-swallowed
+            - step-level-continue-on-error
+            - hard-failure
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Print the needs context
+              run: |
+                  cat <<'EOF'
+                  ${{ toJSON(needs) }}
+                  EOF
