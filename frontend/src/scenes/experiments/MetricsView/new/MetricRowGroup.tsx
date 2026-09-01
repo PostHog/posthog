@@ -57,6 +57,7 @@ import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
 
 import { ChartCell } from './ChartCell'
 import {
@@ -72,7 +73,6 @@ import {
 import { DetailsButton } from './DetailsButton'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 interface CollapsibleBreakdownSectionProps {
