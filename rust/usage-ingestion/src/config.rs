@@ -20,12 +20,23 @@ pub struct Config {
         default = "clickhouse_billing_usage_records"
     )]
     pub topic: String,
+    // Producers pin one connection, so the server ends each one to make them re-resolve the
+    // service. 0 turns that off, which is the escape hatch if the reconnects ever cost more
+    // than the imbalance they fix.
+    #[envconfig(from = "USAGE_INGESTION_MAX_CONNECTION_AGE_SECONDS", default = "60")]
+    pub max_connection_age_seconds: u64,
 }
 
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
         if self.max_batch_size == 0 || self.max_batch_size > 5_000 {
             return Err("USAGE_INGESTION_MAX_BATCH_SIZE must be between 1 and 5000".to_string());
+        }
+        // A few seconds would make every producer spend its time reconnecting.
+        if self.max_connection_age_seconds > 0 && self.max_connection_age_seconds < 10 {
+            return Err(
+                "USAGE_INGESTION_MAX_CONNECTION_AGE_SECONDS must be 0 or at least 10".to_string(),
+            );
         }
         Ok(())
     }

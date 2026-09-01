@@ -54,6 +54,18 @@ and the service takes its topic from `USAGE_INGESTION_TOPIC`.
 The endpoint relies on an in-cluster network boundary while it is being validated.
 Before it is exposed beyond trusted callers, it must authenticate the calling service.
 
+Every producer holds one long-lived HTTP/2 connection and never re-resolves the
+service address, so a new pod would take no traffic until a producer restarts.
+The server closes each connection after `USAGE_INGESTION_MAX_CONNECTION_AGE_SECONDS`
+(60 by default) to force that re-resolution, which is what makes a scale-up reach
+the pods it adds.
+Without it, a scale-up leaves the new pods idle while the old ones throttle, and
+only replacing every pod redistributes the load.
+Set the variable to 0 to turn the behavior off, which is the escape hatch if the
+reconnects ever cost more than the imbalance they fix.
+This only spreads traffic if the Service is a ClusterIP; a headless Service hands
+the client one address it can reconnect to.
+
 Partition count can be raised later without risk, which is not true of an
 ordered stream.
 ClickHouse deduplicates by record identity and picks a winner by
