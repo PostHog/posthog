@@ -127,6 +127,10 @@ A reference inside a code span, a table cell, or a heading has no room to draw â
 Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
+**A Slack destination can post the summary as a thread**, one reply per section, split at the section labels the summary repeats.
+Both an ATX heading (`## Evidence`) and a bold-only line (`**Evidence**`) count as a label, so structure the summary the way you want the thread to read.
+A summary with no repeated label posts as one message.
+
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
 
 **`charts` on an edit is the report's whole set, not an addition.**

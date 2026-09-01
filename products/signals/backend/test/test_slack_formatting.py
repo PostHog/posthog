@@ -149,6 +149,43 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         assert segments[1].startswith("## Real heading")
         assert len(segments) == 2
 
+    def test_bold_only_labels_split_like_headings(self) -> None:
+        # The bug this guards: a scout that labels sections with a bold span (`**Evidence**`) instead
+        # of `## Evidence` used to yield one segment, so a threaded delivery posted the whole report
+        # as the lead with an empty thread. A bold-only line is a seam too.
+        summary = "Intro line.\n\n**Evidence**\nbody one\n\n**Next step**\nbody two"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "Intro line."
+        assert segments[1].startswith("**Evidence**")
+        assert segments[2].startswith("**Next step**")
+        assert len(segments) == 3
+
+    def test_atx_headings_win_over_bold_labels_when_both_present(self) -> None:
+        # A summary that opens with a bold title line but sections with `##` splits on the headings,
+        # not the lone bold line — a bold label sits deeper than any ATX level.
+        summary = "**Report**\n\n## First\nbody one\n\n## Second\nbody two"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "**Report**"
+        assert segments[1].startswith("## First")
+        assert segments[2].startswith("## Second")
+        assert len(segments) == 3
+
+    @parameterized.expand(
+        [
+            ("inline_bold_with_trailing_text", "See **Evidence** for the numbers below."),
+            ("two_bold_spans_ending_in_bold", "**Evidence** and **Next step**"),
+            ("italic_is_not_a_label", "*Evidence*"),
+            ("list_item_with_bold", "- **Evidence**"),
+        ]
+    )
+    def test_bold_that_is_not_a_standalone_label_is_not_a_seam(self, _name: str, line: str) -> None:
+        # A bold span that is not the whole line is inline emphasis, not a section label, so it must
+        # not split the summary — otherwise ordinary prose bursts into a thread of stubs.
+        summary = f"Intro line.\n\n{line}\n\nTail line."
+        assert split_markdown_by_headings(summary) == [summary]
+
 
 class TestChunkSlackMrkdwn(SimpleTestCase):
     def test_short_text_is_one_chunk(self) -> None:

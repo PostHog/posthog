@@ -129,6 +129,15 @@ def truncate_slack_section(text: str) -> str:
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
 # headings are the natural seams to split a long report on for threaded Slack delivery.
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S")
+# A line that is only a bold span, e.g. `**Evidence**` or `__Root cause:__`. Scouts often label a
+# section this way instead of using an ATX heading, and Slack renders the two the same, so a
+# bold-only line is a split seam too. A leading list marker (`- `, `* `, `1. `) keeps the bold off
+# the line start, so a list item never matches. A line with text outside the span, or a second
+# span, is inline bold rather than a label and is dropped by the delimiter-in-label check below.
+_MARKDOWN_BOLD_LABEL_RE = re.compile(r"^[ \t]*(\*\*|__)(.+?)\1[ \t]*$")
+# Deeper than any ATX heading (1-6), so `_split_heading_level` picks a repeated ATX level over bold
+# labels when both are present, and falls to bold labels only when they are the summary's seams.
+_BOLD_LABEL_LEVEL = 7
 # Opens or closes a fenced code block (``` or ~~~, up to three leading spaces per CommonMark). A
 # `# ` line inside a fence is code, not a heading: splitting there would orphan the fence and hand
 # the snippet to the mrkdwn converter as prose.
@@ -137,15 +146,27 @@ _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 @frozen
 class _MarkdownHeading:
-    """Where an ATX heading starts in the text, and how deep it is. Both fields are plain ints, so a
+    """Where a heading starts in the text, and how deep it is. Both fields are plain ints, so a
     tuple would let a call site read the level as an offset."""
 
     offset: int
     level: int
 
 
+def _bold_label_level(line: str) -> int | None:
+    """The pseudo-heading level for a line that is only a bold span, else None."""
+    match = _MARKDOWN_BOLD_LABEL_RE.match(line)
+    if match is None:
+        return None
+    delimiter, label = match.group(1), match.group(2)
+    # A second span leaves the delimiter inside the label, marking inline bold rather than a label.
+    if label.strip() and delimiter not in label:
+        return _BOLD_LABEL_LEVEL
+    return None
+
+
 def _markdown_headings(text: str) -> list[_MarkdownHeading]:
-    """Every ATX heading in the text, skipping any inside a fenced code block."""
+    """Every heading in the text — ATX or a bold-only label line — skipping any inside a fence."""
     headings: list[_MarkdownHeading] = []
     fence: str | None = None  # marker of the currently open fence, else None
     offset = 0
@@ -161,6 +182,10 @@ def _markdown_headings(text: str) -> list[_MarkdownHeading]:
             heading_match = _MARKDOWN_HEADING_RE.match(line)
             if heading_match:
                 headings.append(_MarkdownHeading(offset=offset, level=len(heading_match.group(1))))
+            else:
+                bold_level = _bold_label_level(line)
+                if bold_level is not None:
+                    headings.append(_MarkdownHeading(offset=offset, level=bold_level))
         offset += len(line) + 1  # +1 for the "\n" that split dropped
     return headings
 
