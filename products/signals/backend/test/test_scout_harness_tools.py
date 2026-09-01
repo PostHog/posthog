@@ -4,6 +4,7 @@ import uuid
 import dataclasses
 from datetime import timedelta
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import pytest
 from posthog.test.base import BaseTest
@@ -38,6 +39,7 @@ from products.signals.backend.scout_harness.tools import (
     LighthouseUnavailableError,
     audits_remaining_for_run,
     emit_finding,
+    enabled_team_ids,
     forget,
     get_run,
     remember,
@@ -1626,82 +1628,164 @@ class TestReportEventUuid:
 
 
 def _lighthouse_payload(**overrides) -> dict:
-    """A Browserless `/performance` body shaped like the reports the audit actually parses."""
+    """A Browserless `/performance` body in the Lighthouse 13 shape the fleet actually returns.
+
+    Lighthouse 13 carries the LCP element and its phase table on *insight* audits and drops the
+    legacy per-check audit ids entirely, so a fixture written in the legacy shape passes against
+    a parser that reads nothing on the version we run. See `_legacy_lighthouse_payload`.
+    """
     report = {
+        "lighthouseVersion": "13.4.1",
         "requestedUrl": "https://posthog.com/pricing",
         "finalDisplayedUrl": "https://posthog.com/pricing",
-        "categories": {"performance": {"score": 0.42}},
+        "categories": {"performance": {"score": 0.28}},
         "audits": {
-            "largest-contentful-paint": {"numericValue": 4553.2, "displayValue": "4.6 s"},
+            "largest-contentful-paint": {"numericValue": 4553.2},
             "first-contentful-paint": {"numericValue": 2296.0},
             "cumulative-layout-shift": {"numericValue": 0.115},
-            "largest-contentful-paint-element": {
+            "lcp-breakdown-insight": {
+                "title": "LCP breakdown",
+                "score": 1,
                 "details": {
                     "type": "list",
                     "items": [
                         {
                             "type": "table",
                             "items": [
-                                {"node": {"selector": "div.hero > img", "snippet": "<img>", "nodeLabel": "Hero"}}
+                                {"subpart": "timeToFirstByte", "label": "Time to first byte", "duration": 100.0},
+                                {"subpart": "elementRenderDelay", "label": "Element render delay", "duration": 300.0},
                             ],
                         },
                         {
-                            "type": "table",
-                            "items": [
-                                {"phase": "TTFB", "timing": 1400, "percent": "31%"},
-                                {"phase": "Render Delay", "timing": 2600, "percent": "57%"},
-                            ],
+                            "type": "node",
+                            "selector": "div.hero > img.w-full",
+                            "snippet": '<img src="hero.webp" width="720">',
+                            "nodeLabel": "Boxed copy of the product",
                         },
                     ],
-                }
+                },
             },
-            "prioritize-lcp-image": {"score": 0, "title": "Preload the LCP image"},
-            "lcp-lazy-loaded": {"score": 1, "title": "Do not lazy load the LCP image"},
-            "render-blocking-resources": {
-                "title": "Eliminate render-blocking resources",
-                "details": {"type": "opportunity", "overallSavingsMs": 820},
+            "lcp-discovery-insight": {
+                "title": "LCP request discovery",
+                "score": 0,
+                "details": {
+                    "type": "list",
+                    "items": [
+                        {
+                            "type": "checklist",
+                            "items": {
+                                "priorityHinted": {"label": "fetchpriority=high should be applied", "value": False},
+                                "eagerlyLoaded": {"label": "LCP resources should not use loading=lazy", "value": True},
+                            },
+                        }
+                    ],
+                },
             },
-            "unminified-css": {"title": "Minify CSS", "details": {"type": "opportunity", "overallSavingsMs": 12}},
+            "image-delivery-insight": {"title": "Improve image delivery", "metricSavings": {"FCP": 0, "LCP": 900}},
+            # CLS savings are a unitless layout-shift score, not milliseconds.
+            "layout-shifts": {"title": "Layout shifts", "metricSavings": {"CLS": 0.101}},
+            "unminified-css": {"title": "Minify CSS", "metricSavings": {"LCP": 12}},
         },
     }
     report.update(overrides)
     return {"data": report}
 
 
+def _legacy_lighthouse_payload() -> dict:
+    """A pre-Lighthouse-12 report, where the element lived on `largest-contentful-paint-element`."""
+    return {
+        "data": {
+            "lighthouseVersion": "11.7.1",
+            "finalDisplayedUrl": "https://posthog.com/pricing",
+            "categories": {"performance": {"score": 0.42}},
+            "audits": {
+                "largest-contentful-paint": {"numericValue": 4553.2},
+                "largest-contentful-paint-element": {
+                    "details": {
+                        "type": "list",
+                        "items": [
+                            {
+                                "type": "table",
+                                "items": [
+                                    {"node": {"selector": "div.hero > img", "snippet": "<img>", "nodeLabel": "Hero"}}
+                                ],
+                            },
+                            {
+                                "type": "table",
+                                "items": [
+                                    {"phase": "TTFB", "timing": 1400, "percent": "31%"},
+                                    {"phase": "Render Delay", "timing": 2600, "percent": "57%"},
+                                ],
+                            },
+                        ],
+                    }
+                },
+                "prioritize-lcp-image": {"score": 0, "title": "Preload the LCP image"},
+                "lcp-lazy-loaded": {"score": 1, "title": "Do not lazy load the LCP image"},
+            },
+        }
+    }
+
+
 _AUDIT_TEAM_ID = 4242
 _AUDIT_SETTINGS = {
     "LIGHTHOUSE_BROWSERLESS_URL": "https://browserless.example.com",
     "LIGHTHOUSE_BROWSERLESS_TOKEN": "secret-token",
+    "LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS": 60000,
+    "LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS": 10000,
+    "LIGHTHOUSE_REPORT_MAX_BYTES": 32 * 1024 * 1024,
     "SIGNALS_LIGHTHOUSE_ALLOWED_HOSTS": {"posthog.com"},
     "SIGNALS_LIGHTHOUSE_TEAM_IDS": {_AUDIT_TEAM_ID},
 }
 
 
+def _no_flag_payload():
+    """No `signals-lighthouse-audit` payload, so enablement falls back to settings."""
+    return patch(
+        "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+        return_value=None,
+    )
+
+
 class TestLighthouseAudit:
     """The audit's fences, and the reduction that turns a huge report into a citable one."""
 
-    def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing"):
-        response = MagicMock(status_code=200)
+    def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
+        response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload
-        with override_settings(**_AUDIT_SETTINGS):
+        with override_settings(**_AUDIT_SETTINGS), _no_flag_payload():
             with patch(
                 "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
             ) as post:
-                return run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url), post
+                return run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url, form_factor=form_factor), post
 
-    def test_reduces_a_report_to_the_element_phases_and_ranked_savings(self) -> None:
+    def test_reads_the_element_phases_and_savings_from_lighthouse_13_insight_audits(self) -> None:
+        # The shipped Lighthouse renamed every audit this reads. Parsed against the legacy ids the
+        # whole thing degrades to nulls, which is a report that says "no problems found".
         audit, _ = self._audit(_lighthouse_payload())
+
+        assert audit.lighthouse_version == "13.4.1"
+        assert audit.lcp_element is not None
+        assert audit.lcp_element.selector == "div.hero > img.w-full"
+        # Insight rows carry no `percent`, so the share is computed from the durations present.
+        assert [(p.phase, p.percent) for p in audit.lcp_phases] == [
+            ("Time to first byte", "25%"),
+            ("Element render delay", "75%"),
+        ]
+        # The failing checklist entry is the modern "this hero image needs fetchpriority=high".
+        assert [c.audit_id for c in audit.lcp_checks_failed] == ["lcp-discovery-insight:priorityHinted"]
+        # Ranked on `metricSavings`; `unminified-css` (12ms) is under the noise floor, and
+        # `layout-shifts` is excluded because a CLS saving is a score rather than milliseconds.
+        assert [(o.audit_id, o.savings_ms) for o in audit.opportunities] == [("image-delivery-insight", 900.0)]
+
+    def test_reads_the_legacy_element_audit_when_the_fleet_runs_an_older_lighthouse(self) -> None:
+        # Browserless version is deployment config, so both shapes have to keep working.
+        audit, _ = self._audit(_legacy_lighthouse_payload())
 
         assert audit.lcp_element is not None
         assert audit.lcp_element.selector == "div.hero > img"
-        assert audit.metrics["lcp_ms"] == 4553.2
-        assert audit.performance_score == 42
-        assert [phase.phase for phase in audit.lcp_phases] == ["TTFB", "Render Delay"]
-        # The failing LCP check is carried even though Lighthouse gives it no savings estimate,
-        # which is exactly the audit that says "this hero image is unprioritized".
-        assert [check.audit_id for check in audit.lcp_checks_failed] == ["prioritize-lcp-image"]
-        # A 12ms saving next to a 4.5s LCP is noise a finding must not be built on.
-        assert [opportunity.audit_id for opportunity in audit.opportunities] == ["render-blocking-resources"]
+        assert [(p.phase, p.percent) for p in audit.lcp_phases] == [("TTFB", "31%"), ("Render Delay", "57%")]
+        assert [c.audit_id for c in audit.lcp_checks_failed] == ["prioritize-lcp-image"]
 
     @parameterized.expand(
         [
@@ -1711,7 +1795,7 @@ class TestLighthouseAudit:
         ]
     )
     def test_rejects_a_target_outside_the_allowlist(self, _name: str, url: str) -> None:
-        with override_settings(**_AUDIT_SETTINGS):
+        with override_settings(**_AUDIT_SETTINGS), _no_flag_payload():
             with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post") as post:
                 with pytest.raises(InvalidLighthouseTargetError):
                     run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url)
@@ -1720,7 +1804,7 @@ class TestLighthouseAudit:
 
     def test_rejects_a_team_the_capability_is_not_enabled_for(self) -> None:
         with override_settings(**{**_AUDIT_SETTINGS, "SIGNALS_LIGHTHOUSE_TEAM_IDS": {_AUDIT_TEAM_ID + 1}}):
-            with pytest.raises(InvalidLighthouseTargetError):
+            with _no_flag_payload(), pytest.raises(InvalidLighthouseTargetError):
                 run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
     def test_rejects_a_page_that_redirected_off_the_allowlist(self) -> None:
@@ -1731,49 +1815,117 @@ class TestLighthouseAudit:
         with pytest.raises(InvalidLighthouseTargetError):
             self._audit(payload)
 
+    def test_rejects_a_report_that_does_not_say_where_it_ended(self) -> None:
+        # Fails closed: this is the only check on where the browser actually went, since
+        # Browserless resolves DNS and follows redirects itself.
+        payload = _lighthouse_payload()
+        for key in ("finalDisplayedUrl", "finalUrl", "mainDocumentUrl"):
+            payload["data"].pop(key, None)
+
+        with pytest.raises(LighthouseAuditFailedError):
+            self._audit(payload)
+
+    def test_rejects_a_report_with_no_usable_metrics(self) -> None:
+        # A 200 full of nulls reads as "this page is fine" rather than "the shape changed".
+        with pytest.raises(LighthouseAuditFailedError):
+            self._audit(_lighthouse_payload(audits={}))
+
     def test_surfaces_a_page_lighthouse_could_not_load(self) -> None:
         payload = _lighthouse_payload(runtimeError={"code": "ERRORED_DOCUMENT_REQUEST", "message": "net::ERR"})
 
         with pytest.raises(LighthouseAuditFailedError):
             self._audit(payload)
 
-    def test_keeps_the_browserless_token_out_of_the_error_it_raises(self) -> None:
+    @parameterized.expand([("plain", "secret-token"), ("url_unsafe", "ab/cd+ef=gh")])
+    def test_keeps_the_browserless_token_out_of_the_error_it_raises(self, _name: str, token: str) -> None:
         # The endpoint carries the token in its query string, and the scout writes what it reads
-        # into a report the whole team sees.
-        response = MagicMock(status_code=500)
-        response.text = "upstream rejected https://browserless.example.com/performance?token=secret-token"
-        with override_settings(**_AUDIT_SETTINGS):
+        # into a report the whole team sees. `urlencode` percent-encodes a token containing
+        # `/`, `+`, or `=`, so a literal replace alone leaves that spelling in the message.
+        response = MagicMock(status_code=500, content=b"")
+        response.text = f"upstream rejected https://browserless.example.com/performance?token={quote(token, safe='')}"
+        with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_BROWSERLESS_TOKEN": token}), _no_flag_payload():
             with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response):
                 with pytest.raises(LighthouseAuditFailedError) as raised:
                     run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
-        assert "secret-token" not in str(raised.value)
+        message = str(raised.value)
+        assert token not in message
+        assert quote(token, safe="") not in message
+
+    def test_rejects_an_implausibly_large_report_before_parsing_it(self) -> None:
+        # A real report is megabytes of base64 screenshots; parsing an unbounded one drives
+        # worker memory from whatever Browserless returns.
+        response = MagicMock(status_code=200, content=b"x" * 2048)
+        response.json.return_value = _lighthouse_payload()
+        with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_REPORT_MAX_BYTES": 1024}), _no_flag_payload():
+            with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response):
+                with pytest.raises(LighthouseAuditFailedError, match="implausibly large"):
+                    run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
     def test_is_unavailable_when_no_browserless_is_configured(self) -> None:
-        with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_BROWSERLESS_URL": ""}):
+        with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_BROWSERLESS_URL": ""}), _no_flag_payload():
             with pytest.raises(LighthouseUnavailableError):
                 run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
-    def test_sends_the_requested_device_profile(self) -> None:
-        response = MagicMock(status_code=200)
-        response.json.return_value = _lighthouse_payload()
+    @parameterized.expand([("desktop", 1, False), ("mobile", 4, True)])
+    def test_sends_the_throttling_that_matches_the_device_profile(
+        self, form_factor: str, cpu_slowdown: int, emulated_ua: bool
+    ) -> None:
+        # `lighthouse:default` throttles like a slow-4G phone. Setting only formFactor and
+        # screenEmulation leaves that in place, so a "desktop" report measures a desktop viewport
+        # over a mobile connection — numbers that can't be compared to the desktop field p75.
+        _, post = self._audit(_lighthouse_payload(), form_factor=form_factor)
+
+        sent = post.call_args.kwargs["json"]["config"]["settings"]
+        assert sent["formFactor"] == form_factor
+        assert sent["screenEmulation"]["mobile"] is (form_factor == "mobile")
+        assert sent["throttling"]["cpuSlowdownMultiplier"] == cpu_slowdown
+        assert sent["emulatedUserAgent"] is emulated_ua
+
+
+class TestLighthouseTeamGate:
+    """`enabled_team_ids` — the runtime gate that lets prod be switched on without a deploy."""
+
+    @parameterized.expand(
+        [
+            ("no_payload", None, {_AUDIT_TEAM_ID}),
+            ("kill_switch", {"enabled": False, "team_ids": [7]}, set()),
+            ("team_ids_replace_settings", {"team_ids": [7, 8]}, {7, 8}),
+            ("empty_list_means_nobody", {"team_ids": []}, set()),
+            # A malformed payload must neither open the capability nor take it from the internal
+            # project — a flag read going wrong should change nothing.
+            ("malformed_falls_back", {"team_ids": "everyone"}, {_AUDIT_TEAM_ID}),
+        ]
+    )
+    def test_resolves_enablement(self, _name: str, payload, expected: set) -> None:
         with override_settings(**_AUDIT_SETTINGS):
             with patch(
-                "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
-            ) as post:
-                run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing", form_factor="mobile")
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=payload,
+            ):
+                assert enabled_team_ids() == expected
 
-        settings_sent = post.call_args.kwargs["json"]["config"]["settings"]
-        assert settings_sent["formFactor"] == "mobile"
-        assert settings_sent["screenEmulation"]["mobile"] is True
+    def test_an_unreadable_flag_leaves_the_settings_posture_alone(self) -> None:
+        with override_settings(**_AUDIT_SETTINGS):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                side_effect=RuntimeError("flag service down"),
+            ):
+                assert enabled_team_ids() == {_AUDIT_TEAM_ID}
 
 
 class TestAuditsRemainingForRun:
     """The per-run budget, read off the run's own metadata counter."""
 
-    @parameterized.expand([(None, MAX_AUDITS_PER_RUN), ({}, MAX_AUDITS_PER_RUN), ({"lighthouse_audit_count": 2}, 3)])
-    def test_reports_what_is_left(self, metadata, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("absent", None, MAX_AUDITS_PER_RUN),
+            ("empty", {}, MAX_AUDITS_PER_RUN),
+            ("partly_spent", {"lighthouse_audit_count": 2}, 3),
+            ("overspent", {"lighthouse_audit_count": MAX_AUDITS_PER_RUN + 3}, 0),
+            # `metadata` is a shared JSON column, so a non-int must not 500 the endpoint.
+            ("non_numeric", {"lighthouse_audit_count": "two"}, MAX_AUDITS_PER_RUN),
+        ]
+    )
+    def test_reports_what_is_left(self, _name: str, metadata, expected: int) -> None:
         assert audits_remaining_for_run(metadata) == expected
-
-    def test_never_goes_negative(self) -> None:
-        assert audits_remaining_for_run({"lighthouse_audit_count": MAX_AUDITS_PER_RUN + 3}) == 0

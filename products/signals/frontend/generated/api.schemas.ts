@@ -3783,7 +3783,7 @@ export interface LcpElementApi {
  * One phase of the LCP timeline, which is where the time actually went.
  */
 export interface LcpPhaseApi {
-    /** TTFB, Load Delay, Load Time, or Render Delay. */
+    /** Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or 'Element render delay'. Passed through verbatim, so the exact wording follows the Lighthouse version. */
     phase: string
     /**
      * Milliseconds spent in this phase.
@@ -3791,7 +3791,7 @@ export interface LcpPhaseApi {
      */
     timing_ms: number | null
     /**
-     * Share of total LCP, as Lighthouse formatted it.
+     * This subpart's share of the total LCP, e.g. '62%'.
      * @nullable
      */
     percent: string | null
@@ -3829,6 +3829,11 @@ export interface LighthouseAuditResponseApi {
     final_url: string | null
     /** The device profile the audit emulated. */
     form_factor: string
+    /**
+     * The Lighthouse version that produced this report. Audit ids move between major versions, so cite it when an expected field came back empty.
+     * @nullable
+     */
+    lighthouse_version: string | null
     /**
      * Lighthouse performance score out of 100 for this run.
      * @nullable

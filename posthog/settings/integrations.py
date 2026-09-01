@@ -195,11 +195,19 @@ HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", Fa
 # policy rather than connection config and lives in `posthog/settings/signals.py`.
 LIGHTHOUSE_BROWSERLESS_URL = get_from_env("LIGHTHOUSE_BROWSERLESS_URL", HEATMAP_BROWSERLESS_URL)
 LIGHTHOUSE_BROWSERLESS_TOKEN = get_from_env("LIGHTHOUSE_BROWSERLESS_TOKEN", HEATMAP_BROWSERLESS_TOKEN)
-# Lighthouse loads the page several times under throttling, so it runs longer than a screenshot.
-LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS = get_from_env("LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
+# Unlike the heatmap render, this one is awaited inside a request handler, so the cap has to fit
+# inside the app server's own request timeout rather than the Browserless plan's max — a longer
+# budget just means the proxy hangs up first, leaving the run charged for a report it never sees
+# and a browser session still running. A throttled desktop load of a heavy marketing page measures
+# ~17s, so 60s is generous; raise it only alongside the ingress timeout.
+LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS = get_from_env("LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS", 60000, type_cast=int)
 LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env(
-    "LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int
+    "LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS", 10000, type_cast=int
 )
+# A Lighthouse report carries base64 screenshot and filmstrip blobs; the one measured against
+# posthog.com was 1.8 MB. Reject an implausibly large body before it is parsed into worker memory,
+# mirroring `HEATMAP_SCREENSHOT_MAX_BYTES`.
+LIGHTHOUSE_REPORT_MAX_BYTES = get_from_env("LIGHTHOUSE_REPORT_MAX_BYTES", 32 * 1024 * 1024, type_cast=int)
 
 # PostHog connect — lets a user connect (via the target's OAuth consent flow) to another PostHog
 # project to drive its APIs, e.g. dispatching a Task that must run in that project (including one in

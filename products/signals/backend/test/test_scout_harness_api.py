@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.test import SimpleTestCase
@@ -58,6 +58,7 @@ from products.signals.backend.scout_harness.serializers import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
+from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -3507,3 +3508,150 @@ class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]
+
+
+_LIGHTHOUSE_API_SETTINGS = {
+    "LIGHTHOUSE_BROWSERLESS_URL": "https://browserless.example.com",
+    "LIGHTHOUSE_BROWSERLESS_TOKEN": "secret-token",
+    "SIGNALS_LIGHTHOUSE_ALLOWED_HOSTS": {"posthog.com"},
+}
+
+_LIGHTHOUSE_REPORT = {
+    "data": {
+        "lighthouseVersion": "13.4.1",
+        "finalDisplayedUrl": "https://posthog.com/pricing",
+        "categories": {"performance": {"score": 0.28}},
+        "audits": {"largest-contentful-paint": {"numericValue": 4553.2}},
+    }
+}
+
+
+class TestScoutHarnessLighthouseAPI(APIBaseTest):
+    """The endpoint's metering: what spends a slot, what doesn't, and what the cap does.
+
+    Covered here rather than at the tool level because the ordering under test — validate, then
+    reserve under the row lock, then load the page — lives in the view.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _audit_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+
+    def _post(self, run: SignalScoutRun, url: str = "https://posthog.com/pricing", **setting_overrides):
+        """POST an audit with Browserless mocked, returning (response, browserless_mock)."""
+        response = MagicMock(status_code=200, content=b"{}")
+        response.json.return_value = _LIGHTHOUSE_REPORT
+        settings_used = {
+            **_LIGHTHOUSE_API_SETTINGS,
+            "SIGNALS_LIGHTHOUSE_TEAM_IDS": {self.team.id},
+            **setting_overrides,
+        }
+        with self.settings(**settings_used):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
+                ) as browserless:
+                    return (
+                        self.client.post(self._audit_url(str(run.id)), data={"url": url}, format="json"),
+                        browserless,
+                    )
+
+    def _spent(self, run: SignalScoutRun) -> int:
+        run.refresh_from_db()
+        return (run.metadata or {}).get(RUN_AUDIT_COUNT_KEY, 0)
+
+    def test_a_successful_audit_spends_exactly_one_slot(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["audits_remaining"] == MAX_AUDITS_PER_RUN - 1
+        assert self._spent(run) == 1
+        assert browserless.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("off_allowlist_host", "https://example.com/pricing", {}),
+            ("not_https", "http://posthog.com/pricing", {}),
+            ("team_not_enabled", "https://posthog.com/pricing", {"SIGNALS_LIGHTHOUSE_TEAM_IDS": set()}),
+        ]
+    )
+    def test_a_rejection_that_never_loads_a_page_costs_no_budget(self, _name: str, url: str, overrides: dict) -> None:
+        # A scout that misread the host rule would otherwise burn all five slots on instant
+        # round-trips and then be told it had spent them on audits.
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, url=url, **overrides)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+        # The remaining count rides in the message, so a scout can tell a rejection
+        # (budget intact) from an exhausted budget.
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_the_per_run_cap_is_enforced_without_reaching_browserless(self) -> None:
+        run = _make_run(self.team, metadata={RUN_AUDIT_COUNT_KEY: MAX_AUDITS_PER_RUN})
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "0 still available" in response.json()["detail"]
+        browserless.assert_not_called()
+
+    def test_a_failed_page_load_still_spends_its_slot(self) -> None:
+        # The runaway case the cap exists for is a scout retrying a page that cannot load.
+        run = _make_run(self.team)
+        broken = MagicMock(status_code=500, content=b"")
+        broken.text = "upstream error"
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=broken
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._spent(run) == 1
+
+    def test_returns_501_when_the_deployment_has_no_browserless(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, LIGHTHOUSE_BROWSERLESS_URL="")
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+
+    def test_rejects_a_run_that_is_not_in_progress(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+
+    def test_another_teams_run_is_not_auditable(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        run = _make_run(other_team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        browserless.assert_not_called()

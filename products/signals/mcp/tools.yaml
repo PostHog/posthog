@@ -552,7 +552,9 @@ tools:
             login would measure the login screen and report its numbers as the page's, and a url that redirects off the
             allowlist is rejected for the same reason. One throttled cold load is not a p75 over real users — cite it as
             the explanation for a field finding, never as the evidence that a problem exists. Capped at 5 audits per
-            run, and a failed audit still spends its slot, so pick the page before calling.
+            run. A rejected call (bad host, not https, audits not enabled here) costs nothing, but once the page loads
+            the slot is spent whatever the result — so pick the page before calling. Every error message ends with how
+            many audits the run has left, which tells a rejection apart from an exhausted budget.
     scout-members-list:
         operation: signals_scout_members_list
         enabled: true

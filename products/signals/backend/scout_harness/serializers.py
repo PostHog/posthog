@@ -512,9 +512,18 @@ class LcpElementSerializer(serializers.Serializer):
 class LcpPhaseSerializer(serializers.Serializer):
     """One phase of the LCP timeline, which is where the time actually went."""
 
-    phase = serializers.CharField(help_text="TTFB, Load Delay, Load Time, or Render Delay.")
+    phase = serializers.CharField(
+        help_text=(
+            "Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or "
+            "'Element render delay'. Passed through verbatim, so the exact wording follows the "
+            "Lighthouse version."
+        )
+    )
     timing_ms = serializers.FloatField(allow_null=True, help_text="Milliseconds spent in this phase.")
-    percent = serializers.CharField(allow_null=True, help_text="Share of total LCP, as Lighthouse formatted it.")
+    percent = serializers.CharField(
+        allow_null=True,
+        help_text="This subpart's share of the total LCP, e.g. '62%'.",
+    )
 
 
 class AuditOpportunitySerializer(serializers.Serializer):
@@ -539,6 +548,13 @@ class LighthouseAuditResponseSerializer(serializers.Serializer):
     requested_url = serializers.CharField(help_text="The url that was audited.")
     final_url = serializers.CharField(allow_null=True, help_text="Where the browser ended up after redirects.")
     form_factor = serializers.CharField(help_text="The device profile the audit emulated.")
+    lighthouse_version = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The Lighthouse version that produced this report. Audit ids move between major "
+            "versions, so cite it when an expected field came back empty."
+        ),
+    )
     performance_score = serializers.IntegerField(
         allow_null=True, help_text="Lighthouse performance score out of 100 for this run."
     )
