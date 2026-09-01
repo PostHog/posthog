@@ -472,7 +472,11 @@ export const InsightViews: Story = {
 export const RecordingViews: Story = {
     parameters: {
         pageUrl: urls.notebook('recording-widget-views'),
-        testOptions: { waitForLoadersToDisappear: false },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            // Replay player keeps painting after the recording loads, past the suite-wide default.
+            snapshotSettleTimeMs: 1000,
+        },
     },
 }
 export const RecordingPlaylistViews: Story = {
