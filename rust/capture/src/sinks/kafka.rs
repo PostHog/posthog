@@ -727,12 +727,14 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
+    #[instrument(skip_all)]
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         self.kafka_send(event)?
             .instrument(info_span!("ack_wait_one"))
             .await
     }
 
+    #[instrument(skip_all)]
     async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let payloads = self.prepare_batch(events).await?;
         fold_results(self.publish(payloads).await)
@@ -745,7 +747,6 @@ impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
 
 #[async_trait]
 impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
-    #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let ack_future = self.kafka_send(event)?;
         histogram!("capture_event_batch_size").record(1.0);
@@ -755,7 +756,6 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     /// The v0 bridge onto the mechanism seam: prep, publish, fold. The
     /// per-event results collapse to the whole-request `CaptureError` the
     /// `Event` callers expect.
-    #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         // Record the batch-size histogram up front so the distribution is a
         // faithful view of batches submitted, not only those that succeeded.
