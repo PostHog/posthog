@@ -10,7 +10,12 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { isKeyOf } from 'lib/utils/guards'
 import { isURL } from 'lib/utils/url'
-import { PerformanceEventSizeInfo, itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
+import {
+    isAutoRedactedBody,
+    itemSizeInfo,
+    PerformanceEventSizeInfo,
+    unreadableBodyExplanation,
+} from 'scenes/session-recordings/apm/performance-event-utils'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
@@ -110,6 +115,23 @@ function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
     ) : null
 }
 
+export function hasNoRecordedResponse(item: PerformanceEvent): boolean {
+    // A captured fetch/XHR (method present) that recorded no response. Skip navigations and
+    // requests captured before PostHog started. A fetch that throws records no status, while a
+    // successful opaque cross-origin fetch records 0, so for fetch only an absent status means
+    // no response. An XHR cannot be opaque, so it reports status 0 when it recorded none.
+    //
+    // The cause is not knowable from here: a firewall block, CORS, and a network error look the
+    // same as an abort, and aborts are routine in an app that cancels in-flight requests. So this
+    // reports only that no response was recorded, and never calls the request failed.
+    return (
+        item.entry_type !== 'navigation' &&
+        !item.is_initial &&
+        item.method !== undefined &&
+        (item.response_status === undefined || (item.response_status === 0 && item.initiator_type === 'xmlhttprequest'))
+    )
+}
+
 function durationMillisecondsFrom(item: PerformanceEvent): number | null {
     let duration = item.duration
     if (duration === undefined && item.end_time !== undefined && item.start_time !== undefined) {
@@ -202,22 +224,22 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                     <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
                         <MethodTag item={item} />
                         <PerformanceEventLabel name={item.name} expanded={false} />
-                        {/* We only show the status if it exists and is an error status */}
+                        {/* Highlight the request when it returned an error status, or when no
+                            response was recorded for it at all */}
                         {otherProps.response_status && otherProps.response_status >= 400 ? (
                             <span
                                 className={clsx(
                                     'font-semibold',
-                                    otherProps.response_status >= 400 &&
-                                        otherProps.response_status < 500 &&
-                                        'text-warning-dark',
-                                    otherProps.response_status >= 500 && 'text-danger-dark'
+                                    otherProps.response_status < 500 ? 'text-warning-dark' : 'text-danger-dark'
                                 )}
                             >
                                 {otherProps.response_status}
                             </span>
+                        ) : hasNoRecordedResponse(item) ? (
+                            <span className="font-semibold text-warning-dark">no response</span>
                         ) : null}
                         {renderTimeBenchmark(duration)}
-                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
+                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes || 'size not available'}</span>
                     </div>
                 )}
             </div>
@@ -389,9 +411,17 @@ export function BodyDisplay({
         language = Language.JSON
     }
 
-    const isAutoRedaction = /(\[SessionRecording].*redacted)/.test(displayContent)
+    const bodyDiagnostic = unreadableBodyExplanation(displayContent)
+    if (bodyDiagnostic) {
+        return (
+            <>
+                <p>{bodyDiagnostic}</p>
+                <pre>received: {displayContent}</pre>
+            </>
+        )
+    }
 
-    return isAutoRedaction ? (
+    return isAutoRedactedBody(displayContent) ? (
         <>
             <p>
                 This content was redacted by PostHog to protect sensitive data.{' '}
@@ -453,6 +483,22 @@ export function HeadersDisplay({
 export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed: boolean }): JSX.Element | null {
     const { response_status: responseStatus, transfer_size: transferSize, response_body: responseBody } = item
 
+    if (hasNoRecordedResponse(item)) {
+        // Render this here so every renderer that shares StatusTag marks it, including the
+        // network waterfall, not just the inspector list.
+        return (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                {detailed ? <div className="font-semibold">Status code</div> : null}
+                <div>
+                    <LemonTag type="warning">No response</LemonTag>
+                    {detailed ? (
+                        <span className="text-secondary"> the request was blocked, failed, or cancelled</span>
+                    ) : null}
+                </div>
+            </div>
+        )
+    }
+
     if (responseStatus === undefined) {
         return null
     }
@@ -465,10 +511,10 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
     const statusDescription = `${responseStatus} ${isKeyOf(responseStatus, FriendlyHttpStatus) ? FriendlyHttpStatus[responseStatus] : ''}`
 
     let statusType: LemonTagType = 'success'
-    if (responseStatus >= 400 || responseStatus < 100) {
-        statusType = 'warning'
-    } else if (responseStatus >= 500) {
+    if (responseStatus >= 500) {
         statusType = 'danger'
+    } else if (responseStatus >= 400 || responseStatus < 100) {
+        statusType = 'warning'
     }
 
     return (
@@ -498,7 +544,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let statusRow = null
     let methodRow = null
 
-    if (item.response_status) {
+    if (item.response_status || hasNoRecordedResponse(item)) {
         statusRow = <StatusTag item={item} detailed={true} />
     }
 
