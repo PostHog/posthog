@@ -749,6 +749,37 @@ export function getResultCustomizations(
     return undefined
 }
 
+/**
+ * Keep only the customizations that match the active association mode.
+ *
+ * `resultCustomizations` must stay homogeneous: every entry keyed by series name
+ * (`assignmentBy: 'value'`) or every entry keyed by rank (`assignmentBy: 'position'`).
+ * The backend rejects a mixed dict, because it matches neither side of the schema union.
+ * Switching the picker leaves entries of the old kind behind, so drop them here.
+ */
+export function normalizeResultCustomizations(
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined,
+    resultCustomizationBy: ResultCustomizationBy | null | undefined
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined {
+    if (resultCustomizations == null) {
+        return undefined
+    }
+
+    const targetBy = resultCustomizationBy ?? ResultCustomizationBy.Value
+    const normalized: Record<string, ResultCustomizationByValue | ResultCustomizationByPosition> = {}
+    for (const [key, customization] of Object.entries(resultCustomizations)) {
+        const entryBy = customization?.assignmentBy ?? ResultCustomizationBy.Value
+        if (entryBy === targetBy) {
+            normalized[key] = customization
+        }
+    }
+    return normalized as Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition>
+}
+
 export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.goalLines

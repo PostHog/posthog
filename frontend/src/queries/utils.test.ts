@@ -1,11 +1,12 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import type { InsightQueryNode } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
+import type { InsightQueryNode, ResultCustomizationByValue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
 
@@ -17,6 +18,7 @@ import {
     escapePropertyAsHogQLIdentifier,
     getDisplay,
     hogql,
+    normalizeResultCustomizations,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
@@ -453,5 +455,37 @@ describe('getDisplay', () => {
         ],
     ])('normalizes the deprecated ActionsStackedBar alias to ActionsBar for %s', (_, query) => {
         expect(getDisplay(query as InsightQueryNode)).toEqual(ChartDisplayType.ActionsBar)
+    })
+})
+
+describe('normalizeResultCustomizations', () => {
+    const byValue = { assignmentBy: ResultCustomizationBy.Value, color: 'preset-1' as DataColorToken }
+    const byPosition = { assignmentBy: ResultCustomizationBy.Position, color: 'preset-2' as DataColorToken }
+    // A mixed dict is invalid to the type system but reaches the function at runtime from
+    // stored filters, so the tests cast it to the homogeneous union the callers pass.
+    const asInput = (value: Record<string, unknown>): Record<string, ResultCustomizationByValue> =>
+        value as Record<string, ResultCustomizationByValue>
+
+    it('drops entries of the other kind when switching to position', () => {
+        const mixed = asInput({ '{"series":0}': byValue, '0': byPosition })
+        expect(normalizeResultCustomizations(mixed, ResultCustomizationBy.Position)).toEqual({ '0': byPosition })
+    })
+
+    it('drops entries of the other kind when switching to value', () => {
+        const mixed = asInput({ '{"series":0}': byValue, '0': byPosition })
+        expect(normalizeResultCustomizations(mixed, ResultCustomizationBy.Value)).toEqual({
+            '{"series":0}': byValue,
+        })
+    })
+
+    it('defaults a missing mode and a missing assignmentBy to value', () => {
+        const legacy = asInput({ '{"series":0}': { color: 'preset-1' as DataColorToken }, '0': byPosition })
+        expect(normalizeResultCustomizations(legacy, undefined)).toEqual({
+            '{"series":0}': { color: 'preset-1' },
+        })
+    })
+
+    it('returns undefined when there is nothing to normalize', () => {
+        expect(normalizeResultCustomizations(undefined, ResultCustomizationBy.Value)).toBeUndefined()
     })
 })
