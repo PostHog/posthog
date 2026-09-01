@@ -526,6 +526,7 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         emailValidationService,
         cohortMembershipRepository,
+        deps.integrationManager,
         hogFlowDuplicateObserver,
         cdpUsageReporter
     )
