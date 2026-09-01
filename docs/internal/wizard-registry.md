@@ -42,6 +42,7 @@ The registry is stored in the `wizard-program-registry` feature flag payload:
       "id": "web-analytics-audit",
       "name": "Web analytics audit",
       "description": "Audit a project's web analytics setup",
+      "wizard_version": "2.60.0",
       "command": ["audit", "web-analytics"],
       "tags": ["audit", "web-analytics"],
       "required_programs": ["posthog-integration"],
@@ -52,6 +53,8 @@ The registry is stored in the `wizard-program-registry` feature flag payload:
 ```
 
 The entire payload is invalid when its version or shape is unsupported, program IDs are duplicated, an environment is unknown, or any program field is invalid.
+Each program must include a `wizard_version` pinned to an exact release, such as `2.60.0`.
+The registry payload rejects `latest`, so a program that omits `wizard_version` or sets it to `latest` makes the whole payload invalid.
 A valid empty program list remains empty.
 
 When the payload cannot be fetched or is invalid, the registry contains one `posthog-integration` program with local and cloud support.
