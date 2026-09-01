@@ -6,6 +6,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import override_settings
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -13,6 +15,8 @@ from posthog.models.user import User
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.providers import ProviderLookup
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
+
+from ee.billing.salesforce_enrichment.harmonic_client import MissingHarmonicAPIKeyError
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_harmonic_ownership"
 
@@ -43,6 +47,9 @@ def _mock_provider(side_effect: list[Any]) -> MagicMock:
     return provider_cls
 
 
+# The command now refuses to run without HARMONIC_API_KEY. Every test here mocks the provider,
+# so the key value is irrelevant beyond being truthy — set one so the guard lets the run proceed.
+@override_settings(HARMONIC_API_KEY="test-key")
 class _BackfillTestCase(BaseTest):
     def _org(
         self,
@@ -261,6 +268,42 @@ class TestResume(_BackfillTestCase):
         second.refresh_from_db()
         assert "ownership_status" not in first.data
         assert second.data["ownership_status"] == "ACTIVE"
+
+
+class TestConfiguration(_BackfillTestCase):
+    @override_settings(HARMONIC_API_KEY="")
+    def test_missing_api_key_aborts_before_touching_any_record(self):
+        record = self._org(email="a@acme.com", data={})
+        provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
+
+        with (
+            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+        ):
+            with self.assertRaises(CommandError):
+                call_command("backfill_harmonic_ownership", sleep=0)
+
+        # No org is fetched and no fetch row is written — the run stops at the guard.
+        provider_cls.return_value.enrich_by_domain.assert_not_called()
+        record.refresh_from_db()
+        assert "ownership_status" not in record.data
+
+    def test_a_missing_key_surfacing_mid_run_aborts_instead_of_counting_a_fetch_failure(self):
+        # The guard normally catches a missing key first; this pins the second line of defense so
+        # a config fault raised per org can never be masked as a fetch failure and looped over.
+        self._org(email="a@acme.com", data={})
+        self._org(email="b@acme.com", data={})
+        provider_cls = _mock_provider([MissingHarmonicAPIKeyError("Missing Harmonic API key: HARMONIC_API_KEY")])
+
+        with (
+            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+        ):
+            with self.assertRaises(CommandError):
+                call_command("backfill_harmonic_ownership", sleep=0)
+
+        # It stops at the first org rather than grinding through the second.
+        provider_cls.return_value.enrich_by_domain.assert_called_once()
 
 
 class TestSummary(_BackfillTestCase):

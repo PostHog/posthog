@@ -15,6 +15,10 @@ from .constants import (
 )
 
 
+class MissingHarmonicAPIKeyError(ValueError):
+    """Raised when HARMONIC_API_KEY is unset. A configuration fault, not a fetch failure."""
+
+
 class AsyncHarmonicClient:
     """Async Harmonic API client with controlled concurrency.
 
@@ -32,7 +36,7 @@ class AsyncHarmonicClient:
     def __init__(self):
         self.api_key = settings.HARMONIC_API_KEY
         if not self.api_key:
-            raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
+            raise MissingHarmonicAPIKeyError("Missing Harmonic API key: HARMONIC_API_KEY")
 
         self.session: Optional[aiohttp.ClientSession] = None
         self._session_cm: Any = None
