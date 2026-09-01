@@ -471,9 +471,13 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # stays retryable, and keep the raw errno and pod address in the worker log only: `from None`
                 # drops the volatile cause so error tracking groups the outage by the stable message alone
                 # instead of minting a fresh issue per errno and pod address.
+                # Interpolate the code and detail into the message text, not `extra={...}`: the worker's
+                # stdlib formatter chain has no `ExtraAdder`, so record attributes never reach the rendered
+                # line, and the promised on-call copy would carry neither field.
                 wf.logger.warning(
-                    "replay_vision.rasterizer_infra_transient",
-                    extra={"rasterizer_code": rasterizer_type, "detail": _root_cause_message(e)},
+                    "replay_vision.rasterizer_infra_transient code=%s detail=%s",
+                    rasterizer_type,
+                    _root_cause_message(e),
                 )
                 raise ScannerFailureError(
                     _normalized_rasterizer_infra_message(rasterizer_type), kind=FailureKind.INFRA_TRANSIENT
