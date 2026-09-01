@@ -4,7 +4,6 @@ import { gunzipSync } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { normalizeSessionId } from '~/common/utils/utils'
-import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
@@ -21,9 +20,6 @@ import { SessionReplayHeaders } from './pipeline-types'
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
-// Above this gap between the sender device clock and the server-stamped message time, the
-// recording start_time is unreliable enough to warn about.
-const CLOCK_SKEW_WARNING_THRESHOLD_MS = 5 * 60 * 1000
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 // Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
 // sample; exceeding it DLQs instead of risking an unclassifiable OOM.
@@ -125,31 +121,30 @@ function getValidEvents(events: unknown[]): {
 }
 
 /**
- * Compare the message latest device-clock event time against the server-stamped Kafka message
- * time. Records the gap as a metric and returns a warning when it exceeds the threshold. The
- * message is still ingested — this only surfaces that its start_time may sort out of order.
+ * Record the sender's clock offset: the device clock when the batch was uploaded (`sent_at`) against
+ * the server clock when capture received it (`now`). Capture stamps both at the same instant, so
+ * however long the client buffered before flushing shifts both equally and cancels out, leaving the
+ * offset itself. Comparing the Kafka message time against rrweb event times does not cancel: that
+ * difference is the offset plus the buffering delay, which is why an offline flush from a correctly
+ * clocked device reads there as a large skew.
+ *
+ * Capture omits `sent_at` when the client sends none, and applies no correction of its own in that
+ * case, so those messages are counted as unmeasured rather than as zero.
  */
-export function detectClockSkew(
-    messageTimestampMs: number,
-    endDateTime: DateTime,
-    sessionId: string
-): PipelineWarning | null {
-    const skewMs = messageTimestampMs - endDateTime.toMillis()
-    const direction = skewMs >= 0 ? 'device_behind' : 'device_ahead'
+export function observeClockSkew(sentAt: string | undefined, now: string | undefined): void {
+    if (!sentAt || !now) {
+        SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
+        return
+    }
+    const sentAtMs = DateTime.fromISO(sentAt).toMillis()
+    const nowMs = DateTime.fromISO(now).toMillis()
+    if (!Number.isFinite(sentAtMs) || !Number.isFinite(nowMs)) {
+        SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
+        return
+    }
+    const skewMs = sentAtMs - nowMs
+    const direction = skewMs >= 0 ? 'device_ahead' : 'device_behind'
     SessionRecordingIngesterMetrics.observeMessageClockSkew(direction, Math.abs(skewMs) / 1000)
-    if (Math.abs(skewMs) < CLOCK_SKEW_WARNING_THRESHOLD_MS) {
-        return null
-    }
-    return {
-        type: 'replay_message_clock_skew',
-        details: {
-            skewMs,
-            direction,
-            sessionId,
-            messageTimestamp: messageTimestampMs,
-            eventEndTimestamp: endDateTime.toMillis(),
-        },
-    }
 }
 
 /**
@@ -169,8 +164,6 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         if (!message.value || !message.timestamp) {
             return dlq('message_value_or_timestamp_is_empty')
         }
-        const messageTimestamp = message.timestamp
-
         let messageUnzipped: Buffer
         try {
             messageUnzipped = decompressMessageValue(message)
@@ -254,7 +247,7 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             return dlq('distinct_id_header_body_mismatch')
         }
 
-        const clockSkewWarning = detectClockSkew(messageTimestamp, endDateTime, sessionId)
+        observeClockSkew(messageResult.data.sent_at, messageResult.data.now)
 
         const parsedMessage: ParsedMessageData = {
             metadata: {
@@ -278,6 +271,6 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             snapshot_library: $lib ?? null,
         }
 
-        return Promise.resolve(ok({ ...input, parsedMessage }, [], clockSkewWarning ? [clockSkewWarning] : []))
+        return Promise.resolve(ok({ ...input, parsedMessage }))
     }
 }

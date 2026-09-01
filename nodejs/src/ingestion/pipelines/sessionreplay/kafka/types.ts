@@ -8,6 +8,12 @@ const dateTimeSchema = z.custom<DateTime>((val) => val instanceof DateTime)
 export const RawEventMessageSchema = z.object({
     distinct_id: z.string(),
     data: z.string(),
+    // Capture stamps both at the same instant: the sender's clock when the batch was uploaded and
+    // ours when it arrived (rust/capture/src/events/recordings.rs). Their difference is the sender's
+    // clock offset. Optional because capture omits `sent_at` when the client sends none, and so that
+    // no message that parses today starts failing.
+    sent_at: z.string().optional(),
+    now: z.string().optional(),
 })
 
 export type RawEventMessage = z.infer<typeof RawEventMessageSchema>

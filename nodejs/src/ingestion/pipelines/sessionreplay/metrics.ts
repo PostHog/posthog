@@ -60,9 +60,14 @@ export class SessionRecordingIngesterMetrics {
 
     private static readonly messageClockSkew = new Histogram({
         name: 'recording_blob_ingestion_v2_message_clock_skew_seconds',
-        help: 'Absolute gap between a replay message latest rrweb event time (the sender device clock) and the server-stamped Kafka message time, by direction. Replay skips the skew correction every other event gets, so a large gap means the recording start_time — the default playlist sort — disagrees with the corrected event time.',
+        help: 'Absolute offset between the sender device clock at upload (sent_at) and the server clock at receipt (now), by direction. Replay skips the skew correction every other event gets, so a large offset means the recording start_time — the default playlist sort — disagrees with the corrected event time.',
         labelNames: ['direction'],
         buckets: [1, 5, 30, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400],
+    })
+
+    private static readonly messageClockSkewUnmeasured = new Counter({
+        name: 'recording_blob_ingestion_v2_message_clock_skew_unmeasured',
+        help: 'Replay messages whose clock offset could not be measured because capture recorded no usable sent_at/now pair. Counted separately so an absent measurement is not read as zero skew',
     })
 
     private static readonly unbilledNewSession = new Counter({
@@ -90,6 +95,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMessagesByEncoding(encoding: string): void {
         this.messagesByEncoding.labels(encoding).inc()
+    }
+
+    public static incrementMessageClockSkewUnmeasured(): void {
+        this.messageClockSkewUnmeasured.inc()
     }
 
     public static observeMessageClockSkew(direction: ClockSkewDirection, seconds: number): void {

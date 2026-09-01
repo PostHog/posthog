@@ -1,15 +1,15 @@
-import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
+import { SessionRecordingIngesterMetrics } from './metrics'
 import {
     ParseMessageStepInput,
     createParseMessageStep,
     decompressMessageValue,
-    detectClockSkew,
+    observeClockSkew,
 } from './parse-message-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
@@ -31,6 +31,8 @@ describe('createParseMessageStep', () => {
         snapshotSource?: string
         lib?: string
         distinctId?: string
+        sentAt?: string
+        now?: string
     }): string {
         const event = {
             event: '$snapshot_items',
@@ -47,6 +49,12 @@ describe('createParseMessageStep', () => {
         }
         if (options.distinctId !== undefined) {
             rawMessage.distinct_id = options.distinctId
+        }
+        if (options.sentAt !== undefined) {
+            rawMessage.sent_at = options.sentAt
+        }
+        if (options.now !== undefined) {
+            rawMessage.now = options.now
         }
         return JSON.stringify(rawMessage)
     }
@@ -600,44 +608,65 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    describe('clock skew detection', () => {
+    describe('clock skew', () => {
         const HOUR_MS = 60 * 60 * 1000
-        const eventEnd = DateTime.fromMillis(fixedTimeMs)
+        const serverNow = '2023-01-01T00:00:00.000Z'
+        let observeSpy: jest.SpyInstance
+        let unmeasuredSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            observeSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeMessageClockSkew').mockImplementation()
+            unmeasuredSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessageClockSkewUnmeasured')
+                .mockImplementation()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
 
         it.each([
-            ['device clock 1h behind server', fixedTimeMs + HOUR_MS, 'device_behind', HOUR_MS],
-            ['device clock 1h ahead of server', fixedTimeMs - HOUR_MS, 'device_ahead', -HOUR_MS],
-            ['exactly at the 5-minute threshold', fixedTimeMs + 5 * 60 * 1000, 'device_behind', 5 * 60 * 1000],
-        ])('warns when %s', (_desc, messageTimestamp, direction, skewMs) => {
-            const warning = detectClockSkew(messageTimestamp, eventEnd, 'session-1')
-            expect(warning).not.toBeNull()
-            expect(warning?.type).toBe('replay_message_clock_skew')
-            // No per-session rate-limit key: the warning is bounded per (team, type), not per session.
-            expect(warning?.key).toBeUndefined()
-            expect(warning?.details).toMatchObject({ direction, skewMs, sessionId: 'session-1' })
+            ['reads 1h ahead of the server', '2023-01-01T01:00:00.000Z', 'device_ahead', 3600],
+            ['reads 1h behind the server', '2022-12-31T23:00:00.000Z', 'device_behind', 3600],
+            ['agrees with the server', serverNow, 'device_ahead', 0],
+        ])('records the offset when the device clock %s', (_desc, sentAt, direction, seconds) => {
+            observeClockSkew(sentAt, serverNow)
+
+            expect(observeSpy).toHaveBeenCalledWith(direction, seconds)
+            expect(unmeasuredSpy).not.toHaveBeenCalled()
         })
 
-        it('does not warn when the gap stays under the threshold', () => {
-            expect(detectClockSkew(fixedTimeMs + 60 * 1000, eventEnd, 'session-1')).toBeNull()
+        it.each([
+            ['capture recorded no sent_at', undefined, serverNow],
+            ['sent_at is unparseable', 'not-a-date', serverNow],
+            ['capture recorded no now', '2023-01-01T01:00:00.000Z', undefined],
+        ])('counts the message as unmeasured when %s', (_desc, sentAt, now) => {
+            observeClockSkew(sentAt, now)
+
+            expect(observeSpy).not.toHaveBeenCalled()
+            expect(unmeasuredSpy).toHaveBeenCalledTimes(1)
         })
 
-        it('surfaces the warning on the ingested message', async () => {
+        it('reports no offset for a buffered upload from a correctly clocked device', async () => {
             const step = createParseMessageStep()
             const now = Date.now()
+            const uploadedAt = new Date(now).toISOString()
             const payload = createSnapshotPayload({
                 sessionId: 'session-1',
-                snapshotItems: [{ type: 2, timestamp: now }],
+                // Recorded an hour before the batch was flushed: buffering, not a wrong clock. The
+                // Kafka message time would read this as an hour of skew; the envelope pair does not.
+                snapshotItems: [{ type: 2, timestamp: now - HOUR_MS }],
                 distinctId: 'user-123',
+                sentAt: uploadedAt,
+                now: uploadedAt,
             })
-            // Events sit at `now` (inside the 7-day guard) but the server stamped the message an hour later.
-            const input = createInput(0, 1, payload, undefined, { timestamp: now + HOUR_MS })
+            const input = createInput(0, 1, payload, undefined, { timestamp: now })
 
             const result = await step(input)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(result.warnings).toHaveLength(1)
-            expect(result.warnings[0].type).toBe('replay_message_clock_skew')
-            expect(result.warnings[0].key).toBeUndefined()
+            expect(result.warnings).toHaveLength(0)
+            expect(observeSpy).toHaveBeenCalledWith('device_ahead', 0)
         })
     })
 
