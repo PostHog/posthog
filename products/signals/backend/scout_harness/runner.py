@@ -34,6 +34,7 @@ from products.signals.backend.scout_harness.limits import (
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
@@ -137,7 +138,7 @@ def run_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
-    triggered_by: str = "schedule",
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -163,13 +164,15 @@ async def arun_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
-    triggered_by: str = "schedule",
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
-    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes)
-    and `"manual"` for on-demand triggers (the `run` endpoint, the management command). Only
-    scheduled failures feed the failure-streak breaker; see the failure path below.
+    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes),
+    `"manual"` for on-demand triggers (the `run` endpoint, the management command) and
+    `"workflow"` for a workflow step that runs a scout. Only scheduled failures feed the
+    failure-streak breaker; see the failure path below. Anything but `"schedule"` is also stamped
+    onto the run row's `metadata`, which is what the workflow path's cooldown reads.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
@@ -361,6 +364,7 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            triggered_by=triggered_by,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -431,7 +435,7 @@ async def arun_signals_scout(
         # on a lane whose schedule never failed.
         streak = (
             await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
-            if triggered_by == "schedule"
+            if triggered_by == TRIGGERED_BY_SCHEDULE
             else None
         )
         _capture_run_finished(
@@ -584,6 +588,7 @@ async def _spawn_and_run(
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -705,6 +710,7 @@ async def _spawn_and_run(
             reasoning_effort=reasoning_effort,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            triggered_by=triggered_by,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -902,6 +908,7 @@ def _create_run_row(
     reasoning_effort: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
+    triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
@@ -949,6 +956,12 @@ def _create_run_row(
     # section: records land solely as project events, so a dry-run scout has no channel.
     if config.structured_output_schema and config.emit:
         metadata["structured_output_schema"] = config.structured_output_schema
+    # Omitted on the default path like the model triple, so absence reads as "the schedule".
+    # Load-bearing for the workflow path specifically: its 30-minute cooldown counts prior
+    # *workflow*-triggered runs of this (team, skill), and this is the only record of which those
+    # were — a scheduled patrol or a human's "Run now" must not extend it.
+    if triggered_by != TRIGGERED_BY_SCHEDULE:
+        metadata["triggered_by"] = triggered_by
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,

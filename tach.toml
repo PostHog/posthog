@@ -983,6 +983,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the "Run scout" action's endpoint starts a scout run through
+    # products.signals.backend.facade.api.
+    "products.signals",
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
