@@ -537,6 +537,7 @@ describe("ReasoningLevelSelector", () => {
           thoughtOption={thoughtOption()}
           modelOption={groupedModelOption("claude-sonnet-5")}
           adapter="claude"
+          onAdapterChange={() => {}}
           onModelChange={onModelChange}
           onHarnessModelChange={onHarnessModelChange}
         />
@@ -547,6 +548,8 @@ describe("ReasoningLevelSelector", () => {
       screen.getByRole("button", { name: /Model and reasoning/ }),
     );
     await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    // The grouped model list replaces the Harness row.
+    expect(screen.queryByRole("menuitem", { name: /^Harness/ })).toBeNull();
     await openSub(user, /^Model/);
     fireEvent.click(
       await screen.findByRole("menuitemradio", { name: "GPT-5.6 Sol" }),

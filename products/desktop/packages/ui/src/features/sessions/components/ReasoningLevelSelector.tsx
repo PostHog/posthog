@@ -175,6 +175,13 @@ export function ReasoningLevelSelector({
     onAdapterChange?.(harness);
   };
 
+  // With model-first wiring the grouped model list already carries the
+  // harness, so the row only remains as the path to Pi.
+  const showHarnessSubmenu =
+    !!adapter &&
+    !!(onAdapterChange || onHarnessChange) &&
+    (!onHarnessModelChange || (includePiHarness && !!onHarnessChange));
+
   if (!hasEffort && !modelSelect) {
     if (isLoading) {
       // Keep the dropdown mounted while a harness switch reloads the config:
@@ -195,7 +202,7 @@ export function ReasoningLevelSelector({
             sideOffset={6}
             className="min-w-[230px]"
           >
-            {adapter && (onAdapterChange || onHarnessChange) && (
+            {showHarnessSubmenu && adapter && (
               <HarnessSubmenu
                 value={adapter}
                 includePi={includePiHarness && !!onHarnessChange}
@@ -454,7 +461,7 @@ export function ReasoningLevelSelector({
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
                 {showBack && <BackRow onClick={() => setAdvanced(false)} />}
-                {adapter && (onAdapterChange || onHarnessChange) && (
+                {showHarnessSubmenu && adapter && (
                   <HarnessSubmenu
                     value={adapter}
                     includePi={includePiHarness && !!onHarnessChange}
