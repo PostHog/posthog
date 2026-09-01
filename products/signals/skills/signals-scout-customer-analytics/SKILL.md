@@ -3,8 +3,7 @@ name: signals-scout-customer-analytics
 description: >
   Signals scout for PostHog Customer analytics (Accounts). Watches per-account engagement for
   churn-risk shapes — engagement cliffs, dormancy, champion departure — and the expansion
-  inverse, weighted by commercial ownership, and files each validated risk as a report in the
-  inbox.
+  inverse.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the customer-analytics tools
