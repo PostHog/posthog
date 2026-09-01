@@ -18,7 +18,7 @@ from prometheus_client import Counter
 
 from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client import ReadConsistency, consistency_to_read_options
-from posthog.personhog_client.client import personhog_call, require_personhog_client
+from posthog.personhog_client.client import get_personhog_client, personhog_call, require_personhog_client
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
@@ -726,8 +726,6 @@ def clear_dashboard_from_group_type_mapping(
 
     Uses GetGroupTypeMappingByDashboardId to find the mapping, then UpdateGroupTypeMapping to clear it.
     """
-    # Imported here so a patched or faked client is picked up at call time.
-    from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
     client = get_personhog_client()

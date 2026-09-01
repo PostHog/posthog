@@ -55,6 +55,10 @@ PERSONHOG_SUCCESS_DATA = [
 ]
 
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
+# clear_dashboard_from_group_type_mapping calls get_personhog_client directly, so the
+# patch must target the name bound in its module. Callers of require_personhog_client
+# resolve the getter inside the client module and use _CLIENT_PATCH instead.
+_MODEL_CLIENT_PATCH = "posthog.models.group_type_mapping.get_personhog_client"
 
 
 class TestGetGroupTypesForProject(SimpleTestCase):
@@ -645,7 +649,7 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
 
 class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch(_CLIENT_PATCH)
+    @patch(_MODEL_CLIENT_PATCH)
     def test_personhog_success_reads_then_updates(self, mock_get_client, mock_invalidate):
         mock_mapping = MagicMock()
         mock_mapping.project_id = 1
@@ -670,7 +674,7 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_invalidate.assert_called_once_with(1)
 
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch(_CLIENT_PATCH)
+    @patch(_MODEL_CLIENT_PATCH)
     def test_personhog_group_type_index_zero_still_clears(self, mock_get_client, mock_invalidate):
         """group_type_index=0 is falsy but valid — HasField must not skip it."""
         mock_mapping = MagicMock(spec=["project_id", "group_type_index"])
@@ -694,7 +698,7 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_invalidate.assert_called_once_with(1)
 
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch(_CLIENT_PATCH)
+    @patch(_MODEL_CLIENT_PATCH)
     def test_personhog_no_matching_mapping_skips_update(self, mock_get_client, mock_invalidate):
         mock_resp = MagicMock()
         mock_resp.HasField.return_value = False
@@ -708,13 +712,15 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_client.update_group_type_mapping.assert_not_called()
         mock_invalidate.assert_not_called()
 
+    @patch("posthog.models.group_type_mapping.personhog_call")
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch(_CLIENT_PATCH)
-    def test_unconfigured_client_is_a_no_op(self, mock_get_client, mock_invalidate):
+    @patch(_MODEL_CLIENT_PATCH)
+    def test_unconfigured_client_is_a_no_op(self, mock_get_client, mock_invalidate, mock_personhog_call):
         mock_get_client.return_value = None
 
         clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
 
+        mock_personhog_call.assert_not_called()
         mock_invalidate.assert_not_called()
 
 
