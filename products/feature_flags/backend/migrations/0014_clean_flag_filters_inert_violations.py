@@ -12,7 +12,8 @@ def _variant_keys(filters: dict) -> set[str]:
 
     Non-string keys are skipped: a payload key always arrives as a JSON string, so it could
     never resolve to one anyway."""
-    variants = (filters.get("multivariate") or {}).get("variants")
+    multivariate = filters.get("multivariate")
+    variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
     if not isinstance(variants, list):
         return set()
     keys = set()
@@ -23,6 +24,16 @@ def _variant_keys(filters: dict) -> set[str]:
         if isinstance(key, str):
             keys.add(key)
     return keys
+
+
+# Payload keys the evaluator resolves beyond the variant keys themselves: a boolean result
+# looks up "true"/"false", and a user in a holdout gets the synthesised `holdout-{id}` variant.
+BOOLEAN_PAYLOAD_KEYS = frozenset({"true", "false"})
+HOLDOUT_PAYLOAD_KEY_PREFIX = "holdout-"
+
+
+def _payload_key_is_resolvable(key: str, variant_keys: set[str]) -> bool:
+    return key in variant_keys or key in BOOLEAN_PAYLOAD_KEYS or key.startswith(HOLDOUT_PAYLOAD_KEY_PREFIX)
 
 
 def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
@@ -66,10 +77,10 @@ def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
             # against, every payload would look orphaned; a flag whose variants are missing or
             # malformed belongs to the multivariate_empty rule in 0011, not to this one.
             if variant_keys:
-                kept = {key: value for key, value in payloads.items() if key in variant_keys}
+                kept = {k: v for k, v in payloads.items() if _payload_key_is_resolvable(k, variant_keys)}
                 rule = "payload_key_not_a_variant"
         else:
-            kept = {key: value for key, value in payloads.items() if key == "true"}
+            kept = {k: v for k, v in payloads.items() if _payload_key_is_resolvable(k, set())}
             rule = "payload_key_not_true"
         if rule and len(kept) != len(payloads):
             new_filters["payloads"] = kept
@@ -86,7 +97,7 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
     but restoring or re-enabling a flag would put the stored value straight back in play."""
     FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
 
-    total = 0
+    updated_rows = 0
     skipped_concurrent = 0
     rule_counts: dict[str, int] = {}
 
@@ -121,11 +132,11 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
                 continue
             for rule in rules:
                 rule_counts[rule] = rule_counts.get(rule, 0) + 1
-            total += 1
+            updated_rows += 1
 
     logger.info(
         "cleaned_flag_filters_inert_violations",
-        updated_rows=total,
+        updated_rows=updated_rows,
         skipped_concurrent=skipped_concurrent,
         **rule_counts,
     )
