@@ -11,6 +11,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
+import { SETTINGS_MAP } from './SettingsMap'
 import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 import type { Setting, SettingSection } from './types'
 
@@ -38,6 +39,17 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     // if members ever become project-scoped.
     'project-members': 'organization-members',
 }
+
+// Link-only sections (Billing, Exports, Legal documents, Startups) have no settings of their
+// own; they point at a dedicated scene through `to`. Selecting such a section renders
+// "Setting not found", so a URL that lands on one (bookmark, pasted link, an assistant-suggested
+// link) must redirect to that scene instead. Read from the full map, not the visible sections:
+// a member without billing access has the section filtered out, and must still reach
+// `/organization/billing`, which shows its own no-access state instead of a misleading
+// "not found".
+const SETTINGS_SECTION_REDIRECTS: Record<string, string> = Object.fromEntries(
+    SETTINGS_MAP.filter((section) => section.to).map((section) => [section.id, section.to as string])
+)
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
 // section (docs, CDP filter warnings, bookmarks) redirect to the setting's current home.
@@ -236,6 +248,13 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             const canonicalSection = canonicalSettingsSection(section)
             const [hashParams, didCanonicalizeHashParams] = canonicalSettingsHashParams(router.values.hashParams)
             const targetSection = sectionForMovedSetting(canonicalSection, hashParams) ?? canonicalSection
+
+            // A link-only section points at a dedicated scene; send the URL straight there.
+            const sectionRedirect = SETTINGS_SECTION_REDIRECTS[targetSection]
+            if (sectionRedirect) {
+                router.actions.replace(sectionRedirect)
+                return
+            }
 
             // Use `replace` so legacy settings URLs don't become dead back-button entries.
             if (targetSection !== section || didCanonicalizeHashParams) {

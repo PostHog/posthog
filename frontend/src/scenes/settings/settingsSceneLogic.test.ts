@@ -210,6 +210,16 @@ describe('settingsSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/settings/organization-teapot')
     })
 
+    it('redirects a link-only section to its scene instead of the not-found path', async () => {
+        // Billing has no settings of its own; the section only links to `/organization/billing`.
+        // A URL that lands here directly (bookmark, pasted link) used to dead-end on "Setting not
+        // found". The billing scene shows its own no-access state for members without permission.
+        router.actions.push('/settings/organization-billing')
+
+        await expectLogic(logic)
+        expect(router.values.location.pathname).toBe('/organization/billing')
+    })
+
     it('does not bounce a level-only URL when already on a section at that level', async () => {
         router.actions.push('/settings/project-autocapture')
         await expectLogic(logic).toMatchValues({
