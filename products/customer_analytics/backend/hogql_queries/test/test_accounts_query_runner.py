@@ -14,6 +14,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -618,6 +619,28 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertTrue(runner.validate_query_runner_access(self.user))
+
+    def test_feature_request_lazy_join_partitions_cache_on_customer_analytics_access(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        access_control = AccessControl.objects.create(
+            team=self.team, resource="customer_analytics", access_level="none"
+        )
+        query = AccountsQuery(select=["feature_requests.count"])
+        denied_runner = AccountsQueryRunner(query=query, team=self.team, user=self.user)
+        self.assertIn("customer_analytics", denied_runner.get_cache_payload().get("restricted_resources") or [])
+        denied_key = denied_runner.get_cache_key()
+
+        access_control.access_level = "editor"
+        access_control.save()
+
+        granted_key = AccountsQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+        self.assertNotEqual(denied_key, granted_key)
 
     def test_validate_query_runner_access_ignores_customer_analytics_access(self):
         AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")

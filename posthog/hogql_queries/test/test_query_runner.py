@@ -20,7 +20,6 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
-    AccountsQuery,
     ActorsQuery,
     ActorsQueryResponse,
     BounceRatePageViewMode,
@@ -101,7 +100,6 @@ from posthog.slo.types import SloOutcome
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
@@ -1439,27 +1437,15 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
-    @parameterized.expand(
-        [
-            (
-                "raw",
-                HogQLQueryRunner,
-                {
-                    "kind": "HogQLQuery",
-                    "query": "select accounts.feature_requests.count from system.accounts as accounts",
-                },
-            ),
-            ("structured", AccountsQueryRunner, AccountsQuery(select=["feature_requests.count"])),
-        ]
-    )
-    def test_feature_request_lazy_joins_partition_cache_on_customer_analytics_access(self, _name, runner_class, query):
+    def test_raw_feature_request_lazy_join_partitions_cache_on_customer_analytics_access(self):
+        query = HogQLQuery(query="select accounts.feature_requests.count from system.accounts as accounts")
         self._ac(resource="customer_analytics", access_level="none")
-        denied_runner = runner_class(query=query, team=self.team, user=self.user)
+        denied_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
         assert "customer_analytics" in (denied_runner.get_cache_payload().get("restricted_resources") or [])
         key_denied = denied_runner.get_cache_key()
 
         self._ac(resource="customer_analytics", access_level="editor")
-        key_granted = runner_class(query=query, team=self.team, user=self.user).get_cache_key()
+        key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != key_granted
 

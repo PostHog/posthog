@@ -80,7 +80,9 @@ describe('MemberSelect', () => {
         await userEvent.click(screen.getByText('Unassigned'))
 
         await waitFor(() => expect(screen.getByText(MOCK_DEFAULT_BASIC_USER.first_name)).toBeInTheDocument())
-        expect(screen.queryByRole('menuitem', { name: 'Unassigned' })).not.toBeInTheDocument()
+        expect(Array.from(document.querySelectorAll('[role="menuitem"]'), (item) => item.textContent)).not.toContain(
+            'Unassigned'
+        )
     })
 
     it('calls onChange with the picked user', async () => {
