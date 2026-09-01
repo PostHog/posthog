@@ -20,6 +20,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { ProjectedRecordings } from 'scenes/settings/environment/ProjectedRecordings'
 import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
@@ -354,6 +355,9 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         <LemonField name="sampleRate" label="Sample rate (%)">
                             <LemonInput type="number" min={0} max={100} fullWidth />
                         </LemonField>
+                        <div className="mt-1">
+                            <ProjectedRecordings sampleRatePercent={triggerGroup.sampleRate} />
+                        </div>
                     </div>
 
                     <div className="flex-1">

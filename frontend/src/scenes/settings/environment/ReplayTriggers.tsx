@@ -12,6 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { ProjectedRecordings } from 'scenes/settings/environment/ProjectedRecordings'
 import {
     ReplayPlatform,
     replayTriggersLogic,
@@ -267,6 +268,7 @@ function Sampling(): JSX.Element {
                     <IngestionControls.SamplingTrigger
                         initialSampleRate={toDisplaySampleRate(storedSampleRate)}
                         onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+                        renderProjection={(v) => <ProjectedRecordings sampleRatePercent={v} />}
                     />
                 </div>
                 <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
@@ -297,6 +299,7 @@ function MobileSampling(): JSX.Element {
                     <IngestionControls.SamplingTrigger
                         initialSampleRate={toDisplaySampleRate(storedSampleRate)}
                         onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+                        renderProjection={(v) => <ProjectedRecordings sampleRatePercent={v} />}
                     />
                 </div>
                 <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
@@ -364,8 +367,8 @@ function MobileMinimumDuration(): JSX.Element {
                     />
                 </div>
                 <p>
-                    Only collect sessions that last longer than this. This helps you avoid recording sessions that are
-                    too short to be useful.
+                    Only keep sessions that last longer than this. It drops short sessions rather than delaying
+                    recording or saving upload bandwidth.
                 </p>
             </div>
         </PayGateMini>
@@ -396,8 +399,9 @@ function MinimumDurationSetting(): JSX.Element | null {
                     docLink="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations"
                     title="The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration control is best effort."
                 >
-                    Setting a minimum session duration will ensure that only sessions that last longer than that value
-                    are collected. This helps you avoid collecting sessions that are too short to be useful.
+                    Only keep sessions that last longer than this. It drops short sessions that are too brief to be
+                    useful. It does not delay recording or save upload bandwidth, because the web SDK still buffers the
+                    session in memory.
                 </Tooltip>
             </div>
         </PayGateMini>

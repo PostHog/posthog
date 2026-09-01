@@ -8,9 +8,12 @@ import { TeamMembershipLevel } from 'lib/constants'
 export function SamplingTrigger({
     initialSampleRate,
     onChange,
+    renderProjection,
 }: {
     initialSampleRate: number
     onChange: (value: number) => void
+    /** Optional live estimate rendered below the input, e.g. projected recordings at the current rate. */
+    renderProjection?: (sampleRatePercent: number | undefined) => JSX.Element | null
 }): JSX.Element {
     const [value, setValue] = useState<number | undefined>(initialSampleRate)
     const restrictedReason = useRestrictedArea({
@@ -28,29 +31,32 @@ export function SamplingTrigger({
     }
 
     return (
-        <div className="flex flex-row gap-x-2">
-            <LemonInput
-                type="number"
-                className="[&>input::-webkit-inner-spin-button]:appearance-none"
-                onChange={(value) => setValue(value)}
-                min={0}
-                max={100}
-                suffix={<>%</>}
-                value={value}
-                onPressEnter={updateSampling}
-                data-attr="sampling-setting-input"
-                disabledReason={restrictedReason}
-            />
-            <LemonButton
-                type="primary"
-                disabledReason={
-                    initialSampleRate === value ? 'Update the sample rate to save changes' : restrictedReason
-                }
-                onClick={updateSampling}
-                data-attr="sampling-setting-update"
-            >
-                Update
-            </LemonButton>
+        <div className="flex flex-col items-end gap-y-1">
+            <div className="flex flex-row gap-x-2">
+                <LemonInput
+                    type="number"
+                    className="[&>input::-webkit-inner-spin-button]:appearance-none"
+                    onChange={(value) => setValue(value)}
+                    min={0}
+                    max={100}
+                    suffix={<>%</>}
+                    value={value}
+                    onPressEnter={updateSampling}
+                    data-attr="sampling-setting-input"
+                    disabledReason={restrictedReason}
+                />
+                <LemonButton
+                    type="primary"
+                    disabledReason={
+                        initialSampleRate === value ? 'Update the sample rate to save changes' : restrictedReason
+                    }
+                    onClick={updateSampling}
+                    data-attr="sampling-setting-update"
+                >
+                    Update
+                </LemonButton>
+            </div>
+            {renderProjection && <div className="max-w-xs">{renderProjection(value)}</div>}
         </div>
     )
 }
