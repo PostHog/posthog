@@ -1,19 +1,15 @@
-import { Heart } from "@phosphor-icons/react";
+import { Heart, Lifebuoy } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { useState } from "react";
 
-const AFFIRMATIONS = [
-  "You don't need help. You are enough.",
-  "You can do it. Try harder.",
-  "Have you tried believing in yourself?",
-  "The answer was inside you the whole time.",
-  "This is not a setback. It is a growth opportunity.",
-  "You are exactly where you need to be.",
-  "Somewhere out there, someone believes in you.",
-];
+const AFFIRMATION = "You don't need help. You are enough.";
 
-export function AffirmationButton() {
-  const [index, setIndex] = useState<number | null>(null);
+interface AffirmationButtonProps {
+  onOpenSupport: () => void;
+}
+
+export function AffirmationButton({ onOpenSupport }: AffirmationButtonProps) {
+  const [hasShownAffirmation, setHasShownAffirmation] = useState(false);
 
   return (
     <div className="flex items-center gap-3">
@@ -21,18 +17,22 @@ export function AffirmationButton() {
         variant="default"
         size="sm"
         className="text-(--gray-11) opacity-50"
-        onClick={() =>
-          setIndex((current) =>
-            current === null ? 0 : (current + 1) % AFFIRMATIONS.length,
-          )
-        }
+        onClick={() => {
+          if (hasShownAffirmation) {
+            onOpenSupport();
+          } else {
+            setHasShownAffirmation(true);
+          }
+        }}
       >
-        <Heart size={14} />
-        Need support?
+        {hasShownAffirmation ? <Lifebuoy size={14} /> : <Heart size={14} />}
+        {hasShownAffirmation ? "Get support" : "Need support?"}
       </Button>
-      <span aria-live="polite" className="text-(--gray-11) text-xs">
-        {index === null ? null : AFFIRMATIONS[index]}
-      </span>
+      {hasShownAffirmation && (
+        <span aria-live="polite" className="text-(--gray-11) text-xs">
+          {AFFIRMATION}
+        </span>
+      )}
     </div>
   );
 }
