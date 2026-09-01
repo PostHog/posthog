@@ -3266,11 +3266,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadFeatureFlagStatus: async (_: void, breakpoint) => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        const status = await featureFlagsStatusRetrieve(String(currentProjectId), props.id)
-                        // A mutation can start a newer status request while this one is open. Discard
-                        // this response if so, or a slow earlier request would overwrite the newer verdict.
-                        breakpoint()
-                        return status
+                        try {
+                            const status = await featureFlagsStatusRetrieve(String(currentProjectId), props.id)
+                            // A mutation can start a newer status request while this one is open. Discard
+                            // this response if so, or a slow earlier request would overwrite the newer verdict.
+                            breakpoint()
+                            return status
+                        } catch (error) {
+                            // The failure reducer nulls the verdict, so a superseded request that fails
+                            // late would erase the verdict a newer request already wrote. Breakpoint
+                            // first: kea-loaders swallows that and dispatches no failure.
+                            breakpoint()
+                            throw error
+                        }
                     }
                     return null
                 },
@@ -4458,18 +4466,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
         // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
         showStaleFlagBanner: [
-            (s) => [s.featureFlag, s.flagStatus, s.flagStatusLoading, s.props],
-            (
-                featureFlag: FeatureFlagType,
-                flagStatus: FeatureFlagStatusResponseApi | null,
-                flagStatusLoading: boolean,
-                props: FeatureFlagLogicProps
-            ): boolean => {
-                if (flagStatusLoading || flagStatus?.status !== FeatureFlagStatus.STALE) {
+            (s) => [s.featureFlag, s.flagStatus],
+            (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null): boolean => {
+                // The reducer nulls `flagStatus` when a load starts or fails, so only a settled,
+                // successful verdict reaches this comparison.
+                if (flagStatus?.status !== FeatureFlagStatus.STALE) {
                     return false
                 }
                 return Boolean(
-                    props.id !== 'new' &&
                     featureFlag.id &&
                     !featureFlag.deleted &&
                     !featureFlag.archived &&

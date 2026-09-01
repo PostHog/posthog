@@ -2437,6 +2437,39 @@ describe('featureFlagLogic', () => {
                 updateSpy.mockRestore()
             }
         })
+
+        it('shows the stale banner after an unarchived flag turns out stale', async () => {
+            // While the flag is archived the endpoint answers ARCHIVED, so that verdict is what sits
+            // in flagStatus. Unarchiving clears the selector's archived guard, and only the refetch
+            // replaces the retained verdict. The archived direction is hidden by that guard either
+            // way, so it cannot cover this.
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue({ ...MOCK_FEATURE_FLAG, archived: false })
+            try {
+                useMocks({
+                    get: {
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                            200,
+                            { ...MOCK_FEATURE_FLAG, archived: false },
+                        ],
+                        [STATUS_URL]: () => [
+                            200,
+                            {
+                                ...MOCK_FEATURE_FLAG_STATUS,
+                                status: 'stale',
+                                reason: 'Flag has not been called in 45 days',
+                            },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.updateFeatureFlagArchived({ archived: false })
+                ).toFinishAllListeners()
+
+                expect(logic.values.showStaleFlagBanner).toBe(true)
+            } finally {
+                updateSpy.mockRestore()
+            }
+        })
     })
 
     describe('updateFeatureFlagArchived archive telemetry', () => {
