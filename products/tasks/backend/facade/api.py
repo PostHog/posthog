@@ -7784,7 +7784,9 @@ def visible_tasks_q(user_id: int | None, *, relation: Literal["", "task"] = "") 
 
 def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:
     """Whether ``channel_id`` is a live channel in this team that the user may see."""
-    return Channel.objects.filter(Channel.visible_to_q(user_id), id=channel_id, team_id=team_id, deleted=False).exists()
+    return (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).exists()
+    )
 
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
