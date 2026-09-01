@@ -113,6 +113,9 @@ export interface workflowsLogicActions {
     clearArchivedWorkflowSelection: () => {
         value: true
     }
+    clearPendingCreatedWorkflow: () => {
+        value: true
+    }
     deleteSelectedWorkflows: () => {
         value: true
     }
@@ -230,9 +233,6 @@ export interface workflowsLogicActions {
     }
     workflowCreated: (workflow: HogFlow) => {
         workflow: HogFlow
-    }
-    clearPendingCreatedWorkflow: () => {
-        value: true
     }
 }
 
