@@ -10,3 +10,6 @@ Run `./scripts/build.sh` to test the module and build Linux amd64 and arm64 bina
 `posthog/user_scripts`.
 
 Run `./scripts/integration_test.sh` to execute the stateless fixtures against ClickHouse.
+
+These utility UDFs keep stable, unversioned names. Regenerating the deployment manifest does not
+change `UDF_VERSION`, which only switches callers between versioned funnel UDF releases.
