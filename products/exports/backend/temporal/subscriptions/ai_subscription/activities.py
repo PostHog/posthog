@@ -241,7 +241,6 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             subscription,
             AI_CONSENT_REVOKED_DISABLE_REASON,
             [],
-            inputs.delivery_id,
         )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
@@ -311,7 +310,6 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             subscription,
             AI_PROMPT_INVALID_DISABLE_REASON,
             recipient_results,
-            inputs.delivery_id,
         )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type

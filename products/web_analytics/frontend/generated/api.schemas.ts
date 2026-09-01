@@ -128,11 +128,7 @@ export interface HeatmapScreenshotResponseApi {
      * @maxLength 2000
      */
     url: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot (defaults to 'url'). */
     data_url?: string | null
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
     readonly target_widths: readonly number[]
@@ -240,11 +236,7 @@ export interface SavedHeatmapRequestApi {
      * @maxLength 2000
      */
     url: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
     data_url?: string | null
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -277,11 +269,7 @@ export interface PatchedSavedHeatmapRequestApi {
      * @maxLength 2000
      */
     url?: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
     data_url?: string | null
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -303,8 +291,11 @@ export interface PatchedSavedHeatmapRequestApi {
 }
 
 export interface SavedHeatmapCaptureRequestApi {
-    /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
-    image?: string
+    /**
+     * Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.
+     * @nullable
+     */
+    image?: string | null
     /**
      * Viewport width (CSS pixels) the single 'image' was captured at.
      * @minimum 100
