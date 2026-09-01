@@ -6,6 +6,7 @@
 //! across flushes. A retry reuses the record it already built, which is what makes retrying safe:
 //! the service deduplicates on `record_id`, including when Kafka took only part of the batch.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -157,8 +158,24 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
     for attempt in 1..=SEND_ATTEMPTS {
         let mut client = client.clone();
         match client.ingest_billing_usage(request.clone()).await {
-            Ok(_) => {
-                inc(FLAGS_USAGE_RECORDS_SENT, &[], count);
+            Ok(response) => {
+                let accepted = response.into_inner().accepted_record_ids;
+                inc(FLAGS_USAGE_RECORDS_SENT, &[], accepted.len() as u64);
+                // The service drops records it cannot attribute rather than failing the
+                // batch, so a success can still leave some behind. Retrying them would fail
+                // the same way, and the teams are the only lead worth logging.
+                if accepted.len() < chunk.len() {
+                    inc(
+                        FLAGS_USAGE_RECORDS_FAILED,
+                        &[],
+                        count - accepted.len() as u64,
+                    );
+                    tracing::warn!(
+                        records = count - accepted.len() as u64,
+                        teams = ?rejected_teams(chunk, &accepted),
+                        "usage-ingestion rejected feature flag usage records"
+                    );
+                }
                 return;
             }
             Err(status) => {
@@ -169,6 +186,7 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
                         records = count,
                         attempts = attempt,
                         code = %status.code(),
+                        teams = ?distinct_teams(chunk),
                         "failed to report feature flag usage records"
                     );
                     return;
@@ -177,6 +195,29 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
             }
         }
     }
+}
+
+/// The teams behind the records the service did not accept, deduplicated so a chunk that
+/// repeats a team reads as one lead rather than many.
+fn rejected_teams(chunk: &[BillingUsageRecord], accepted: &[String]) -> Vec<i64> {
+    let accepted: HashSet<&str> = accepted.iter().map(String::as_str).collect();
+    dedup(
+        chunk
+            .iter()
+            .filter(|record| !accepted.contains(record.record_id.as_str()))
+            .map(|record| record.team_id),
+    )
+}
+
+fn distinct_teams(chunk: &[BillingUsageRecord]) -> Vec<i64> {
+    dedup(chunk.iter().map(|record| record.team_id))
+}
+
+fn dedup(teams: impl Iterator<Item = i64>) -> Vec<i64> {
+    let mut teams = teams.collect::<Vec<_>>();
+    teams.sort_unstable();
+    teams.dedup();
+    teams
 }
 
 /// The two billable request types are priced apart — the nightly report weighs one local
@@ -358,6 +399,29 @@ mod tests {
         // Reusing the ID is what makes the retry safe: the service deduplicates on it, so a
         // batch Kafka took only part of does not bill twice.
         assert_eq!(requests[0][0].record_id, requests[1][0].record_id);
+    }
+
+    #[tokio::test]
+    async fn a_partially_accepted_batch_names_only_the_rejected_teams() {
+        let service = RecordingIngestion::default();
+        service.reject_team(8);
+        let reporter = reporter_for(serve(service.clone()).await).await;
+
+        reporter.report(
+            &[(key(7, None), 1), (key(8, None), 1), (key(9, None), 1)],
+            1_700_000_000_000,
+        );
+        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+        let sent = &service.requests()[0];
+        let accepted = sent
+            .iter()
+            .filter(|record| record.team_id != 8)
+            .map(|record| record.record_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(rejected_teams(sent, &accepted), vec![8]);
+        // The service already decided; re-sending the batch would drop the same record again.
+        assert_eq!(service.requests().len(), 1);
     }
 
     #[tokio::test]

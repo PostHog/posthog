@@ -19,12 +19,19 @@ use usage_ingestion_proto::usage_ingestion::v1::{
 pub struct RecordingIngestion {
     requests: Arc<Mutex<Vec<Vec<BillingUsageRecord>>>>,
     replies: Arc<Mutex<VecDeque<Code>>>,
+    rejected_teams: Arc<Mutex<Vec<i64>>>,
 }
 
 impl RecordingIngestion {
     /// Fails the next request with `code`. Queue more than one to fail more attempts.
     pub fn fail_next(&self, code: Code) {
         self.replies.lock().unwrap().push_back(code);
+    }
+
+    /// Leaves `team_id` out of every accepted list, the way the real service answers a team
+    /// it cannot attribute: the batch succeeds without those records.
+    pub fn reject_team(&self, team_id: i64) {
+        self.rejected_teams.lock().unwrap().push(team_id);
     }
 
     /// One entry per request received, in arrival order.
@@ -40,8 +47,10 @@ impl UsageIngestion for RecordingIngestion {
         request: Request<IngestBillingUsageRequest>,
     ) -> Result<Response<IngestBillingUsageResponse>, Status> {
         let records = request.into_inner().records;
+        let rejected_teams = self.rejected_teams.lock().unwrap().clone();
         let accepted_record_ids = records
             .iter()
+            .filter(|record| !rejected_teams.contains(&record.team_id))
             .map(|record| record.record_id.clone())
             .collect();
         self.requests.lock().unwrap().push(records);
