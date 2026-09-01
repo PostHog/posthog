@@ -167,7 +167,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -357,7 +361,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         start_date: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
