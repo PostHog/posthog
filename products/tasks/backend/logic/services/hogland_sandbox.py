@@ -76,6 +76,13 @@ HOGLAND_GOLDEN_CPU_CORES = 4.0
 HOGLAND_GOLDEN_MEMORY_GB = 16.0
 HOGLAND_GOLDEN_DISK_GB = 64.0
 
+# Hogland rejects a create whose tags carry a `key=value` entry longer than this. The
+# tag dict is shared with Modal, which has no such limit, so a task workflow id (a
+# dispatch prefix plus two uuids) overruns it on its own. Keep the head of an oversized
+# value: the ids it ends with already travel as their own task_id/task_run_id tags,
+# so what a long workflow id adds is the prefix in front of them.
+HOGLAND_MAX_TAG_LENGTH = 64
+
 # `create()` blocks until the box is running; a cold boot on a fresh Karpenter node
 # can take minutes, and `exec` calls legitimately run up to the caller's
 # timeout_seconds (default 10 minutes). One generous read timeout covers both —
@@ -93,6 +100,16 @@ _STATIC_BOX_ENV = {
     # Guards in /opt/posthog/bin must shadow the real git/gh.
     "PATH": "/opt/posthog/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 }
+
+
+def _to_box_tags(metadata: dict[str, str] | None) -> list[str]:
+    tags: list[str] = []
+    for key, value in (metadata or {}).items():
+        budget = HOGLAND_MAX_TAG_LENGTH - len(key) - 1
+        if budget <= 0:
+            continue
+        tags.append(f"{key}={value[:budget]}")
+    return tags
 
 
 @lru_cache(maxsize=4)
@@ -221,7 +238,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
         config.image_fallback = None
 
         env = {**_STATIC_BOX_ENV, **(config.environment_variables or {})}
-        tags = [f"{key}={value}" for key, value in (config.metadata or {}).items()]
+        tags = _to_box_tags(config.metadata)
 
         try:
             client = get_hogland_client()
