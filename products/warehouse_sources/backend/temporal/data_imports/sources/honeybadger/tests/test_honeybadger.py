@@ -201,6 +201,17 @@ class TestHoneybadger:
             _fetch_page_once(session, url, MagicMock())
         session.get.assert_not_called()
 
+    def test_fetch_page_resolves_relative_next_url(self) -> None:
+        # Honeybadger's `links.next` is root-relative; it must be resolved against the API base
+        # and fetched, not refused as off-origin.
+        session = MagicMock()
+        session.get.return_value = _response({"results": [{"id": 1}]})
+        result = _fetch_page_once(session, "/v2/projects/1/faults?limit=25&page=2", MagicMock())
+        assert result == {"results": [{"id": 1}]}
+        session.get.assert_called_once_with(
+            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&page=2", timeout=mock.ANY
+        )
+
     @pytest.mark.parametrize(("status", "expected"), [(200, True), (403, False)])
     def test_validate_credentials(self, status: int, expected: bool) -> None:
         session = MagicMock()

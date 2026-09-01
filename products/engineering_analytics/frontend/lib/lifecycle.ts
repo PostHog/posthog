@@ -36,15 +36,17 @@ export interface WorkflowRun {
 }
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
+// Mirrors DECISIVE_FAILURE_CONCLUSIONS in backend/logic/queries/_workflow_filters.py (keep the two in sync).
+const DECISIVE_FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'stale'])
 
 /** For a finished run's conclusion; 'completed' stands in when no conclusion was recorded. */
 export function isPassingConclusion(conclusion: string): boolean {
     return PASSING_CONCLUSIONS.has(conclusion)
 }
 
-/** A decisive failure — the verdict that turns a run red. Cancelled/skipped/neutral are not failures. */
+/** A decisive failure that turns a run red. Non-verdict outcomes and unknown values stay neutral. */
 export function isDecisiveFailure(conclusion: string | null): boolean {
-    return conclusion === 'failure' || conclusion === 'timed_out'
+    return conclusion != null && DECISIVE_FAILURE_CONCLUSIONS.has(conclusion)
 }
 
 /**

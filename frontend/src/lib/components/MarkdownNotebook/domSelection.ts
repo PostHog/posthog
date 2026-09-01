@@ -1,4 +1,4 @@
-import { isTextBlockNode, serializeNotebookNodes } from './documentModel'
+import { isMermaidCodeBlock, isTextBlockNode, serializeNotebookNodes } from './documentModel'
 import {
     FloatingToolbarCodeRange,
     FloatingToolbarListItemRange,
@@ -427,6 +427,12 @@ export function getSelectedCodeRanges(
 
     return nodes.flatMap((node) => {
         if (node.type !== 'code') {
+            return []
+        }
+
+        // A Mermaid block renders a diagram whose element text is the SVG labels, not the fence source,
+        // so an offset measured against it would not map to node.text. Treat the preview as atomic.
+        if (isMermaidCodeBlock(node)) {
             return []
         }
 

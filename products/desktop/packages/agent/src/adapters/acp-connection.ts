@@ -232,6 +232,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         apiBaseUrl: codexOptions.apiBaseUrl,
         apiKey: codexOptions.apiKey,
         codexHome: codexOptions.codexHome,
+        useMachineAuth: codexOptions.useMachineAuth,
         developerInstructions: codexOptions.developerInstructions,
         httpHeaders: codexOptions.httpHeaders,
         configOverrides: codexOptions.configOverrides,

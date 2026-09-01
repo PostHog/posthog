@@ -2,18 +2,18 @@ import { LemonTagType } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { isPassingConclusion } from './lifecycle'
+import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
 /**
  * A workflow run's conclusion as a labeled tag. `null` = still in progress. Decisive failures
- * (failure / timed_out) are danger; success green; other passing outcomes muted; else warning.
+ * are danger; success green; other passing outcomes muted; else warning.
  */
 export function verdictTag(conclusion: string | null): { label: string; type: LemonTagType } {
     if (conclusion === null) {
         return { label: 'Running', type: 'warning' }
     }
     const label = capitalizeFirstLetter(conclusion.replace('_', ' '))
-    if (conclusion === 'failure' || conclusion === 'timed_out') {
+    if (isDecisiveFailure(conclusion)) {
         return { label, type: 'danger' }
     }
     if (isPassingConclusion(conclusion)) {

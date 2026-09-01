@@ -25,6 +25,17 @@ export function useMarketplaceSearch(query: string) {
   );
 }
 
+export function useMarketplacePopular(enabled: boolean) {
+  const trpc = useHostTRPC();
+  return useQuery(
+    trpc.skills.marketplace.popular.queryOptions(undefined, {
+      enabled,
+      staleTime: 30 * 60_000,
+      retry: false,
+    }),
+  );
+}
+
 export function useMarketplacePreview(
   ref: { source: string; skillId: string } | null,
 ) {

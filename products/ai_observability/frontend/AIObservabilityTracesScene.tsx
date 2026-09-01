@@ -542,10 +542,11 @@ export function pickLastOutputMessage(
  * Some SDKs emit the trace input/output as a state wrapper object rather than a
  * bare messages array. Langchain/LangGraph writes `$ai_input_state` /
  * `$ai_output_state` as something like `{ agent_mode, messages: [...], ... }`.
- * Drill into the known `.messages` key so the picker sees a clean array; for
- * unknown wrapper shapes (agent-specific state like `{ current_step, ... }`)
- * return `null` in strict mode so the picker can fall through to the
- * generation-level fallback rather than dumping raw JSON.
+ * Drill into the known `.messages` key so the picker sees a clean array. The
+ * Vercel AI OTel path writes a single bare message object (`{ role, content }`),
+ * so wrap that as a one-element array. For unknown wrapper shapes (agent-specific
+ * state like `{ current_step, ... }`) return `null` in strict mode so the picker
+ * can fall through to the generation-level fallback rather than dumping raw JSON.
  */
 function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -555,7 +556,20 @@ function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (Array.isArray(obj.messages)) {
         return obj.messages
     }
+    if (isSingleMessage(obj)) {
+        return [obj]
+    }
     return strict ? null : raw
+}
+
+/**
+ * `role` alone is too weak a signal, since a state wrapper can carry one too.
+ * Requiring the payload as well (`content` for the chat shapes, a `parts` array
+ * for the OTel one) keeps those wrappers falling through to the strict-mode
+ * fallback.
+ */
+function isSingleMessage(obj: Record<string, unknown>): boolean {
+    return typeof obj.role === 'string' && ('content' in obj || Array.isArray(obj.parts))
 }
 
 function safeNormalize(

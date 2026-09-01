@@ -95,6 +95,58 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     state["pending_user_message_id"] = str(uuid.uuid4())
 
 
+PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
+MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
+MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
+
+
+def _read_pending_followup_messages(state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    entries = (state or {}).get(PENDING_FOLLOWUP_MESSAGES_STATE_KEY)
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("content"), str) and entry["content"].strip()
+    ]
+
+
+def _is_hidden_prompt_block(block: dict[str, Any]) -> bool:
+    meta = block.get("_meta")
+    ui = meta.get("ui") if isinstance(meta, dict) else None
+    return bool(ui.get("hidden")) if isinstance(ui, dict) else False
+
+
+def _session_prompt_texts(entries: list[dict]) -> list[str]:
+    texts: list[str] = []
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/prompt":
+            continue
+        params = notification.get("params")
+        blocks = params.get("prompt") if isinstance(params, dict) else None
+        if not isinstance(blocks, list):
+            continue
+        visible = "\n".join(
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+            and not _is_hidden_prompt_block(block)
+        ).strip()
+        if visible:
+            texts.append(visible)
+    return texts
+
+
+def _followup_matches_prompt(content: str, prompt_text: str) -> bool:
+    if content == prompt_text:
+        return True
+    return len(content) >= MAX_PENDING_FOLLOWUP_CONTENT_CHARS and prompt_text.startswith(content)
+
+
 class TaskOwnershipChangedError(RuntimeError):
     pass
 
@@ -173,6 +225,11 @@ class Channel(TeamScopedRootMixin):
         db_default=[],
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
+    )
+    auto_archive_after_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
     )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
@@ -1924,6 +1981,16 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Copy of the parent task's origin_product, populated on creation and never changed.
+    # It lets the per-minute monitoring gauges group by origin_product without joining
+    # posthog_task on every run row. See `collect_task_run_state_metrics`.
+    origin_product = models.CharField(
+        max_length=20,
+        choices=task_origin_product_choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -2052,10 +2119,29 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
+            # Open statuses remain selective, so status leads the index for untimed gauges.
+            models.Index(
+                fields=["status", "environment", "origin_product"],
+                name="task_run_status_env_origin_idx",
+            ),
+            # Terminal rows dominate over time, so the recency range must lead this partial index.
+            models.Index(
+                fields=["updated_at"],
+                include=["status", "environment", "origin_product"],
+                name="task_run_terminal_updated_idx",
+                condition=models.Q(status__in=["completed", "failed", "cancelled"]),
+            ),
         ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        # Mirror the parent task's origin_product onto the run once, at creation, so the
+        # monitoring gauges can group by it locally.
+        if self._state.adding and not self.origin_product and self.task_id:
+            self.origin_product = self.task.origin_product
+        super().save(*args, **kwargs)
 
     @property
     def mode(self) -> str:
@@ -2261,6 +2347,27 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_boot_milestone(
+        self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
+    ) -> bool:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(milestone))
+            return True
+        except Exception as e:
+            logger.warning(
+                "task_run.agent_boot_milestone_failed",
+                task_run_id=str(self.id),
+                milestone=milestone,
+                error=str(e),
+            )
+            return False
+
     def signal_client_activity(self) -> None:
         from products.tasks.backend.redis import get_tasks_cache
 
@@ -2395,6 +2502,47 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
+        record = {
+            "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
+            "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
+            "ts": accepted_at.isoformat(),
+        }
+
+        def _mutator(state: dict[str, Any]) -> None:
+            entries = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != record["id"]]
+            entries.append(record)
+            state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = entries[-MAX_PENDING_FOLLOWUP_MESSAGES:]
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def clear_echoed_followup_messages(self, entries: list[dict]) -> None:
+        if not _read_pending_followup_messages(self.state):
+            return
+        echoed = _session_prompt_texts(entries)
+        if not echoed:
+            return
+
+        def _mutator(state: dict[str, Any]) -> None:
+            unclaimed = list(echoed)
+            remaining = []
+            for entry in _read_pending_followup_messages(state):
+                content = entry["content"].strip()
+                claimed = next(
+                    (index for index, text in enumerate(unclaimed) if _followup_matches_prompt(content, text)),
+                    None,
+                )
+                if claimed is None:
+                    remaining.append(entry)
+                else:
+                    unclaimed.pop(claimed)
+            if remaining:
+                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
+            else:
+                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
 
@@ -2430,12 +2578,18 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def effective_rtk(self) -> bool | None:
-        """rtk posture for analytics: the launch-persisted effective value, falling
+    def _effective_toggle(self, name: str) -> bool | None:
+        """Toggle posture for analytics: the launch-persisted effective value, falling
         back to the user's explicit override for runs that never launched."""
         state = self.state if isinstance(self.state, dict) else {}
-        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
-        return rtk if isinstance(rtk, bool) else None
+        value = state.get(f"{name}_effective", state.get(f"{name}_enabled"))
+        return value if isinstance(value, bool) else None
+
+    def effective_rtk(self) -> bool | None:
+        return self._effective_toggle("rtk")
+
+    def effective_benjamin(self) -> bool | None:
+        return self._effective_toggle("benjamin")
 
     def _analytics_usage_properties(self) -> dict:
         """Token usage and rtk posture for analytics events.
@@ -2462,6 +2616,12 @@ class TaskRun(models.Model):
         rtk = self.effective_rtk()
         if rtk is not None:
             props["rtk_enabled"] = rtk
+        benjamin = self.effective_benjamin()
+        if benjamin is not None:
+            props["benjamin_enabled"] = benjamin
+        benjamin_version = state.get("benjamin_version")
+        if isinstance(benjamin_version, str) and benjamin_version:
+            props["benjamin_version"] = benjamin_version
         return props
 
     def capture_event(

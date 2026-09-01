@@ -34,6 +34,11 @@ from products.mcp_store.backend.models import (
 )
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
 
+# Re-exported for the presentation layer ("presentation must use facade"
+# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# validation, overridden only by the exact team-scoped internal allowlist.
+from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
+
 logger = structlog.get_logger(__name__)
 
 
@@ -116,6 +121,14 @@ def _resolve_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
+def _resolve_description(installation: MCPServerInstallation) -> str:
+    if installation.description:
+        return installation.description
+    if installation.template and installation.template.description:
+        return installation.template.description
+    return ""
+
+
 def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return True
@@ -132,6 +145,7 @@ def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstall
         id=str(installation.id),
         name=_resolve_name(installation),
         proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
+        description=_resolve_description(installation),
         scope=installation.scope,
     )
 

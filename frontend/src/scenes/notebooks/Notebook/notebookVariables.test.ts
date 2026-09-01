@@ -7,6 +7,7 @@ import {
     getNotebookVariableConflictNames,
     getNotebookVariableErrors,
     getRunnableNotebookVariables,
+    getSavableNotebookVariables,
     parseNotebookVariables,
 } from './notebookVariables'
 
@@ -103,6 +104,26 @@ describe('notebookVariables', () => {
                 ],
             }
             expect(getNotebookVariableConflictNames(content)).toEqual(new Set(['sql_df', 'frame']))
+        })
+    })
+
+    describe('getSavableNotebookVariables', () => {
+        it('drops a declaration the API would reject', () => {
+            // One bad name fails the whole PATCH, so it must not travel with the good ones.
+            expect(
+                getSavableNotebookVariables([
+                    country,
+                    { name: '', type: 'string', value: '' },
+                    { name: 'look-back', type: 'number', value: 7 },
+                ])
+            ).toEqual([country])
+        })
+
+        it("keeps a declaration that clashes with a cell's output dataframe", () => {
+            // The API stores this happily. Filtering it here would delete the person's variable
+            // because some other cell was renamed to the same word.
+            const clashing: NotebookVariable = { name: 'sql_df', type: 'string', value: 'US' }
+            expect(getSavableNotebookVariables([clashing])).toEqual([clashing])
         })
     })
 

@@ -1,20 +1,30 @@
 import json
+from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
 import pytest
 
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
+    TASK_RUN_STREAM_COMPLETED_TIMEOUT,
+    TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
+    TASK_RUN_STREAM_TIMEOUT,
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
     TaskRunStreamSequenceGap,
     _stream_id_sort_key,
+    get_task_run_stream_completed_key,
+    get_task_run_stream_key,
+    publish_task_run_stream_complete,
+    publish_task_run_stream_event,
+    reset_task_run_stream,
 )
+from products.tasks.backend.redis import get_tasks_stream_redis_sync
 
 
-def _new_stream() -> TaskRunRedisStream:
-    return TaskRunRedisStream(f"task-run-stream:test:{uuid4()}", timeout=60)
+def _new_stream(timeout: int = 60) -> TaskRunRedisStream:
+    return TaskRunRedisStream(f"task-run-stream:test:{uuid4()}", timeout=timeout)
 
 
 async def _read_stream_events(redis_stream: TaskRunRedisStream) -> list[dict]:
@@ -66,12 +76,21 @@ async def test_write_event_with_sequence_ignores_duplicate_sequence() -> None:
         await redis_stream.delete_stream()
 
 
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        pytest.param(lambda stream: stream.mark_complete_after_sequence(1), id="mark_complete_after_sequence"),
+        pytest.param(lambda stream: stream.mark_error("boom"), id="mark_error"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_write_event_with_sequence_rejects_write_after_completion() -> None:
+async def test_write_event_with_sequence_rejects_write_after_completion(
+    terminal: Callable[[TaskRunRedisStream], Awaitable[None]],
+) -> None:
     redis_stream = _new_stream()
     try:
         await redis_stream.write_event_with_sequence({"type": "message"}, 1)
-        await redis_stream.mark_complete_after_sequence(1)
+        await terminal(redis_stream)
 
         with pytest.raises(TaskRunStreamAlreadyCompleted) as exc:
             await redis_stream.write_event_with_sequence({"type": "late"}, 2)
@@ -107,6 +126,66 @@ async def test_mark_complete_is_idempotent() -> None:
         assert await _read_stream_events(redis_stream) == [{"type": "STREAM_STATUS", "status": "complete"}]
     finally:
         await redis_stream.delete_stream()
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        pytest.param(lambda stream: stream.mark_complete(), id="mark_complete"),
+        pytest.param(lambda stream: stream.mark_complete_after_sequence(1), id="mark_complete_after_sequence"),
+        pytest.param(lambda stream: stream.mark_error("boom"), id="mark_error"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_terminal_sentinel_shortens_stream_ttl(
+    terminal: Callable[[TaskRunRedisStream], Awaitable[None]],
+) -> None:
+    redis_stream = _new_stream(timeout=TASK_RUN_STREAM_TIMEOUT)
+    try:
+        await redis_stream.write_event_with_sequence({"type": "message"}, 1)
+        assert await redis_stream._redis_client.ttl(redis_stream._stream_key) > TASK_RUN_STREAM_COMPLETED_TIMEOUT
+
+        await terminal(redis_stream)
+
+        stream_ttl = await redis_stream._redis_client.ttl(redis_stream._stream_key)
+        assert 0 < stream_ttl <= TASK_RUN_STREAM_COMPLETED_TIMEOUT
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.parametrize("already_completed", [False, True])
+def test_publish_task_run_stream_complete_shortens_stream_ttl(already_completed: bool) -> None:
+    run_id = f"test:{uuid4()}"
+    stream_key = get_task_run_stream_key(run_id)
+    client = get_tasks_stream_redis_sync()
+    try:
+        assert publish_task_run_stream_event(run_id, {"type": "message"}) is not None
+        if already_completed:
+            client.set(get_task_run_stream_completed_key(stream_key), "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
+        assert client.ttl(stream_key) > TASK_RUN_STREAM_COMPLETED_TIMEOUT
+
+        assert publish_task_run_stream_complete(run_id) is True
+
+        stream_ttl = client.ttl(stream_key)
+        assert 0 < stream_ttl <= TASK_RUN_STREAM_COMPLETED_TIMEOUT
+    finally:
+        reset_task_run_stream(run_id)
+
+
+def test_publish_stream_event_after_completion_keeps_short_ttl() -> None:
+    run_id = f"test:{uuid4()}"
+    stream_key = get_task_run_stream_key(run_id)
+    client = get_tasks_stream_redis_sync()
+    try:
+        assert publish_task_run_stream_event(run_id, {"type": "message"}) is not None
+        assert publish_task_run_stream_complete(run_id) is True
+
+        assert publish_task_run_stream_event(run_id, {"type": "task_run_state"}) is not None
+
+        stream_ttl = client.ttl(stream_key)
+        assert 0 < stream_ttl <= TASK_RUN_STREAM_COMPLETED_TIMEOUT
+    finally:
+        reset_task_run_stream(run_id)
 
 
 @pytest.mark.parametrize(

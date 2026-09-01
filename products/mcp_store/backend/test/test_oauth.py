@@ -12,6 +12,7 @@ from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTe
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
     DcrClientRegistration,
+    DCRRegistrationRejectedError,
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
@@ -1056,6 +1057,44 @@ class TestRegisterDCRClient(SimpleTestCase):
             client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
         )
         assert mock_post.call_args.kwargs["json"]["token_endpoint_auth_method"] == "client_secret_basic"
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_client_name_has_no_parentheses(self, mock_post, _allow):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 201
+        mock_response.json.return_value = {"client_id": "abc", "token_endpoint_auth_method": "none"}
+        mock_post.return_value = mock_response
+
+        register_dcr_client(
+            {"registration_endpoint": "https://auth.example.com/register"},
+            "https://app.posthog.com/callback",
+        )
+
+        client_name = mock_post.call_args.kwargs["json"]["client_name"]
+        assert "(" not in client_name and ")" not in client_name
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_surfaces_provider_rejection_message(self, mock_post, _allow):
+        mock_response = MagicMock()
+        mock_response.ok = False
+        mock_response.status_code = 400
+        mock_response.json.return_value = {
+            "error": "invalid_client_metadata",
+            "error_description": "client_name contains invalid characters",
+        }
+        mock_response.text = '{"error": "invalid_client_metadata"}'
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(DCRRegistrationRejectedError) as ctx:
+            register_dcr_client(
+                {"registration_endpoint": "https://auth.example.com/register"},
+                "https://app.posthog.com/callback",
+            )
+
+        assert "client_name contains invalid characters" in ctx.exception.provider_message
 
     def test_scope_selection_prefers_protected_resource_scopes(self):
         metadata = {

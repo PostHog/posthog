@@ -14,6 +14,7 @@ from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
+from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
@@ -47,6 +48,7 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
         content = msg.get("content", "")
 
         # Anthropic format: content can be a string or list of content blocks
+        tool_calls: list[dict[str, Any]] = []
         if isinstance(content, list):
             # Render content blocks for display
             parts: list[str] = []
@@ -57,7 +59,12 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
                 if block_type == "text":
                     parts.append(block.get("text", ""))
                 elif block_type == "tool_use":
-                    parts.append(f"[tool_use: {block.get('name', '?')}]")
+                    block_input = block.get("input")
+                    tool, tool_input = describe_tool_use(
+                        block.get("name"), block_input if isinstance(block_input, dict) else {}
+                    )
+                    tool_calls.append({"tool": tool, "input": tool_input})
+                    parts.append(f"[tool_use: {tool or '?'}]")
                 elif block_type == "tool_result":
                     result_text = str(block.get("content", ""))[:500]
                     is_error = block.get("is_error", False)
@@ -69,12 +76,13 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
 
         span_type: SpanKind
         if role == "assistant":
-            # Check if this message contains tool_use blocks
-            has_tool_use = isinstance(content, list) and any(
-                isinstance(b, dict) and b.get("type") == "tool_use" for b in content
-            )
-            span_type = "function" if has_tool_use else "llm"
-            name = "tool_call" if has_tool_use else "agent"
+            span_type = "function" if tool_calls else "llm"
+            # Naming the span after the resolved tool keeps the trace tree scannable;
+            # every single-exec call would otherwise read as an undifferentiated "exec".
+            if len(tool_calls) == 1:
+                name = f"tool_call: {tool_calls[0]['tool']}"
+            else:
+                name = "tool_call" if tool_calls else "agent"
         elif role == "user":
             has_tool_result = isinstance(content, list) and any(
                 isinstance(b, dict) and b.get("type") == "tool_result" for b in content
@@ -89,7 +97,12 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
             if role == "user":
                 span.log(input=display_content)
             elif role == "assistant":
-                span.log(output=display_content)
+                # Logged untruncated: the arguments are the only record of what the
+                # agent asked for, and a query payload is easy to cut short.
+                if tool_calls:
+                    span.log(input=tool_calls, output=display_content)
+                else:
+                    span.log(output=display_content)
             else:
                 span.log(metadata={"message": display_content})
 
@@ -111,7 +124,8 @@ class _BaseEvalRun:
     """
 
     trace_namespace = "evals"
-    """Prefix for the experiment name in scorer trace metadata."""
+    """How this run labels itself in PostHog: the experiment-name prefix on every emitted
+    event, and the `$ai_eval_source` on evaluation events. Subclasses set it per run kind."""
 
     def __init__(
         self,
@@ -244,7 +258,12 @@ class _BaseEvalRun:
         if self.posthog_client and result.results:
             try:
                 emit_evaluation_events(
-                    self.posthog_client, self.experiment_id, self.experiment_name, result.results, self.scorer_traces
+                    self.posthog_client,
+                    self.experiment_id,
+                    self.experiment_name,
+                    result.results,
+                    namespace=self.trace_namespace,
+                    scorer_traces=self.scorer_traces,
                 )
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
@@ -258,6 +277,7 @@ class _BaseEvalRun:
                             experiment_id=self.experiment_id,
                             experiment_name=self.experiment_name,
                             case_name=case_name,
+                            namespace=self.trace_namespace,
                             prompt=meta["prompt"],
                             duration=meta["duration"],
                             first_timestamp=meta["first_timestamp"],
@@ -427,6 +447,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         experiment_name=self.experiment_name,
                         case_name=eval_case.name,
                         parsed=parsed,
+                        namespace=self.trace_namespace,
                     )
                     # Store metadata for emit_trace_root (called after scoring)
                     self.case_trace_meta[eval_case.name] = {
