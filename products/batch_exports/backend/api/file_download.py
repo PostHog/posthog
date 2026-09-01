@@ -168,8 +168,10 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
 
 COUNT_ROWS_TIMEOUT_MESSAGE = (
     "Timeout exceeded while counting rows. The query may be too complex, or the count may be too "
-    "large to finish in time. A timeout can mean the export would be very large. Narrow the query "
-    "with a WHERE clause to count and export less data."
+    "large to finish within a short time. Running this query in an export may take too long to "
+    "complete and/or may produce a very large file to download. Narrow the query with a WHERE "
+    "clause to count and export less data if you can't tolerate the additional exeuction time "
+    "and/or file size."
 )
 
 
