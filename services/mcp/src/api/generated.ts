@@ -8844,6 +8844,22 @@ export namespace Schemas {
       deleted?: boolean | null;
     }
 
+    /**
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit
+     */
+    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
+
+
+    export const RestrictionLevelEnum = {
+      Number21: 21,
+      Number37: 37,
+    } as const;
+
+    /**
+     * * `21` - Can view dashboard
+     * * `37` - Can edit dashboard
+     */
     export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
 
 
@@ -8982,7 +8998,7 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       readonly is_sample: boolean;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -14066,9 +14082,7 @@ export namespace Schemas {
       startup_program_label?: string | null;
       /** @nullable */
       startup_program_label_previous?: string | null;
-      /** @nullable */
       stripe_portal_url?: string | null;
-      /** @nullable */
       external_billing_provider_invoices_url?: string | null;
       /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
       products?: BillingOverviewResponseProductsItem[];
@@ -17583,6 +17597,11 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /**
+         * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+         * @nullable
+         */
+      benjamin_enabled?: boolean | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -17973,6 +17992,11 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /**
+         * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+         * @nullable
+         */
+      benjamin_enabled?: boolean | null;
     }
 
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
@@ -20568,18 +20592,6 @@ export namespace Schemas {
     export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
-
-
-    export const RestrictionLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
      * * `tight` - tight
      * * `condensed` - condensed
      * * `standard` - standard
@@ -20676,7 +20688,7 @@ export namespace Schemas {
       data_color_theme_id?: number | null;
       tags?: unknown[];
       restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -20770,7 +20782,7 @@ export namespace Schemas {
        * * `21` - Everyone in the project can edit
        * * `37` - Only those invited to this dashboard can edit */
       readonly restriction_level: RestrictionLevelEnum;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -21437,11 +21449,7 @@ export namespace Schemas {
      */
     export interface DataQualityCheck {
       readonly id: string;
-      /**
-         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-         * @maxLength 128
-         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-         */
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
@@ -21634,11 +21642,7 @@ export namespace Schemas {
      */
     export interface DataQualityOverviewCheck {
       readonly id: string;
-      /**
-         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-         * @maxLength 128
-         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-         */
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
@@ -29456,10 +29460,7 @@ export namespace Schemas {
        * * `general-availability` - general availability
        * * `archived` - archived */
       stage: EarlyAccessFeatureStageEnum;
-      /**
-         * URL to external documentation for this feature. Shown to users in the opt-in UI.
-         * @maxLength 800
-         */
+      /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
@@ -29508,10 +29509,7 @@ export namespace Schemas {
        * * `general-availability` - general availability
        * * `archived` - archived */
       stage: EarlyAccessFeatureStageEnum;
-      /**
-         * URL to external documentation for this feature. Shown to users in the opt-in UI.
-         * @maxLength 800
-         */
+      /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
@@ -29687,15 +29685,6 @@ export namespace Schemas {
     export const EffectEnum = {
       NeedsApproval: 'needs_approval',
       DoNotUse: 'do_not_use',
-    } as const;
-
-    export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
-
-
-    export const EffectiveMembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
     } as const;
 
     export interface Element {
@@ -30920,7 +30909,7 @@ export namespace Schemas {
 
     export interface ErrorTrackingAssignee {
       /** User ID or role UUID to filter by. */
-      id: string | number | null;
+      id: string | number;
       /** Assignee target type: user or role.
        *
        * * `user` - user
@@ -39412,10 +39401,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       evidence_source: string;
-      /**
-         * Optional HTTP or HTTPS link to the source.
-         * @maxLength 2000
-         */
+      /** Optional HTTP or HTTPS link to the source. */
       source_url?: string;
       /**
          * Date the account made the request, or null when unknown.
@@ -39466,10 +39452,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       evidence_source: string;
-      /**
-         * Optional HTTP or HTTPS link to the source.
-         * @maxLength 2000
-         */
+      /** Optional HTTP or HTTPS link to the source. */
       source_url?: string;
       /**
          * Date the account made the request, or null when unknown.
@@ -39507,10 +39490,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       evidence_source: string;
-      /**
-         * Optional HTTP or HTTPS link to the source.
-         * @maxLength 2000
-         */
+      /** Optional HTTP or HTTPS link to the source. */
       source_url?: string;
       /**
          * Date the account made the request, or null when unknown.
@@ -41564,11 +41544,7 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url: string;
-      /**
-         * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
-         * @maxLength 2000
-         * @nullable
-         */
+      /** URL whose heatmap data is overlaid on the screenshot (defaults to 'url'). */
       data_url?: string | null;
       /** Viewport widths (CSS pixels) the screenshot is rendered at. */
       readonly target_widths: readonly number[];
@@ -47337,22 +47313,14 @@ export namespace Schemas {
     }
 
     export interface LLMSkillPublishToCommunity {
-      /**
-         * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
-         * @maxLength 64
-         * @pattern ^[^\u0000-\u001f\u007f]*$
-         */
+      /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
          * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
          * @items.maxLength 64
          */
       tags?: string[];
-      /**
-         * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
-         * @maxLength 39
-         * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
-         */
+      /** The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account. */
       author_handle?: string;
     }
 
@@ -50054,7 +50022,6 @@ export namespace Schemas {
       name: string;
       /** @maxLength 2048 */
       url: string;
-      /** @maxLength 2048 */
       docs_url?: string;
       description?: string;
       auth_type?: MCPAuthTypeEnum;
@@ -52648,6 +52615,20 @@ export namespace Schemas {
     export type OrganizationMetadata = {[key: string]: string};
 
     /**
+     * * `1` - member
+     * * `8` - administrator
+     * * `15` - owner
+     */
+    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
+
+
+    export const OrganizationMembershipLevelEnum = {
+      Number1: 1,
+      Number8: 8,
+      Number15: 15,
+    } as const;
+
+    /**
      * * `0` - none
      * * `3` - config
      * * `6` - install
@@ -52673,7 +52654,7 @@ export namespace Schemas {
       logo_media_id?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
-      readonly membership_level: EffectiveMembershipLevelEnum;
+      readonly membership_level: OrganizationMembershipLevelEnum;
       readonly plugins_access_level: PluginsAccessLevelEnum;
       readonly teams: readonly OrganizationTeamsItem[];
       readonly projects: readonly OrganizationProjectsItem[];
@@ -52776,7 +52757,7 @@ export namespace Schemas {
       slug: string;
       /** @nullable */
       readonly logo_media_id: string | null;
-      readonly membership_level: EffectiveMembershipLevelEnum;
+      readonly membership_level: OrganizationMembershipLevelEnum;
       members_can_use_personal_api_keys?: boolean;
       /**
          * Set this to 'No' to temporarily disable an organization.
@@ -52876,20 +52857,6 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly created_by: UserBasic;
     }
-
-    /**
-     * * `1` - member
-     * * `8` - administrator
-     * * `15` - owner
-     */
-    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
-
-
-    export const OrganizationMembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
-    } as const;
 
     export interface OrganizationInvite {
       readonly id: string;
@@ -60738,11 +60705,7 @@ export namespace Schemas {
      */
     export interface PatchedDataQualityCheck {
       readonly id?: string;
-      /**
-         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-         * @maxLength 128
-         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-         */
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
@@ -61133,10 +61096,7 @@ export namespace Schemas {
        * * `general-availability` - general availability
        * * `archived` - archived */
       stage?: EarlyAccessFeatureStageEnum;
-      /**
-         * URL to external documentation for this feature. Shown to users in the opt-in UI.
-         * @maxLength 800
-         */
+      /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
@@ -63036,7 +62996,7 @@ export namespace Schemas {
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;
       readonly is_sample?: boolean;
-      readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
+      readonly effective_restriction_level?: RestrictionLevelEnum;
       readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -63854,7 +63814,7 @@ export namespace Schemas {
       logo_media_id?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
-      readonly membership_level?: EffectiveMembershipLevelEnum;
+      readonly membership_level?: OrganizationMembershipLevelEnum;
       readonly plugins_access_level?: PluginsAccessLevelEnum;
       readonly teams?: readonly PatchedOrganizationTeamsItem[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
@@ -64023,7 +63983,11 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: string[];
-      restriction_level?: EffectivePrivilegeLevelEnum;
+      /** Who can edit this dashboard.
+       *
+       * * `21` - Everyone in the project can edit
+       * * `37` - Only those invited to this dashboard can edit */
+      restriction_level?: RestrictionLevelEnum;
       /**
          * List of quick filter IDs associated with this dashboard.
          * @nullable
@@ -64281,7 +64245,7 @@ export namespace Schemas {
          */
       product_description?: string | null;
       readonly created_at?: string;
-      readonly effective_membership_level?: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
@@ -65118,11 +65082,7 @@ export namespace Schemas {
     }
 
     export interface PatchedProxyRecordUpdate {
-      /**
-         * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
-         * @maxLength 1024
-         * @nullable
-         */
+      /** HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy. */
       root_redirect_url?: string | null;
     }
 
@@ -65483,11 +65443,7 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url?: string;
-      /**
-         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-         * @maxLength 2000
-         * @nullable
-         */
+      /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
       data_url?: string | null;
       /**
          * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -67183,7 +67139,7 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level?: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
       /** @nullable */
@@ -68668,7 +68624,7 @@ export namespace Schemas {
          */
       product_description?: string | null;
       readonly created_at: string;
-      readonly effective_membership_level: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
@@ -75641,8 +75597,11 @@ export namespace Schemas {
     }
 
     export interface SavedHeatmapCaptureRequest {
-      /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
-      image?: string;
+      /**
+         * Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.
+         * @nullable
+         */
+      image?: string | null;
       /**
          * Viewport width (CSS pixels) the single 'image' was captured at.
          * @minimum 100
@@ -75691,11 +75650,7 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url: string;
-      /**
-         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-         * @maxLength 2000
-         * @nullable
-         */
+      /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
       data_url?: string | null;
       /**
          * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -83747,7 +83702,7 @@ export namespace Schemas {
          * @maxLength 64
          */
       source?: string;
-      /** Artifact contents encoded according to content_encoding */
+      /** Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead. */
       content: string;
       /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
        *
@@ -83917,6 +83872,11 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /**
+         * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+         * @nullable
+         */
+      benjamin_enabled?: boolean | null;
     }
 
     export interface TaskRunCancelRequest {
@@ -85015,7 +84975,7 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];
       /** @nullable */
