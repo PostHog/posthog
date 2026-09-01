@@ -7,6 +7,105 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DashboardSavedViewFiltersApi {
+    /** @maxLength 200 */
+    search?: string
+    createdBy?: number[] | 'All users'
+    pinned?: boolean
+    shared?: boolean
+    /**
+     * @maxItems 50
+     * @items.maxLength 100
+     */
+    tags?: string[]
+    /**
+     * @maxLength 4000
+     * @nullable
+     */
+    folder?: string | null
+}
+
+/**
+ * * `private` - Private
+ * * `team` - Team
+ */
+export type DashboardSavedViewScopeEnumApi =
+    (typeof DashboardSavedViewScopeEnumApi)[keyof typeof DashboardSavedViewScopeEnumApi]
+
+export const DashboardSavedViewScopeEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+export interface DashboardSavedViewApi {
+    readonly id: string
+    /**
+     * Name shown in the dashboard list view picker.
+     * @maxLength 200
+     */
+    name: string
+    /** Dashboard list filters stored by this view. */
+    filters: DashboardSavedViewFiltersApi
+    /** Whether only the creator or all team members can use this view.
+     *
+     * * `private` - Private
+     * * `team` - Team */
+    scope?: DashboardSavedViewScopeEnumApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    /** Whether the current user can change this view's visibility. */
+    readonly can_change_scope: boolean
+}
+
+export interface PaginatedDashboardSavedViewListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardSavedViewApi[]
+}
+
+export interface DashboardSavedViewWriteApi {
+    /**
+     * Name shown in the dashboard list view picker.
+     * @maxLength 200
+     */
+    name: string
+    /** Dashboard list filters stored by this view. */
+    filters: DashboardSavedViewFiltersApi
+    /** Whether only the creator or all team members can use this view.
+     *
+     * * `private` - Private
+     * * `team` - Team */
+    scope?: DashboardSavedViewScopeEnumApi
+}
+
+export interface PatchedDashboardSavedViewApi {
+    readonly id?: string
+    /**
+     * Name shown in the dashboard list view picker.
+     * @maxLength 200
+     */
+    name?: string
+    /** Dashboard list filters stored by this view. */
+    filters?: DashboardSavedViewFiltersApi
+    /** Whether only the creator or all team members can use this view.
+     *
+     * * `private` - Private
+     * * `team` - Team */
+    scope?: DashboardSavedViewScopeEnumApi
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    readonly created_by?: number | null
+    /** Whether the current user can change this view's visibility. */
+    readonly can_change_scope?: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -10184,6 +10283,33 @@ export type ConversationsRecentTicketsWidgetTypeEnumApi =
 
 export const ConversationsRecentTicketsWidgetTypeEnumApi = {
     ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export type DashboardSavedViewsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * Return saved views with this visibility scope.
+     *
+     * * `private` - Private
+     * * `team` - Team
+     * @minLength 1
+     */
+    scope?: DashboardSavedViewsListScope
+}
+
+export type DashboardSavedViewsListScope =
+    (typeof DashboardSavedViewsListScope)[keyof typeof DashboardSavedViewsListScope]
+
+export const DashboardSavedViewsListScope = {
+    Private: 'private',
+    Team: 'team',
 } as const
 
 export type DashboardTemplatesListParams = {
