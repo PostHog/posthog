@@ -5546,6 +5546,34 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
+def _capture_no_repo_selection_override(
+    *,
+    team: Team,
+    report_id: str,
+    user_id: int | None,
+    resolved_repository: str | None,
+) -> None:
+    """Record a person starting work on a report whose scout chose no repository.
+
+    The count per report tells the signals team how often the scouts' `NO_REPO` default disagrees
+    with what a person wanted, and `resolved_repository` separates a recovery from a cascade that
+    also found nothing. Best-effort: a capture failure must never fail the task creation."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(user_id) if user_id else str(team.uuid),
+            event="signal_report_no_repo_selection_overridden",
+            properties={
+                "report_id": report_id,
+                "team_id": team.id,
+                "resolved_repository": resolved_repository,
+                "recovered": bool(resolved_repository),
+            },
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
+
+
 def create_task(
     team_id: int,
     user_id: int | None,
@@ -5729,13 +5757,14 @@ def create_task(
             cascade_select_repository,
         )
 
-        # The report's own selection is authoritative — including a scout's deliberate no-repo
-        # (`repository=None`), which must not fall through to the cascade.
+        # A named selection wins. A no-repo selection (`repository=None`) does not: autostart
+        # already honors it in signals (it never creates a task without a repository), so reaching
+        # here means a person clicked "Create PR", which is the stronger signal. Fall through to
+        # the cascade rather than create a task whose sandbox can only read, never push.
         selection = persisted_repo_selection(str(signal_report.id))
-        resolved_repository = (
-            selection.repository
-            if selection is not None
-            else cascade_select_repository(
+        resolved_repository = selection.repository if selection is not None else None
+        if not resolved_repository:
+            resolved_repository = cascade_select_repository(
                 team_id,
                 user_id,
                 validated_data.get("description") or "",
@@ -5743,7 +5772,13 @@ def create_task(
                 single_repo_wins=True,
                 allow_refresh=False,
             )
-        )
+            if selection is not None:
+                _capture_no_repo_selection_override(
+                    team=team,
+                    report_id=str(signal_report.id),
+                    user_id=user_id,
+                    resolved_repository=resolved_repository,
+                )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
 

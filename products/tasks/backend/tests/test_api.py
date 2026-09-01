@@ -1826,8 +1826,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("no_selection", False, None, "acme/web"),
             # a persisted selection wins over the cascade, even when it names another repo
             ("persisted_repo", True, "acme/api", "acme/api"),
-            # a scout's deliberate no-repo must not fall through to the cascade
-            ("persisted_no_repo", True, None, None),
+            # a scout's no-repo selection is not authoritative for a human "Create PR" click, so it
+            # falls through to the cascade rather than making a task that can never push
+            ("persisted_no_repo", True, None, "acme/web"),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
