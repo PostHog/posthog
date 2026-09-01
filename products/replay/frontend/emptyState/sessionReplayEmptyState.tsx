@@ -3,10 +3,11 @@ import { IconRewindPlay } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { RestrictionScope } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionReplayPreview } from './SessionReplayPreview'
 import { sessionReplaySetupLogic } from './sessionReplaySetupLogic'
@@ -40,9 +41,10 @@ export const sessionReplayEmptyState: SceneProductEmptyState = {
                 onClick: () => {
                     teamLogic.findMounted()?.actions.updateCurrentTeam({ session_recording_opt_in: true })
                 },
-                accessControl: {
-                    resourceType: AccessControlResourceType.SessionRecording,
-                    minAccessLevel: AccessControlLevel.Editor,
+                // Same gate as the settings toggle that writes this field (`ReplayGeneral`).
+                restriction: {
+                    scope: RestrictionScope.Project,
+                    minimumAccessLevel: TeamMembershipLevel.Admin,
                 },
             },
         },
