@@ -110,7 +110,11 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_does_not_pause_below_the_thresholds(self, _name: str, counts: dict[str, int]):
-        self._seed(**counts)
+        self._seed(
+            sent=counts.get("sent", 0),
+            complaints=counts.get("complaints", 0),
+            hard_bounces=counts.get("hard_bounces", 0),
+        )
 
         applied, paused_email = self._sweep()
 
@@ -214,10 +218,12 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
         assert resume_workflow_email_sending(self.flow) is True
 
-        self.flow.refresh_from_db()
-        assert self.flow.email_sending_paused_at is None
-        assert self.flow.email_sending_paused_reason == ""
-        assert self.flow.email_sending_resumed_at is not None
+        # A fresh instance rather than refresh_from_db: mypy narrows the attribute to datetime at
+        # the assignment above and treats the is-None assert on the same instance as unreachable.
+        refreshed = HogFlow.objects.get(pk=self.flow.pk)
+        assert refreshed.email_sending_paused_at is None
+        assert refreshed.email_sending_paused_reason == ""
+        assert refreshed.email_sending_resumed_at is not None
 
     def test_resume_is_a_no_op_when_not_paused(self):
         assert resume_workflow_email_sending(self.flow) is False
