@@ -20,6 +20,10 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     STATUS_VIEW,
     BatchQueue,
 )
+from products.warehouse_sources_queue.backend.core.scheduler_state import (
+    SCHEDULER_DECISION_TABLE,
+    SCHEDULER_STATE_TABLE,
+)
 
 
 def get_test_database_url() -> str:
@@ -218,3 +222,38 @@ JOB_DEFAULTS: dict[str, Any] = {
     "team_id": 1,
     "payload": {},
 }
+
+
+def ensure_scheduler_tables(conn: psycopg.Connection[Any]) -> None:
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {SCHEDULER_STATE_TABLE} (
+            schema_id VARCHAR(200) PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            interval_seconds BIGINT NOT NULL,
+            offset_seconds INT NOT NULL,
+            next_due_at TIMESTAMPTZ NOT NULL,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    conn.execute(f"CREATE INDEX IF NOT EXISTS qss_next_due_idx ON {SCHEDULER_STATE_TABLE} (next_due_at)")
+    conn.execute(f"CREATE INDEX IF NOT EXISTS qss_refreshed_idx ON {SCHEDULER_STATE_TABLE} (refreshed_at)")
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {SCHEDULER_DECISION_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            window_boundary TIMESTAMPTZ NOT NULL,
+            due_at TIMESTAMPTZ NOT NULL,
+            decision VARCHAR(32) NOT NULL,
+            interval_seconds BIGINT NOT NULL,
+            late_seconds DOUBLE PRECISION NOT NULL,
+            observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT qsd_schema_window_uniq UNIQUE (schema_id, window_boundary)
+        )
+    """)
+    conn.execute(f"CREATE INDEX IF NOT EXISTS qsd_observed_at_idx ON {SCHEDULER_DECISION_TABLE} (observed_at)")
+
+
+def truncate_scheduler_tables(conn: psycopg.Connection[Any]) -> None:
+    conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}, {SCHEDULER_STATE_TABLE} RESTART IDENTITY CASCADE")

@@ -285,3 +285,58 @@ class QueueJobLease(models.Model):
         indexes = [
             models.Index(fields=["expires_at"], name="qjl_expires_at_idx"),
         ]
+
+
+class QueueSchedulerState(models.Model):
+    """One row per in-scope schema: its cadence and epoch-aligned next due time.
+
+    Written only by the shadow scheduler's refresh and claim passes. All access
+    is via raw SQL in ``core/scheduler_state.py`` — this model exists for
+    migration and introspection.
+    """
+
+    schema_id = models.CharField(max_length=200, primary_key=True)
+    team_id = models.BigIntegerField()
+    interval_seconds = models.BigIntegerField()
+    offset_seconds = models.IntegerField()
+    next_due_at = models.DateTimeField()
+    refreshed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    __repr__ = sane_repr("schema_id", "team_id", "next_due_at")
+
+    class Meta:
+        db_table = "queueschedulerstate"
+        indexes = [
+            models.Index(fields=["next_due_at"], name="qss_next_due_idx"),
+            models.Index(fields=["refreshed_at"], name="qss_refreshed_idx"),
+        ]
+
+
+class QueueSchedulerDecision(models.Model):
+    """Append-only shadow-scheduler decision per (schema, fire window).
+
+    The unique (schema_id, window_boundary) pair is the dedup identity the real
+    scheduler will enqueue on in a later phase; in shadow mode a refused insert
+    is only counted. All access is via raw SQL in ``core/scheduler_state.py``.
+    """
+
+    team_id = models.BigIntegerField()
+    schema_id = models.CharField(max_length=200)
+    window_boundary = models.DateTimeField()
+    due_at = models.DateTimeField()
+    decision = models.CharField(max_length=32)
+    interval_seconds = models.BigIntegerField()
+    late_seconds = models.FloatField()
+    observed_at = models.DateTimeField(auto_now_add=True)
+
+    __repr__ = sane_repr("schema_id", "window_boundary", "decision")
+
+    class Meta:
+        db_table = "queueschedulerdecision"
+        constraints = [
+            models.UniqueConstraint(fields=["schema_id", "window_boundary"], name="qsd_schema_window_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["observed_at"], name="qsd_observed_at_idx"),
+        ]
