@@ -47,4 +47,10 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         indexes = [
             # serves to cut lookup times for pre-existing running jobs during the preempt stage
             models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
+            # per-view history reads order by time: failure-streak counters and the /recent action
+            models.Index(fields=["saved_query", "-created_at"], name="datamodelingjob_sq_created_at"),
+            # the matview failure digest picks the latest run per view by last_run_at
+            models.Index(fields=["saved_query", "-last_run_at"], name="datamodelingjob_sq_last_run_at"),
+            # the job list default orders a team's jobs newest first
+            models.Index(fields=["team", "-created_at"], name="datamodelingjob_team_created"),
         ]
