@@ -6,10 +6,13 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
+import { EmptyReasonEnumApi } from '../generated/api.schemas'
 import type {
+    BackfillEstimateResponseApi,
     DraftScannerResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
@@ -20,6 +23,7 @@ import type {
     VisionActionApi,
     VisionQuotaApi,
 } from '../generated/api.schemas'
+import { backfillsLogic } from './backfillsLogic'
 import { replayScannerLogic } from './replayScannerLogic'
 import type { SamplingMode, ScannerConfig, ScannerType } from './types'
 
@@ -448,6 +452,18 @@ const observationsTrend = {
     ],
 }
 
+const alreadyScannedEstimate: BackfillEstimateResponseApi = {
+    total_sessions: 0,
+    total_credits: 0,
+    credits_per_observation: 1,
+    credits_remaining: quota.remaining,
+    window_start: '2026-05-11T00:00:00Z',
+    window_end: '2026-05-11T23:00:00Z',
+    empty_reason: EmptyReasonEnumApi.AlreadyScanned,
+    empty_message:
+        'This scanner already scanned every recording in this range. Pick an earlier range, or read what it found.',
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -590,6 +606,28 @@ export const ScannerOnDemand: StoryObj = {
 
 export const ScannerConfiguration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration` },
+}
+
+// A range the scanner has already covered, which the live sweep and a new scanner's priming pass make
+// the normal first answer. No other story renders the estimate's zero state.
+export const ScannerBackfillsNothingToScan: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=backfills` },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/backfills/': EMPTY_PAGINATED_RESPONSE },
+            post: {
+                '/api/projects/:team_id/vision/scanners/:id/backfills/estimate/': alreadyScannedEstimate,
+            },
+        }),
+        (StoryFn) => {
+            // Nothing is estimated until a range is picked, so pick one and let the mocked POST answer.
+            const logic = backfillsLogic({ scannerId: summarizerScanner.id })
+            logic.mount()
+            logic.actions.setWindowRange('-24h', null)
+            logic.actions.requestEstimate(alreadyScannedEstimate.window_start, alreadyScannedEstimate.window_end)
+            return <StoryFn />
+        },
+    ],
 }
 
 // Test arms of the model tier-naming experiment: models labeled by capability tier instead of

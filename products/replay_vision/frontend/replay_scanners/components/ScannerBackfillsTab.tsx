@@ -23,7 +23,7 @@ import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import type { ScannerCreatedBy } from '../types'
-import { BackfillCostEstimate } from './BackfillCostEstimate'
+import { BackfillCostEstimate, NOTHING_TO_SCAN } from './BackfillCostEstimate'
 
 // Hour-scale presets matter as much as day-scale ones: a common case is re-scanning the last couple
 // of hours after fixing a prompt, not re-scanning a month.
@@ -100,7 +100,7 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
         : !estimate
           ? 'Pick a time range to see the cost first'
           : estimate.total_sessions === 0
-            ? 'No eligible sessions in this time range'
+            ? (estimate.empty_message ?? NOTHING_TO_SCAN)
             : undefined
 
     const columns: LemonTableColumns<ReplayScannerBackfillApi> = [
@@ -282,7 +282,7 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                         Start backfill
                     </LemonButton>
                 </div>
-                <BackfillCostEstimate estimate={estimate} loading={estimateLoading} />
+                <BackfillCostEstimate estimate={estimate} loading={estimateLoading} scannerId={scannerId} />
             </div>
 
             <LemonTable

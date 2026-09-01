@@ -1657,6 +1657,17 @@ export interface BackfillWindowApi {
     window_end: string
 }
 
+/**
+ * * `already_scanned` - Already scanned
+ * * `no_matches` - No matches
+ */
+export type EmptyReasonEnumApi = (typeof EmptyReasonEnumApi)[keyof typeof EmptyReasonEnumApi]
+
+export const EmptyReasonEnumApi = {
+    AlreadyScanned: 'already_scanned',
+    NoMatches: 'no_matches',
+} as const
+
 export interface BackfillEstimateResponseApi {
     /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
     total_sessions: number
@@ -1673,6 +1684,16 @@ export interface BackfillEstimateResponseApi {
     window_start: string
     /** The window upper bound after clamping to now. */
     window_end: string
+    /** Why total_sessions is 0: `already_scanned` when this scanner covered the whole window already, `no_matches` when nothing in it matched. Null when there is something to scan.
+     *
+     * * `already_scanned` - Already scanned
+     * * `no_matches` - No matches */
+    empty_reason: EmptyReasonEnumApi | null
+    /**
+     * Explanation to show when total_sessions is 0. Null when there is something to scan.
+     * @nullable
+     */
+    empty_message: string | null
 }
 
 export interface ObservationStatusCountsApi {

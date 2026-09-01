@@ -5,7 +5,7 @@ import datetime as dt
 from datetime import datetime
 from typing import Any, cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, models
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -46,6 +47,20 @@ ENUMERATION_MAX_EXECUTION_SECONDS = 30
 # Beyond a year a backfill is asking for recordings almost every team has already aged out, while the
 # enumeration pays for the whole partition range. Bounds the per-request ClickHouse cost.
 MAX_BACKFILL_WINDOW_DAYS = 365
+
+
+class BackfillEmptyReason(models.TextChoices):
+    ALREADY_SCANNED = "already_scanned", "Already scanned"
+    NO_MATCHES = "no_matches", "No matches"
+
+
+@frozen
+class WindowCount:
+    """What a backfill over one window would scan, and why that is nothing when it is nothing."""
+
+    total: int
+    empty_reason: BackfillEmptyReason | None = None
+    empty_message: str | None = None
 
 
 class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -90,6 +105,16 @@ class BackfillEstimateResponseSerializer(serializers.Serializer):
     )
     window_start = serializers.DateTimeField(help_text="The window lower bound the estimate covered.")
     window_end = serializers.DateTimeField(help_text="The window upper bound after clamping to now.")
+    empty_reason = serializers.ChoiceField(
+        choices=BackfillEmptyReason.choices,
+        allow_null=True,
+        help_text="Why total_sessions is 0: `already_scanned` when this scanner covered the whole window "
+        "already, `no_matches` when nothing in it matched. Null when there is something to scan.",
+    )
+    empty_message = serializers.CharField(
+        allow_null=True,
+        help_text="Explanation to show when total_sessions is 0. Null when there is something to scan.",
+    )
 
 
 class ReplayScannerBackfillSerializer(serializers.ModelSerializer):
@@ -236,30 +261,38 @@ class ReplayScannerBackfillViewSet(
             max_execution_time_seconds=ENUMERATION_MAX_EXECUTION_SECONDS,
         ).count(query_type=BACKFILL_COUNT_QUERY_TYPE)
 
-    def _unobserved_count(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
-        """Upper bound on what a backfill over this window would scan, rejecting when it is zero.
+    def _unobserved_count(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> WindowCount:
+        """Upper bound on what a backfill over this window would scan, and why it is zero when it is.
 
         An upper bound rather than exact: the exclusion reads `$recording_observed`, which only exists
         for observations that succeeded and managed to publish, so sessions already tried and found
         ineligible or failed still count here. They cannot produce a second observation, so the real
         spend lands under the quote.
 
-        Distinguishes "nothing here matches the scanner" from "everything here is already done"; the
-        second count only runs on the rejection path, so the happy path stays at one ClickHouse query.
+        Zero is an answer, not an error. The live sweep, and the priming pass a new scanner runs within
+        a minute of creation, both make "this scanner already did this range" the normal reply to a
+        recent window. Distinguishes that from "nothing here matches the scanner"; the second count only
+        runs on the zero path, so the happy path stays at one ClickHouse query.
         """
         unobserved = self._enumerate(scanner, window_start, window_end, exclude_observed=True)
         if unobserved > 0:
-            return unobserved
+            return WindowCount(total=unobserved)
         if self._enumerate(scanner, window_start, window_end) > 0:
-            raise ValidationError("All recordings in this range have already been scanned. Pick a different range.")
+            return WindowCount(
+                total=0,
+                empty_reason=BackfillEmptyReason.ALREADY_SCANNED,
+                empty_message="This scanner already scanned every recording in this range. "
+                "Pick an earlier range, or read what it found.",
+            )
         # Naming sampling matters: a heavily sampled scanner finds nothing in a short range even
         # though its filters match plenty, and "filters" alone sends people to edit the wrong setting.
-        if scanner.sampling_rate < 1:
-            raise ValidationError(
-                f"No recordings in this range match this scanner. It samples {scanner.sampling_rate:.1%} of "
-                "sessions, so try a wider range."
-            )
-        raise ValidationError("No recordings in this range match this scanner's filters. Try a wider range.")
+        no_matches = (
+            f"No recordings in this range match this scanner. It samples {scanner.sampling_rate:.1%} of "
+            "sessions, so try a wider range."
+            if scanner.sampling_rate < 1
+            else "No recordings in this range match this scanner's filters. Try a wider range."
+        )
+        return WindowCount(total=0, empty_reason=BackfillEmptyReason.NO_MATCHES, empty_message=no_matches)
 
     @extend_schema(request=BackfillWindowSerializer, responses={200: BackfillEstimateResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)
@@ -269,17 +302,19 @@ class ReplayScannerBackfillViewSet(
         window = BackfillWindowSerializer(data=request.data)
         window.is_valid(raise_exception=True)
         window_start, window_end = self._clamped_window(window.validated_data)
-        total = self._unobserved_count(scanner, window_start, window_end)
+        count = self._unobserved_count(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
         quota = quota_state(self.team.organization_id)
         response = BackfillEstimateResponseSerializer(
             {
-                "total_sessions": total,
-                "total_credits": total * price,
+                "total_sessions": count.total,
+                "total_credits": count.total * price,
                 "credits_per_observation": price,
                 "credits_remaining": quota.remaining,
                 "window_start": window_start,
                 "window_end": window_end,
+                "empty_reason": count.empty_reason,
+                "empty_message": count.empty_message,
             }
         )
         return Response(response.data)
@@ -300,7 +335,11 @@ class ReplayScannerBackfillViewSet(
             raise ValidationError("This scanner already has an active backfill.")
 
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
-        total = self._unobserved_count(scanner, window_start, window_end)
+        count = self._unobserved_count(scanner, window_start, window_end)
+        if count.total == 0:
+            # Only `create` rejects an empty window: a backfill with nothing to dispatch would complete
+            # immediately and just add a confusing row. `estimate` reports the same state as a 200.
+            raise ValidationError(count.empty_message)
         try:
             backfill = ReplayScannerBackfill.objects.create(
                 scanner=scanner,
@@ -309,7 +348,7 @@ class ReplayScannerBackfillViewSet(
                 window_end=window_end,
                 scanner_snapshot=snapshot.model_dump(mode="json"),
                 credits_per_observation=observation_credits_for_model(snapshot.model),
-                total_count=total,
+                total_count=count.total,
                 created_by=cast(Any, request.user),
             )
         except IntegrityError:

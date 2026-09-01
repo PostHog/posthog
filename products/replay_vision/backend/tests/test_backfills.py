@@ -697,8 +697,10 @@ class TestBackfillsApi(APIBaseTest):
         assert "365 days" in str(response.json())
 
     @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
-    def test_estimate_rejects_when_every_candidate_is_already_observed(self, mock_query: MagicMock) -> None:
+    def test_estimate_reports_an_empty_window_as_a_priced_zero(self, mock_query: MagicMock) -> None:
         # Excluded run returns 0 while the unfiltered run finds rows: nothing left for a backfill to do.
+        # The live sweep and the priming pass make this the normal reply for a recent range, so it has
+        # to arrive as a 200 the tab can render, not as an error toast.
         mock_query.return_value.count.side_effect = [0, 5]
         self.scanner.observations.create(
             team=self.team,
@@ -709,15 +711,40 @@ class TestBackfillsApi(APIBaseTest):
             completed_at=timezone.now(),
         )
         response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
-        assert response.status_code == 400
-        assert "already been scanned" in str(response.json())
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["total_sessions"] == 0
+        assert body["total_credits"] == 0
+        assert body["empty_reason"] == "already_scanned"
+        assert "already scanned" in body["empty_message"]
 
     @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
-    def test_estimate_rejects_when_nothing_matches_the_scanner(self, mock_query: MagicMock) -> None:
+    def test_estimate_reports_zero_when_nothing_matches_the_scanner(self, mock_query: MagicMock) -> None:
         mock_query.return_value.count.return_value = 0
         response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["total_sessions"] == 0
+        assert body["empty_reason"] == "no_matches"
+        assert "match this scanner" in body["empty_message"]
+
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_a_window_with_something_to_scan_reports_no_empty_reason(self, mock_query: MagicMock) -> None:
+        mock_query.return_value.count.return_value = 7
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["empty_reason"] is None
+        assert response.json()["empty_message"] is None
+
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_create_still_rejects_a_window_with_nothing_to_scan(self, mock_query: MagicMock) -> None:
+        # A backfill with nothing to dispatch would complete on its first tick and add a row that
+        # explains nothing, so only the read-only estimate treats zero as an answer.
+        mock_query.return_value.count.side_effect = [0, 5]
+        response = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
         assert response.status_code == 400
-        assert "match this scanner" in str(response.json())
+        assert "already scanned" in str(response.json())
+        assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
 
     @patch("products.replay_vision.backend.temporal.schedule.a_delete_backfill_schedule", new_callable=AsyncMock)
     def test_cancel_marks_terminal(self, _mock_delete: AsyncMock) -> None:

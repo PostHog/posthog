@@ -1,20 +1,27 @@
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
-import { LemonBanner, LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { urls } from 'scenes/urls'
 
-import type { BackfillEstimateResponseApi } from '../../generated/api.schemas'
+import { type BackfillEstimateResponseApi, EmptyReasonEnumApi } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_BACKFILL_CLASS, buildQuotaMeter, fleetContributions } from '../../utils/quotaContributions'
 import { QUOTA_STATUS_STYLES } from '../../utils/quotaProjection'
+import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { QuotaMeter } from './QuotaMeterBar'
 
 interface Props {
     estimate: BackfillEstimateResponseApi | null
     loading: boolean
+    scannerId: string
 }
+
+/** Stands in for the range the server sends back; the field is nullable in the schema. */
+export const NOTHING_TO_SCAN = 'Nothing to scan in this time range'
 
 /**
  * The scanner editor's cost meter, re-pointed at a one-off backfill.
@@ -23,8 +30,11 @@ interface Props {
  * pro-rates across the days left in the period, which would shrink a backfill's cost to a fraction of
  * itself. A backfill is charged once, so it is added at full value as its own segment on top.
  */
-export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element {
+export function BackfillCostEstimate({ estimate, loading, scannerId }: Props): JSX.Element {
     const { displayQuota: quota, showUsd, onFreePlan } = useValues(visionQuotaLogic)
+
+    // Zero is a normal answer, not a failure, so it replaces the price rather than quoting nothing.
+    const emptyEstimate = estimate && estimate.total_sessions === 0 ? estimate : null
 
     // Rendered even with no estimate yet, showing the period as it already stands. Picking a range
     // then adds a segment to the existing bar instead of making a whole card appear.
@@ -35,7 +45,7 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
     // This backfill leads the org's own commitments: segments absorb overflow left to right, so the charge being
     // decided on keeps its width and the rest-of-period forecast is what gets truncated.
     const model = buildQuotaMeter(quota, [
-        ...(estimate
+        ...(estimate && !emptyEstimate
             ? [
                   {
                       key: 'this-backfill',
@@ -62,7 +72,7 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                 Projected from scanners:{' '}
                 <strong>~{formatCreditCount(quota?.projected_monthly_credits ?? 0)}/month</strong>
             </div>
-            {estimate && (
+            {estimate && !emptyEstimate && (
                 <div>
                     This backfill: <strong>at most {formatCreditCount(backfillCredits)}</strong>
                 </div>
@@ -94,7 +104,26 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
             </div>
 
             <div className="text-base font-semibold tabular-nums flex items-center gap-2">
-                {estimate ? (
+                {emptyEstimate ? (
+                    <span className="text-sm font-normal text-muted">
+                        {emptyEstimate.empty_message ?? NOTHING_TO_SCAN}
+                        {emptyEstimate.empty_reason === EmptyReasonEnumApi.AlreadyScanned && (
+                            <>
+                                {' '}
+                                <Link
+                                    to={
+                                        combineUrl(urls.replayVision(scannerId), {
+                                            tab: ReplayScannerTab.Observations,
+                                        }).url
+                                    }
+                                    data-attr="vision-backfill-view-observations-empty"
+                                >
+                                    View observations
+                                </Link>
+                            </>
+                        )}
+                    </span>
+                ) : estimate ? (
                     <span>
                         at most {formatCreditCount(backfillCredits)}
                         <span className="text-sm font-normal text-muted">
