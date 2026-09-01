@@ -5,8 +5,9 @@ from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from uuid import UUID
 
-from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
 import posthoganalytics
@@ -507,11 +508,9 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row.
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                self._filter_options({"team_id": self._team.id})
-            )
+        return self._with_team_organization_id(
+            list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id}))),
+            self._rows_organization_id,
         )
 
     @property
@@ -599,6 +598,31 @@ class UserAccessControl:
         `team__organization_id`) must hit the DB directly."""
         return self._team is not None and filters.get("team_id") == self._team.id
 
+    @property
+    def _rows_organization_id(self) -> Optional[UUID]:
+        """Organization id shared by every AccessControl row the facade's queries fetch.
+
+        Each query is scoped to one team (this instance's team) or one organization, so every
+        returned row belongs to the same organization. That lets the caller set
+        `_team_organization_id` from this constant instead of joining posthog_team.
+
+        Returned as a UUID because `_row_matches` compares this field for identity. Do not switch
+        to the stringified `_organization_id`: a UUID never equals a string, so changing the type
+        would change which org-scoped rows `_row_matches` accepts.
+        """
+        return UUID(str(self._organization_id)) if self._organization_id is not None else None
+
+    @staticmethod
+    def _with_team_organization_id(rows: list[_AccessControl], organization_id: Optional[UUID]) -> list[_AccessControl]:
+        """Set `_team_organization_id` on each row in memory, the field `_row_matches` reads.
+
+        Setting it in Python rather than annotating `F("team__organization_id")` keeps the query
+        off posthog_team, whose join the ORM otherwise forces even for a plain team_id filter.
+        """
+        for row in rows:
+            row._team_organization_id = organization_id  # type: ignore[attr-defined]
+        return rows
+
     def _row_matches(self, ac: _AccessControl, filters: dict) -> bool:
         """In-memory equivalent of the targeted DB query's WHERE clause, applied to an already
         precedence-filtered pool. Mirrors the matching the targeted queryset would perform."""
@@ -629,10 +653,9 @@ class UserAccessControl:
                 if isinstance(resource, str):
                     span.set_attribute("rbac.resource", resource)
                 span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-                self._cache[key] = list(
-                    AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                        self._filter_options(filters)
-                    )
+                self._cache[key] = self._with_team_organization_id(
+                    list(AccessControl.objects.filter(self._filter_options(filters))),
+                    self._rows_organization_id,
                 )
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
@@ -715,7 +738,7 @@ class UserAccessControl:
             q = q | self._filter_options(filters)
         self._fill_filters_cache(
             filter_groups,
-            list(AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(q)),
+            self._with_team_organization_id(list(AccessControl.objects.filter(q)), self._rows_organization_id),
         )
 
     def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
