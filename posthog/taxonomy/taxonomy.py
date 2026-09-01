@@ -185,7 +185,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$experiment_exposure": {
             "label": "Experiment exposure",
-            "description": "When a user is exposed to an experiment variant. Created during ingestion as a copy of the $feature_flag_called event that returned the variant.",
+            "description": "When a user is exposed to an experiment variant.",
             "ignored_in_assistant": True,  # Duplicate of $feature_flag_called; mixing both double-counts exposures
             "primary_property": "$feature_flag",
         },
