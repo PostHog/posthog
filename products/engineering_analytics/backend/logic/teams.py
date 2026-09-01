@@ -9,7 +9,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIHealthList,
     TeamMergeTrend,
 )
-from products.engineering_analytics.backend.logic._shared import _parse_window, _prior_window
+from products.engineering_analytics.backend.logic._shared import WindowedCount, _parse_window, _prior_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.queries.census_counts import query_census_counts
@@ -83,31 +83,36 @@ def _enrich_roster(
 ) -> TeamCIHealthList:
     """Attach census and merged-PR context, and add census-only rows so a team whose tests
     all pass still appears in the roster instead of vanishing with the signal."""
-    scan_from, resolved_to = _prior_window(date_from, date_to)
+    window = _prior_window(date_from, date_to)
     census = query_census_counts(
-        curated=curated, date_from=date_from, scan_from=date_from - _CENSUS_LOOKBACK, date_to=resolved_to
+        curated=curated, date_from=date_from, scan_from=date_from - _CENSUS_LOOKBACK, date_to=window.resolved_to
     )
-    merged = query_team_merged_pr_counts(curated=curated, date_from=date_from, scan_from=scan_from, date_to=resolved_to)
+    merged = query_team_merged_pr_counts(
+        curated=curated, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
+    )
+    _NO_COUNTS = WindowedCount(current=None, prior=None)
+    _ZERO_COUNTS = WindowedCount(current=0, prior=0)
 
     def enrich(item: TeamCIHealthItem) -> TeamCIHealthItem:
         # 'unowned' is not a GitHub team, so a zero merged-PR count would be a made-up number.
         merged_counts = (
-            merged.get(item.owner_team, (0, 0))
+            merged.get(item.owner_team, _ZERO_COUNTS)
             if merged is not None and item.owner_team != UNOWNED_TEAM
-            else (None, None)
+            else _NO_COUNTS
         )
+        census_counts = census.get(item.owner_team, _NO_COUNTS)
         return replace(
             item,
-            test_file_count=census.get(item.owner_team, (None, None))[0],
-            test_file_count_prior=census.get(item.owner_team, (None, None))[1],
-            merged_pr_count=merged_counts[0],
-            merged_pr_count_prior=merged_counts[1],
+            test_file_count=census_counts.current,
+            test_file_count_prior=census_counts.prior,
+            merged_pr_count=merged_counts.current,
+            merged_pr_count_prior=merged_counts.prior,
         )
 
     signal_slugs = {item.owner_team for item in roster.items}
     quiet_slugs = [
         slug
-        for slug, _counts in sorted(census.items(), key=lambda kv: (-(kv[1][0] or 0), kv[0]))
+        for slug, _counts in sorted(census.items(), key=lambda kv: (-(kv[1].current or 0), kv[0]))
         if slug not in signal_slugs and (owner_team is None or slug == owner_team)
     ]
     items = [enrich(item) for item in roster.items] + [enrich(_zero_row(slug)) for slug in quiet_slugs]

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.logic._shared import WindowedCount
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _SELECT = """
@@ -29,9 +30,9 @@ def query_team_merged_pr_counts(
     date_from: datetime,
     scan_from: datetime,
     date_to: datetime,
-) -> dict[str, tuple[int, int]] | None:
-    """``team_slug -> (merged_pr_count, merged_pr_count_prior)``; None when the membership
-    snapshot isn't synced, so callers can degrade honestly instead of reporting zero merges."""
+) -> dict[str, WindowedCount] | None:
+    """``team_slug -> merged-PR counts``; None when the membership snapshot isn't synced, so
+    callers can degrade honestly instead of reporting zero merges."""
     members_source = curated.members_source()
     if members_source is None:
         return None
@@ -45,4 +46,7 @@ def query_team_merged_pr_counts(
             "date_to": ast.Constant(value=date_to),
         },
     )
-    return {owner_team: (int(count), int(prior)) for owner_team, count, prior in (response.results or [])}
+    return {
+        owner_team: WindowedCount(current=int(count), prior=int(prior))
+        for owner_team, count, prior in (response.results or [])
+    }

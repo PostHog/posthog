@@ -112,9 +112,9 @@ def _window_placeholders(
     *, curated: CuratedGitHubSource, date_from: datetime, date_to: datetime | None
 ) -> dict[str, ast.Expr]:
     # The prior window twins the current one: [scan_from, date_from) vs [date_from, date_to].
-    prior_from, resolved_to = _prior_window(date_from, date_to)
+    window = _prior_window(date_from, date_to)
     return scan_placeholders(
-        repository=curated.repository, date_from=date_from, scan_from=prior_from, date_to=resolved_to
+        repository=curated.repository, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
     )
 
 

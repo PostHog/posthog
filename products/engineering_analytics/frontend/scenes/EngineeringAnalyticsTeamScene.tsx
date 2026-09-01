@@ -121,6 +121,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                         </Tooltip>
                     ) : undefined
                 }
+                slug={null}
             />
             <ScopeBar
                 repoSlot={<RepoScopeChip label={repository ?? 'repository'} to={urls.engineeringAnalytics()} />}

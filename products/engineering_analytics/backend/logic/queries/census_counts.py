@@ -5,6 +5,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.logic._shared import WindowedCount
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
@@ -32,8 +33,8 @@ def query_census_counts(
     date_from: datetime,
     scan_from: datetime,
     date_to: datetime,
-) -> dict[str, tuple[int | None, int | None]]:
-    """``owner_team -> (test_file_count, test_file_count_prior)``; empty when no census ran."""
+) -> dict[str, WindowedCount]:
+    """``owner_team -> test-file counts``; empty when no census ran."""
     if not curated.repository:
         return {}
     response = curated.run(
@@ -48,9 +49,9 @@ def query_census_counts(
         },
     )
     return {
-        owner_team: (
-            int(count) if count is not None else None,
-            int(prior) if prior is not None else None,
+        owner_team: WindowedCount(
+            current=int(count) if count is not None else None,
+            prior=int(prior) if prior is not None else None,
         )
         for owner_team, count, prior in (response.results or [])
         if owner_team
