@@ -1165,7 +1165,7 @@ export const WorkflowProposalSourceTypeEnumApi = {
 export type WorkflowProposalApiContent = { [key: string]: unknown }
 
 /**
- * The numbers behind the proposal. Conventional keys: metric, current_value, target_value, window, query, app_source_id. Two are required whenever a rate is claimed: `n`, the denominator that rate was computed over, and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window. A rate with no denominator lets a reviewer mistake noise for a result, and a target with no counter-metrics hides a change that lifts one number by harming another.
+ * The numbers behind the proposal, read back by name. Four keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
  */
 export type WorkflowProposalApiEvidence = { [key: string]: unknown }
 
@@ -1177,7 +1177,7 @@ export interface WorkflowProposalApi {
     readonly rationale: string
     /** Only the content fields the proposal changes. Valid keys are the workflow's content fields: actions, edges, trigger, trigger_masking, conversion, exit_condition, email_sending_rate_limit, abort_action, variables. Each value has the same shape as on the workflow itself. */
     readonly content: WorkflowProposalApiContent
-    /** The numbers behind the proposal. Conventional keys: metric, current_value, target_value, window, query, app_source_id. Two are required whenever a rate is claimed: `n`, the denominator that rate was computed over, and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window. A rate with no denominator lets a reviewer mistake noise for a result, and a target with no counter-metrics hides a change that lifts one number by harming another. */
+    /** The numbers behind the proposal, read back by name. Four keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
     readonly evidence: WorkflowProposalApiEvidence
     /**
      * The workflow step this is about, when it is about one. The evidence and the outcome both read metrics for this step, so a change to one email in a sequence is not measured against every other email in it.
