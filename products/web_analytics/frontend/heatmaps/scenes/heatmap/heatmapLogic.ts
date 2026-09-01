@@ -370,213 +370,35 @@ export const heatmapLogic = kea<heatmapLogicType>([
         userAccessLevel: [null as AccessControlLevel | null, { setUserAccessLevel: (_, { level }) => level }],
         lockedWidth: [null as number | null, { setLockedWidth: (_, { lockedWidth }) => lockedWidth }],
     }),
-    listeners(({ actions, values, props, cache }) => ({
-        changeCaptureMethod: async ({ type }) => {
-            actions.setType(type)
-            if (type !== 'screenshot') {
-                actions.setScreenshotError(null)
-            }
-            if (!values.heatmapId) {
-                return
-            }
-            await actions.updateHeatmap()
-            if (type === 'screenshot' && !values.screenshotUrl) {
-                actions.regenerateScreenshot()
-            }
-        },
-        load: async () => {
-            if (!props.id || String(props.id) === 'new') {
-                return
-            }
-            // Start the time-to-screenshot-ready clock and reset the per-mount capture guards.
-            cache.screenshotWaitStartedAt = performance.now()
-            cache.screenshotReadyCaptured = false
-            cache.screenshotPolled = false
-            actions.setLoading(true)
-            try {
-                const item = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
-                cache.screenshotInitialStatus = item.status ?? null
-                actions.setHeatmapId(item.id)
-                actions.setName(item.name ?? DEFAULT_HEATMAP_NAME)
-                actions.setDataUrlUserTouched(true)
-                actions.setDisplayUrl(item.url)
-                actions.setDataUrl(item.data_url ?? null)
-                actions.snapshotSavedDisplayUrl(item.url ?? null)
-                actions.setBlockConsentModals(item.block_consent_modals ?? false)
-                actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
-                actions.setUserAccessLevel((item.user_access_level ?? null) as AccessControlLevel | null)
-                actions.setType(item.type ?? 'screenshot')
-                const source = (item.source ?? 'server') as HeatmapSource
-                actions.setSource(source)
-                posthog.capture('in-app heatmap viewed', {
-                    heatmap_type: item.type,
-                    heatmap_status: item.status,
-                    heatmap_source: source,
-                })
-                if (item.type === 'screenshot') {
-                    const lockedWidth = computeLockedWidth(source, item.target_widths ?? [])
-                    actions.setLockedWidth(lockedWidth)
-                    if (lockedWidth) {
-                        actions.setWindowWidthOverride(lockedWidth)
-                    }
-                    const desiredWidth = lockedWidth ?? values.widthOverride
-                    if (item.status === 'completed' && item.has_content) {
-                        actions.setScreenshotUrl(
-                            getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), item.id, {
-                                width: desiredWidth,
-                            })
-                        )
-                        // trigger heatmap overlay load
-                        actions.loadHeatmap()
-                    } else if (item.status === 'failed') {
-                        actions.setScreenshotError(item.exception || 'Screenshot generation failed')
-                    } else {
-                        actions.setScreenshotError(null)
-                        actions.pollScreenshotStatus(desiredWidth)
-                    }
-                } else if (item.type === 'iframe') {
-                    actions.checkPagePreflight(item.url)
-                }
-            } finally {
-                actions.setLoading(false)
-            }
-        },
-        // React to viewport width changes by updating the image URL directly
-        setWindowWidthOverride: async ({ widthOverride }) => {
-            if (values.type !== 'screenshot' || !values.heatmapId) {
-                return
-            }
-            const w = widthOverride ?? DEFAULT_HEATMAP_WIDTH
-            actions.setScreenshotError(null)
-            actions.setScreenshotUrl(
-                getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), values.heatmapId, {
-                    width: w,
-                })
-            )
-        },
-        setScreenshotUrl: ({ url }) => {
-            // Emit the time-to-screenshot-ready metric once, when the screenshot first becomes available.
-            if (!url || cache.screenshotReadyCaptured || cache.screenshotWaitStartedAt == null) {
-                return
-            }
-            cache.screenshotReadyCaptured = true
-            posthog.capture('in-app heatmap screenshot ready', {
-                heatmap_id: values.heatmapId,
-                time_to_screenshot_ready_ms: Math.round(performance.now() - cache.screenshotWaitStartedAt),
-                prewarm_enabled: !!values.featureFlags[FEATURE_FLAGS.HEATMAPS_SCREENSHOT_PREWARM],
-                ready_on_arrival: !cache.screenshotPolled,
-                initial_status: cache.screenshotInitialStatus ?? null,
-                screen_width: values.widthOverride,
-            })
-        },
-        pollScreenshotStatus: async ({ width }, breakpoint) => {
-            let attempts = 0
-            // Polling means the render wasn't ready on arrival — i.e. no prewarm hit.
-            cache.screenshotPolled = true
-            actions.setGeneratingScreenshot(true)
-            // Multi-width renders open one Browserless session per width and can take a few minutes,
-            // so poll for up to 5 minutes before giving up (the backend marks failures sooner).
-            const pollIntervalMs = 2000
-            const maxAttempts = (5 * 60 * 1000) / pollIntervalMs
-            while (attempts < maxAttempts) {
-                await breakpoint(pollIntervalMs)
-                try {
-                    const screenshot = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
-                    if (screenshot.status === 'completed' && screenshot.has_content) {
-                        const w = width ?? DEFAULT_HEATMAP_WIDTH
-                        actions.setScreenshotUrl(
-                            getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), screenshot.id, {
-                                width: w,
-                            })
-                        )
-                        actions.loadHeatmap()
-                        actions.setGeneratingScreenshot(false)
-                        break
-                    } else if (screenshot.status === 'failed') {
-                        actions.setScreenshotError(screenshot.exception || 'Screenshot generation failed')
-                        actions.setGeneratingScreenshot(false)
-                        break
-                    }
-                    attempts++
-                } catch (e) {
-                    actions.setScreenshotError('Failed to check screenshot status')
-                    actions.setGeneratingScreenshot(false)
-                    console.error(e)
-                    break
-                }
-            }
+    listeners(({ actions, values, props, cache }) => {
+        const heatmapRequestBody = (): SavedHeatmapRequestApi => ({
+            name: values.name || DEFAULT_HEATMAP_NAME,
+            url: values.displayUrl || '',
+            data_url: values.dataUrl,
+            type: values.type,
+            block_consent_modals: values.blockConsentModals,
+        })
 
-            if (attempts >= maxAttempts) {
-                actions.setGeneratingScreenshot(false)
-                actions.setScreenshotError('Screenshot is still generating. Refresh to check, or try fewer widths.')
-            }
-        },
-        regenerateScreenshot: async () => {
-            if (!props.id || !values.heatmapId) {
-                return
-            }
-            if (values.source === 'toolbar') {
-                lemonToast.info('This heatmap was captured from the toolbar. Open it in the toolbar to re-capture it.')
-                return
-            }
-            actions.setScreenshotError(null)
-            actions.setScreenshotUrl(null)
-            actions.setScreenshotLoaded(false)
-            try {
-                await savedRegenerateCreate(String(values.currentTeamIdStrict), String(props.id))
-                actions.pollScreenshotStatus(values.widthOverride)
-            } catch (error: unknown) {
-                actions.setScreenshotError(getApiErrorMessage(error, 'Failed to regenerate screenshot'))
-            }
-        },
-        createHeatmap: async ({ context }) => {
-            if (cache.creatingHeatmap) {
-                return
-            }
-            cache.creatingHeatmap = true
-            actions.setLoading(true)
-            try {
-                const data: SavedHeatmapRequestApi = {
-                    name: values.name || DEFAULT_HEATMAP_NAME,
-                    url: values.displayUrl || '',
-                    data_url: values.dataUrl,
-                    type: values.type,
-                    block_consent_modals: values.blockConsentModals,
-                }
-                const created = await savedCreate(String(values.currentTeamIdStrict), data)
-                posthog.capture('in-app heatmap created', { heatmap_type: values.type, ...context })
-                actions.creationCompleted(created.short_id)
-                actions.loadSavedHeatmaps()
-                router.actions.push(`/heatmaps/${created.short_id}`)
-            } catch (error: unknown) {
-                posthog.capture('in-app heatmap creation failed', {
-                    failure_category: getCreationFailureCategory(error),
-                })
-                lemonToast.error(getApiErrorMessage(error, 'Failed to create heatmap'))
-            } finally {
-                cache.creatingHeatmap = false
-                actions.setLoading(false)
-            }
-        },
-        updateHeatmap: async () => {
+        // Awaiting the updateHeatmap action only awaits the dispatch, not the save, so callers that
+        // need the heatmap to be persisted before their next request call this directly.
+        const persistHeatmap = async (): Promise<{ ok: boolean; renderTriggered: boolean }> => {
             actions.setLoading(true)
             const previousSavedUrl = values.savedDisplayUrl
             const previousBlockConsentModals = values.savedBlockConsentModals
             try {
-                const data: SavedHeatmapRequestApi = {
-                    name: values.name || DEFAULT_HEATMAP_NAME,
-                    url: values.displayUrl || '',
-                    data_url: values.dataUrl,
-                    type: values.type,
-                    block_consent_modals: values.blockConsentModals,
-                }
-                const updated = await savedPartialUpdate(String(values.currentTeamIdStrict), String(props.id), data)
+                const updated = await savedPartialUpdate(
+                    String(values.currentTeamIdStrict),
+                    String(props.id),
+                    heatmapRequestBody()
+                )
                 actions.snapshotSavedDisplayUrl(updated.url ?? null)
                 actions.snapshotSavedBlockConsentModals(updated.block_consent_modals ?? false)
                 const renderInputChanged =
                     updated.url !== previousSavedUrl ||
                     (updated.block_consent_modals ?? false) !== previousBlockConsentModals
-                if (values.type === 'screenshot' && renderInputChanged) {
+                // A saved change of URL or consent handling makes the server re-render on its own.
+                const renderTriggered = values.type === 'screenshot' && renderInputChanged
+                if (renderTriggered) {
                     actions.setScreenshotUrl(null)
                     actions.setScreenshotLoaded(false)
                     actions.setScreenshotError(null)
@@ -584,60 +406,265 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.pollScreenshotStatus(values.widthOverride)
                     }
                 }
+                return { ok: true, renderTriggered }
             } catch (error: unknown) {
                 if (values.displayUrl !== previousSavedUrl) {
                     actions.setDisplayUrl(previousSavedUrl)
                 }
                 lemonToast.error(getApiErrorMessage(error, 'Failed to update heatmap'))
+                return { ok: false, renderTriggered: false }
             } finally {
                 actions.setLoading(false)
             }
-        },
-        applyPageUrlDraft: () => {
-            if (!values.isPageUrlDraftValid) {
-                return
-            }
-            const next = values.pageUrlDraft.trim()
-            if (!next) {
-                return
-            }
-            if (next !== values.displayUrl) {
-                actions.setDisplayUrl(next)
-                actions.updateHeatmap()
-                return
-            }
-            if (values.type === 'screenshot') {
-                actions.regenerateScreenshot()
-            }
-        },
-        setScreenshotLoaded: ({ screenshotLoaded }) => {
-            if (screenshotLoaded) {
-                posthog.capture('in-app heatmap screenshot loaded', { width: values.widthOverride })
-            }
-        },
-        setScreenshotError: ({ error }) => {
-            if (error) {
-                posthog.capture('in-app heatmap screenshot failed', { error })
-            }
-        },
-        exportHeatmap: () => {
-            if ((values.type === 'screenshot' && !values.screenshotUrl) || (!values.displayUrl && !values.dataUrl)) {
-                return
-            }
-            actions.startHeatmapExport({
-                heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
-                heatmap_data_url: values.dataUrl ?? '',
-                heatmap_type: values.type,
-                width: values.widthOverride,
-                height: values.heightOverride,
-                heatmap_color_palette: values.heatmapColorPalette,
-                heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
-                common_filters: values.commonFilters,
-                heatmap_filters: values.heatmapFilters,
-                filename: `heatmap-${values.name || DEFAULT_HEATMAP_NAME}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
-            })
-        },
-    })),
+        }
+
+        return {
+            changeCaptureMethod: async ({ type }) => {
+                actions.setType(type)
+                if (type !== 'screenshot') {
+                    actions.setScreenshotError(null)
+                }
+                if (!values.heatmapId) {
+                    return
+                }
+                if (type === 'screenshot' && !values.screenshotUrl) {
+                    // regenerateScreenshot saves the new type before it asks for a render.
+                    actions.regenerateScreenshot()
+                    return
+                }
+                await persistHeatmap()
+            },
+            load: async () => {
+                if (!props.id || String(props.id) === 'new') {
+                    return
+                }
+                // Start the time-to-screenshot-ready clock and reset the per-mount capture guards.
+                cache.screenshotWaitStartedAt = performance.now()
+                cache.screenshotReadyCaptured = false
+                cache.screenshotPolled = false
+                actions.setLoading(true)
+                try {
+                    const item = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
+                    cache.screenshotInitialStatus = item.status ?? null
+                    actions.setHeatmapId(item.id)
+                    actions.setName(item.name ?? DEFAULT_HEATMAP_NAME)
+                    actions.setDataUrlUserTouched(true)
+                    actions.setDisplayUrl(item.url)
+                    actions.setDataUrl(item.data_url ?? null)
+                    actions.snapshotSavedDisplayUrl(item.url ?? null)
+                    actions.setBlockConsentModals(item.block_consent_modals ?? false)
+                    actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
+                    actions.setUserAccessLevel((item.user_access_level ?? null) as AccessControlLevel | null)
+                    actions.setType(item.type ?? 'screenshot')
+                    const source = (item.source ?? 'server') as HeatmapSource
+                    actions.setSource(source)
+                    posthog.capture('in-app heatmap viewed', {
+                        heatmap_type: item.type,
+                        heatmap_status: item.status,
+                        heatmap_source: source,
+                    })
+                    if (item.type === 'screenshot') {
+                        const lockedWidth = computeLockedWidth(source, item.target_widths ?? [])
+                        actions.setLockedWidth(lockedWidth)
+                        if (lockedWidth) {
+                            actions.setWindowWidthOverride(lockedWidth)
+                        }
+                        const desiredWidth = lockedWidth ?? values.widthOverride
+                        if (item.status === 'completed' && item.has_content) {
+                            actions.setScreenshotUrl(
+                                getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), item.id, {
+                                    width: desiredWidth,
+                                })
+                            )
+                            // trigger heatmap overlay load
+                            actions.loadHeatmap()
+                        } else if (item.status === 'failed') {
+                            actions.setScreenshotError(item.exception || 'Screenshot generation failed')
+                        } else {
+                            actions.setScreenshotError(null)
+                            actions.pollScreenshotStatus(desiredWidth)
+                        }
+                    } else if (item.type === 'iframe') {
+                        actions.checkPagePreflight(item.url)
+                    }
+                } finally {
+                    actions.setLoading(false)
+                }
+            },
+            // React to viewport width changes by updating the image URL directly
+            setWindowWidthOverride: async ({ widthOverride }) => {
+                if (values.type !== 'screenshot' || !values.heatmapId) {
+                    return
+                }
+                const w = widthOverride ?? DEFAULT_HEATMAP_WIDTH
+                actions.setScreenshotError(null)
+                actions.setScreenshotUrl(
+                    getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), values.heatmapId, {
+                        width: w,
+                    })
+                )
+            },
+            setScreenshotUrl: ({ url }) => {
+                // Emit the time-to-screenshot-ready metric once, when the screenshot first becomes available.
+                if (!url || cache.screenshotReadyCaptured || cache.screenshotWaitStartedAt == null) {
+                    return
+                }
+                cache.screenshotReadyCaptured = true
+                posthog.capture('in-app heatmap screenshot ready', {
+                    heatmap_id: values.heatmapId,
+                    time_to_screenshot_ready_ms: Math.round(performance.now() - cache.screenshotWaitStartedAt),
+                    prewarm_enabled: !!values.featureFlags[FEATURE_FLAGS.HEATMAPS_SCREENSHOT_PREWARM],
+                    ready_on_arrival: !cache.screenshotPolled,
+                    initial_status: cache.screenshotInitialStatus ?? null,
+                    screen_width: values.widthOverride,
+                })
+            },
+            pollScreenshotStatus: async ({ width }, breakpoint) => {
+                let attempts = 0
+                // Polling means the render wasn't ready on arrival — i.e. no prewarm hit.
+                cache.screenshotPolled = true
+                actions.setGeneratingScreenshot(true)
+                // Multi-width renders open one Browserless session per width and can take a few minutes,
+                // so poll for up to 5 minutes before giving up (the backend marks failures sooner).
+                const pollIntervalMs = 2000
+                const maxAttempts = (5 * 60 * 1000) / pollIntervalMs
+                while (attempts < maxAttempts) {
+                    await breakpoint(pollIntervalMs)
+                    try {
+                        const screenshot = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
+                        if (screenshot.status === 'completed' && screenshot.has_content) {
+                            const w = width ?? DEFAULT_HEATMAP_WIDTH
+                            actions.setScreenshotUrl(
+                                getHeatmapScreenshotsContentRetrieveUrl(
+                                    String(values.currentTeamIdStrict),
+                                    screenshot.id,
+                                    {
+                                        width: w,
+                                    }
+                                )
+                            )
+                            actions.loadHeatmap()
+                            actions.setGeneratingScreenshot(false)
+                            break
+                        } else if (screenshot.status === 'failed') {
+                            actions.setScreenshotError(screenshot.exception || 'Screenshot generation failed')
+                            actions.setGeneratingScreenshot(false)
+                            break
+                        }
+                        attempts++
+                    } catch (e) {
+                        actions.setScreenshotError('Failed to check screenshot status')
+                        actions.setGeneratingScreenshot(false)
+                        console.error(e)
+                        break
+                    }
+                }
+
+                if (attempts >= maxAttempts) {
+                    actions.setGeneratingScreenshot(false)
+                    actions.setScreenshotError('Screenshot is still generating. Refresh to check, or try fewer widths.')
+                }
+            },
+            regenerateScreenshot: async () => {
+                if (!props.id || !values.heatmapId) {
+                    return
+                }
+                if (values.source === 'toolbar') {
+                    lemonToast.info(
+                        'This heatmap was captured from the toolbar. Open it in the toolbar to re-capture it.'
+                    )
+                    return
+                }
+                // The server rejects a render request for a heatmap it still holds as an iframe one, so
+                // the local edits must land first. This also lets Retry recover from a failed save.
+                const saved = await persistHeatmap()
+                if (!saved.ok || saved.renderTriggered) {
+                    return
+                }
+                actions.setScreenshotError(null)
+                actions.setScreenshotUrl(null)
+                actions.setScreenshotLoaded(false)
+                try {
+                    await savedRegenerateCreate(String(values.currentTeamIdStrict), String(props.id))
+                    actions.pollScreenshotStatus(values.widthOverride)
+                } catch (error: unknown) {
+                    actions.setScreenshotError(getApiErrorMessage(error, 'Failed to regenerate screenshot'))
+                }
+            },
+            createHeatmap: async ({ context }) => {
+                if (cache.creatingHeatmap) {
+                    return
+                }
+                cache.creatingHeatmap = true
+                actions.setLoading(true)
+                try {
+                    const created = await savedCreate(String(values.currentTeamIdStrict), heatmapRequestBody())
+                    posthog.capture('in-app heatmap created', { heatmap_type: values.type, ...context })
+                    actions.creationCompleted(created.short_id)
+                    actions.loadSavedHeatmaps()
+                    router.actions.push(`/heatmaps/${created.short_id}`)
+                } catch (error: unknown) {
+                    posthog.capture('in-app heatmap creation failed', {
+                        failure_category: getCreationFailureCategory(error),
+                    })
+                    lemonToast.error(getApiErrorMessage(error, 'Failed to create heatmap'))
+                } finally {
+                    cache.creatingHeatmap = false
+                    actions.setLoading(false)
+                }
+            },
+            updateHeatmap: async () => {
+                await persistHeatmap()
+            },
+            applyPageUrlDraft: () => {
+                if (!values.isPageUrlDraftValid) {
+                    return
+                }
+                const next = values.pageUrlDraft.trim()
+                if (!next) {
+                    return
+                }
+                if (next !== values.displayUrl) {
+                    actions.setDisplayUrl(next)
+                    actions.updateHeatmap()
+                    return
+                }
+                if (values.type === 'screenshot') {
+                    actions.regenerateScreenshot()
+                }
+            },
+            setScreenshotLoaded: ({ screenshotLoaded }) => {
+                if (screenshotLoaded) {
+                    posthog.capture('in-app heatmap screenshot loaded', { width: values.widthOverride })
+                }
+            },
+            setScreenshotError: ({ error }) => {
+                if (error) {
+                    posthog.capture('in-app heatmap screenshot failed', { error })
+                }
+            },
+            exportHeatmap: () => {
+                if (
+                    (values.type === 'screenshot' && !values.screenshotUrl) ||
+                    (!values.displayUrl && !values.dataUrl)
+                ) {
+                    return
+                }
+                actions.startHeatmapExport({
+                    heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
+                    heatmap_data_url: values.dataUrl ?? '',
+                    heatmap_type: values.type,
+                    width: values.widthOverride,
+                    height: values.heightOverride,
+                    heatmap_color_palette: values.heatmapColorPalette,
+                    heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                    common_filters: values.commonFilters,
+                    heatmap_filters: values.heatmapFilters,
+                    filename: `heatmap-${values.name || DEFAULT_HEATMAP_NAME}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+                })
+            },
+        }
+    }),
     selectors({
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
         displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => isUrlPattern(displayUrl ?? '')],

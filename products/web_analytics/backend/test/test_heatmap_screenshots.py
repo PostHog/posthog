@@ -429,6 +429,8 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+        # The frontend reads `detail`, so the reason must arrive in the standard error envelope.
+        self.assertIn("screenshot", r.json()["detail"])
 
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):

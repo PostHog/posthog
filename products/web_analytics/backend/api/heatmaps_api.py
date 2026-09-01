@@ -1736,7 +1736,10 @@ class SavedHeatmapViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: HeatmapScreenshotResponseSerializer, 400: OpenApiResponse(description="Not a screenshot")},
+        responses={
+            200: HeatmapScreenshotResponseSerializer,
+            400: OpenApiResponse(description="Not a server-rendered screenshot heatmap"),
+        },
         description="Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders "
         "and re-renders at every target width; status returns to 'processing'.",
     )
@@ -1744,13 +1747,10 @@ class SavedHeatmapViewSet(
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         if obj.type != SavedHeatmap.Type.SCREENSHOT:
-            return response.Response(
-                {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationError("Only screenshot heatmaps can be regenerated")
         if obj.source == SavedHeatmap.Source.TOOLBAR:
-            return response.Response(
-                {"error": "Toolbar-captured heatmaps can't be re-rendered on the server; re-capture from the toolbar"},
-                status=status.HTTP_400_BAD_REQUEST,
+            raise ValidationError(
+                "Toolbar-captured heatmaps can't be re-rendered on the server; re-capture from the toolbar"
             )
 
         self._regenerate(obj)
