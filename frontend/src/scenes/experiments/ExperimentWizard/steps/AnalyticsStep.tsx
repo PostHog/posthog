@@ -6,7 +6,9 @@ import { LemonBanner, LemonCheckbox } from '@posthog/lemon-ui'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { DEFAULT_MODEL, OBSERVATION_CREDITS_BY_MODEL } from 'products/replay_vision/frontend/replay_scanners/types'
 import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
+import { formatCredits } from 'products/replay_vision/frontend/utils/credits'
 
 import { ExposureCriteriaPanel } from '../../ExperimentForm/ExposureCriteriaPanel'
 import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
@@ -118,6 +120,15 @@ function ReplayVisionScannerCheckbox(): JSX.Element {
                         turned off, so nothing is scanned and no credits are used until you turn it on. You can adjust
                         its prompt, filters, and sampling first. A scanner keeps running after the experiment ends, so
                         turn it off when you are done.
+                    </div>
+                    {/* Per-session price only: a monthly projection needs the 30-day recording history the
+                     * estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so
+                     * any monthly figure computed here would be a misleading zero. The scanner page shows
+                     * the projection once participant sessions exist. Priced at the model
+                     * experimentScannerBody pins, so this matches the scanner the save path creates. */}
+                    <div className="font-normal text-sm text-muted mt-1">
+                        Each scanned session costs {formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL])}. The
+                        scanner shows a projected monthly cost once the experiment has participants.
                     </div>
                 </div>
             }
