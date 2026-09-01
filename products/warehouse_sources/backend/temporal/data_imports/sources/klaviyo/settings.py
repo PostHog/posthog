@@ -120,14 +120,18 @@ VALUES_REPORT_STATISTICS = [
 # The widest window Klaviyo's reporting API allows is one year.
 VALUES_REPORT_TIMEFRAME_KEY = "last_365_days"
 
+# Klaviyo caps weekly-interval series reports at exactly 52 weeks. last_365_days (365 days) exceeds
+# that by one day (52 * 7 = 364), so series reports need their own shorter timeframe key.
+SERIES_REPORT_TIMEFRAME_KEY = "last_52_weeks"
+
 # Series reports bucket the window by an interval. Klaviyo caps an hourly interval at 7 days and a
-# daily one at 60, so a weekly interval is the finest that spans the full one-year window (52 rows
-# per grouping).
+# daily one at 60, so a weekly interval gives the fullest view within the 52-week series limit
+# (52 rows per grouping).
 SERIES_REPORT_INTERVAL = "weekly"
 
 # A series row is one time bucket, so date_time is a real per-row cursor even though the request
 # always asks for the whole window. Selecting it makes the sync merge on the primary key rather than
-# replace the table, so buckets that age out of Klaviyo's 365-day window stay in the warehouse while
+# replace the table, so buckets that age out of Klaviyo's 52-week window stay in the warehouse while
 # the buckets still inside it keep getting corrected.
 SERIES_REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -521,13 +525,13 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         values_report=KlaviyoValuesReportConfig(
             report_type="flow-series-report",
             statistics=VALUES_REPORT_STATISTICS,
-            timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
+            timeframe_key=SERIES_REPORT_TIMEFRAME_KEY,
             group_by=["flow_id", "flow_message_id", "send_channel"],
             interval=SERIES_REPORT_INTERVAL,
         ),
         description=(
-            "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
-            "days, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
+            "Klaviyo's own flow-message performance statistics bucketed by week over the last 52 "
+            "weeks, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
             "returning them"
         ),
     ),
@@ -578,14 +582,14 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         values_report=KlaviyoValuesReportConfig(
             report_type="form-series-report",
             statistics=FORM_REPORT_STATISTICS,
-            timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
+            timeframe_key=SERIES_REPORT_TIMEFRAME_KEY,
             group_by=["form_id"],
             interval=SERIES_REPORT_INTERVAL,
             requires_conversion_metric=False,
         ),
         description=(
-            "Klaviyo's own signup-form performance statistics bucketed by week over the last 365 "
-            "days, one row per form per week. Weeks stay in the table after Klaviyo stops returning "
+            "Klaviyo's own signup-form performance statistics bucketed by week over the last 52 "
+            "weeks, one row per form per week. Weeks stay in the table after Klaviyo stops returning "
             "them"
         ),
     ),
@@ -599,13 +603,13 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         values_report=KlaviyoValuesReportConfig(
             report_type="segment-series-report",
             statistics=SEGMENT_REPORT_STATISTICS,
-            timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
+            timeframe_key=SERIES_REPORT_TIMEFRAME_KEY,
             group_by=[],
             interval=SERIES_REPORT_INTERVAL,
             requires_conversion_metric=False,
         ),
         description=(
-            "Klaviyo's own segment membership statistics bucketed by week over the last 365 days, "
+            "Klaviyo's own segment membership statistics bucketed by week over the last 52 weeks, "
             "one row per segment per week. Weeks stay in the table after Klaviyo stops returning "
             "them"
         ),
