@@ -11,6 +11,7 @@ from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     DENIED_PERMISSION_STOP_MESSAGE,
     REFRESH_RETRY_DELAY_SECONDS,
+    RUN_STOPPING_MESSAGE,
     SANDBOX_STOPPED_MESSAGE,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
@@ -761,6 +762,19 @@ class TestSendFollowupActivityRefreshOrdering:
         assert str(excinfo.value) == SANDBOX_STOPPED_MESSAGE
         assert excinfo.value.non_retryable
         _patches["refresh"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+
+    def test_a_stopping_run_rejects_before_rebinding_credentials(self, _patches):
+        _patches["task_run"].state = {"cancel_requested_at": "2026-01-01T00:00:00+00:00"}
+
+        with pytest.raises(ApplicationError) as excinfo:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert str(excinfo.value) == RUN_STOPPING_MESSAGE
+        assert excinfo.value.non_retryable
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
         _patches["user_msg"].assert_not_called()
 
     def test_stopped_sandbox_says_so_once_instead_of_retrying(self, _patches):

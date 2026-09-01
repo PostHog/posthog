@@ -83,6 +83,7 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 SANDBOX_STOPPED_MESSAGE = (
     "This run's sandbox has stopped, so your message wasn't delivered. Start a new run to continue."
 )
+RUN_STOPPING_MESSAGE = "This run is stopping, so your message wasn't delivered. Start a new run to continue."
 PEER_SANDBOX_STOPPED_MESSAGE = "The recipient run's sandbox has stopped"
 DENIED_PERMISSION_STOP_MESSAGE = (
     "Stopped after the denied action. Send a new message to continue with a different approach."
@@ -308,6 +309,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     if peer_message_id is not None:
         return _deliver_peer_message(input, task_run, peer_message_id)
+
+    if (task_run.state or {}).get("cancel_requested_at"):
+        raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
 
     # Resolve credentials against this message's sender, not the run-state
     # actor a concurrent follow-up may have overwritten since queueing. Local
