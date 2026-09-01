@@ -31,6 +31,13 @@ SUGGESTION_CANDIDATE_LIMIT = 20
 # The `name` column of both definition models is `CharField(max_length=400)`.
 MAX_SUGGESTION_INPUT_LENGTH = 400
 
+# How many unknown names in one query get a suggestion. Each suggestion costs two more queries, the
+# `$`-prefixed existence check and the trigram lookup, and the trigram lookup is the expensive one on
+# a large project. A caller controls how many unknown names one query carries, so the fan-out needs a
+# bound that does not grow with the input. A real typo appears once or twice, so the names past this
+# cap still warn, only without "Did you mean".
+MAX_SUGGESTION_LOOKUPS = 5
+
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
 # never appear in PropertyDefinition and must not be flagged as unknown.
 DYNAMIC_PROPERTY_PREFIXES = (
@@ -224,9 +231,9 @@ def _warnings_for_unknown_references(
         return []
 
     warnings: list[HogQLNotice] = []
-    for name in unknown_names:
+    for position, name in enumerate(unknown_names):
         reference = references_by_name[name]
-        suggestion = _suggest_name(taxonomy, name)
+        suggestion = _suggest_name(taxonomy, name) if position < MAX_SUGGESTION_LOOKUPS else None
         message = f"{kind} '{name}' was not found in this project taxonomy."
         if suggestion:
             message += f" Did you mean '{suggestion}'?"
