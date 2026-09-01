@@ -9,7 +9,8 @@ struct Slot {
     charge: Charge,
 }
 
-/// A consumed contiguous prefix and the charge it covers.
+/// A consumed contiguous prefix: its commit-ready frontier and the charge it
+/// covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TakenFrontier {
     pub offset: Offset,
@@ -17,9 +18,9 @@ pub struct TakenFrontier {
 }
 
 /// Per-partition offset accounting: record offsets as they are delivered,
-/// complete them in any order, and read the highest offset that is safe to
-/// commit. Observing the frontier never changes it; a commit point consumes
-/// it with `take_frontier`.
+/// complete them in any order, and read the frontier in Kafka's
+/// committed-offset representation. Observing the frontier never changes it;
+/// a commit point consumes it with `take_frontier`.
 ///
 /// Charge every record the poll delivers, including records the caller drops
 /// without processing: an omitted offset is indistinguishable from an offset
@@ -116,17 +117,17 @@ impl OffsetLedger {
         }
     }
 
-    /// Highest offset with nothing incomplete at or below it, or `None`
-    /// before the first completion. Committing one past it is always safe,
-    /// even when a trailing gap makes this a gap offset.
+    /// The next offset to read: one past the highest contiguous completed
+    /// offset, in Kafka's committed-offset representation, so a commit uses
+    /// it verbatim. `None` before the first completion.
     pub fn frontier(&self) -> Option<Offset> {
         let base_offset = self.base_offset?;
-        (self.prefix > 0).then(|| base_offset + (self.prefix - 1))
+        (self.prefix > 0).then(|| base_offset + self.prefix)
     }
 
-    /// Take the frontier and the charge of everything at or below it,
-    /// forgetting that span. Kept separate from `complete` so that reading
-    /// the frontier has no side effects and only commit points consume it.
+    /// Take the frontier and the charge of everything below it, forgetting
+    /// that span. Kept separate from `complete` so that reading the frontier
+    /// has no side effects and only commit points consume it.
     pub fn take_frontier(&mut self) -> Option<TakenFrontier> {
         let frontier_offset = self.frontier()?;
         let charge = self
@@ -134,7 +135,7 @@ impl OffsetLedger {
             .drain(..self.prefix)
             .map(|slot| slot.charge)
             .sum();
-        self.base_offset = Some(frontier_offset + 1);
+        self.base_offset = Some(frontier_offset);
         self.prefix = 0;
         Some(TakenFrontier {
             offset: frontier_offset,
@@ -173,7 +174,7 @@ mod tests {
         assert_eq!(ledger.frontier(), None);
         assert_eq!(ledger.take_frontier(), None);
         ledger.complete(&[Offset(0), Offset(1)]);
-        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.frontier(), Some(Offset(3)));
     }
 
     #[test]
@@ -182,11 +183,11 @@ mod tests {
         ledger.charge([charge(0), charge(1), charge(2)]);
         ledger.complete(&[Offset(0)]);
         let taken = ledger.take_frontier().unwrap();
-        assert_eq!(taken.offset, Offset(0));
+        assert_eq!(taken.offset, Offset(1));
         assert_eq!(taken.charge.events, 1);
         assert_eq!(ledger.len(), 2);
         ledger.complete(&[Offset(1), Offset(2)]);
-        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.frontier(), Some(Offset(3)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
     }
 
@@ -230,8 +231,8 @@ mod tests {
         let mut ledger = OffsetLedger::new();
         ledger.charge([charge(0), charge(1)]);
         ledger.complete(&[Offset(0), Offset(1)]);
-        assert_eq!(ledger.frontier(), Some(Offset(1)));
-        assert_eq!(ledger.frontier(), Some(Offset(1)));
+        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.frontier(), Some(Offset(2)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 2);
         assert_eq!(ledger.len(), 0);
     }
@@ -241,7 +242,7 @@ mod tests {
         let mut ledger = OffsetLedger::new();
         ledger.charge([charge(0), charge(3)]);
         ledger.complete(&[Offset(0), Offset(3)]);
-        assert_eq!(ledger.frontier(), Some(Offset(3)));
+        assert_eq!(ledger.frontier(), Some(Offset(4)));
     }
 
     #[test]
@@ -249,10 +250,10 @@ mod tests {
         let mut ledger = OffsetLedger::new();
         ledger.charge([charge(0), charge(3)]);
         ledger.complete(&[Offset(0)]);
-        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.frontier(), Some(Offset(3)));
         ledger.complete(&[Offset(3)]);
         let taken = ledger.take_frontier().unwrap();
-        assert_eq!(taken.offset, Offset(3));
+        assert_eq!(taken.offset, Offset(4));
         assert_eq!(taken.charge.events, 2);
     }
 
@@ -264,7 +265,7 @@ mod tests {
         ledger.take_frontier().unwrap();
         ledger.charge([charge(2)]);
         ledger.complete(&[Offset(2)]);
-        assert_eq!(ledger.frontier(), Some(Offset(2)));
+        assert_eq!(ledger.frontier(), Some(Offset(3)));
         assert_eq!(ledger.take_frontier().unwrap().charge.events, 1);
     }
 }
