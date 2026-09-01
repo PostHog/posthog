@@ -252,7 +252,7 @@ def create_organization_with_team(
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
     created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
-    _create_events_and_persons(data, team)
+    _create_events_and_persons(data.events, data.persons, team)
     created_experiments = _create_experiments(data, team, user)
 
     return PlaywrightWorkspaceSetupResult(
@@ -437,8 +437,10 @@ def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_se
     )
 
 
-def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -> None:
-    if not data.events and not data.persons:
+def _create_events_and_persons(
+    events: list[PlaywrightSetupEvent] | None, persons: list[PlaywrightSetupPerson] | None, team: Team
+) -> None:
+    if not events and not persons:
         return
 
     import uuid as uuid_module
@@ -454,8 +456,8 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     person_uuids: dict[str, str] = {}
 
     # Create explicit persons (may have multiple distinct IDs)
-    if data.persons:
-        for person_spec in data.persons:
+    if persons:
+        for person_spec in persons:
             person_uuid = str(UUIDT())
             props = person_spec.properties or {}
             create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
@@ -465,17 +467,17 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
                 add_distinct_id(person=pg_person, distinct_id=distinct_id)
                 person_uuids[distinct_id] = person_uuid
 
-    if not data.events:
+    if not events:
         return
 
     # Collect person properties from $set in event properties (last write wins)
     person_props: dict[str, dict[str, Any]] = {}
-    for event_spec in data.events:
+    for event_spec in events:
         if event_spec.properties and "$set" in event_spec.properties:
             person_props.setdefault(event_spec.distinct_id, {}).update(event_spec.properties["$set"])
 
     # Create persons for distinct_ids not already created via explicit persons
-    distinct_ids = {e.distinct_id for e in data.events}
+    distinct_ids = {e.distinct_id for e in events}
     for distinct_id in distinct_ids:
         if distinct_id in person_uuids:
             continue
@@ -489,7 +491,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
-    for event_spec in data.events:
+    for event_spec in events:
         ts = datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00"))
         create_event(
             event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
@@ -501,13 +503,71 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
             person_id=uuid_module.UUID(person_uuids[event_spec.distinct_id]),
         )
 
-    _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
+    _wait_for_events_in_clickhouse(team.pk, baseline_count + len(events))
 
     # Populate event/property definitions so the taxonomic filter works
     from products.demo.backend.facade.api import infer_taxonomy_for_team
 
     with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         infer_taxonomy_for_team(team.pk)
+
+
+class PlaywrightSeedEventsData(BaseModel):
+    team_id: int
+    events: list[PlaywrightSetupEvent]
+    persons: list[PlaywrightSetupPerson] | None = None
+
+
+class PlaywrightSeedEventsResult(BaseModel):
+    team_id: int
+    events_created: int
+
+
+def seed_events(data: PlaywrightSeedEventsData) -> PlaywrightSeedEventsResult:
+    """Seed events (and optional persons) directly into ClickHouse for a team created earlier in
+    the same test. Use this when an event must reference an id minted after workspace setup (e.g.
+    an evaluation created through the API), so it can't be seeded via `events` on
+    `organization_with_team`, which only runs at workspace-creation time."""
+    team = Team.objects.get(id=data.team_id)
+    _create_events_and_persons(data.events, data.persons, team)
+    return PlaywrightSeedEventsResult(team_id=data.team_id, events_created=len(data.events))
+
+
+class PlaywrightSeedEvaluationData(BaseModel):
+    team_id: int
+    name: str
+    evaluation_type: str
+    evaluation_config: dict[str, Any]
+    output_type: str
+    output_config: dict[str, Any]
+    enabled: bool = False
+
+
+class PlaywrightSeedEvaluationResult(BaseModel):
+    evaluation_id: str
+
+
+def seed_evaluation(data: PlaywrightSeedEvaluationData) -> PlaywrightSeedEvaluationResult:
+    """Create an Evaluation with `output_config` stored exactly as given, bypassing the config
+    normalization every `save()` call applies. Use this to reproduce a config shaped like it
+    predates a field (e.g. missing `true_is_failure` entirely) — no through-the-app path can
+    produce that shape, since both the API and the model's own `save()` fill in every default."""
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    evaluation = Evaluation.objects.create(
+        team_id=data.team_id,
+        name=data.name,
+        evaluation_type=data.evaluation_type,
+        evaluation_config=data.evaluation_config,
+        output_type=data.output_type,
+        output_config=data.output_config,
+        enabled=data.enabled,
+    )
+    # save() just normalized output_config above — overwrite via a queryset update, which bypasses
+    # save(), so the row ends up with exactly the caller's shape.
+    Evaluation.objects.filter(pk=evaluation.pk).update(output_config=data.output_config)
+
+    return PlaywrightSeedEvaluationResult(evaluation_id=str(evaluation.pk))
 
 
 class PlaywrightHogFunctionTemplateData(BaseModel):
@@ -622,6 +682,16 @@ PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
         function=create_hog_function_template,  # type: ignore
         input_model=PlaywrightHogFunctionTemplateData,
         description="Seeds a single HogFunctionTemplate row (templates are global, not team-scoped)",
+    ),
+    "seed_events": SetupFunctionConfig(
+        function=seed_events,  # type: ignore
+        input_model=PlaywrightSeedEventsData,
+        description="Seeds events (and optional persons) into ClickHouse for an existing team",
+    ),
+    "seed_evaluation": SetupFunctionConfig(
+        function=seed_evaluation,  # type: ignore
+        input_model=PlaywrightSeedEvaluationData,
+        description="Seeds an Evaluation row with output_config stored exactly as given, bypassing save() normalization",
     ),
     "oauth_application": SetupFunctionConfig(
         function=create_oauth_application,  # type: ignore

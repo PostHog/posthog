@@ -746,6 +746,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <LemonSwitch
                                                             checked={evaluation.output_config.true_is_failure ?? false}
                                                             onChange={setTrueIsFailure}
+                                                            data-attr="llma-evaluation-true-is-failure-switch"
                                                         />
                                                         <span className="text-muted text-sm">
                                                             {evaluation.output_config.true_is_failure
