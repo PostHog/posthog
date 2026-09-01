@@ -10,6 +10,7 @@ from rest_framework import status
 from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
 
 
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
@@ -358,12 +359,15 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
         ]
     )
     def test_query_error_returns_400_with_message(self, endpoint, runner_path, params):
-        # A failed ClickHouse/HogQL query must reach the service filter as a clean 400, not an opaque 500.
-        with patch(runner_path, side_effect=QueryError("bad log query")):
-            response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+        # HogQL and ClickHouse failures are disjoint exception hierarchies; both must reach the
+        # service filter as a clean 400, not an opaque 500.
+        for error in (QueryError("bad log query"), ExposedCHQueryError("bad clickhouse query", code=43)):
+            with self.subTest(error=type(error).__name__):
+                with patch(runner_path, side_effect=error):
+                    response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "bad log query")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json()["error"], str(error))
 
 
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
