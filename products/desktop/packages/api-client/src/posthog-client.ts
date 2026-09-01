@@ -5130,14 +5130,27 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/state/`;
 
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      if (input.state === "suppressed" && requestErrorStatus(error) === 409) {
+        const currentReport = await this.getSignalReport(reportId).catch(
+          () => null,
+        );
+        if (currentReport?.status === "suppressed") {
+          return currentReport;
+        }
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

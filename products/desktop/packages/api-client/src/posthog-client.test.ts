@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
-import { ApiRequestError } from "./fetcher";
+import { ApiRequestError, type FetchImplementation } from "./fetcher";
 import {
   CloudCommandError,
   CloudUsageLimitError,
@@ -1897,6 +1897,62 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(client.getSignalReport("abc")).rejects.toThrow("[500]");
+    });
+  });
+
+  describe("updateSignalReportState", () => {
+    function makeClient(fetch: FetchImplementation): PostHogAPIClient {
+      return new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+    }
+
+    it("accepts a suppression conflict when a fresh read is already suppressed", async () => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: "abc", status: "suppressed" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateSignalReportState("abc", { state: "suppressed" }),
+      ).resolves.toMatchObject({ id: "abc", status: "suppressed" });
+    });
+
+    it("preserves a suppression conflict when the report is still active", async () => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: "abc", status: "ready" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateSignalReportState("abc", { state: "suppressed" }),
+      ).rejects.toThrow("[409]");
     });
   });
 
