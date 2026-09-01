@@ -381,7 +381,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             dismissKey={`oversized-mutations-${sessionRecordingId}`}
                                         >
                                             Parts of this recording captured too much changing content to render.
-                                            Playback skips those sections instead of freezing this tab.{' '}
+                                            Playback skips those sections to keep the player responsive.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

@@ -68,13 +68,11 @@ export const OVERSIZED_MUTATION_WINDOW_ADDED_NODES = 15000
 
 export interface OversizedMutationRange {
     start: number
-    // Exclusive: the timestamp of the full snapshot that recovers the DOM, or Infinity when none follows
+    // Exclusive; Infinity when no full snapshot follows the burst
     end: number
 }
 
-// Finds the stretches of one window's events that the replayer cannot survive applying: from the
-// first mutation of an oversized burst up to the next full snapshot, which rebuilds the DOM from
-// scratch and so makes the dropped mutations unnecessary.
+// A full snapshot rebuilds the DOM from scratch, so a burst and everything up to the next full snapshot can be dropped safely
 export function findOversizedMutationRanges(events: eventWithTime[]): OversizedMutationRange[] {
     const ranges: OversizedMutationRange[] = []
     const windowMutations: { timestamp: number; adds: number }[] = []
@@ -109,7 +107,6 @@ export function findOversizedMutationRanges(events: eventWithTime[]): OversizedM
         if (end === Infinity) {
             break
         }
-        // Resume scanning at the recovering full snapshot; everything before it is inside the range
         while (i + 1 < events.length && events[i + 1].timestamp < end) {
             i++
         }
@@ -789,8 +786,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
-        // What the replayer ingests: snapshotsByWindowId minus the incremental events inside
-        // oversized ranges. Everything else (export, segments, the inspector) keeps the raw data.
+        // Replayer input only; export, segments, and the inspector keep the raw events
         playableSnapshotsByWindowId: [
             (s) => [s.snapshotsByWindowId, s.oversizedMutationRanges],
             (
