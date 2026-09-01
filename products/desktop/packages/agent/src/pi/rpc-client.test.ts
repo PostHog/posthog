@@ -176,6 +176,46 @@ process.stdin.resume();
     }
   });
 
+  it("passes selected sandbox variables to the Pi child", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-user-environment-"));
+    const hostPath = join(directory, "host.mjs");
+    const capturePath = join(directory, "capture.txt");
+    const previousValue = process.env.PACKAGE_REGISTRY_TOKEN;
+    process.env.PACKAGE_REGISTRY_TOKEN = "example-user-value";
+    await writeFile(
+      hostPath,
+      `
+import { writeFileSync } from "node:fs";
+
+writeFileSync(${JSON.stringify(capturePath)}, process.env.PACKAGE_REGISTRY_TOKEN ?? "");
+process.stdin.resume();
+`,
+    );
+    const client = createPiRpcClient({
+      cliPath: hostPath,
+      taskContext: taskContext(directory),
+      providerOptions: { apiKey: "proxy-key" },
+      environmentVariableNames: ["PACKAGE_REGISTRY_TOKEN"],
+    });
+
+    try {
+      await client.start();
+      await vi.waitFor(async () => {
+        await expect(readFile(capturePath, "utf8")).resolves.toBe(
+          "example-user-value",
+        );
+      });
+    } finally {
+      await client.stop();
+      if (previousValue === undefined) {
+        delete process.env.PACKAGE_REGISTRY_TOKEN;
+      } else {
+        process.env.PACKAGE_REGISTRY_TOKEN = previousValue;
+      }
+      await rm(directory, { recursive: true });
+    }
+  });
+
   it("intercepts extension UI requests and writes responses on the Pi wire", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-extension-ui-"));
     const hostPath = join(directory, "host.mjs");

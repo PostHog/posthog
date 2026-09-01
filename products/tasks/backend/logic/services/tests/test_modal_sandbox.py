@@ -628,6 +628,27 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
         assert "POSTHOG_RTK=1" in command
 
+    @pytest.mark.parametrize(("agent_runtime", "expected"), [("pi", True), ("acp", False)])
+    def test_start_agent_server_passes_only_sandbox_environment_variable_names(
+        self, mock_sandbox: Any, agent_runtime: str, expected: bool
+    ):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            agent_runtime=agent_runtime,
+            sandbox_environment_variable_names=["PACKAGE_REGISTRY_TOKEN"],
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        encoded_names = shlex.quote(json.dumps(["PACKAGE_REGISTRY_TOKEN"], separators=(",", ":")))
+        assert (f"POSTHOG_SANDBOX_ENVIRONMENT_VARIABLE_NAMES={encoded_names}" in command) is expected
+        assert "example-user-value" not in command
+
     @pytest.mark.parametrize(
         "fast_mode, expected_env",
         [

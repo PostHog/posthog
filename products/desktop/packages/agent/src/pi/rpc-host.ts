@@ -41,7 +41,7 @@ const providerOptions = bootstrap.providerOptions;
 if (!providerOptions?.apiKey) {
   throw new Error("Pi RPC host requires PostHog provider credentials");
 }
-sanitizePiHostEnvironment();
+sanitizePiHostEnvironment(bootstrap.environmentVariableNames);
 
 const cwd = process.cwd();
 const sessionFile = argumentValue("--session-file");

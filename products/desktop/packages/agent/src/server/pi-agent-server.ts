@@ -618,6 +618,7 @@ export class PiAgentServer {
       },
       extensions,
       contextWikiPath: resolveContextWikiPath(),
+      environmentVariableNames: this.config.sandboxEnvironmentVariableNames,
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>

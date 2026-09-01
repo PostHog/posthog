@@ -56,6 +56,7 @@ export interface AgentServerConfig {
   claudeCode?: ClaudeCodeConfig;
   allowedDomains?: string[];
   piRpcHostPath?: string;
+  sandboxEnvironmentVariableNames?: string[];
   runtimeAdapter?: Adapter;
   model?: string;
   reasoningEffort?: EffortLevel | "off" | "minimal";

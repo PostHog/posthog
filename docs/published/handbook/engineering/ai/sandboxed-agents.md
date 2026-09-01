@@ -448,6 +448,8 @@ on gVisor and use agentsh; they cannot route to a VM without the provider policy
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.
+Runtime variables from the selected environment are inherited by agent tool processes. Their values
+remain in the sandbox environment and are not copied into task state or agent-server arguments.
 
 ### Custom base images
 

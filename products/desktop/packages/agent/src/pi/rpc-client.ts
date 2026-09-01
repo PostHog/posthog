@@ -63,6 +63,7 @@ export interface PiRpcBootstrap {
   extensions?: PiRuntimeExtension[];
   /** Local checkout of the org's context wiki, when one is mounted. */
   contextWikiPath?: string;
+  environmentVariableNames?: string[];
 }
 
 type RpcClientProcessAccess = {
@@ -238,7 +239,10 @@ class SecurePiRpcClient extends RpcClient {
       {
         cwd: this.secureOptions.cwd,
         env: {
-          ...safePiEnvironment(process.env),
+          ...safePiEnvironment(
+            process.env,
+            this.bootstrap.environmentVariableNames,
+          ),
           ELECTRON_RUN_AS_NODE: "1",
         },
         stdio: ["pipe", "pipe", "pipe", "pipe", "ipc"],
@@ -446,6 +450,7 @@ export type PiRpcClientOptions = Pick<RpcClientOptions, "cliPath" | "model"> & {
   taskContext: TaskContext;
   extensions?: PiRuntimeExtension[];
   contextWikiPath?: string;
+  environmentVariableNames?: string[];
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
@@ -458,6 +463,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     taskContext,
     extensions,
     contextWikiPath,
+    environmentVariableNames,
     ...rpcOptions
   } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
@@ -480,6 +486,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       taskContext,
       extensions,
       contextWikiPath,
+      environmentVariableNames,
     } satisfies PiRpcBootstrap,
   );
 }

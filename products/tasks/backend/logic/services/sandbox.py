@@ -272,6 +272,7 @@ def build_agent_runtime_env_prefix(
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    sandbox_environment_variable_names: list[str] | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -297,6 +298,11 @@ def build_agent_runtime_env_prefix(
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
         "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
+        "POSTHOG_SANDBOX_ENVIRONMENT_VARIABLE_NAMES": (
+            json.dumps(sorted(set(sandbox_environment_variable_names)), separators=(",", ":"))
+            if agent_runtime == "pi" and sandbox_environment_variable_names
+            else None
+        ),
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -550,6 +556,7 @@ class SandboxBase(ABC):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        sandbox_environment_variable_names: list[str] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

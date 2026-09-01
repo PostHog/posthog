@@ -12,6 +12,7 @@ import {
   mcpServersSchema,
   posthogExecPermissionRegexSchema,
   relayMcpServerNamesSchema,
+  sandboxEnvironmentVariableNamesSchema,
 } from "./schemas";
 import type { AgentServerConfig } from "./types";
 
@@ -207,6 +208,11 @@ program
       relayMcpServerNamesSchema,
       "--relayMcpServers",
     );
+    const sandboxEnvironmentVariableNames = parseJsonOption(
+      process.env.POSTHOG_SANDBOX_ENVIRONMENT_VARIABLE_NAMES,
+      sandboxEnvironmentVariableNamesSchema,
+      "POSTHOG_SANDBOX_ENVIRONMENT_VARIABLE_NAMES",
+    );
     const posthogExecPermissionRegex = parseStringOption(
       options.posthogExecPermissionRegex,
       posthogExecPermissionRegexSchema,
@@ -274,6 +280,7 @@ program
       piRpcHostPath: fileURLToPath(
         new URL("../pi/rpc-host.js", import.meta.url),
       ),
+      sandboxEnvironmentVariableNames,
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,

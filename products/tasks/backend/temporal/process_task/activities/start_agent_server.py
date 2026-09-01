@@ -20,6 +20,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import (
@@ -346,6 +347,7 @@ class _LaunchParams:
     task_run_session_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
+    sandbox_environment_variable_names: list[str] = field(default_factory=list)
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -377,6 +379,14 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     User-initiated Code runs get shared + the creator's personal installs.
     """
     return not task.internal
+
+
+def _sandbox_environment_variable_names(ctx: TaskProcessingContext) -> list[str]:
+    sandbox_environment = ctx.get_sandbox_environment()
+    if sandbox_environment is None or not sandbox_environment.environment_variables:
+        return []
+    safe_vars, _ = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+    return sorted(safe_vars)
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
@@ -508,6 +518,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_run_session_token=task_run_session_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
+        sandbox_environment_variable_names=_sandbox_environment_variable_names(ctx),
     )
 
 
@@ -548,6 +559,7 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
+            sandbox_environment_variable_names=params.sandbox_environment_variable_names,
         )
 
     except Exception as e:

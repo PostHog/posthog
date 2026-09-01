@@ -12056,6 +12056,8 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             ("GITHUB_TOKEN",),
             ("POSTHOG_PERSONAL_API_KEY",),
             ("JWT_PUBLIC_KEY",),
+            ("POSTHOG_SANDBOX_ENVIRONMENT_VARIABLE_NAMES",),
+            ("IS_SANDBOX",),
         ]
     )
     def test_reserved_env_var_key_rejected(self, key):

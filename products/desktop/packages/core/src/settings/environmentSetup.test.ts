@@ -238,6 +238,8 @@ describe("environmentSetup", () => {
     "GITHUB_TOKEN",
     "GH_TOKEN",
     "POSTHOG_PERSONAL_API_KEY",
+    "POSTHOG_SANDBOX_ENVIRONMENT_VARIABLE_NAMES",
+    "IS_SANDBOX",
     "POSTHOG_IMAGE_TOOLS",
   ])("rejects the reserved key %s before submit", (key) => {
     const rows = [{ id: "a", key, value: "x" }];

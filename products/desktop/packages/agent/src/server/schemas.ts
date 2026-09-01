@@ -18,6 +18,10 @@ const remoteMcpServerSchema: z.ZodType<McpServerConnection> = z.object({
 
 export const mcpServersSchema = z.array(remoteMcpServerSchema);
 
+export const sandboxEnvironmentVariableNamesSchema = z.array(
+  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+);
+
 export const claudeCodeConfigSchema = z.object({
   systemPrompt: z
     .union([

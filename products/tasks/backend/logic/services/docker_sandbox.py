@@ -885,6 +885,7 @@ class DockerSandbox(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        sandbox_environment_variable_names: list[str] | None = None,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -909,6 +910,7 @@ class DockerSandbox(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            sandbox_environment_variable_names=sandbox_environment_variable_names,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -1004,6 +1006,7 @@ class DockerSandbox(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        sandbox_environment_variable_names: list[str] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1083,6 +1086,7 @@ class DockerSandbox(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            sandbox_environment_variable_names=sandbox_environment_variable_names,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
@@ -1140,6 +1144,7 @@ class DockerSandbox(SandboxBase):
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
+                sandbox_environment_variable_names=sandbox_environment_variable_names,
                 posthog_exec_permission_regex=exec_permission_regex,
             )
             if self._launch_and_check(command):

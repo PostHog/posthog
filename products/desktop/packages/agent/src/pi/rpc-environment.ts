@@ -29,9 +29,15 @@ const SAFE_ENVIRONMENT_KEYS = [
 
 export function safePiEnvironment(
   source: NodeJS.ProcessEnv,
+  additionalKeys: readonly string[] = [],
 ): Record<string, string> {
   const environment: Record<string, string> = {};
-  for (const key of SAFE_ENVIRONMENT_KEYS) {
+  const keys = new Set([...SAFE_ENVIRONMENT_KEYS, ...additionalKeys]);
+  if (source.IS_SANDBOX === "1") {
+    keys.add("IS_SANDBOX");
+    keys.add("BASH_ENV");
+  }
+  for (const key of keys) {
     const value = source[key];
     if (value !== undefined) {
       environment[key] = value;
@@ -40,8 +46,10 @@ export function safePiEnvironment(
   return environment;
 }
 
-export function sanitizePiHostEnvironment(): void {
-  const environment = safePiEnvironment(process.env);
+export function sanitizePiHostEnvironment(
+  additionalKeys: readonly string[] = [],
+): void {
+  const environment = safePiEnvironment(process.env, additionalKeys);
   for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }

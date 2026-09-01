@@ -12,6 +12,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _invoke_start_agent_server,
     _is_agent_shadow_enabled,
     _launch_agent_shadow,
     _LaunchParams,
@@ -20,6 +21,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
+    _sandbox_environment_variable_names,
     await_agent_server_ready,
     collect_agent_shadow_result,
     start_agent_server,
@@ -313,6 +315,41 @@ def _mock_github_integration(mocker, pr_base: str | None):
 def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
     task = mocker.Mock(internal=internal)
     assert _include_personal_mcp_for_task(task) is expected
+
+
+def test_sandbox_environment_variable_names_filters_internal_and_unsafe_keys(mocker) -> None:
+    context = mocker.Mock()
+    context.get_sandbox_environment.return_value = mocker.Mock(
+        environment_variables={
+            "PACKAGE_REGISTRY_TOKEN": "example-user-value",
+            "POSTHOG_API_URL": "https://example.com",
+            "LD_PRELOAD": "/tmp/example.so",
+        }
+    )
+
+    assert _sandbox_environment_variable_names(context) == ["PACKAGE_REGISTRY_TOKEN"]
+
+
+def test_invoke_start_agent_server_forwards_sandbox_environment_variable_names(mocker) -> None:
+    sandbox = mocker.Mock()
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=None,
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        event_ingest_url=None,
+        event_ingest_keep_stream_open=False,
+        sandbox_environment_variable_names=["PACKAGE_REGISTRY_TOKEN"],
+    )
+
+    _invoke_start_agent_server(sandbox, _context(), params, repo_ready_file=None)
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_environment_variable_names"] == [
+        "PACKAGE_REGISTRY_TOKEN"
+    ]
 
 
 def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> None:

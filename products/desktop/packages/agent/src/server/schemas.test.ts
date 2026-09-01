@@ -3,6 +3,7 @@ import {
   mcpServersSchema,
   posthogExecPermissionRegexSchema,
   relayMcpServerNamesSchema,
+  sandboxEnvironmentVariableNamesSchema,
   validateCommandParams,
 } from "./schemas";
 
@@ -368,5 +369,27 @@ describe("relayMcpServerNamesSchema", () => {
   it("rejects more than 20 names", () => {
     const names = Array.from({ length: 21 }, (_, i) => `s${i}`);
     expect(relayMcpServerNamesSchema.safeParse(names).success).toBe(false);
+  });
+});
+
+describe("sandboxEnvironmentVariableNamesSchema", () => {
+  it("accepts shell environment variable names", () => {
+    expect(
+      sandboxEnvironmentVariableNamesSchema.safeParse([
+        "PACKAGE_REGISTRY_TOKEN",
+        "SERVICE_URL_2",
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects values and invalid names", () => {
+    expect(
+      sandboxEnvironmentVariableNamesSchema.safeParse([
+        "PACKAGE_REGISTRY_TOKEN=example-user-value",
+      ]).success,
+    ).toBe(false);
+    expect(
+      sandboxEnvironmentVariableNamesSchema.safeParse(["INVALID-NAME"]).success,
+    ).toBe(false);
   });
 });
