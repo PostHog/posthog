@@ -38,10 +38,14 @@ function stripModelOptions(
   if (option.type !== "select") return option;
 
   if (isSelectGroup(option.options)) {
-    const options = option.options.map((group) => ({
-      ...group,
-      options: group.options.filter((model) => !isStripped(model.value)),
-    }));
+    // A group emptied by the filter must go with its models, or the picker
+    // renders a heading with no rows under it.
+    const options = option.options
+      .map((group) => ({
+        ...group,
+        options: group.options.filter((model) => !isStripped(model.value)),
+      }))
+      .filter((group) => group.options.length > 0);
     return {
       ...option,
       options,

@@ -2,7 +2,7 @@ import pytest
 
 from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
 
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.utils.breakdowns import (
     has_breakdown_filter,
     has_multi_breakdown,
     has_single_breakdown,
