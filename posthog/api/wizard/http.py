@@ -36,6 +36,7 @@ from posthog.llm.wizard_gateway_token import (
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_limit_override,
     wizard_product_node,
 )
 from posthog.models import Team, User
@@ -491,15 +492,23 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # program keeps running on legacy instead of dying. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
             raise exceptions.NotFound("Unrecognized wizard program.")
+        override = wizard_limit_override(
+            distinct_id=distinct_id,
+            email=user.email,
+            organization_id=str(team.organization_id),
+            team_id=team.id,
+        )
         try:
-            reserved = reserve_wizard_mint(request, self)
+            reserved = reserve_wizard_mint(request, self, limit=override.mints_per_day)
         except exceptions.Throttled:
             # The reservation raises after check_throttles ran, so the throttled()
             # hook never sees it.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
             raise
         try:
-            minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
+            minted = mint_wizard_gateway_token(
+                obo=str(team.organization_id), user=distinct_id, product=product, cap_usd=override.cap_usd
+            )
         except WizardGatewayMintError as e:
             # An ambiguous failure keeps the slot rather than risk the ceiling.
             if not e.token_may_exist:
