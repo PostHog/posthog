@@ -864,7 +864,7 @@ class LLMSkillViewSet(
                 "bundle_bytes": len(bundle.zip_bytes),
                 "skills_included": len(bundle.included),
                 "skills_dropped": bundle.dropped_count,
-                "skills_skipped": len(bundle.skipped),
+                "skills_skipped": bundle.skipped_count,
             },
             team=self.team,
             request=request,
