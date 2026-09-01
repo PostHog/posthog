@@ -461,25 +461,33 @@ export const collectModelRows = async (models: ListedModel[], readEndpoints: End
     return finalizeTotals(totals)
 }
 
-/** Endpoint reader against the live API. Every failure degrades to no endpoints. */
+/** Endpoint reader against the live API. */
 export const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
     const encoded = modelId
         .split('/')
         .map((segment: string) => encodeURIComponent(segment))
         .join('/')
 
+    let res: Response
     try {
         // eslint-disable-next-line no-restricted-globals
-        const res = await fetch(`https://openrouter.ai/api/v1/models/${encoded}/endpoints`, {})
-        if (!res.ok) {
-            console.warn(`Failed to fetch endpoint pricing for ${modelId}: ${res.status} ${res.statusText}`)
-            return []
-        }
+        res = await fetch(`https://openrouter.ai/api/v1/models/${encoded}/endpoints`, {})
+    } catch (error) {
+        console.warn('Error fetching endpoint pricing for model:', modelId, error)
+        throw error
+    }
+
+    if (!res.ok) {
+        console.warn(`Failed to fetch endpoint pricing for ${modelId}: ${res.status} ${res.statusText}`)
+        throw new Error(`Failed to fetch endpoint pricing for ${modelId}: ${res.status} ${res.statusText}`)
+    }
+
+    try {
         const payload = await res.json()
         return payload?.data?.endpoints ?? []
     } catch (error) {
-        console.warn('Error fetching endpoint pricing for model:', modelId, error)
-        return []
+        console.warn('Error parsing endpoint pricing for model:', modelId, error)
+        throw error
     }
 }
 

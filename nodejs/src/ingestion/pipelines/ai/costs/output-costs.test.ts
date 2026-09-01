@@ -1,4 +1,5 @@
 import { calculateOutputCost } from './output-costs'
+import { resolveModelCostForProvider } from './provider-matching'
 import { openRouterCostsByModel } from './providers'
 import { ResolvedModelCost } from './providers/types'
 import { createAIEvent } from './test-helpers'
@@ -462,11 +463,11 @@ describe('calculateOutputCost()', () => {
                 $ai_output_tokens: 1000,
                 $ai_image_output_tokens: 1000,
             })
-            const resolved: ResolvedModelCost = { model: row.model, provider: 'default', cost: row.cost.default }
+            const resolved = resolveModelCostForProvider(row.cost, event.properties.$ai_provider, row.model)!
 
             const result = calculateOutputCost(event, resolved)
 
-            expect(parseFloat(result)).toBeGreaterThan(row.cost.default.completion_token * 1000 * 5)
+            expectCost(result, 0.12)
         })
     })
 

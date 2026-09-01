@@ -941,18 +941,24 @@ describe('readEndpointsFromOpenRouter()', () => {
         await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([1, 2])
     })
 
-    it('degrades to no endpoints on a non-ok response, and says so', async () => {
+    it('rejects a non-ok response so a partial price book cannot be written', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         mockFetch(() => Promise.resolve({ ok: false, status: 429, statusText: 'Too Many Requests' }))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).rejects.toThrow('429 Too Many Requests')
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('a/b'))
     })
 
-    it('degrades to no endpoints when the request throws, and says so', async () => {
+    it('rejects when the request throws so a partial price book cannot be written', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         mockFetch(() => Promise.reject(new Error('socket hang up')))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).rejects.toThrow('socket hang up')
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error fetching'), 'a/b', expect.anything())
+    })
+
+    it('rejects malformed JSON so a partial price book cannot be written', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        mockFetch(() => Promise.resolve({ ok: true, json: () => Promise.reject(new Error('bad JSON')) }))
+        await expect(readEndpointsFromOpenRouter('a/b')).rejects.toThrow('bad JSON')
     })
 
     it('degrades to no endpoints when the payload has no endpoints key', async () => {
