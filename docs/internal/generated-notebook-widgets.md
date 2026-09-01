@@ -9,7 +9,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Running a widget re-runs only its connected SQL and Python data cells in dependency order. It reloads the existing preview without generating a new version.
 - A fast model reviews the exact generated source before Canvas publishes it. A review failure stops publication.
 - Every preview stops at a gate that shows the automated review result and links to the source. The viewer must choose to run the exact build.
-- Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. “Run widget” records consent for that hash, so source or artifact changes require a new decision.
+- Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. “Run widget” records consent for that exact hash. A later build with different artifact contents requires a new decision. A build whose manifest is byte-identical, such as an identical rebuild, reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
 - Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows without sending values to the model.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
@@ -33,7 +33,7 @@ The generated-code trust flow works as follows:
 5. Every reviewed build stops before execution and shows the result. The viewer can inspect the source before choosing to run that exact build.
 6. A review with findings changes the gate warning and requires the viewer to run the widget anyway.
 7. Legacy versions without a persisted review also stop before execution.
-8. Canvas records a SHA-256 over the complete frozen artifact manifest. A rebuilt or changed artifact has a different hash and requires a new execution decision when gated.
+8. Canvas records a SHA-256 over the complete frozen artifact manifest. The hash covers artifact contents only, with no build or version id, so a build with different contents has a different hash and requires a new execution decision when gated. A build with identical contents keeps the same hash and reuses the earlier decision.
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
 
