@@ -354,57 +354,53 @@ def _foreign_run_dictionary(cluster: ClickhouseCluster, run_id: str) -> clickhou
 
 
 @pytest.mark.django_db
-def test_the_janitor_reaps_a_terminal_runs_dictionaries(cluster: ClickhouseCluster, persons_database):
-    # Cancellation and pre-step failures fire no hook, so their dictionaries survive until the
-    # next run reaps them. Dropping the janitor call, or breaking its name parse, leaks tens of
+def test_the_janitor_reaps_every_foreign_runs_dictionaries(cluster: ClickhouseCluster, persons_database):
+    # The run-queue limit guarantees no sibling run is live, so every foreign dictionary is a
+    # dead run's leftover. Dropping the janitor call, or breaking its name parse, leaks tens of
     # GiB per host per dead run with no path back but manual DDL.
-    instance = dagster.DagsterInstance.ephemeral()
-    dead = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.FAILURE)
-    _foreign_run_dictionary(cluster, dead.run_id)
-    assert cluster.any_host(dictionaries_for_run(dead.run_id)).result() == 1
+    stranger = "99999999-9999-4999-8999-999999999999"
+    _foreign_run_dictionary(cluster, stranger)
+    assert cluster.any_host(dictionaries_for_run(stranger)).result() == 1
 
-    result = run_job(cluster, persons_database, instance=instance)
+    result = run_job(cluster, persons_database)
 
     assert result.success
-    assert cluster.any_host(dictionaries_for_run(dead.run_id)).result() == 0
+    assert cluster.any_host(dictionaries_for_run(stranger)).result() == 0
 
 
 @pytest.mark.django_db
-def test_the_janitor_leaves_an_active_runs_dictionaries_alone(cluster: ClickhouseCluster, persons_database):
-    # An active run's dictionaries are in use; reaping them would let two runs eat each other's
-    # worklists, which is the isolation the whole run-id scoping exists to protect.
-    instance = dagster.DagsterInstance.ephemeral()
-    active = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.STARTED)
-    dictionary = _foreign_run_dictionary(cluster, active.run_id)
-    try:
-        result = run_job(cluster, persons_database, instance=instance)
-        assert result.success
-        assert cluster.any_host(dictionaries_for_run(active.run_id)).result() == 1
-    finally:
-        cluster.map_all_hosts(dictionary.drop).result()
+def test_the_janitor_never_touches_foreign_tables_or_its_own_run(cluster: ClickhouseCluster, persons_database):
+    # Non-matching names are invisible to the janitor, and the run's own dictionaries must
+    # survive its janitor pass (they are created after it, but the name gate is the guarantee).
+    def create_decoy(client) -> None:
+        client.execute(
+            "CREATE DICTIONARY IF NOT EXISTS not_a_sweep_dictionary (team_id Int64, present UInt8)"
+            " PRIMARY KEY team_id"
+            " SOURCE(CLICKHOUSE(QUERY 'SELECT 1, 1'))"
+            " LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(0)"
+        )
 
+    def decoy_exists(client) -> int:
+        [[count]] = client.execute("SELECT count() FROM system.dictionaries WHERE name = 'not_a_sweep_dictionary'")
+        return count
 
-@pytest.mark.django_db
-def test_the_janitor_leaves_unknown_dictionaries_alone(cluster: ClickhouseCluster, persons_database):
-    # A run id this instance does not know cannot be proven dead, so it must survive with a
-    # warning rather than be guessed at.
-    stranger = "99999999-9999-4999-8999-999999999999"
-    dictionary = _foreign_run_dictionary(cluster, stranger)
+    def drop_decoy(client) -> None:
+        client.execute("DROP DICTIONARY IF EXISTS not_a_sweep_dictionary SYNC")
+
+    cluster.map_all_hosts(create_decoy).result()
     try:
-        result = run_job(cluster, persons_database, instance=dagster.DagsterInstance.ephemeral())
+        result = run_job(cluster, persons_database)
         assert result.success
-        assert cluster.any_host(dictionaries_for_run(stranger)).result() == 1
+        assert cluster.any_host(decoy_exists).result() == 1
     finally:
-        cluster.map_all_hosts(dictionary.drop).result()
+        cluster.map_all_hosts(drop_decoy).result()
 
 
 @pytest.mark.django_db
 def test_the_janitor_reaps_past_a_run_it_cannot_reap(cluster: ClickhouseCluster, persons_database):
     # One unreapable run must not shadow the later ones, or they stay stranded on every sweep.
-    instance = dagster.DagsterInstance.ephemeral()
-    dead_a = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.FAILURE)
-    dead_b = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.FAILURE)
-    first, second = sorted([dead_a.run_id, dead_b.run_id])
+    first = "11111111-1111-4111-8111-111111111111"
+    second = "22222222-2222-4222-8222-222222222222"
     dict_first = _foreign_run_dictionary(cluster, first)
     _foreign_run_dictionary(cluster, second)
 
@@ -417,7 +413,7 @@ def test_the_janitor_reaps_past_a_run_it_cannot_reap(cluster: ClickhouseCluster,
 
     try:
         with patch.object(clickhouse_cleanup, "_kill_and_drop_run_assets", side_effect=fail_on_first):
-            result = run_job(cluster, persons_database, instance=instance)
+            result = run_job(cluster, persons_database)
         assert result.success
         assert cluster.any_host(dictionaries_for_run(second)).result() == 0
         assert cluster.any_host(dictionaries_for_run(first)).result() == 1
@@ -432,9 +428,8 @@ def test_the_janitor_kills_a_stranded_runs_mutations_before_dropping(
     # A canceled run's last mutation keeps retrying server-side. Dropping its dictionary without
     # the kill leaves that mutation failing forever and blocking every later mutation on the
     # table, so the janitor must kill first, exactly like the failure hook.
-    instance = dagster.DagsterInstance.ephemeral()
-    dead = instance.create_run_for_job(job_def=clickhouse_deletion_sweep_job, status=dagster.DagsterRunStatus.CANCELED)
-    dictionary = _foreign_run_dictionary(cluster, dead.run_id)
+    dead_run_id = "33333333-3333-4333-8333-333333333333"
+    dictionary = _foreign_run_dictionary(cluster, dead_run_id)
     runner = clickhouse_cleanup.LightweightDeleteMutationRunner(
         table="person_distinct_id2",
         predicate=(
@@ -444,10 +439,10 @@ def test_the_janitor_kills_a_stranded_runs_mutations_before_dropping(
     )
     cluster.any_host(runner).result()
 
-    result = run_job(cluster, persons_database, instance=instance)
+    result = run_job(cluster, persons_database)
 
     assert result.success
-    assert cluster.any_host(dictionaries_for_run(dead.run_id)).result() == 0
+    assert cluster.any_host(dictionaries_for_run(dead_run_id)).result() == 0
 
     def unfinished_mutations(client) -> int:
         [[count]] = client.execute(
