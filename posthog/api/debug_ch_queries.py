@@ -162,6 +162,42 @@ def _cache_table_stats() -> list[dict]:
     return list(stats.values())
 
 
+# Live (non-precomputed) web analytics read tags whose shapes the lazy precompute
+# path could have served — the denominator of the warmer's hit ratio. Lazy-served
+# reads are matched by their uniform `_lazy_query` tag suffix instead of a list.
+# Not exhaustive forever: when a runner grows a new live strategy tag, add it here
+# or the ratio numerator/denominator undercounts that family's misses.
+_WA_ELIGIBLE_LIVE_QUERY_TYPES = (
+    "web_overview_query",
+    "web_overview_preaggregated_query",
+    "web_overview_no_join_query",
+    "web_overview_session_id_set_query",
+    "stats_table_main_query",
+    "stats_table_path_bounce_query",
+    "stats_table_path_bounce_and_avg_time_query",
+    "stats_table_no_join_path_bounce_query",
+    "stats_table_no_join_path_bounce_and_avg_time_query",
+    "stats_table_session_id_set_path_bounce_query",
+    "stats_table_session_id_set_path_bounce_and_avg_time_query",
+    "stats_table_frustration_metrics_query",
+    "stats_table_entry_bounce_query",
+    "stats_table_preaggregated_query",
+    "stats_table_preaggregated_path_breakdown_query",
+    "stats_table_preaggregated_entry_bounce_query",
+    "web_goals_query",
+    "web_vitals_path_breakdown_query",
+)
+
+# Reads that arrive through these channels are not user-facing dashboard traffic
+# (background warming, batch workflows, API scripts) and would distort the ratio.
+_WA_HIT_RATIO_EXCLUDED_WORKLOADS = ("Workload.OFFLINE", "OFFLINE")
+
+# One replica being down must degrade this observability endpoint to
+# partial data, not take it out entirely — the endpoint exists precisely
+# for incidents, which is when replicas tend to be missing.
+_WA_HEALTH_QUERY_SETTINGS = {"skip_unavailable_shards": 1, "max_execution_time": 90}
+
+
 def _bucket_axis(hours: int) -> tuple[str, str, list[str], dict[str, int]]:
     """Zero-fillable time axis for the timeseries endpoints: hourly buckets up to 48h, daily beyond.
 
@@ -1110,6 +1146,126 @@ class DebugCHQueries(viewsets.ViewSet):
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
 
         return Response({"tables": _cache_table_stats()})
+
+    @extend_schema(
+        description="Web analytics lazy-precompute health: hourly hit ratio (lazy-served vs "
+        "eligible live reads), warmer pass activity, and per-family miss breakdown. Staff only.",
+        responses={200: dict},
+    )
+    @action(detail=False, methods=["GET"], url_path="wa_precompute_health", required_scopes=["query_performance:read"])
+    def wa_precompute_health(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view web analytics precompute health.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 24))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 168))  # clamp to 1h–7d; query_log retention bounds it anyway
+
+        params: dict = {
+            "hours": hours,
+            "cluster": CLICKHOUSE_CLUSTER,
+            "eligible_live_types": _WA_ELIGIBLE_LIVE_QUERY_TYPES,
+            "excluded_workloads": _WA_HIT_RATIO_EXCLUDED_WORKLOADS,
+        }
+
+        # User-facing reads only: exclude background workloads, temporal batch
+        # requests, and API-key scripts so the ratio reflects dashboard traffic.
+        hourly_rows = sync_execute(
+            """
+            SELECT
+                toStartOfHour(event_time) AS hour,
+                countIf(endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')) AS lazy_hits,
+                countIf(JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s) AS eligible_live
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            WHERE event_time > now() - toIntervalHour(%(hours)s)
+                AND type = 'QueryFinish'
+                AND is_initial_query
+                AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
+                AND JSONExtractString(log_comment, 'kind') != 'temporal'
+                AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+                AND (
+                    endsWith(JSONExtractString(log_comment, 'query_type'), '_lazy_query')
+                    OR JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+                )
+            GROUP BY hour
+            ORDER BY hour
+            """,
+            params,
+            settings=_WA_HEALTH_QUERY_SETTINGS,
+        )
+
+        warming_rows = sync_execute(
+            """
+            SELECT
+                toStartOfHour(event_time) AS hour,
+                count() AS queries,
+                uniqExact(JSONExtractInt(log_comment, 'team_id')) AS teams,
+                countIf(exception_code != 0) AS errored
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            WHERE event_time > now() - toIntervalHour(%(hours)s)
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing', 'ExceptionBeforeStart')
+                AND is_initial_query
+                AND log_comment LIKE '%%webAnalyticsQueryWarming%%'
+                AND JSONExtractString(log_comment, 'trigger') = 'webAnalyticsQueryWarming'
+            GROUP BY hour
+            ORDER BY hour
+            """,
+            params,
+            settings=_WA_HEALTH_QUERY_SETTINGS,
+        )
+
+        miss_rows = sync_execute(
+            """
+            SELECT
+                JSONExtractString(log_comment, 'query_type') AS query_type,
+                count() AS misses
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            WHERE event_time > now() - toIntervalHour(%(hours)s)
+                AND type = 'QueryFinish'
+                AND is_initial_query
+                AND JSONExtractString(log_comment, 'workload') NOT IN %(excluded_workloads)s
+                AND JSONExtractString(log_comment, 'kind') != 'temporal'
+                AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+                AND JSONExtractString(log_comment, 'query_type') IN %(eligible_live_types)s
+            GROUP BY query_type
+            ORDER BY misses DESC
+            """,
+            params,
+            settings=_WA_HEALTH_QUERY_SETTINGS,
+        )
+
+        total_lazy = sum(row[1] for row in hourly_rows)
+        total_live = sum(row[2] for row in hourly_rows)
+        return Response(
+            {
+                "hours": hours,
+                "summary": {
+                    "lazy_hits": total_lazy,
+                    "eligible_live": total_live,
+                    "hit_ratio": round(100.0 * total_lazy / (total_lazy + total_live), 1)
+                    if total_lazy + total_live
+                    else None,
+                },
+                "hourly": [
+                    {
+                        "hour": hour.isoformat(),
+                        "lazy_hits": lazy,
+                        "eligible_live": live,
+                        "hit_ratio": round(100.0 * lazy / (lazy + live), 1) if lazy + live else None,
+                    }
+                    for hour, lazy, live in hourly_rows
+                ],
+                "warming": [
+                    {"hour": hour.isoformat(), "queries": queries, "teams": teams, "errored": errored}
+                    for hour, queries, teams, errored in warming_rows
+                ],
+                "miss_breakdown": [{"query_type": query_type, "misses": misses} for query_type, misses in miss_rows],
+            }
+        )
 
     # Keys match the experiment_precompute_table tag on build INSERTs; both are always present in
     # the response so the charts render a (zero) series even for a table with no builds in window.

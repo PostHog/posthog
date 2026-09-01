@@ -164,6 +164,64 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
 
 
+class TestWAPrecomputeHealth(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _create_pat(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return token
+
+    def test_scope_and_staff_gate_wired_on_action(self) -> None:
+        # The scope/wildcard/staff mechanics are proven on slowest_queries; this
+        # only guards that THIS action declares the scope and the staff check.
+        token = self._create_pat(scopes=["query_performance:read"])
+        self.client.logout()
+
+        resp = self.client.get(
+            "/api/debug_ch_queries/wa_precompute_health/",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
+
+        self.user.is_staff = True
+        self.user.save()
+        with patch("posthog.api.debug_ch_queries.sync_execute", return_value=[]):
+            resp = self.client.get(
+                "/api/debug_ch_queries/wa_precompute_health/",
+                headers={"authorization": f"Bearer {token}"},
+            )
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+    def test_assembles_ratio_from_query_log_rows(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+        hour = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+        results = iter(
+            [
+                [(hour, 750, 250)],  # hourly: lazy, eligible_live
+                [(hour, 12000, 2100, 3)],  # warming: queries, teams, errored
+                [("web_overview_query", 180), ("stats_table_main_query", 70)],
+            ]
+        )
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=lambda *a, **k: next(results)):
+            resp = self.client.get("/api/debug_ch_queries/wa_precompute_health/?hours=9999")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["hours"], 168)  # clamped
+        self.assertEqual(data["summary"], {"lazy_hits": 750, "eligible_live": 250, "hit_ratio": 75.0})
+        self.assertEqual(data["hourly"][0]["hit_ratio"], 75.0)
+        self.assertEqual(data["warming"][0]["errored"], 3)
+        self.assertEqual(data["miss_breakdown"][0], {"query_type": "web_overview_query", "misses": 180})
+
+
 class TestCacheTableStats(SimpleTestCase):
     def test_reads_each_table_from_its_own_cluster(self):
         # The metric-events sharded table lives on the aux cluster; reading system.parts only on
