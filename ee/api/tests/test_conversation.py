@@ -2007,7 +2007,7 @@ class TestConversationListTaskHandle(APIBaseTest):
             self._sandbox_conversation("Chat 2")
             self._sandbox_conversation("Chat 3")
 
-            with self.assertNumQueries(baseline):  # -1 because org membership query is cached from the previous request
+            with self.assertNumQueries(baseline):
                 response = self.client.get(url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 3)
