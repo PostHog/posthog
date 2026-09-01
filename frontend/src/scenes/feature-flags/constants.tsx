@@ -15,11 +15,8 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
             </Link>
         </div>
         <div className="mt-1">
-            Estimated from{' '}
-            <Link to="https://posthog.com/docs/data/anonymous-vs-identified-events" target="_blank">
-                identified users
-            </Link>{' '}
-            only. Anonymous visitors can still match this flag, so the actual number may be higher.
+            Estimated from persons active in the last 30 days, so people who have not been seen recently are not
+            counted.
         </div>
     </>
 )

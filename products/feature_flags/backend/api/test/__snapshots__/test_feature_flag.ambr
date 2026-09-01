@@ -24,19 +24,28 @@
 # ---
 # name: TestBlastRadius.test_persons_seen_so_far_ignores_team_v2_argmax_modifier.1
   '''
-  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
-  FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            argMax(person.team_id, person.version) AS team_id,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), '0'), 0)))))
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
-  WHERE and(equals(persons.team_id, 99999), ifNull(equals(persons.properties___group, '0'), 0))
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group, argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), '0'), 0)))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), ifNull(equals(persons.properties___group, '0'), 0))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT tupleElement(argMax(tuple(properties.group), raw_persons.version), 1) AS properties___group, argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), equals(properties.group, '0')))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), equals(properties.group, '0')))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -77,19 +86,28 @@
 # name: TestBlastRadius.test_user_blast_radius
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
-  FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            argMax(person.team_id, person.version) AS team_id,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
-  WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group, argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT tupleElement(argMax(tuple(properties.group), raw_persons.version), 1) AS properties___group, argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), in(properties.group, tuple('0', '1', '2', '3'))))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), in(properties.group, tuple('0', '1', '2', '3'))))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -288,30 +306,40 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
-  FROM
-    (SELECT argMax(person.team_id, person.version) AS team_id,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
-                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(where_optimization.id,
-                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
-  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
-                                                     (SELECT cohortpeople.person_id AS person_id
-                                                      FROM cohortpeople
-                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(persons.id,
-                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                      FROM cohortpeople
-                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(persons.id,
+                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0)))), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0))))))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), and(in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0)))), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0)))))))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -363,25 +391,34 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
-  FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            argMax(person.team_id, person.version) AS team_id,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
-                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
-                                                                                                                                                          FROM person_static_cohort
-                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
-  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
-                                                     (SELECT person_static_cohort.person_id AS person_id
-                                                      FROM person_static_cohort
-                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group, argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                                                          FROM person_static_cohort
+                                                                                                                                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                                                                                                                                     (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                      FROM person_static_cohort
+                                                                                                                                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT tupleElement(argMax(tuple(properties.group), raw_persons.version), 1) AS properties___group, argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), in(id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, 99999))), in(properties.group, tuple('1', '2', '4', '5', '6'))))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), and(in(id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, 99999))), in(properties.group, tuple('1', '2', '4', '5', '6')))))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -398,14 +435,51 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count() AS `count()`
-  FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                                                          FROM person_static_cohort
+                                                                                                                                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                         FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                                                                                                                                     (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                      FROM person_static_cohort
+                                                                                                                                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.id,
+                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), in(id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, 99999))), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0))))))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), and(in(id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, 99999))), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0)))))))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -418,16 +492,6 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
-  '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
@@ -498,19 +562,28 @@
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
-  FROM
-    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            argMax(person.team_id, person.version) AS team_id,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
-  WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group, argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT tupleElement(argMax(tuple(properties.group), raw_persons.version), 1) AS properties___group, argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), or(equals(properties.group, 'none'), in(properties.group, tuple('1', '2', '3')))))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), or(equals(properties.group, 'none'), in(properties.group, tuple('1', '2', '3')))))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -527,14 +600,45 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
   '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT count() AS `count()`
-  FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  SELECT uniq(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS `uniq(if(not(empty(override.distinct_id)), override.person_id, event_person_id))`,
+         uniqIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                 (SELECT persons.id AS id
+                                                                                                                  FROM
+                                                                                                                    (SELECT argMax(person.team_id, person.version) AS team_id, person.id AS id
+                                                                                                                     FROM person
+                                                                                                                     WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                                                                                   (SELECT where_optimization.id AS id
+                                                                                                                                                                    FROM person AS where_optimization
+                                                                                                                                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                     GROUP BY person.id
+                                                                                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                                                                                  WHERE and(equals(persons.team_id, 99999), in(persons.id,
+                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                  FROM cohortpeople
+                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))) AS `uniqIf(if(not(empty(override.distinct_id)), override.person_id, event_person_id), in(if(not(empty(override.distinct_id)), override.person_id, event_person_id), (SELECT persons.id FROM (SELECT argMax(raw_persons.team_id, raw_persons.version) AS team_id, raw_persons.id AS id FROM raw_persons WHERE in(id, (SELECT id FROM raw_persons AS where_optimization WHERE and(equals(team_id, 99999), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0))))))) GROUP BY raw_persons.id HAVING and(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), less(argMax(toTimeZone(raw_persons.created_at, 'UTC'), raw_persons.version), plus(now(), toIntervalDay(1))))) AS persons WHERE and(equals(persons.team_id, 99999), in(id, (SELECT person_id FROM raw_cohort_people WHERE and(equals(cohort_id, 99999), equals(version, 0))))))))`
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -547,16 +651,6 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
-  '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
