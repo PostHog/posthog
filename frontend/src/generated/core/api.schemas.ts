@@ -606,15 +606,6 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
 
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
-
-export const EffectiveMembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
-
 /**
  * * `30d` - 30 Days
  * * `90d` - 90 Days
@@ -1809,7 +1800,7 @@ export interface ProjectBackwardCompatApi {
      */
     product_description?: string | null
     readonly created_at: string
-    readonly effective_membership_level: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level: OrganizationMembershipLevelEnumApi
     readonly has_group_types: boolean
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -2661,7 +2652,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     product_description?: string | null
     readonly created_at?: string
-    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level?: OrganizationMembershipLevelEnumApi
     readonly has_group_types?: boolean
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -4039,6 +4030,59 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface UploadedMediaApi {
+    readonly id: string
+    /** The file's original name. */
+    readonly name: string
+    /** @nullable */
+    readonly purpose: string | null
+    /** @nullable */
+    readonly content_type: string | null
+    /** @nullable */
+    readonly size_bytes: number | null
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly url: string
+    readonly created_at: string
+}
+
+export interface PaginatedUploadedMediaListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaStartUploadApi {
+    /**
+     * The file's display name, e.g. 'logo.png'.
+     * @maxLength 1000
+     */
+    name: string
+    /**
+     * Library to add this image to once uploaded, e.g. 'email'.
+     * @maxLength 100
+     */
+    purpose: string
+}
+
+/**
+ * Extra form fields to send alongside the file in the same POST.
+ */
+export type UploadedMediaUploadStartedApiFormFields = { [key: string]: string }
+
+export interface UploadedMediaUploadStartedApi {
+    /** Id of the pending upload — pass this to complete_upload. */
+    readonly id: string
+    /** POST the image file here as multipart/form-data. */
+    readonly upload_url: string
+    /** Extra form fields to send alongside the file in the same POST. */
+    readonly form_fields: UploadedMediaUploadStartedApiFormFields
+    /** Seconds before upload_url expires. */
+    readonly expires_in: number
+}
+
 export interface LeakedKeyReportApi {
     /**
      * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
@@ -4152,7 +4196,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -4250,7 +4294,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: EffectiveMembershipLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.
@@ -4911,15 +4955,13 @@ export interface UserPushTokenUnregisterRequestApi {
 }
 
 /**
- * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ * Request body for POST /api/users/verify_email/.
  */
 export interface VerifyEmailRequestApi {
     /** UUID of the user whose email is being verified. */
     uuid: string
-    /** Verification token from the emailed link. Required unless a code is provided. */
-    token?: string
-    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
-    code?: string
+    /** The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code: string
 }
 
 export type CimdVerificationTokensListParams = {
@@ -5131,6 +5173,46 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type UploadedMediaListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * The library to list.
+     */
+    purpose: UploadedMediaListPurpose
+}
+
+export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
+
+export const UploadedMediaListPurpose = {
+    Email: 'email',
+} as const
+
+/**
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ */
+export type UploadedMediaCreateBodyPurpose =
+    (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
+
+export const UploadedMediaCreateBodyPurpose = {
+    Email: 'email',
+} as const
+
+export type UploadedMediaCreateBody = {
+    /** Image file. Must be under 4MB and a real, decodable image. */
+    image: Blob
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type UploadedMediaCreate201 = { [key: string]: unknown }
 
 export type UsersListParams = {
     email?: string

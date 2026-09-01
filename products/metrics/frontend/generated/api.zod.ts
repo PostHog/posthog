@@ -475,6 +475,8 @@ export const metricsSamplesCreateBodyQueryOneMetricNameMax = 255
 
 export const metricsSamplesCreateBodyQueryOneTraceIdMax = 255
 
+export const metricsSamplesCreateBodyQueryOneSpanIdMax = 255
+
 export const metricsSamplesCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsSamplesCreateBodyQueryOneFiltersItemOpDefault = `eq`
@@ -490,7 +492,10 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
             metricName: zod
                 .string()
                 .max(metricsSamplesCreateBodyQueryOneMetricNameMax)
-                .describe("Exact metric name to list raw emissions for (e.g. 'http.server.duration')."),
+                .optional()
+                .describe(
+                    "Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot)."
+                ),
             dateFrom: zod.iso
                 .datetime({ offset: true })
                 .describe('Lower bound (inclusive) for the sample window. ISO 8601.'),
@@ -504,6 +509,13 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.'
+                ),
+            spanId: zod
+                .string()
+                .max(metricsSamplesCreateBodyQueryOneSpanIdMax)
+                .optional()
+                .describe(
+                    'Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.'
                 ),
             metricType: zod
                 .union([
