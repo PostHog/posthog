@@ -755,7 +755,7 @@ def get_query_runner(
         "StickinessActorsQuery",
         "PathsV2ActorsQuery",
     ):
-        from .insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from .insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | dict[str, Any], query),
@@ -766,7 +766,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "InsightActorsQueryOptions":
-        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from .insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
