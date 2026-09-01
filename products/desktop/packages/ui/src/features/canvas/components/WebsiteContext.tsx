@@ -1,13 +1,10 @@
-import {
-  FileTextIcon,
-  GitBranchIcon,
-  SparkleIcon,
-} from "@phosphor-icons/react";
+import { FileTextIcon } from "@phosphor-icons/react";
 import {
   ContextWikiUnavailableError,
   FolderInstructionsConflictError,
 } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   Empty,
   EmptyContent,
@@ -23,7 +20,6 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
-import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -36,15 +32,20 @@ import {
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/components/ContextWikiPagePane";
-import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
+import {
+  useChannelContextWikiPage,
+  useContextWikiPage,
+  useCreateChannelContextWikiPage,
+} from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
+import { SpacePagesSection } from "@posthog/ui/features/docs/components/SpacePagesSection";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { AgentMark } from "@posthog/ui/primitives/AgentMark";
 import {
   PageHeader,
   PageHeaderActions,
-  PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
   PageHeaderTitle,
@@ -64,6 +65,7 @@ import {
   Text,
   TextArea,
 } from "@radix-ui/themes";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
@@ -90,7 +92,11 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
 
   if (contextLayerEnabled && wikiPage.data) {
     return (
-      <WikiWebsiteContext channelId={channelId} path={wikiPage.data.path} />
+      <WikiWebsiteContext
+        channelId={channelId}
+        path={wikiPage.data.path}
+        exists={wikiPage.data.exists !== false}
+      />
     );
   }
 
@@ -126,13 +132,18 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
 function WikiWebsiteContext({
   channelId,
   path,
+  exists,
 }: {
   channelId: string;
   path: string;
+  /** False for a space added after the wiki was enabled: the page is only proposed. */
+  exists: boolean;
 }) {
   const spacesLayout = useChannelsLayout();
   const { channels: taskChannels } = useTaskChannels();
   const taskChannel = taskChannels.find((channel) => channel.id === channelId);
+  // Same query key as the pane below, so the row's age costs no request.
+  const wikiPage = useContextWikiPage(path);
   const headerContent = useMemo(
     () => <ChannelHeader channelId={channelId} page="context" />,
     [channelId],
@@ -146,9 +157,6 @@ function WikiWebsiteContext({
           <PageHeaderHeading>
             <PageHeaderTitleRow>
               <PageHeaderTitle>Context</PageHeaderTitle>
-              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                {path}
-              </PageHeaderChip>
             </PageHeaderTitleRow>
             <PageHeaderDescription>
               Agents working in this space can find this page in the shared
@@ -167,9 +175,89 @@ function WikiWebsiteContext({
         </PageHeader>
       ) : null}
       {spacesLayout && taskChannel ? (
-        <SpaceRepositories channel={taskChannel} />
+        <div className="flex shrink-0 flex-col gap-7 px-8 pt-2 pb-6">
+          <SpacePagesSection
+            channelId={channelId}
+            contextPage={{
+              path,
+              updatedAt: exists ? wikiPage.data?.updated_at : undefined,
+              onOpen: () => navigateToSpacesContext(path),
+            }}
+          />
+          <SpaceRepositories channel={taskChannel} />
+        </div>
       ) : null}
-      <ContextWikiPagePane key={path} path={path} />
+      {exists ? (
+        <ContextWikiPagePane key={path} path={path} />
+      ) : (
+        <StartWikiPage channelId={channelId} channelName={taskChannel?.name} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The notes a space does not have yet, when the wiki holds them.
+ *
+ * The page is written at the path the wiki reserved for this space, so the space
+ * joins the wiki the same way every other one did.
+ */
+function StartWikiPage({
+  channelId,
+  channelName,
+}: {
+  channelId: string;
+  channelName?: string;
+}) {
+  const create = useCreateChannelContextWikiPage(channelId);
+
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <FileTextIcon size={28} />
+        </EmptyMedia>
+        <EmptyTitle>No notes yet</EmptyTitle>
+        <EmptyDescription>
+          Notes tell every agent what it needs to know to work in{" "}
+          <strong>{channelName ?? "this space"}</strong>: the conventions, the
+          key files, and anything else the code does not say on its own.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <QuillButton
+          variant="primary"
+          size="default"
+          loading={create.isPending}
+          disabled={create.isPending}
+          onClick={() => create.mutate()}
+        >
+          Start this page
+        </QuillButton>
+        {create.error ? (
+          <span className="text-[12px] text-red-11">
+            The page did not start. Try again.
+          </span>
+        ) : null}
+      </EmptyContent>
+    </Empty>
+  );
+}
+
+/**
+ * One measure for the page. Every band lines its contents up on the same column,
+ * so the page reads as a page rather than as a stack of toolbars.
+ */
+function Band({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <div className="mx-auto w-full max-w-[46rem] px-8">{children}</div>
     </div>
   );
 }
@@ -274,124 +362,120 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
       {/* The shared page header ships with the spaces layout; without it the
           page opens straight onto its mode toolbar as it always has. */}
       {spacesLayout && (
-        <PageHeader>
-          <PageHeaderHeading>
-            <PageHeaderTitleRow>
-              <PageHeaderTitle>Context</PageHeaderTitle>
-              {latest?.version != null && (
-                <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                  v{latest.version}
-                </PageHeaderChip>
-              )}
-            </PageHeaderTitleRow>
-            <PageHeaderDescription>
-              Background every agent working in this{" "}
-              {spacesLayout ? "space" : "channel"} reads before it starts — what
-              lives here, who cares about it, and how to work on it.
-            </PageHeaderDescription>
-          </PageHeaderHeading>
-        </PageHeader>
+        <Band className="shrink-0 pt-8 pb-1">
+          <h1 className="font-[540] text-(--gray-12) text-[30px] leading-[1.14] tracking-[-0.03em]">
+            {channelDisplayLabel(channelName)}
+          </h1>
+          <p className="mt-2.5 max-w-[34rem] text-(--gray-11) text-[15.2px] leading-[1.6]">
+            What this space works on, and the notes every agent reads first.
+          </p>
+        </Band>
       )}
       {spacesLayout && taskChannel ? (
-        <SpaceRepositories channel={taskChannel} />
+        <>
+          <Band className="shrink-0 pt-7">
+            <SpacePagesSection channelId={channelId} />
+          </Band>
+          <Band className="shrink-0 pt-7 pb-1">
+            <SpaceRepositories channel={taskChannel} />
+          </Band>
+        </>
       ) : null}
-      <Flex
-        align="center"
-        justify="between"
-        gap="3"
-        px="4"
-        py="2"
-        className="shrink-0 border-b border-b-(--gray-5)"
-      >
-        <Flex align="center" gap="3">
-          <SegmentedControl.Root
-            value={mode}
-            onValueChange={(value) => setMode(value as Mode)}
-            size="1"
-          >
-            <SegmentedControl.Item value="rendered">
-              Rendered
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
-          </SegmentedControl.Root>
+      <Band className="shrink-0 pt-7">
+        <div className="flex items-center justify-between gap-3 pb-2.5">
+          <h2 className="font-semibold text-(--gray-12) text-[15px] tracking-[-0.008em]">
+            Notes for agents
+          </h2>
+          <Flex align="center" gap="3">
+            <SegmentedControl.Root
+              value={mode}
+              onValueChange={(value) => setMode(value as Mode)}
+              size="1"
+            >
+              <SegmentedControl.Item value="rendered">
+                Rendered
+              </SegmentedControl.Item>
+              <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
+            </SegmentedControl.Root>
 
-          {/* Background-refetch indicator: the initial load uses the full-screen
+            {/* Background-refetch indicator: the initial load uses the full-screen
               spinner below; this only fires on revalidations (every mount, plus
               after publish/delete invalidations) so the user knows the view is
               live and not just stale cache. */}
-          {isFetchingLatest && !isLoadingLatest ? (
-            <Flex align="center" gap="1">
-              <Spinner size="1" />
-              <Text className="text-[12px] text-gray-10">Refreshing…</Text>
-            </Flex>
-          ) : null}
+            {isFetchingLatest && !isLoadingLatest ? (
+              <Flex align="center" gap="1">
+                <Spinner size="1" />
+                <Text className="text-[12px] text-gray-10">Refreshing…</Text>
+              </Flex>
+            ) : null}
 
-          {versions.length > 0 ? (
-            <Select.Root
-              size="1"
-              value={
-                selectedVersionNumber != null
-                  ? String(selectedVersionNumber)
-                  : "latest"
-              }
-              onValueChange={(value) => {
-                if (value === "latest") {
-                  setSelectedVersionNumber(null);
-                } else {
-                  setSelectedVersionNumber(Number(value));
-                  setMode("rendered");
+            {versions.length > 0 ? (
+              <Select.Root
+                size="1"
+                value={
+                  selectedVersionNumber != null
+                    ? String(selectedVersionNumber)
+                    : "latest"
                 }
-              }}
-              disabled={isLoadingVersions}
-            >
-              <Select.Trigger />
-              <Select.Content>
-                <Select.Item value="latest">
-                  Latest (v{latest?.version ?? "—"})
-                </Select.Item>
-                {versions
-                  .filter((v) => v.version !== latest?.version)
-                  .map((v) => (
-                    <Select.Item key={v.version} value={String(v.version)}>
-                      v{v.version} · {formatTimestamp(v.created_at)}
-                    </Select.Item>
-                  ))}
-              </Select.Content>
-            </Select.Root>
-          ) : null}
-        </Flex>
+                onValueChange={(value) => {
+                  if (value === "latest") {
+                    setSelectedVersionNumber(null);
+                  } else {
+                    setSelectedVersionNumber(Number(value));
+                    setMode("rendered");
+                  }
+                }}
+                disabled={isLoadingVersions}
+              >
+                <Select.Trigger />
+                <Select.Content>
+                  <Select.Item value="latest">
+                    Latest (v{latest?.version ?? "—"})
+                  </Select.Item>
+                  {versions
+                    .filter((v) => v.version !== latest?.version)
+                    .map((v) => (
+                      <Select.Item key={v.version} value={String(v.version)}>
+                        v{v.version} · {formatTimestamp(v.created_at)}
+                      </Select.Item>
+                    ))}
+                </Select.Content>
+              </Select.Root>
+            ) : null}
+          </Flex>
 
-        {mode === "edit" ? (
-          <Flex align="center" gap="2">
-            {hasDraft ? (
+          {mode === "edit" ? (
+            <Flex align="center" gap="2">
+              {hasDraft ? (
+                <Button
+                  size="1"
+                  variant="soft"
+                  color="gray"
+                  onClick={() => {
+                    setDraft(latest?.content ?? "");
+                    setHasDraft(false);
+                  }}
+                  disabled={isPublishing}
+                >
+                  Discard
+                </Button>
+              ) : null}
               <Button
                 size="1"
-                variant="soft"
-                color="gray"
-                onClick={() => {
-                  setDraft(latest?.content ?? "");
-                  setHasDraft(false);
-                }}
-                disabled={isPublishing}
+                variant="solid"
+                onClick={onSave}
+                disabled={
+                  isPublishing ||
+                  (hasInstructions ? !hasDraft : draft.trim().length === 0)
+                }
               >
-                Discard
+                {isPublishing ? <Spinner size="1" /> : null}
+                Save new version
               </Button>
-            ) : null}
-            <Button
-              size="1"
-              variant="solid"
-              onClick={onSave}
-              disabled={
-                isPublishing ||
-                (hasInstructions ? !hasDraft : draft.trim().length === 0)
-              }
-            >
-              {isPublishing ? <Spinner size="1" /> : null}
-              Save new version
-            </Button>
-          </Flex>
-        ) : null}
-      </Flex>
+            </Flex>
+          ) : null}
+        </div>
+      </Band>
 
       {publishError ? (
         <Box px="4" pt="3">
@@ -406,7 +490,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
       ) : null}
 
       {!selectedVersion && mode === "edit" ? (
-        <Box p="4" className="flex min-h-0 flex-1">
+        <Box className="mx-auto flex min-h-0 w-full max-w-[46rem] flex-1 px-8 py-3">
           <TextArea
             value={draft}
             onChange={(e) => {
@@ -428,12 +512,12 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
           scrollbars="vertical"
           className="scroll-area-constrain-width min-h-0 flex-1"
         >
-          <Box p="4">
+          <Box className="mx-auto w-full max-w-[46rem] px-8 pt-1 pb-10">
             {selectedVersion ? (
               <Callout.Root color="gray" size="1">
                 <Callout.Text>
                   Viewing v{selectedVersion.version} metadata. Past content is
-                  not fetched today — switch to "Latest" to read or edit current
+                  not fetched today. Switch to "Latest" to read or edit current
                   content.
                 </Callout.Text>
               </Callout.Root>
@@ -466,10 +550,11 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const canEdit = currentUser?.id === channel.created_by?.id;
 
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-b border-b-(--gray-5) px-4 py-3">
+    <div className="flex shrink-0 flex-col gap-2.5">
       <div className="flex items-center gap-2">
-        <GitBranchIcon size={15} className="text-muted-foreground" />
-        <span className="font-medium text-[13px]">Repositories</span>
+        <h2 className="font-semibold text-(--gray-12) text-[15px] tracking-[-0.008em]">
+          Repositories
+        </h2>
         {update.isPending ? (
           <Spinner size="1" />
         ) : update.error ? (
@@ -509,11 +594,11 @@ function EmptyState({
         <EmptyMedia variant="icon">
           <FileTextIcon size={28} />
         </EmptyMedia>
-        <EmptyTitle>No CONTEXT.md yet</EmptyTitle>
+        <EmptyTitle>No notes yet</EmptyTitle>
         <EmptyDescription>
-          CONTEXT.md tells agents the specific details they need to know when
-          working in <strong>{channelName}</strong> — conventions, gotchas, key
-          files, and anything else that isn't obvious from the code.
+          Notes tell every agent what it needs to know to work in{" "}
+          <strong>{channelName}</strong>: the conventions, the key files, and
+          anything else the code does not say on its own.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
@@ -544,7 +629,7 @@ function GenerateWithAgent({
         size="default"
         onClick={() => setDialogOpen(true)}
       >
-        <SparkleIcon size={14} />
+        <AgentMark size={14} />
         Build with agent
       </QuillButton>
       <CreateChannelModal

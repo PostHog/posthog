@@ -10,6 +10,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@posthog/quill";
+import { stripFrontmatter } from "@posthog/ui/features/context-wiki/pageContent";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { useState } from "react";
@@ -277,7 +278,7 @@ export function ContextWikiPagePane({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="p-4 text-[13px]">
             <MarkdownRenderer
-              content={page.content}
+              content={stripFrontmatter(page.content)}
               componentsOverride={wikiMarkdownComponents}
             />
           </div>

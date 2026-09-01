@@ -139,6 +139,12 @@ interface SessionViewProps {
   slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
+  /**
+   * Hides the composer's model, reasoning, mode and steering controls.
+   *
+   * A surface that fixes the agent it runs has nothing for these to change.
+   */
+  fixedAgent?: boolean;
   /** Hide the message input and permission UI — log-only view. */
   hideInput?: boolean;
   /** Contextual actions shown between the thread and its composer. */
@@ -177,6 +183,7 @@ export function SessionView({
   cloudStatus = null,
   slackThreadUrl,
   compact = false,
+  fixedAgent = false,
   isActiveSession = true,
   hideInput = false,
   threadActions,
@@ -903,15 +910,18 @@ export function SessionView({
                           isActiveSession={isActiveSession}
                           taskId={taskId}
                           repoPath={repoPath}
-                          modeOption={modeOption}
+                          modeOption={fixedAgent ? undefined : modeOption}
                           onModeChange={
-                            modeOption ? handleModeChange : undefined
+                            modeOption && !fixedAgent
+                              ? handleModeChange
+                              : undefined
                           }
                           allowBypassPermissions={allowBypassPermissions}
                           enableBashMode={!isCloudRun}
                           modelSelector={null}
                           reasoningSelector={
-                            thoughtOption || sessionModelOption ? (
+                            !fixedAgent &&
+                            (thoughtOption || sessionModelOption) ? (
                               <ReasoningLevelSelector
                                 thoughtOption={thoughtOption}
                                 modelOption={sessionModelOption}
@@ -925,7 +935,7 @@ export function SessionView({
                             ) : null
                           }
                           messagingModeToggle={
-                            taskId ? (
+                            taskId && !fixedAgent ? (
                               <SteerQueueToggle taskId={taskId} />
                             ) : undefined
                           }

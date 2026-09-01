@@ -1,10 +1,4 @@
-import {
-  Badge,
-  cn,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@posthog/quill";
+import { cn, Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import { useTaskSummaries } from "@posthog/ui/features/tasks/useTasks";
 import { mergeAttributes, Node } from "@tiptap/core";
 import {
@@ -62,12 +56,15 @@ export function TaskChipView({ node }: ReactNodeViewProps) {
         <TooltipTrigger
           render={<button type="button" className="cursor-pointer" />}
         >
-          <Badge variant="default" className="gap-1.5">
-            <span className={cn("size-1.5 rounded-full", tone.dot)} />
-            {summary?.title ?? label ?? "Task"}
-          </Badge>
+          <span className="doc-chip">
+            <span
+              className={cn("size-[5px] shrink-0 rounded-full", tone.dot)}
+            />
+            {label || summary?.title || "Task"}
+          </span>
         </TooltipTrigger>
         <TooltipContent>
+          {summary?.title ? `${summary.title} · ` : ""}
           {tone.label}
           {summary?.repository ? ` · ${summary.repository}` : ""}
         </TooltipContent>

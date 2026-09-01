@@ -1,16 +1,12 @@
-import { SpaceDocsHome } from "@posthog/ui/features/docs/components/SpaceDocsHome";
-import {
-  ChannelSkeleton,
-  withRouteSkeleton,
-} from "@posthog/ui/router/routeSkeletons";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// The space's pages live on its context page, so a bare /docs link goes there
+// rather than to a second list of the same pages.
 export const Route = createFileRoute("/_shell/spaces/$channelId/docs/")({
-  component: SpaceDocsIndexRoute,
-  ...withRouteSkeleton(ChannelSkeleton),
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/spaces/$channelId/context",
+      params: { channelId: params.channelId },
+    });
+  },
 });
-
-function SpaceDocsIndexRoute() {
-  const { channelId } = Route.useParams();
-  return <SpaceDocsHome channelId={channelId} />;
-}

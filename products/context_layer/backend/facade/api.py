@@ -30,6 +30,7 @@ from products.context_layer.backend.enablement import enable_context_layer
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
+    create_channel_page,
     InvalidPagePathError,
     PageNotFoundError,
     WikiHealthFinding,
@@ -99,6 +100,7 @@ __all__ = [
     "WikiHealthFinding",
     "WikiHealthReport",
     "WikiTree",
+    "create_channel_page",
     "enable_context_layer",
     "get_bundle_export",
     "get_config",

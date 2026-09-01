@@ -89,6 +89,21 @@ export function useChannelWikiContext(
   };
 }
 
+export function useCreateChannelContextWikiPage(channelId: string) {
+  const queryClient = useQueryClient();
+  return useAuthenticatedMutation<ChannelContextWikiPage, Error, void>(
+    (client) => client.createChannelContextWikiPage(channelId),
+    {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: CHANNEL_CONTEXT_WIKI_PAGE_KEY(channelId),
+        });
+        void queryClient.invalidateQueries({ queryKey: CONTEXT_WIKI_TREE_KEY });
+      },
+    },
+  );
+}
+
 /** `null` data means the wiki was never enabled for this organization (404). */
 export function useContextWikiTree() {
   return useAuthenticatedQuery<ContextWikiTree | null>(

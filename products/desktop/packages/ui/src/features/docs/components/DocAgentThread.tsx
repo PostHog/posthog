@@ -1,24 +1,31 @@
 import {
   ArrowLineDownIcon,
   ArrowSquareOutIcon,
-  XIcon,
+  SidebarSimpleIcon,
+  SpinnerGapIcon,
 } from "@phosphor-icons/react";
-import { Button, cn, Separator, Spinner, Text, Textarea } from "@posthog/quill";
-import type { TaskThreadMessage } from "@posthog/shared/domain-types";
 import {
-  usePostTaskThreadMessageToAgent,
-  useTaskThread,
-} from "@posthog/ui/features/canvas/hooks/useTaskThread";
+  Button,
+  Separator,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
+import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
+import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spin } from "@posthog/ui/primitives/Spinner";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
 
 /**
- * An agent conversation beside a doc.
+ * The agent's dock beside a doc.
  *
- * The thread is a task in this space, so it behaves like every other agent
- * session. Two things are specific to a doc: the thread draws from the durable
- * messages rather than waiting for a live session, and "Add to page" is the only
- * way the agent's words reach the page.
+ * It is the canvas dock with one thing added: "Add to page". The conversation
+ * itself is the app's live session view, so a doc question behaves like every
+ * other agent session, and the only way the agent's words reach the page is a
+ * person pressing that button.
  */
 export function DocAgentThread({
   taskId,
@@ -31,136 +38,87 @@ export function DocAgentThread({
   onAddToPage: (text: string) => void;
   onClose: () => void;
 }) {
-  const { messages, hasLoaded } = useTaskThread(taskId);
-  const { postMessageToAgent, isPostingToAgent } =
-    usePostTaskThreadMessageToAgent(taskId);
-  const [draft, setDraft] = useState("");
+  const { data: task } = useQuery(taskDetailQuery(taskId));
+  const { messages } = useTaskThread(taskId);
 
-  const said = messages.filter((message) => message.content.trim());
-  const lastAgentMessage = [...said]
+  const lastAgentMessage = [...messages]
     .reverse()
-    .find((message) => message.author_kind === "agent");
-
-  const send = async () => {
-    const content = draft.trim();
-    if (!content || isPostingToAgent) return;
-    await postMessageToAgent(content);
-    setDraft("");
-  };
+    .find(
+      (message) => message.author_kind === "agent" && message.content.trim(),
+    );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <Text weight="medium">Agent</Text>
-        <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="default"
-            disabled={!lastAgentMessage}
-            onClick={() =>
-              lastAgentMessage && onAddToPage(lastAgentMessage.content)
-            }
-          >
-            <ArrowLineDownIcon size={14} />
-            Add to page
-          </Button>
-          <Button
-            size="sm"
-            variant="default"
-            aria-label="Open the task"
+      <div className="flex h-10 shrink-0 items-center gap-1 px-2">
+        <Text weight="medium" className="min-w-0 flex-1 truncate px-1">
+          Agent
+        </Text>
+        <Tooltip>
+          <TooltipTrigger
             render={
-              <Link
-                to="/spaces/$channelId/tasks/$taskId"
-                params={{ channelId, taskId }}
+              <Button
+                size="icon"
+                variant="default"
+                aria-label="Open the task"
+                render={
+                  <Link
+                    to="/spaces/$channelId/tasks/$taskId"
+                    params={{ channelId, taskId }}
+                  />
+                }
               />
             }
           >
-            <ArrowSquareOutIcon size={14} />
-          </Button>
-          <Button
-            size="sm"
-            variant="default"
-            aria-label="Close the agent thread"
-            onClick={onClose}
+            <ArrowSquareOutIcon size={15} />
+          </TooltipTrigger>
+          <TooltipContent>Open the task</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon"
+                variant="default"
+                aria-label="Minimize panel"
+                onClick={onClose}
+              />
+            }
           >
-            <XIcon size={14} />
-          </Button>
-        </div>
+            <SidebarSimpleIcon size={16} />
+          </TooltipTrigger>
+          <TooltipContent>Minimize panel</TooltipContent>
+        </Tooltip>
       </div>
       <Separator />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {!hasLoaded ? (
-          <div className="flex justify-center py-8">
-            <Spinner />
-          </div>
-        ) : said.length === 0 ? (
-          <Text size="sm" className="text-(--gray-11)">
-            The question is on its way to the agent. Its answer shows up here.
-          </Text>
+      <div className="min-h-0 flex-1">
+        {task ? (
+          <EmbeddedSessionView
+            task={task}
+            isActiveSession
+            fixedAgent
+            threadActions={() => (
+              <Button
+                size="sm"
+                variant="default"
+                disabled={!lastAgentMessage}
+                onClick={() =>
+                  lastAgentMessage && onAddToPage(lastAgentMessage.content)
+                }
+              >
+                <ArrowLineDownIcon size={14} />
+                Add to page
+              </Button>
+            )}
+          />
         ) : (
-          <ul className="flex flex-col gap-3">
-            {said.map((message) => (
-              <ThreadMessage key={message.id} message={message} />
-            ))}
-          </ul>
+          <div className="flex h-full items-center justify-center">
+            <Spin className="text-gray-9">
+              <SpinnerGapIcon size={18} />
+            </Spin>
+          </div>
         )}
-        {said.length > 0 && !lastAgentMessage ? (
-          <Text size="sm" className="mt-3 block text-(--gray-11)">
-            The agent has not answered yet. "Add to page" turns on when it does.
-          </Text>
-        ) : null}
-      </div>
-
-      <Separator />
-      <div className="p-3">
-        <Textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask the agent something else"
-          rows={2}
-          className="text-sm"
-        />
-        <div className="mt-1 flex justify-end">
-          <Button
-            size="sm"
-            variant="primary"
-            loading={isPostingToAgent}
-            disabled={isPostingToAgent || draft.trim().length === 0}
-            onClick={() => void send()}
-          >
-            Send
-          </Button>
-        </div>
       </div>
     </div>
-  );
-}
-
-function ThreadMessage({ message }: { message: TaskThreadMessage }) {
-  const fromAgent = message.author_kind === "agent";
-  const name = fromAgent
-    ? "Agent"
-    : `${message.author?.first_name ?? ""} ${message.author?.last_name ?? ""}`.trim() ||
-      message.author?.email ||
-      "Someone";
-
-  return (
-    <li
-      className={cn(
-        "rounded-(--radius-3) border p-2",
-        fromAgent ? "border-(--blue-7)" : "border-(--gray-6)",
-      )}
-    >
-      <Text size="sm" weight="medium">
-        {name}
-        <span className="ml-1 font-normal text-(--gray-11) text-xs">
-          {new Date(message.created_at).toLocaleString()}
-        </span>
-      </Text>
-      <Text size="sm" className="whitespace-pre-wrap">
-        {message.content}
-      </Text>
-    </li>
   );
 }

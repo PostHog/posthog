@@ -780,6 +780,8 @@ export interface ContextWikiHealthReport {
 
 export interface ChannelContextWikiPage {
   path: string;
+  /** False when the space has no page yet and this is where one would go. */
+  exists?: boolean;
 }
 
 export interface ContextWikiDreamRun {
@@ -3284,9 +3286,23 @@ export class PostHogAPIClient {
   async getChannelContextWikiPage(
     channelId: string,
   ): Promise<ChannelContextWikiPage | null> {
+    // `propose=1`: a space created after the wiki was enabled has no page, and
+    // the proposed path is what the create call needs.
     return this.getContextWikiResource<ChannelContextWikiPage>(
-      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/?propose=1`,
     );
+  }
+
+  async createChannelContextWikiPage(
+    channelId: string,
+  ): Promise<ChannelContextWikiPage> {
+    const path = `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    return (await response.json()) as ChannelContextWikiPage;
   }
 
   async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {

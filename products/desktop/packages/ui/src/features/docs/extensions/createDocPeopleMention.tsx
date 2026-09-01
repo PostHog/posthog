@@ -6,21 +6,15 @@ import { createDocSuggestion } from "./createDocSuggestion";
 
 const MAX_PEOPLE_SUGGESTIONS = 8;
 
-/** The id the agent entry carries; no person can hold it. */
-export const AGENT_MENTION_ID = "__agent__";
-
 /**
- * `@` in a doc: tags a person, or tags the agent.
+ * `@` in a doc: tags a person.
  *
- * Tagging a person inserts Tiptap's own mention node, so the pill is part of the
- * document and every client draws it the same way. Tagging the agent inserts
- * nothing: it opens a thread beside the page, because the agent answers there
- * and never edits the doc.
+ * The pill marks who a line is for and nothing else happens. Asking the agent is
+ * a different act with a different shape: select the words and use the toolbar.
  */
 export function createDocPeopleMention(options: {
   sessionId: string;
   people: () => UserBasic[];
-  onAskAgent: () => void;
 }): Extension {
   return createDocSuggestion<SuggestionItem>({
     name: "docPeopleMention",
@@ -28,12 +22,7 @@ export function createDocPeopleMention(options: {
     char: "@",
     items: (query) => {
       const needle = query.trim().toLowerCase();
-      const agentEntry: SuggestionItem = {
-        id: AGENT_MENTION_ID,
-        label: "Agent",
-        description: "asks in a thread beside the page",
-      };
-      const people = options
+      return options
         .people()
         .filter((person) => {
           if (!needle) return true;
@@ -49,15 +38,8 @@ export function createDocPeopleMention(options: {
           label: userDisplayName(person),
           description: person.email ?? undefined,
         }));
-
-      const showAgent = !needle || "agent".startsWith(needle);
-      return showAgent ? [agentEntry, ...people] : people;
     },
     onSelect: ({ editor, item }) => {
-      if (item.id === AGENT_MENTION_ID) {
-        options.onAskAgent();
-        return;
-      }
       editor
         .chain()
         .focus()

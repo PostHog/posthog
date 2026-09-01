@@ -7,6 +7,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { RemoteCaret } from "../collab/remoteCarets";
 import type { DocConnectionStatus } from "../collab/useDocCollab";
@@ -70,9 +73,16 @@ export function DocHeader({
 
       <div className="flex-1" />
 
-      <span className="shrink-0 text-(--gray-9) text-xs">
-        v{version} · {CONNECTION_LABELS[connection]}
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="shrink-0 text-(--gray-9) text-xs">
+              {CONNECTION_LABELS[connection]}
+            </span>
+          }
+        />
+        <TooltipContent>Version {version}</TooltipContent>
+      </Tooltip>
 
       <DropdownMenu>
         <DropdownMenuTrigger

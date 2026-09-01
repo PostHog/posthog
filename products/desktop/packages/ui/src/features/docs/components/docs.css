@@ -2,6 +2,7 @@
    body on a 1.74 line, and section headings that sit well clear of the text
    above them. Colors come from the app's tokens so the page follows the theme. */
 
+.context-title,
 .doc-title {
   font-size: 30px;
   font-weight: 540;
@@ -121,12 +122,36 @@
   pointer-events: none;
 }
 
-.doc-mention {
-  background: var(--gray-3);
-  border-radius: var(--radius-2);
-  padding: 0.05em 0.3em;
-  white-space: nowrap;
+/* A task in a sentence: a status dot and the words, underlined because it opens
+   something. No lozenge — a filled box between words stops the reader. */
+.doc-taskref {
+  display: inline;
+  cursor: pointer;
+}
+
+.doc-taskref-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-right: 0.35em;
+  vertical-align: 0.15em;
+}
+
+.doc-taskref-label {
   color: var(--gray-12);
+  text-decoration: underline;
+  text-decoration-color: var(--gray-7);
+  text-underline-offset: 3px;
+}
+
+.doc-taskref:hover .doc-taskref-label {
+  text-decoration-color: var(--gray-10);
+}
+
+/* The margin the thread marks are drawn in. */
+.doc-body {
+  padding-right: 3rem;
 }
 
 /* A phrase someone is discussing. It reads as marked, not as an error. */

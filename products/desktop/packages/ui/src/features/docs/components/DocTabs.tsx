@@ -21,12 +21,6 @@ const TEMPLATES: Array<{
   { template: "notes", label: "Notes", hint: "from a call" },
 ];
 
-const STATUS_TONES: Record<DocSchemas.DocStatus, string> = {
-  draft: "text-(--gray-11)",
-  active: "text-(--primary)",
-  done: "text-(--grass-11)",
-};
-
 /**
  * The space's docs, along the bottom of the pane.
  *
@@ -75,12 +69,7 @@ export function DocTabs({
                 })
               }
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate">{doc.title || "Untitled"}</span>
-                <span className={cn("text-xs", STATUS_TONES[doc.status])}>
-                  {doc.status}
-                </span>
-              </span>
+              {doc.title || "Untitled"}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -126,10 +115,7 @@ export function DocTabs({
               key={entry.template}
               onClick={() => onCreate(entry.template)}
             >
-              <span className="flex flex-col">
-                <span>{entry.label}</span>
-                <span className="text-(--gray-11) text-xs">{entry.hint}</span>
-              </span>
+              {entry.label}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

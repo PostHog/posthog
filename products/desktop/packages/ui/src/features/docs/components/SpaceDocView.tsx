@@ -126,9 +126,11 @@ export function SpaceDocView({
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
 
-      const taskId = target
-        ?.closest("[data-task-chip]")
-        ?.getAttribute("data-task-chip");
+      const taskId =
+        target
+          ?.closest("[data-thread-task]")
+          ?.getAttribute("data-thread-task") ??
+        target?.closest("[data-task-chip]")?.getAttribute("data-task-chip");
       if (taskId) {
         setAgentTaskId(taskId);
         setPanelOpen(true);
@@ -203,7 +205,7 @@ export function SpaceDocView({
           ref={attachBody}
           className="@container min-w-0 flex-1 overflow-y-auto @2xl:px-12 px-5 pt-7"
         >
-          <div className="mx-auto max-w-[58rem]">
+          <div className="mx-auto max-w-[46rem]">
             <DocTitle
               title={doc.data.title}
               peopleCount={peers.length + 1}
@@ -221,6 +223,7 @@ export function SpaceDocView({
               onDiscussionsChanged={discussionActions.refresh}
               onDiscussionStarted={onDiscussionStarted}
               onAgentThreadStarted={openAgentThread}
+              onOpenThread={openAgentThread}
               onEditorReady={(instance) => {
                 editorRef.current = instance;
               }}

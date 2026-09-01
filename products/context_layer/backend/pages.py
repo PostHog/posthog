@@ -18,7 +18,7 @@ from posthog.models.team.team import Team
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.context_layer.backend import repo_lint, store
-from products.context_layer.backend.enablement import _unique_channel_path
+from products.context_layer.backend.enablement import _channel_page, _unique_channel_path
 from products.tasks.backend.facade import api as tasks_facade
 
 # Entries are keyed by head sha and therefore immutable; the TTL only bounds
@@ -199,6 +199,33 @@ def proposed_channel_page_path(organization_id: uuid.UUID | str, channel_id: uui
         # Both the slug and its short-suffixed form belong to other channels'
         # pages; the full channel id is unique by construction.
         path = f"projects/{team_id}/spaces/{channel_id}.md"
+    return path
+
+
+def create_channel_page(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> str:
+    """Write a space's page at its canonical path, for a space created after enablement.
+
+    Idempotent: a space that already has a page keeps it, and the path comes from
+    the same rules the import uses, so the page lands where a re-import would
+    have put it.
+    """
+    existing = resolve_channel_page(organization_id, channel_id)
+    if existing is not None:
+        return existing
+
+    details = _channel_details(organization_id, channel_id)
+    if details is None:
+        raise PageNotFoundError(f"no channel {channel_id} in this organization")
+    team_id, name = details
+    path = proposed_channel_page_path(organization_id, channel_id)
+    content = _channel_page(team_id, str(channel_id), name, None)
+
+    def mutate(root: Path) -> None:
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    store.apply_changes(organization_id, message=f"Add page for space {name}", mutate=mutate)
     return path
 
 

@@ -41,12 +41,14 @@ function ChartCard({
   caption,
   state,
   openTarget,
+  showStat = true,
 }: {
   blockKey: string;
   title: string;
   caption?: string;
   state: ReportChartCardState;
   openTarget: ReturnType<typeof reportChartOpenTarget>;
+  showStat?: boolean;
 }) {
   const data = state.kind === "data" ? state.data : null;
   return (
@@ -58,7 +60,7 @@ function ChartCard({
         heightClass={reportChartHeightClass(null, data)}
         state={state}
         openTarget={openTarget}
-        stat={data ? chartHeadlineStat(data) : null}
+        stat={showStat && data ? chartHeadlineStat(data) : null}
       />
     </div>
   );
@@ -78,9 +80,11 @@ function queryState(query: {
 function HogqlChartCard({
   spec,
   blockKey,
+  showStat,
 }: {
   spec: Extract<ChartBlockSpec, { mode: "hogql" }>;
   blockKey: string;
+  showStat?: boolean;
 }) {
   const openOptions = useOpenOptions();
   const node = useMemo(
@@ -107,6 +111,7 @@ function HogqlChartCard({
       caption={spec.caption}
       state={queryState(query)}
       openTarget={openOptions ? reportChartOpenTarget(node, openOptions) : null}
+      showStat={showStat}
     />
   );
 }
@@ -119,9 +124,11 @@ interface InsightChartResult {
 function InsightChartCard({
   spec,
   blockKey,
+  showStat,
 }: {
   spec: Extract<ChartBlockSpec, { mode: "insight" }>;
   blockKey: string;
+  showStat?: boolean;
 }) {
   const openOptions = useOpenOptions();
   const query = useAuthenticatedQuery<InsightChartResult | null>(
@@ -165,6 +172,7 @@ function InsightChartCard({
             )
           : null
       }
+      showStat={showStat}
     />
   );
 }
@@ -172,16 +180,26 @@ function InsightChartCard({
 export function MessageChartCard({
   spec,
   blockKey,
+  showStat = true,
 }: {
   spec: ChartBlockSpec;
   /** Stable identity for the block, e.g. a hash of its source. */
   blockKey: string;
+  /**
+   * Draws the headline number above the chart.
+   *
+   * A surface that already states its numbers turns this off: the headline is
+   * the series' last point, which on a part-finished period reads as a drop.
+   */
+  showStat?: boolean;
 }) {
   if (spec.mode === "insight") {
-    return <InsightChartCard spec={spec} blockKey={blockKey} />;
+    return (
+      <InsightChartCard spec={spec} blockKey={blockKey} showStat={showStat} />
+    );
   }
   if (spec.mode === "replay") {
     return <ReplayBlockCard spec={spec} />;
   }
-  return <HogqlChartCard spec={spec} blockKey={blockKey} />;
+  return <HogqlChartCard spec={spec} blockKey={blockKey} showStat={showStat} />;
 }

@@ -15,10 +15,13 @@ import { SessionView } from "./SessionView";
 export function EmbeddedSessionView({
   task,
   isActiveSession,
+  fixedAgent,
   threadActions,
 }: {
   task: Task;
   isActiveSession?: boolean;
+  /** Hides the composer's model and mode controls. See `SessionView`. */
+  fixedAgent?: boolean;
   threadActions?: (context: {
     sendPrompt: (prompt: string) => Promise<boolean>;
     isPromptPending: boolean;
@@ -82,6 +85,7 @@ export function EmbeddedSessionView({
         isCloud={isCloud}
         cloudStatus={cloudStatus}
         compact
+        fixedAgent={fixedAgent}
         isActiveSession={isActiveSession}
         threadActions={threadActions?.({
           sendPrompt: handleSendPrompt,

@@ -261,7 +261,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
     scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export", "dreams", "dream"]
-    scope_object_write_actions = ["enable", "update_page", "commits"]
+    scope_object_write_actions = ["enable", "update_page", "commits", "create_channel_page"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
     # `APIScopePermission` refuses on this organization-nested route, so it never
@@ -350,7 +350,32 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
     def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
-        return _read_channel_page(self.organization.id, channel_id)
+        # `propose=1` asks for the path a page would be created at, so a space
+        # added after enablement gets an answer instead of a dead end.
+        return _read_channel_page(
+            self.organization.id,
+            channel_id,
+            propose_on_miss=request.query_params.get("propose") == "1",
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: ChannelWikiPageSerializer,
+            404: OpenApiResponse(description="No such space in this organization."),
+        },
+        summary="Create a space's wiki page",
+        description="Idempotent: a space that already has a page keeps it.",
+    )
+    @channel_page.mapping.post
+    def create_channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
+        try:
+            path = facade.create_channel_page(self.organization.id, channel_id)
+        except facade.PageNotFoundError as error:
+            raise NotFound(str(error))
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(ChannelWikiPageSerializer({"path": path}).data)
 
     @extend_schema(
         request=WikiPageWriteSerializer,
