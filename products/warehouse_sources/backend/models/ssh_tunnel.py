@@ -180,7 +180,7 @@ class SSHTunnel:
         except Exception:
             return False, (
                 "SSH host key could not be parsed. Paste the server's public host key as "
-                "`<type> <base64>` (for example the output of `ssh-keyscan <host>`), or leave it "
+                "`<type> <base64>` (for example the output of `ssh-keyscan -p <port> <host>`), or leave it "
                 "blank to skip host verification."
             )
 

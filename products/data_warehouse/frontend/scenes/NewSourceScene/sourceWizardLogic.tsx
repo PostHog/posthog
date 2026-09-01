@@ -149,7 +149,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             placeholder: 'ssh-ed25519 AAAA...',
             secret: false,
             caption:
-                'Paste the tunnel server\'s public host key to verify its identity on connect. Get it with "ssh-keyscan <host>". Leave blank to connect without verifying the server.',
+                'Paste the tunnel server\'s public host key to verify its identity on connect. Get it with "ssh-keyscan -p <port> <host>". Leave blank to connect without verifying the server.',
         },
         {
             name: 'require_tls',
