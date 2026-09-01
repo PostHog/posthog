@@ -496,7 +496,14 @@ jobs:
                           extra_args="--test-threads=4"
                       fi
                       if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
-                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args || overall_rc=1
+                          features="pg-test-support"
+                          # ch-test-support arms the live-ClickHouse rebuild corpus against the
+                          # compose stack's clickhouse; the grep keeps branches that predate the
+                          # feature building.
+                          if grep -q '^ch-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                              features="pg-test-support,ch-test-support"
+                          fi
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features "$features" $extra_args || overall_rc=1
                       else
                           run_nextest "$pkg" -p "$pkg" $extra_args || overall_rc=1
                       fi
