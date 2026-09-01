@@ -131,7 +131,7 @@ SERIES_REPORT_INTERVAL = "weekly"
 
 # A series row is one time bucket, so date_time is a real per-row cursor even though the request
 # always asks for the whole window. Selecting it makes the sync merge on the primary key rather than
-# replace the table, so buckets that age out of Klaviyo's 365-day window stay in the warehouse while
+# replace the table, so buckets that age out of Klaviyo's 52-week window stay in the warehouse while
 # the buckets still inside it keep getting corrected.
 SERIES_REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -530,8 +530,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             interval=SERIES_REPORT_INTERVAL,
         ),
         description=(
-            "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
-            "days, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
+            "Klaviyo's own flow-message performance statistics bucketed by week over the last 52 "
+            "weeks, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
             "returning them"
         ),
     ),
@@ -588,8 +588,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             requires_conversion_metric=False,
         ),
         description=(
-            "Klaviyo's own signup-form performance statistics bucketed by week over the last 365 "
-            "days, one row per form per week. Weeks stay in the table after Klaviyo stops returning "
+            "Klaviyo's own signup-form performance statistics bucketed by week over the last 52 "
+            "weeks, one row per form per week. Weeks stay in the table after Klaviyo stops returning "
             "them"
         ),
     ),
@@ -609,7 +609,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             requires_conversion_metric=False,
         ),
         description=(
-            "Klaviyo's own segment membership statistics bucketed by week over the last 365 days, "
+            "Klaviyo's own segment membership statistics bucketed by week over the last 52 weeks, "
             "one row per segment per week. Weeks stay in the table after Klaviyo stops returning "
             "them"
         ),
