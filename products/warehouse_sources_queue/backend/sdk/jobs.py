@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources_queue.backend.core.batch_consumer import (
     BatchConsumer,
     BatchConsumerConfig,
+    OwnershipLostError,
     PermanentBatchApplyError,
 )
 from products.warehouse_sources_queue.backend.core.generic_jobs import (
@@ -208,14 +209,26 @@ class GenericJobAdapter:
                         ],
                     )
             return
-        await JobsTable.update_status(
+        # expected_state_changed_at arms a compare-and-swap: the recovery sweep passes
+        # the state it observed so a stale re-queue can't clobber a newer terminal write
+        # (e.g. a late success) with 'waiting_retry'. update_status_unless_failed also
+        # keeps 'failed' absorbing for every write here, not just the succeeded one.
+        arm_cas = expected_state_changed_at is not None
+        wrote = await JobsTable.update_status_unless_failed(
             conn,
             job_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
             job_created_at=batch_created_at,
+            expected_state_changed_at=expected_state_changed_at,
+            arm_cas=arm_cas,
         )
+        if arm_cas and not wrote:
+            raise OwnershipLostError(
+                f"job {batch_id} moved under this writer (already failed or state advanced); "
+                f"refusing to write '{job_state}' over it"
+            )
 
     async def fail_run(
         self,
