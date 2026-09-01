@@ -32,6 +32,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import bump_stuck_counter_activity
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -2351,6 +2352,33 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_labels_a_child_timeout_as_infra_transient() -> None:
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        # Temporal terminates a child that spends its whole execution_timeout, so the parent sees a bare
+        # timeout instead of the twice-wrapped ApplicationError that a rasterizer failure arrives as.
+        child_error=_wrap_in_child_workflow_error(
+            TemporalTimeoutError("child timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        ),
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster-timeout"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert bump_stuck_counter_activity in called
+    assert mark_observation_failed_activity in called
+    assert mark_observation_ineligible_activity not in called
+    assert mocks.activity_calls[-1][1].error_reason.startswith("infra_transient:")
 
 
 @pytest.mark.asyncio

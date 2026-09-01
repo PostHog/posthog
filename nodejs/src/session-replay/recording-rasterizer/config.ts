@@ -49,6 +49,15 @@ export const config = {
     // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',
     recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
+    // The block listing hits ClickHouse through recording-api, which is slower than the 3s
+    // EXTERNAL_REQUEST_TIMEOUT_MS default that internalFetch applies. That default aborts the listing
+    // under load and fails the render before it starts.
+    blockListingTimeoutMs: parsePositiveInt(process.env.BLOCK_LISTING_TIMEOUT_MS, 30_000),
+    // Block content is served from object storage and can run to tens of megabytes, so this bounds a
+    // stalled read instead of enforcing a latency target. It is deliberately generous, because a
+    // transfer that is slow but making progress must still finish. Without any bound, one stalled
+    // block holds its render slot until beginFrameTimeoutMs fires.
+    blockFetchTimeoutMs: parsePositiveInt(process.env.BLOCK_FETCH_TIMEOUT_MS, 60_000),
     // Renders above this many compressed bytes fail permanently instead of loading the pod into its
     // memory limit. Deliberately generous: the every-render byte log is what tightens it over time.
     maxRecordingCompressedBytes: parsePositiveInt(process.env.MAX_RECORDING_COMPRESSED_BYTES, 512 * 1024 * 1024),
