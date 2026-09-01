@@ -7,7 +7,6 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1329_drop_cimd_metadata_url"),
         ("web_analytics", "0009_content_autopilot"),
     ]
 

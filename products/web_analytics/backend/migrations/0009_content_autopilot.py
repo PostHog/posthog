@@ -10,7 +10,7 @@ import products.web_analytics.backend.models.content_autopilot
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1329_drop_cimd_metadata_url"),
+        ("posthog", "1245_duckgres_sink_schema_state"),
         ("web_analytics", "0008_savedheatmap_source"),
     ]
 
