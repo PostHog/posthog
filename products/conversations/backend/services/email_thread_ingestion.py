@@ -35,6 +35,12 @@ class EmailAddress:
 
 
 @dataclass(frozen=True, kw_only=True)
+class EmailBody:
+    text: str
+    html: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class ParsedEmail:
     message_id: str
     in_reply_to: str | None
@@ -55,7 +61,7 @@ class ParsedEmail:
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
 
-    def body_with_matching_html(self, *, prefer_stripped: bool) -> tuple[str, str]:
+    def body_with_matching_html(self, *, prefer_stripped: bool) -> "EmailBody":
         """Return the body text we store paired with the HTML of the same scope.
 
         Link recovery must never scan a wider HTML than the text it rewrites: the
@@ -65,10 +71,10 @@ class ParsedEmail:
         example Gmail sync, whose text is never quote-stripped).
         """
         if prefer_stripped and self.stripped_text:
-            return self.stripped_text, (self.stripped_html or self.body_html)
+            return EmailBody(text=self.stripped_text, html=self.stripped_html or self.body_html)
         if self.body_plain:
-            return self.body_plain, (self.body_html or self.stripped_html)
-        return self.stripped_text, (self.stripped_html or self.body_html)
+            return EmailBody(text=self.body_plain, html=self.body_html or self.stripped_html)
+        return EmailBody(text=self.stripped_text, html=self.stripped_html or self.body_html)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -201,8 +207,8 @@ def _upsert_participants(
 
 
 def _message_content(*, thread: EmailThread, email: ParsedEmail) -> str:
-    base, html = email.body_with_matching_html(prefer_stripped=thread.message_count > 0)
-    return recover_links_from_html(base, html)
+    body = email.body_with_matching_html(prefer_stripped=thread.message_count > 0)
+    return recover_links_from_html(body.text, body.html)
 
 
 def _update_thread_summary(*, thread: EmailThread, email: ParsedEmail, content: str) -> None:

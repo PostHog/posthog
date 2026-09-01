@@ -541,8 +541,8 @@ def _process_support_email(
         sender_email=sender_email,
     )
 
-    content, content_html = email.body_with_matching_html(prefer_stripped=bool(existing_ticket))
-    content = recover_links_from_html(content, content_html)
+    body = email.body_with_matching_html(prefer_stripped=bool(existing_ticket))
+    content = recover_links_from_html(body.text, body.html)
 
     posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
     is_team_member = posthog_user is not None

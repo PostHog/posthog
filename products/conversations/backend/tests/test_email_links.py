@@ -94,8 +94,8 @@ class TestRecoverLinksFromHtml:
                 '<blockquote>On Mon you wrote: <a href="https://old.example/stale">click here</a></blockquote>'
             ),
         )
-        base, html = email.body_with_matching_html(prefer_stripped=True)
-        result = recover_links_from_html(base, html)
+        body = email.body_with_matching_html(prefer_stripped=True)
+        result = recover_links_from_html(body.text, body.html)
         assert result == "Thanks, [click here](https://host.example/new) to finish."
         assert "old.example" not in result
 
@@ -104,8 +104,8 @@ class TestRecoverLinksFromHtml:
             body_plain="Please confirm.\nAttiva l'inoltro",
             body_html='<p>Please confirm.</p><a href="https://host.example/activate">Attiva l\'inoltro</a>',
         )
-        base, html = email.body_with_matching_html(prefer_stripped=False)
-        result = recover_links_from_html(base, html)
+        body = email.body_with_matching_html(prefer_stripped=False)
+        result = recover_links_from_html(body.text, body.html)
         assert "[Attiva l'inoltro](https://host.example/activate)" in result
 
     def test_links_earliest_occurrence_across_multiple_labels(self) -> None:
