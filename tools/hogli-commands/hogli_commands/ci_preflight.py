@@ -46,7 +46,7 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
-from hogli_commands.complexity_lint import PYTHON_SCOPE, TYPESCRIPT_SCOPE
+from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIPT_SCOPE, WARN_AT
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
@@ -129,7 +129,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="complexity",
-        label="cyclomatic complexity (warn >10, >15 in tests)",
+        label=f"cyclomatic complexity (warn >{WARN_AT}, >{TEST_WARN_AT} in tests)",
         # From complexity_lint.py so preflight and the command can't drift on scope.
         triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
         verify=["hogli", "lint:complexity"],

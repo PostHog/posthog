@@ -25,13 +25,16 @@ if (!fs.existsSync(reportPath)) {
 
 const findings = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
 const maxComplexity = findings.reduce((max, finding) => Math.max(max, finding.complexity), 0)
+// The limits the linters enforce — quote them instead of hardcoding so a
+// limits-only edit cannot leave the report text behind.
+const limits = JSON.parse(fs.readFileSync(new URL('../../bin/lint-complexity.limits.json', import.meta.url), 'utf8'))
 const summary =
     findings.length > 0
         ? `${findings.length} function${findings.length === 1 ? '' : 's'} above the limit (max ${maxComplexity})`
         : 'clean'
 
 const lines = [
-    `Cyclomatic complexity above the limit in changed ${language} files (10 for production files, 15 for test files). Warn only: worth simplifying when you next touch these functions.`,
+    `Cyclomatic complexity above the limit in changed ${language} files (${limits.production} for production files, ${limits.test} for test files). Warn only: worth simplifying when you next touch these functions.`,
     '',
 ]
 if (findings.length > 0) {

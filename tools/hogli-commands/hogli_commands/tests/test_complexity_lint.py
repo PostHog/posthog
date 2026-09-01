@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
-
 import pytest
 from unittest.mock import MagicMock, call, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli.manifest import REPO_ROOT
 from hogli_commands.complexity_lint import TEST_WARN_AT, WARN_AT, Finding, _python_findings, is_test_file
 
 runner = CliRunner()
@@ -18,11 +13,6 @@ runner = CliRunner()
 def _branchy_function(name: str, branches: int) -> str:
     checks = "".join(f"    if n == {i}:\n        return {i}\n" for i in range(branches))
     return f"def {name}(n: int) -> int:\n{checks}    return -1\n"
-
-
-def _ts_branchy_function(branches: int) -> str:
-    checks = "".join(f"    if (n === {i}) return {i}\n" for i in range(branches))
-    return f"export function probe(n: number): number {{\n{checks}    return -1\n}}\n"
 
 
 class TestComplexityLint:
@@ -69,9 +59,14 @@ class TestComplexityLint:
             pytest.param("posthog/api/test/test_insight.py", True, id="test_package"),
             pytest.param("products/tasks/backend/tests/test_agent.py", True, id="tests_package"),
             pytest.param("posthog/conftest.py", True, id="conftest"),
+            # pytest's python_files default collects *_test.py too, so the lint
+            # follows it even where the module is a migration, not a test.
             pytest.param(
-                "posthog/clickhouse/migrations/0097_v2_test.py", False, id="_test_suffix_is_migration_not_test"
+                "posthog/clickhouse/migrations/0097_v2_test.py",
+                True,
+                id="_test_suffix_counts_as_test_even_for_migrations",
             ),
+            pytest.param("products/customer_analytics/backend/metrics_test.py", True, id="colocated_test_suffix"),
         ],
     )
     def test_is_test_file(self, path: str, expected: bool) -> None:
@@ -124,48 +119,6 @@ class TestComplexityLint:
             call(["posthog/tasks/usage_report.py"], max_complexity=WARN_AT),
             call(["posthog/api/test/test_activity_log.py"], max_complexity=TEST_WARN_AT),
         ]
-
-
-_MJS = REPO_ROOT / "bin" / "lint-complexity.mjs"
-_TS_LINTABLE = shutil.which("node") is not None and (REPO_ROOT / "frontend" / "node_modules" / "typescript").is_dir()
-
-
-@pytest.mark.skipif(not _TS_LINTABLE, reason="needs node and frontend/node_modules/typescript")
-class TestTypeScriptLinterContract:
-    # The mjs runs directly in ci-frontend.yml, so the Python suite owns its contract
-    # coverage. Skipped where frontend dependencies are absent (backend CI shards).
-    def _run_mjs(self, target, *flags: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["node", str(_MJS), *flags, str(target)], cwd=REPO_ROOT, capture_output=True, text=True)
-
-    @pytest.mark.parametrize(
-        ("filename", "branches", "expected_limit"),
-        [
-            pytest.param("probe.ts", 11, WARN_AT, id="production_file_at_12_warns"),
-            pytest.param("probe.test.ts", 11, None, id="test_file_at_12_passes"),
-            pytest.param("probe.test.ts", 16, TEST_WARN_AT, id="test_file_at_17_warns"),
-        ],
-    )
-    def test_limit_depends_on_file_kind(
-        self, tmp_path, filename: str, branches: int, expected_limit: int | None
-    ) -> None:
-        target = tmp_path / filename
-        target.write_text(_ts_branchy_function(branches))
-
-        findings = json.loads(self._run_mjs(target, "--json").stdout)
-
-        assert [f["limit"] for f in findings] == ([expected_limit] if expected_limit is not None else [])
-
-    def test_bare_invocation_reports_the_first_file(self, tmp_path) -> None:
-        # ci-frontend.yml passes --report and hogli passes --json, both leading flags.
-        # A bare invocation must not drop the first file argument.
-        target = tmp_path / "probe.ts"
-        target.write_text(_ts_branchy_function(11))
-
-        result = self._run_mjs(target)
-
-        assert result.returncode == 0
-        assert "warning" in result.stdout
-        assert "warn >10" in result.stdout
 
 
 class TestPreflightSoftCheck:

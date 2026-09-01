@@ -43,9 +43,12 @@ TYPESCRIPT_SCOPE = ("frontend/*.ts", "frontend/*.tsx", "ee/*.ts", "ee/*.tsx", "p
 
 _C901_MESSAGE = re.compile(r"`(?P<name>.+)` is too complex \((?P<complexity>\d+) > \d+\)")
 
-# A test file: named test_*.py or conftest.py, or inside a test/tests package.
-# bin/lint-complexity.mjs carries the TypeScript equivalent; keep the two in step.
-_TEST_FILE = re.compile(r"(?:^|/)(?:test|tests)/|(?:^|/)test_[^/]*\.py$|(?:^|/)conftest\.py$")
+# A test file: named test_*.py or *_test.py (pytest's python_files default),
+# conftest.py, or inside a test/tests package. The suffix rule also classifies
+# clickhouse-migration and user_scripts *_test.py modules as tests — same as
+# pytest, and harmless for an advisory lint. bin/lint-complexity.mjs carries
+# the TypeScript equivalent; keep the two in step.
+_TEST_FILE = re.compile(r"(?:^|/)(?:test|tests)/|(?:^|/)[^/]*_test\.py$|(?:^|/)test_[^/]*\.py$|(?:^|/)conftest\.py$")
 
 
 def is_test_file(path: str) -> bool:
