@@ -1,4 +1,3 @@
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -84,11 +83,7 @@ import { CommandMenu } from "./CommandMenu";
 describe("CommandMenu space creation", () => {
   it("opens the create modal from the New space command", async () => {
     const user = userEvent.setup();
-    render(
-      <Theme>
-        <CommandMenu open onOpenChange={vi.fn()} />
-      </Theme>,
-    );
+    render(<CommandMenu open onOpenChange={vi.fn()} />);
 
     expect(screen.queryByText("create space modal")).not.toBeInTheDocument();
     await user.click(await screen.findByText("New space"));
