@@ -5951,7 +5951,6 @@ export const API_SCOPE_OBJECTS = [
     'usage_metric',
     'user',
     'user_interview',
-    'vision_action',
     'vision_alert',
     'visual_review',
     'warehouse_objects',

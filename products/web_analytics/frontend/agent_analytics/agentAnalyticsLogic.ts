@@ -1,7 +1,6 @@
 import type { BreakPointFunction } from 'kea'
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -593,8 +592,6 @@ export interface agentAnalyticsLogicValues {
     demandRowsError: string | null
     demandRowsLoading: boolean
     includeCrawlers: boolean
-    isLlmsTxtSourceSubmitting: boolean
-    isLlmsTxtSourceValid: boolean
     issues: AgentIssue[]
     issuesPage: number
     journeyDetail: JourneyStep[]
@@ -610,15 +607,6 @@ export interface agentAnalyticsLogicValues {
     llmsTxtInput: string
     llmsTxtLinks: Map<string, LlmsTxtLink>
     llmsTxtLoadedUrl: string | null
-    llmsTxtSource: LlmsTxtSourceForm
-    llmsTxtSourceAllErrors: Record<string, any>
-    llmsTxtSourceChanged: boolean
-    llmsTxtSourceErrors: DeepPartialMap<LlmsTxtSourceForm, ValidationErrorType>
-    llmsTxtSourceHasErrors: boolean
-    llmsTxtSourceManualErrors: Record<string, any>
-    llmsTxtSourceTouched: boolean
-    llmsTxtSourceTouches: Record<string, boolean>
-    llmsTxtSourceValidationErrors: DeepPartialMap<LlmsTxtSourceForm, ValidationErrorType>
     nextHops: NextHop[]
     nextHopsError: string | null
     nextHopsLoading: boolean
@@ -636,7 +624,6 @@ export interface agentAnalyticsLogicValues {
     selectedIssueKey: string | null
     selectedJourney: JourneyRow | null
     selectedJourneyKey: string | null
-    showLlmsTxtSourceErrors: boolean
     topIssues: AgentIssue[]
     variants: IssueVariant[]
     variantsError: string | null
@@ -905,28 +892,12 @@ export interface agentAnalyticsLogicActions {
     refresh: () => {
         value: true
     }
-    resetLlmsTxtSource: (values?: LlmsTxtSourceForm) => {
-        values?: LlmsTxtSourceForm
-    }
     setLlmsTxtFromUrl: (
         content: string,
         url: string
     ) => {
         content: string
         url: string
-    }
-    setLlmsTxtSourceManualErrors: (errors: Record<string, any>) => {
-        errors: Record<string, any>
-    }
-    setLlmsTxtSourceValue: (
-        key: FieldName,
-        value: any
-    ) => {
-        name: FieldName
-        value: any
-    }
-    setLlmsTxtSourceValues: (values: DeepPartial<LlmsTxtSourceForm>) => {
-        values: DeepPartial<LlmsTxtSourceForm>
     }
     setQueryError: (
         queryType: WebAgentAnalyticsQueryType,
@@ -960,25 +931,6 @@ export interface agentAnalyticsLogicActions {
     }
     setView: (view: AgentView) => {
         view: AgentView
-    }
-    submitLlmsTxtSource: () => {
-        value: boolean
-    }
-    submitLlmsTxtSourceFailure: (
-        error: Error,
-        errors: Record<string, any>
-    ) => {
-        error: Error
-        errors: Record<string, any>
-    }
-    submitLlmsTxtSourceRequest: (llmsTxtSource: LlmsTxtSourceForm) => {
-        llmsTxtSource: LlmsTxtSourceForm
-    }
-    submitLlmsTxtSourceSuccess: (llmsTxtSource: LlmsTxtSourceForm) => {
-        llmsTxtSource: LlmsTxtSourceForm
-    }
-    touchLlmsTxtSourceField: (key: string) => {
-        key: string
     }
 }
 
