@@ -20,6 +20,19 @@ export function wizardRunIsActive(run: WizardRunApi): boolean {
     return run.status === 'created' || run.status === 'running'
 }
 
+export function wizardRunTerminalLabel(status: WizardRunApi['status']): string {
+    switch (status) {
+        case 'completed':
+            return 'Completed'
+        case 'failed':
+            return 'Failed'
+        case 'cancelled':
+            return 'Canceled'
+        default:
+            return 'Finished'
+    }
+}
+
 export function wizardRunCanCancel(run: WizardRunApi, currentUserId: number | null): boolean {
     // The API only lets the run's creator cancel it, so hide the control for everyone else.
     // A run with no creator has no owner who can cancel it, so hide it there too.

@@ -11,6 +11,7 @@ import {
     wizardRunCanCancel,
     wizardRunDiffCanRender,
     wizardRunIsActive,
+    wizardRunTerminalLabel,
     wizardWorkspaceLabel,
 } from '../wizardRunDisplay'
 import { WizardRunDetailsArtifacts } from './WizardRunDetailsArtifacts'
@@ -219,12 +220,14 @@ export function WizardRunDetailsDrawer({
                         <WizardRunProgress run={run} />
                         <div className="mt-4 flex items-center justify-between text-xs text-muted">
                             <span>
-                                {run.status === 'completed' && run.finished_at ? (
+                                {wizardRunIsActive(run) ? (
+                                    'Updates automatically.'
+                                ) : run.finished_at ? (
                                     <>
-                                        Completed <TZLabel time={run.finished_at} />.
+                                        {wizardRunTerminalLabel(run.status)} <TZLabel time={run.finished_at} />.
                                     </>
                                 ) : (
-                                    'Updates automatically.'
+                                    `${wizardRunTerminalLabel(run.status)}.`
                                 )}
                             </span>
                             {run.status === 'failed' && (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
