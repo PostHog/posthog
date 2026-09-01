@@ -631,12 +631,18 @@ impl MismatchTracker {
         // A fingerprint the tracker already holds keeps the time it was first
         // stored with, so a disagreement accumulates elapsed time even while the
         // rest of the team's diff set changes around it. A fingerprint this build
-        // has not seen before starts its window now.
+        // has not seen before starts its window now. A stored time ahead of this
+        // pod's clock restarts at now, so a build on a pod that ran ahead cannot
+        // hold the window open past its own skew.
         let first_seen: HashMap<u64, u64> = diffs
             .iter()
             .take(MAX_STORED_FINGERPRINTS)
             .map(|d| {
-                let at = prior.get(&d.fingerprint).copied().unwrap_or(now_secs);
+                let at = prior
+                    .get(&d.fingerprint)
+                    .copied()
+                    .unwrap_or(now_secs)
+                    .min(now_secs);
                 (d.fingerprint, at)
             })
             .collect();
@@ -1321,6 +1327,34 @@ mod tests {
             .await;
         assert!(second.confirmed.is_empty());
         assert_eq!(second.first_sight.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tracker_does_not_carry_a_future_timestamp_into_later_builds() {
+        // The pod that wrote the observation ran ahead of this one. Resolving the
+        // current build to first sight is not enough on its own: storing the
+        // future timestamp back would hold the window open until every later
+        // pod's clock passed it, and a team that rebuilds inside the TTL would
+        // keep it alive. The stored time restarts at this pod's clock instead, so
+        // the disagreement confirms one interval later and a forward clock step
+        // cannot hide drift past its own duration.
+        let ahead_pod = MockRedisClient::new();
+        tracker(&ahead_pod)
+            .observe(7, mismatch_diffs(), at(1_000))
+            .await;
+
+        let behind_pod = next_build(&ahead_pod);
+        let behind = tracker(&behind_pod)
+            .observe(7, mismatch_diffs(), at(990))
+            .await;
+        assert!(behind.confirmed.is_empty());
+        assert_eq!(behind.first_sight.len(), 1);
+
+        let later_pod = next_build(&behind_pod);
+        let later = tracker(&later_pod)
+            .observe(7, mismatch_diffs(), at(1_050))
+            .await;
+        assert_eq!(later.confirmed.len(), 1);
     }
 
     #[tokio::test]
