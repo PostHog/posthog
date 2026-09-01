@@ -17,7 +17,7 @@ with runtime validation on construction, so a mapper that hands back the wrong
 shape fails at the facade boundary instead of producing malformed JSON later.
 
 Provider-specific shapes (GitHub column names, nesting) never reach here — the
-read layer maps them into these types. Reviewers, deploys, and file paths are
+read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
@@ -806,7 +806,7 @@ class PushCISample:
     started_at: datetime
     # First run start → last completed run end on this push; None while nothing has completed.
     wall_seconds: int | None
-    # Any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.
+    # Any latest-per-workflow run on this push reached a decisive failure verdict.
     failed: bool
     # Any latest-per-workflow run on this push hasn't completed yet.
     pending: bool
@@ -894,8 +894,8 @@ class CICardSummary:
 class WorkflowHealthBucket:
     """One time bucket of a workflow's run history; empty buckets are zero-filled. The
     bucket width (hour / day / week) is set per item in ``WorkflowHealthItem.granularity``
-    to fit the window. ``failures`` is decisive failures only (failure / timed_out),
-    matching the CI rollup — skipped, cancelled, and action_required runs are neither
+    to fit the window. ``failures`` is decisive failures only, matching the CI rollup —
+    skipped, cancelled, neutral, and action_required runs are neither
     successes nor failures, so they must not be treated as non-passing.
     """
 
@@ -981,25 +981,24 @@ class QuarantineRequestResult:
 
 @dataclass(frozen=True)
 class WorkflowHealthItem:
-    """Per-workflow CI health over a window. ``success_rate`` is over completed runs;
-    ``p50_seconds``/``p95_seconds`` are over successful runs only (cancelled, skipped,
-    and failed runs end early and would bias a duration percentile low). Each is
-    ``None`` when the window has no qualifying runs.
+    """Per-workflow CI health over a window. ``success_rate`` is over conclusive runs
+    (success or a decisive failure); ``p50_seconds``/``p95_seconds`` are over successful
+    runs only because cancelled, skipped, and failed runs end early. Each is ``None``
+    when the window has no qualifying runs.
     """
 
     repo: RepoRef
     workflow_name: str
     run_count: int
     successful_run_count: int
-    # Completed runs that reached a verdict (success / failure / timed_out). Cancelled and skipped
-    # runs inflate `success_rate`'s denominator; pair this with `successful_run_count` for a rate
-    # meaning "of the runs that actually ran".
+    # Completed runs that reached a pass or decisive failure verdict. This is the denominator for
+    # success_rate and the sample-size gate for verdict-based signals.
     conclusive_run_count: int
     success_rate: float | None
     p50_seconds: float | None
     p95_seconds: float | None
     last_failure_at: datetime | None
-    # Whether the most recent completed run was a decisive failure (failure / timed_out).
+    # Whether the most recent completed run was a decisive failure.
     # None when nothing has completed in the window. Drives the OK/RED status badge — a
     # bool, not the raw conclusion, because the data carries conclusions outside
     # WorkflowConclusion (e.g. action_required) that would fail validation here.
@@ -1020,7 +1019,7 @@ class WorkflowHealthItem:
     estimated_cost_usd: float | None = None
     # Runs in the window that were a 2nd+ attempt.
     rerun_cycles: int = 0
-    # Success rate over the equal-length window before date_from; None when it had no completed runs.
+    # Success rate over the equal-length window before date_from; None when it had no conclusive runs.
     success_rate_prev: float | None = None
     # Successful runs that did real work; the exact population p50/p95 are computed over (no-op gate
     # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
@@ -1072,14 +1071,14 @@ class TimeToGreenBucket:
 
 @dataclass(frozen=True)
 class PassRateBucket:
-    """One time bucket of the repo's CI pass rate: the fraction of completed runs (all branches) started in
-    this bucket that succeeded. ``success_rate`` is None for a bucket with no completed run (a gap, not a
-    0% pass rate); the UI carries the last known value forward rather than dipping the trend to zero.
+    """One time bucket of the repo's CI pass rate: successful runs divided by conclusive runs
+    (success or a decisive failure) across all branches. ``success_rate`` is None for a bucket
+    with no conclusive run, so the trend has a gap instead of a false 0% rate.
     """
 
     # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
     bucket_start: datetime
-    # Fraction (0-1) of completed runs started in this bucket that succeeded. None when none completed.
+    # Fraction (0-1) of conclusive runs that succeeded. None when no run reached a verdict.
     success_rate: float | None
 
 
@@ -1109,6 +1108,46 @@ class ReadyToMergeBucket:
     bucket_start: datetime
     # Median per-PR ready_to_merge_seconds over PRs merged in this bucket. None when no observed value.
     p50_seconds: float | None
+
+
+class DeliveryStage(StrEnum):
+    """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
+
+    - ``OPEN_TO_GATE``: ``created_at`` to the PR's first merge-queue gate run starting; review,
+      rework, idle time, and the wait for a queue slot stay fused here.
+    - ``GATE_TO_MERGE``: that gate run starting to ``merged_at``.
+
+    The post-merge leg is ``DoraOverview.median_merge_to_deploy_seconds``.
+    """
+
+    OPEN_TO_GATE = "open_to_gate"
+    GATE_TO_MERGE = "gate_to_merge"
+
+
+@dataclass(frozen=True)
+class DeliveryStageTiming:
+    """One leg's timings over the PRs where both of its bounds were observed. ``pr_count`` is
+    that leg's own denominator: a PR that skipped the queue has no gate legs."""
+
+    stage: DeliveryStage
+    median_seconds: float | None
+    p90_seconds: float | None
+    pr_count: int
+
+
+@dataclass(frozen=True)
+class DeliveryPipeline:
+    """Where a change's wall-clock time goes between opening a PR and its merge.
+
+    Bots and drafts excluded, per the locked cycle-time recipe; the merge-queue fields on
+    ``RepoOverview`` count all authors instead. The leg medians do not sum to a cycle-time
+    median: a median of sums is not a sum of medians.
+    """
+
+    merged_pr_count: int
+    # A leg with no observed pair still ships, with a zero count and None timings, so a
+    # consumer renders the whole pipeline rather than a hole.
+    stages: list[DeliveryStageTiming]
 
 
 @dataclass(frozen=True)
@@ -1202,8 +1241,8 @@ class RepoOverview:
     time_to_green_series: list[TimeToGreenBucket]
     # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     time_to_green_series_granularity: str
-    # Pass-rate trend: fraction of completed runs (all branches) that succeeded per bucket, oldest first,
-    # bucketed by `success_rate_series_granularity`. Empty buckets carry None (no completed run).
+    # Pass-rate trend: fraction of conclusive runs (all branches) that succeeded per bucket, oldest first,
+    # bucketed by `success_rate_series_granularity`. Empty buckets carry None (no conclusive run).
     success_rate_series: list[PassRateBucket]
     # Bucket width of `success_rate_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     success_rate_series_granularity: str
@@ -1217,6 +1256,8 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+    # Bots and drafts excluded, unlike the headline counts above.
+    delivery_pipeline: DeliveryPipeline
 
 
 @dataclass(frozen=True)
