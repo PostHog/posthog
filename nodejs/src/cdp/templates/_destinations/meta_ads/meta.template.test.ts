@@ -167,8 +167,8 @@ describe('meta ads template', () => {
             {
                 name: 'prefers the fbc the site stores itself',
                 event: {},
-                person: { fbc: 'fb.1.1735000000000.site-owned', $fbc: `fb.1.${eventMs}.AbC_123-x` },
-                expected: 'fb.1.1735000000000.site-owned',
+                person: { fbc: `fb.1.${eventMs}.site-owned`, $fbc: `fb.1.${eventMs}.AbC_123-x` },
+                expected: `fb.1.${eventMs}.site-owned`,
             },
             {
                 name: 'stamps an fbclid on this event with the event time',
@@ -180,6 +180,42 @@ describe('meta ads template', () => {
                 name: 'sends nothing for an fbclid of unknown age',
                 event: {},
                 person: { fbclid: 'AbC_123-x' },
+                expected: undefined,
+            },
+            {
+                name: 'does not redate a stale click the event still carries',
+                event: { fbclid: 'AbC_123-x' },
+                person: { $fbc: `fb.1.${eventMs - 91 * dayMs}.AbC_123-x` },
+                expected: undefined,
+            },
+            {
+                name: "keeps the appendix Meta's parameter builder adds",
+                event: {},
+                person: { fbc: `fb.1.${eventMs}.AbC_123-x.Bg` },
+                expected: `fb.1.${eventMs}.AbC_123-x.Bg`,
+            },
+            {
+                name: "keeps the parameter builder's longer appendix",
+                event: {},
+                person: { fbc: `fb.1.${eventMs}.AbC_123-x.AQYAAQAA` },
+                expected: `fb.1.${eventMs}.AbC_123-x.AQYAAQAA`,
+            },
+            {
+                name: 'drops a click stamped after the conversion',
+                event: {},
+                person: { $fbc: `fb.1.${eventMs + dayMs}.AbC_123-x` },
+                expected: undefined,
+            },
+            {
+                name: 'keeps a click stamped a moment after the event by a drifting clock',
+                event: {},
+                person: { $fbc: `fb.1.${eventMs + 1000}.AbC_123-x` },
+                expected: `fb.1.${eventMs + 1000}.AbC_123-x`,
+            },
+            {
+                name: 'sends the event when a person holds a non-string fbc',
+                event: {},
+                person: { fbc: 1735689600000 },
                 expected: undefined,
             },
         ])('$name', async ({ event, person, expected }) => {
@@ -195,6 +231,8 @@ describe('meta ads template', () => {
             expect(response.error).toBeUndefined()
             const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
             expect(body.data[0].user_data.fbc).toEqual(expected)
+            // A candidate the template rejects must cost only the fbc field, never the whole send.
+            expect(body.data[0].user_data.em).toBeDefined()
         })
     })
 
