@@ -1,4 +1,4 @@
-from datetime import timedelta
+import asyncio
 from typing import Any, Literal
 
 from django.conf import settings
@@ -38,6 +38,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,
@@ -444,34 +445,56 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             ),
         )
 
-        async def _run():
+        async def _run() -> str:
             client = await async_connect()
-            method = client.start_workflow if force_async else client.execute_workflow
-            await method(
+            # Always start the workflow rather than block on it. This keeps the render alive
+            # server-side even when the request stops waiting for it.
+            handle = await client.start_workflow(
                 ExportAssetWorkflow.run,
                 workflow_inputs,
                 id=f"export-asset-{instance.id}",
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-                execution_timeout=timedelta(minutes=35),
+                execution_timeout=EXPORT_WORKFLOW_TIMEOUT,
             )
+            if force_async:
+                return "dispatched"
+
+            try:
+                # Wait for the render, but only up to the in-request budget. A slower render
+                # keeps running server-side past this; returning the pending asset stops the
+                # request from outliving the gateway idle timeout and becoming a 504.
+                await asyncio.wait_for(handle.result(), timeout=settings.EXPORT_SYNC_MAX_WAIT_SECONDS)
+            except TimeoutError:
+                return "still_rendering"
+            return "completed"
 
         try:
-            async_to_sync(_run)()
+            outcome = async_to_sync(_run)()
         except Exception as e:
             # Swallow workflow failures so the API always returns a 201 with the
             # ExportedAsset record. export_asset_direct populates the exception
             # field before re-raising, so callers (frontend toast, sharing
-            # endpoint) can inspect the failure on the asset itself.
+            # endpoint) can inspect the failure on the asset itself. A dispatch
+            # failure (Temporal unreachable, workflow never started) runs no
+            # activity, so nothing records a reason and the row would poll as a
+            # healthy job no process can finish — record one here, matching
+            # create_export_asset_async. The guard keeps an activity-written
+            # reason when the workflow did run and fail.
             logger.info(
                 "export_workflow_failed_gracefully",
                 asset_id=instance.id,
                 error=str(e),
             )
+            instance.refresh_from_db()
+            if not instance.exception:
+                instance.exception = "The export could not be started. Try again."
+                instance.exception_type = type(e).__name__
+                instance.save(update_fields=["exception", "exception_type"])
             return
 
         logger.info(
-            "export_workflow_dispatched" if force_async else "export_workflow_completed",
+            f"export_workflow_{outcome}",
             asset_id=instance.id,
         )
 

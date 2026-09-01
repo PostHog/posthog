@@ -9,7 +9,12 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, export_failure_metadata
+from posthog.temporal.exports.types import (
+    ExportAssetActivityInputs,
+    ExportAssetResult,
+    RecordExportFailureInputs,
+    export_failure_metadata,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
@@ -46,6 +51,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                 asset,
                 source=EventSource(inputs.source) if inputs.source else None,
+                record_failure=False,
             )
         except Exception as e:
             try:
@@ -61,6 +67,9 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                     exc_info=True,
                 )
             exception_class = type(e).__name__
+            is_retryable = exception_class in RETRYABLE_ERROR_NAMES
+            if not is_retryable:
+                await database_sync_to_async(exporter._record_export_failure, thread_sensitive=False)(asset, e)
             error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(
                 "export_asset_activity.failed",
@@ -80,7 +89,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 export_failure_metadata(export_slo_failure_details(e)),
                 type=exception_class,
-                non_retryable=exception_class not in RETRYABLE_ERROR_NAMES,
+                non_retryable=not is_retryable,
             ) from e
 
         await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
@@ -89,3 +98,11 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             exported_asset_id=asset.id,
             success=asset.has_content,
         )
+
+
+@temporalio.activity.defn
+def record_export_failure_activity(inputs: RecordExportFailureInputs) -> None:
+    asset = ExportedAsset.objects_including_ttl_deleted.get(pk=inputs.exported_asset_id)
+    if asset.exception:
+        return
+    exporter._record_export_failure(asset, inputs.exception, inputs.exception_type)

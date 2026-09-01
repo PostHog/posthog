@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -14,8 +15,9 @@ from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
+from posthog.tasks import exporter as exporter_task
 from posthog.temporal.common.slo_interceptor import SloInterceptor
-from posthog.temporal.exports.activities import export_asset_activity
+from posthog.temporal.exports.activities import export_asset_activity, record_export_failure_activity
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -30,14 +32,17 @@ class CustomQueryError(QueryError):
     pass
 
 
-async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
+async def _run_export_workflow(
+    env, asset, team, mock_exporter, fake_export, execution_timeout: timedelta | None = None
+):
     mock_exporter.export_asset_direct = fake_export
+    mock_exporter._record_export_failure = exporter_task._record_export_failure
 
     async with Worker(
         env.client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[ExportAssetWorkflow],
-        activities=[export_asset_activity],
+        activities=[export_asset_activity, record_export_failure_activity],
         interceptors=[SloInterceptor()],
         workflow_runner=UnsandboxedWorkflowRunner(),
         activity_executor=ThreadPoolExecutor(max_workers=5),
@@ -68,6 +73,7 @@ async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
             ),
             id=f"export-asset-{asset.id}",
             task_queue=settings.TEMPORAL_TASK_QUEUE,
+            execution_timeout=execution_timeout,
         )
 
 
@@ -129,15 +135,20 @@ async def test_transient_error_retries_and_succeeds(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
-):
+    ):
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
     call_count = 0
+    record_failures: list[bool] = []
 
     def flaky_export(asset_obj, **kwargs):
         nonlocal call_count
         call_count += 1
+        record_failures.append(kwargs["record_failure"])
         if call_count <= 2:
+            if kwargs["record_failure"]:
+                asset_obj.exception = "S3 error"
+                asset_obj.save(update_fields=["exception"])
             raise CHQueryErrorS3Error("S3 error", code=499)
         _success_export(asset_obj, **kwargs)
 
@@ -148,10 +159,36 @@ async def test_transient_error_retries_and_succeeds(
 
     await sync_to_async(asset.refresh_from_db)()
     assert asset.has_content
+    assert asset.exception is None
+    assert record_failures == [False, False, False]
 
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.SUCCESS
     assert "error" not in props
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_retry_deadline_records_terminal_failure(mock_exporter: MagicMock, team) -> None:
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
+
+    def failing_export(_asset_obj, **_kwargs) -> None:
+        raise CHQueryErrorS3Error("S3 error", code=499)
+
+    with pytest.raises(Exception):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            await _run_export_workflow(
+                env,
+                asset,
+                team,
+                mock_exporter,
+                failing_export,
+                execution_timeout=timedelta(seconds=90),
+            )
+
+    await sync_to_async(asset.refresh_from_db)()
+    assert asset.exception is not None
+    assert asset.exception_type == "CHQueryErrorS3Error"
+    assert asset.failure_type is not None
 
 
 @pytest.mark.parametrize(
@@ -189,7 +226,7 @@ async def test_transient_error_retries_and_succeeds(
             lambda: CHQueryErrorS3Error("S3 error", code=499),
             "CHQueryErrorS3Error",
             "CHQueryErrorS3Error: Code: 499.\nS3 error",
-            10,
+            6,
             SloOutcome.FAILURE,
             {
                 "failure_category": "storage",

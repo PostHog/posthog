@@ -27,6 +27,13 @@ class ExportAssetActivityInputs:
 
 
 @frozen
+class RecordExportFailureInputs:
+    exported_asset_id: int
+    exception: str
+    exception_type: str
+
+
+@frozen
 class ExportError:
     exception_class: str
     error_trace: str = ""

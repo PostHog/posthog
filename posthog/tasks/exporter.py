@@ -40,10 +40,12 @@ EXPORT_TIMER = Histogram(
 )
 
 
-def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
-    failure_type = classify_failure_type(e)
-    exported_asset.exception = str(e)
-    exported_asset.exception_type = type(e).__name__
+def _record_export_failure(
+    exported_asset: ExportedAsset, exception: Exception | str, exception_type: str | None = None
+) -> None:
+    failure_type = classify_failure_type(exception)
+    exported_asset.exception = str(exception)
+    exported_asset.exception_type = exception_type or type(exception).__name__
     exported_asset.failure_type = failure_type
     exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
@@ -87,6 +89,7 @@ def export_asset_direct(
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
     source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
+    record_failure: bool = True,
 ) -> None:
     from products.exports.backend.tasks import csv_exporter, image_exporter
 
@@ -183,5 +186,6 @@ def export_asset_direct(
             groups=groups(team.organization, team),
         )
 
-        _record_export_failure(exported_asset, e)
+        if record_failure:
+            _record_export_failure(exported_asset, e)
         raise

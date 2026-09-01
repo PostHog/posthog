@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -5,9 +6,10 @@ from typing import Literal, Optional
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.http import HttpResponse
+from django.test import override_settings
 from django.utils.timezone import now
 
 import requests.exceptions
@@ -1828,10 +1830,12 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
 
-    @patch("products.exports.backend.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_connect", new_callable=AsyncMock)
     def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect) -> None:
+        mock_handle = MagicMock()
+        mock_handle.result = AsyncMock(side_effect=Exception("workflow failed"))
         mock_client = AsyncMock()
-        mock_client.execute_workflow.side_effect = Exception("workflow failed")
+        mock_client.start_workflow.return_value = mock_handle
         mock_async_connect.return_value = mock_client
 
         response = self.client.post(
@@ -1841,6 +1845,50 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["has_content"])
+
+    @patch("products.exports.backend.api.exports.async_connect", new_callable=AsyncMock)
+    def test_dispatch_failure_records_exception_on_asset(self, mock_async_connect) -> None:
+        # A dispatch failure (start_workflow raises before any activity runs) records no reason on
+        # the asset on its own, so the create response must write one — otherwise the row polls as a
+        # healthy job no process can finish.
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock(side_effect=Exception("temporal unreachable"))
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertFalse(body["has_content"])
+        self.assertEqual(body["exception"], "The export could not be started. Try again.")
+
+    @override_settings(EXPORT_SYNC_MAX_WAIT_SECONDS=0.01)
+    @patch("products.exports.backend.api.exports.async_connect", new_callable=AsyncMock)
+    def test_slow_render_returns_pending_asset_instead_of_blocking(self, mock_async_connect) -> None:
+        # A render that outlives the in-request wait returns the pending asset instead of holding
+        # the request open until the gateway 504s; the frontend then polls it to completion.
+        async def _never_completes() -> None:
+            await asyncio.Event().wait()
+
+        mock_handle = MagicMock()
+        mock_handle.result = AsyncMock(side_effect=_never_completes)
+        mock_client = AsyncMock()
+        mock_client.start_workflow.return_value = mock_handle
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertFalse(body["has_content"])
+        self.assertIsNone(body["exception"])
+        mock_client.start_workflow.assert_awaited_once()
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):
