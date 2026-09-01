@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from django.db.models import Q, QuerySet
 
 import structlog
+
+from posthog.dataclasses import frozen
 
 from .models.feature_flag import FeatureFlag
 
@@ -32,7 +33,7 @@ class FeatureFlagStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
-@dataclass
+@frozen
 class FeatureFlagRolloutSummary:
     # Whether the flag is effectively rolled out to everyone, independent of recent evaluation.
     effectively_full_rollout: bool

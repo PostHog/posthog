@@ -11703,6 +11703,7 @@ class TestFeatureFlagStatusResponseSerializer(SimpleTestCase):
             {
                 "status": FeatureFlagStatus.STALE,
                 "reason": "Flag has not been called in 45 days",
+                "reason_states_rollout": False,
                 "rollout": {
                     "effectively_full_rollout": False,
                     "has_targeting_conditions": False,
