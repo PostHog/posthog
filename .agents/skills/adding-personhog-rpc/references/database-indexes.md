@@ -34,12 +34,12 @@ Constraints: `check_properties_size` — `pg_column_size(properties) <= 655360` 
 
 ## posthog_persondistinctid
 
-| Index name                                            | Type   | Columns                                                  | Notes                                                             |
-| ----------------------------------------------------- | ------ | -------------------------------------------------------- | ----------------------------------------------------------------- |
-| `unique_distinct_id_for_team`                         | UNIQUE | `(team_id, distinct_id)`                                 | Primary lookup path                                               |
+| Index name                                            | Type   | Columns                                                  | Notes                                                                                   |
+| ----------------------------------------------------- | ------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `unique_distinct_id_for_team`                         | UNIQUE | `(team_id, distinct_id)`                                 | Primary lookup path                                                                     |
 | `posthog_persondistinctid_team_distinct_covering_idx` | INDEX  | `(team_id, distinct_id) INCLUDE (person_id, is_deleted)` | Covering (non-unique): the identity resolve runs index-only, heap-free when all-visible |
-| `posthog_persondistinctid_person_id_5d655bba`         | INDEX  | `(person_id)`                                            | Join back to person                                               |
-| `posthog_persondistinctid_person_id_fkey`             | FK     | `(team_id, person_id)` → `posthog_person(team_id, id)`   | NOT VALID (added during migration)                                |
+| `posthog_persondistinctid_person_id_5d655bba`         | INDEX  | `(person_id)`                                            | Join back to person                                                                     |
+| `posthog_persondistinctid_person_id_fkey`             | FK     | `(team_id, person_id)` → `posthog_person(team_id, id)`   | NOT VALID (added during migration)                                                      |
 
 The validation shadow table `personhog_persondistinctid_tmp` carries the equivalent pair: `personhog_persondistinctid_tmp_team_distinct_idx` (unique) and `personhog_persondistinctid_tmp_team_distinct_covering_idx`.
 
