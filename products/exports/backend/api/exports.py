@@ -187,6 +187,18 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                     )
 
             if not self.context["request"].user.is_staff and existing_full_video_exports_count >= team_limit:
+                user = self.context["request"].user
+                posthoganalytics.capture(
+                    distinct_id=user.distinct_id if user else str(self.context["team_id"]),
+                    event="full video export limit reached",
+                    properties={
+                        "team_id": self.context["team_id"],
+                        "limit": team_limit,
+                        "existing_count": existing_full_video_exports_count,
+                        "tier": organization.get_plan_tier() if organization is not None else "free",
+                    },
+                    groups=groups(organization, team),
+                )
                 raise ValidationError(
                     {
                         "export_limit_exceeded": [

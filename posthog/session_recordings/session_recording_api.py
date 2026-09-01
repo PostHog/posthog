@@ -195,6 +195,25 @@ def _request_auth_type(request) -> str:
     return "logged_in"
 
 
+def _capture_session_recording_throttled(request, view, location: str, auth_type: str) -> None:
+    """Emit a product-analytics event so we can see which teams and users a replay throttle blocks."""
+    try:
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        user = getattr(request, "user", None)
+        distinct_id = user.distinct_id if user is not None and user.is_authenticated else str(team_id)
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="session recording api throttled",
+            properties={
+                "team_id": team_id,
+                "location": location,
+                "auth_type": auth_type,
+            },
+        )
+    except Exception:
+        logger.exception("replay_throttle_capture_failed")
+
+
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
 BlockList = list[Any]
 
@@ -710,7 +729,13 @@ class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
             except Exception:
                 logger.exception("replay_throttle_tier_lookup_failed")
                 self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
-        return super().allow_request(request, view)
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            auth_type = _request_auth_type(request)
+            location = self.scope or "replay"
+            _count_session_recording_throttled(location=location, auth_type=auth_type)
+            _capture_session_recording_throttled(request, view, location=location, auth_type=auth_type)
+        return allowed
 
 
 class SnapshotsBurstRateThrottle(_TierAwareReplayThrottle):
@@ -747,14 +772,12 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
 
 def get_replay_listing_throttle_error(request, view) -> str | None:
     """Return a client-facing error when replay listing throttles would block this request."""
-    auth_type = _request_auth_type(request)
     for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
         throttle = throttle_cls()
         if throttle.allow_request(request, view):
             continue
+        # allow_request already counted and captured this rejection, so don't count it again here.
         wait = throttle.wait()
-        scope = throttle.scope or "listing"
-        _count_session_recording_throttled(location=scope, auth_type=auth_type)
         if wait:
             return f"Rate limit exceeded. Expected available in {wait} seconds."
         return "Rate limit exceeded. Try again later."
@@ -789,6 +812,7 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
         if super().allow_request(request, view):
             return True
         _count_session_recording_throttled(location=self.scope, auth_type="sharing_token")
+        _capture_session_recording_throttled(request, view, location=self.scope, auth_type="sharing_token")
         return False
 
 

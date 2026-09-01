@@ -1545,6 +1545,37 @@ class TestExports(APIBaseTest):
 
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
+    def test_video_export_limit_captures_event_on_rejection(self, mock_async_connect, mock_async_to_sync) -> None:
+        # We were blind to who hit the cap; a rejected export must emit an analytics event.
+        for i in range(10):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "video/mp4",
+                    "export_context": {"session_recording_id": "session_over_limit"},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        limit_events = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "full video export limit reached"
+        ]
+        self.assertEqual(len(limit_events), 1)
+        properties = limit_events[0].kwargs["properties"]
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertEqual(properties["limit"], 10)
+        self.assertEqual(properties["existing_count"], 10)
+
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_limit_applies_to_all_video_formats(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the limit applies to both MP4 and WebM session recording exports"""
         # Create 5 MP4 and 5 WebM exports this month (at the limit)
