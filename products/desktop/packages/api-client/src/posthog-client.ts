@@ -3093,7 +3093,13 @@ export class PostHogAPIClient {
         `Failed to update automatic archiving: ${response.statusText}`,
       );
     }
-    return (await response.json()) as TaskChannel;
+    const updatedChannel = (await response.json()) as TaskChannel;
+    if (updatedChannel.auto_archive_after_days !== inactivityDays) {
+      throw new Error(
+        "Automatic archiving isn't available on this server yet. Try again after it has been updated.",
+      );
+    }
+    return updatedChannel;
   }
 
   async deleteTaskChannel(id: string): Promise<void> {

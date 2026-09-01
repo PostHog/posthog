@@ -10,6 +10,30 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("updateTaskChannelAutoArchive", () => {
+    it("rejects a successful response that did not save the setting", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "channel-1", name: "personal" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.updateTaskChannelAutoArchive("channel-1", 7),
+      ).rejects.toThrow(
+        "Automatic archiving isn't available on this server yet",
+      );
+    });
+  });
+
   describe("setUserSpendLimit", () => {
     // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
     // unwrapped for the settings toast rather than the raw fetcher string.

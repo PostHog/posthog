@@ -150,6 +150,7 @@ export function useChannelMutations() {
             channel.id === updatedChannel.id ? updatedChannel : channel,
           ),
       );
+      invalidate();
     },
   });
 
