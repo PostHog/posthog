@@ -49,7 +49,7 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
-from ..facade.api import resolve_member_tool_states
+from ..facade.api import allow_internal_mcp_url, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -82,7 +82,6 @@ from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_sta
 from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
-from ..url_policy import allow_internal_mcp_url
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
