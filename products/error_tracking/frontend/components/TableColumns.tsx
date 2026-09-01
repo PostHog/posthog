@@ -73,6 +73,7 @@ export const IssueListTitleColumn = (props: {
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
+    const description = cleanIssueField(record.description)
 
     const handleSelectionChange = (newValue: boolean): void => {
         const idsToToggle = getShiftClickIds(
@@ -111,10 +112,10 @@ export const IssueListTitleColumn = (props: {
             <div className="flex flex-col gap-[2px]">
                 <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
                 <div
-                    title={record.description || undefined}
+                    title={description || undefined}
                     className="font-medium line-clamp-1 text-[var(--gray-8)] h-(--line-height)"
                 >
-                    {record.description}
+                    {description}
                 </div>
                 {(record.function || record.source) && (
                     <div className="line-clamp-1 text-[var(--gray-6)] italic font-light h-(--line-height)">
