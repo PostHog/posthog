@@ -10,6 +10,7 @@ import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
+  CodexModelAccess,
   ExecutionMode,
   WorkspaceMode,
 } from "@posthog/shared";
@@ -24,7 +25,7 @@ import { persist } from "zustand/middleware";
 
 // ---------- Types ----------
 
-export type DefaultRunMode = "local" | "cloud" | "last_used";
+type DefaultRunMode = "local" | "cloud" | "last_used";
 export type LocalWorkspaceMode = "worktree" | "local";
 
 export const DEFAULT_WORKSPACE_MODE: WorkspaceMode = "cloud";
@@ -102,12 +103,13 @@ export const DEFAULT_HINT_MAX = 3;
  * Whether a lesson has stopped offering itself: someone answered it, or it ran
  * out of showings. Reset is what brings either back.
  */
-function isHintRetired(key: string, hint: HintState | undefined): boolean {
+export function isHintRetired(
+  key: string,
+  hint: HintState | undefined,
+): boolean {
   if (!hint) return false;
   if (hint.learned) return true;
-  const showings = TIP_SHOWINGS[key as TipKey];
-  if (showings?.kind === "answered-only") return false;
-  return hint.count >= (showings?.max ?? DEFAULT_HINT_MAX);
+  return hint.count >= (TIP_SHOWINGS[key as TipKey]?.max ?? DEFAULT_HINT_MAX);
 }
 
 /** How many of a person's saved lessons have stopped offering themselves. */
@@ -145,6 +147,7 @@ interface SettingsStore {
   lastUsedContextWindow: "200k" | "1m" | null;
   lastUsedFastMode: boolean | null;
   lastUsedCloudRepository: string | null;
+  favoriteCloudTargetKey: string | null;
   cachedCloudRepositoryMap: Record<string, UserRepositoryIntegrationRef>;
   // Last-known default ("trunk") branch per cloud repo, keyed by lowercased
   // "owner/repo". Persisted so a cold start can pre-select trunk in the branch
@@ -172,6 +175,7 @@ interface SettingsStore {
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;
   setLastUsedCloudRepository: (repo: string | null) => void;
+  setFavoriteCloudTargetKey: (key: string | null) => void;
   setCachedCloudRepositoryMap: (
     map: Record<string, UserRepositoryIntegrationRef>,
   ) => void;
@@ -279,12 +283,14 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
+  codexModelAccess: CodexModelAccess;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
+  setCodexModelAccess: (mode: CodexModelAccess) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -369,6 +375,7 @@ export const useSettingsStore = create<SettingsStore>()(
       lastUsedContextWindow: null,
       lastUsedFastMode: null,
       lastUsedCloudRepository: null,
+      favoriteCloudTargetKey: null,
       cachedCloudRepositoryMap: {},
       cachedCloudDefaultBranchMap: {},
       lastUsedEnvironments: {},
@@ -395,6 +402,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setLastUsedFastMode: (enabled) => set({ lastUsedFastMode: enabled }),
       setLastUsedCloudRepository: (repo) =>
         set({ lastUsedCloudRepository: repo }),
+      setFavoriteCloudTargetKey: (key) => set({ favoriteCloudTargetKey: key }),
       setCachedCloudRepositoryMap: (map) =>
         set({ cachedCloudRepositoryMap: map }),
       setCachedCloudDefaultBranch: (repo, branch) =>
@@ -541,6 +549,7 @@ export const useSettingsStore = create<SettingsStore>()(
       autoPublishCloudRuns: true,
       rtkEnabledLocal: true,
       rtkEnabledCloud: true,
+      codexModelAccess: "posthog-gateway",
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -550,6 +559,7 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ autoPublishCloudRuns: enabled }),
       setRtkEnabledLocal: (enabled) => set({ rtkEnabledLocal: enabled }),
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
+      setCodexModelAccess: (mode) => set({ codexModelAccess: mode }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -699,6 +709,7 @@ export const useSettingsStore = create<SettingsStore>()(
         autoPublishCloudRuns: state.autoPublishCloudRuns,
         rtkEnabledLocal: state.rtkEnabledLocal,
         rtkEnabledCloud: state.rtkEnabledCloud,
+        codexModelAccess: state.codexModelAccess,
 
         // Terminal
         terminalFont: state.terminalFont,

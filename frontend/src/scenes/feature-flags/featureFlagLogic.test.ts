@@ -1891,7 +1891,7 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('schedule ordering', () => {
+    describe('scheduled changes', () => {
         const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
             id: 1,
             team_id: MOCK_DEFAULT_PROJECT.id,
@@ -2096,6 +2096,42 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toMatchValues({
                 completedSchedules: [partial({ id: 1 }), partial({ id: 2 })],
             })
+        })
+
+        it('collapses the form again after a create, so the plan stays in front', async () => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results: [makeScheduledChange({ id: 1 })] }] } })
+            // The success listener reports to eventUsageLogic, but featureFlagLogic does not mount it via connect().
+            eventUsageLogic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            logic.actions.setScheduleFormExpanded(true)
+            expect(logic.values.scheduleFormState).toEqual('expanded')
+
+            await expectLogic(logic, () => {
+                logic.actions.createScheduledChangeSuccess(makeScheduledChange({ id: 2 }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.scheduleFormState).toEqual('collapsed')
+        })
+
+        it('opens the form again when the last schedule goes, to match the empty state', async () => {
+            let results = [makeScheduledChange({ id: 1 })]
+            useMocks({ get: { [schedulesUrl]: () => [200, { results }] } })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            logic.actions.setScheduleFormExpanded(false)
+            expect(logic.values.scheduleFormState).toEqual('collapsed')
+
+            results = []
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            expect(logic.values.scheduleFormState).toEqual('expanded')
         })
     })
 

@@ -6,12 +6,6 @@ export interface CloneProgressEvent {
   message: string;
 }
 
-export interface CloneRepositoryInput {
-  repoUrl: string;
-  targetPath: string;
-  cloneId: string;
-}
-
 export interface CloneOperation {
   cloneId: string;
   repository: string;

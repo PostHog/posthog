@@ -168,6 +168,22 @@ DEV_STACK_IMAGE_BAKE_TOTAL = Counter(
     labelnames=["outcome", "region", "trigger"],
 )
 
+DEV_STACK_PREVIEW_BOOT_BUCKETS = [30.0, 60.0, 120.0, 180.0, 240.0, 300.0, 420.0, 600.0, 720.0]
+
+DEV_STACK_PREVIEW_BOOT_SECONDS = Histogram(
+    "posthog_tasks_dev_stack_preview_boot_seconds",
+    "Wall time from launching the dev stack in a run's sandbox to its preview answering health checks",
+    buckets=DEV_STACK_PREVIEW_BOOT_BUCKETS,
+)
+
+DEV_STACK_PREVIEW_TOTAL = Counter(
+    "posthog_tasks_dev_stack_preview_total",
+    "Dev stack preview lifecycle outcomes. started counts launches and attached counts re-entries that joined "
+    "a launch in progress; ready, failed, timed_out and cancelled each close one of those; launch_failed "
+    "counts start attempts that raised before launching.",
+    labelnames=["outcome"],
+)
+
 
 # Connection lifetimes range from a few seconds (cold reconnect) to the
 # per-connection cap. The 120s bucket isolates connections cut at the
@@ -312,8 +328,6 @@ CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 DesktopAccessOutcome = Literal[
     "allowed",
-    "legacy_allowed",
-    "legacy_denied",
     "startup_plan",
     "prepaid_credits",
     "override",

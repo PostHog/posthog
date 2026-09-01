@@ -1,6 +1,7 @@
 import {
   type CloudTaskConfigOption,
   DEFAULT_GATEWAY_MODEL,
+  GLM53_FLASH_MODEL_FLAG,
   GLM53_MODEL_FLAG,
 } from "@posthog/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -137,19 +138,23 @@ describe("useCloudTaskConfigOptions", () => {
     });
   });
 
-  it("gates GLM 5.3 independently from GLM 5.2", async () => {
+  it.each([
+    { enabledFlag: GLM53_MODEL_FLAG, model: "zai-org/glm-5.3" },
+    { enabledFlag: GLM53_FLASH_MODEL_FLAG, model: "zai-org/glm-5.3-flash" },
+  ])("gates $model independently", async ({ enabledFlag, model }) => {
     mockUseFeatureFlag.mockImplementation(
-      (flag: string) => flag === GLM53_MODEL_FLAG,
+      (flag: string) => flag === enabledFlag,
     );
     mockGetCloudTaskConfigOptions.mockResolvedValue([
       {
         id: "model",
         name: "Model",
         type: "select",
-        currentValue: "zai-org/glm-5.3",
+        currentValue: model,
         options: [
           { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
           { value: "zai-org/glm-5.3", name: "GLM-5.3" },
+          { value: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
         ],
         category: "model",
         description: "Choose a model",
@@ -159,9 +164,9 @@ describe("useCloudTaskConfigOptions", () => {
     const result = await renderHook();
     await waitForAssertion(() => {
       const modelOption = getModelConfigOption(result.current.configOptions);
-      expect(modelOption.currentValue).toBe("zai-org/glm-5.3");
+      expect(modelOption.currentValue).toBe(model);
       expect(modelOption.options.map((option) => option.value)).toEqual([
-        "zai-org/glm-5.3",
+        model,
       ]);
     });
   });

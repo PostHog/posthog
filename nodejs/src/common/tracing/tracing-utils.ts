@@ -105,6 +105,8 @@ interface FunctionInstrumentationOptions {
     logExecutionTime?: boolean
     sendException?: boolean
     measureTime?: boolean
+    /** Stamped as the `tag` attribute on the span and the summary metric, to tell apart callers sharing a key. */
+    tag?: string
     /** Attributes set on the tracing span only. They never reach the Prometheus metrics. */
     attributes?: Attributes
 }
@@ -147,6 +149,7 @@ export async function instrumentFn<T>(
     const sendException = (typeof options === 'string' ? undefined : options.sendException) ?? true
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
+    const tag = typeof options === 'string' ? undefined : options.tag
     const attributes = (typeof options === 'string' ? undefined : options.attributes) ?? {}
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
@@ -159,7 +162,7 @@ export async function instrumentFn<T>(
         // Skip expensive span creation when tracing is disabled
         const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
             ? await func()
-            : await withSpan('instrumented_function', key, attributes, func)
+            : await withSpan('instrumented_function', key, tag ? { ...attributes, tag } : attributes, func)
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)

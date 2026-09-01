@@ -77,6 +77,7 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
+SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
 def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) -> list[str]:
@@ -212,7 +213,6 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
 
 
 CHART_IMAGE_URL_TTL = timedelta(days=180)
-SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
 def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
@@ -336,7 +336,11 @@ def _build_ai_slack_message(
     ]
     for chart in charts or []:
         caption = chart.get("title") or "Chart"
-        image_block: dict = {"type": "image", "image_url": chart["image_url"], "alt_text": caption[:2000]}
+        image_block: dict = {
+            "type": "image",
+            "image_url": chart["image_url"],
+            "alt_text": caption[:SLACK_IMAGE_TITLE_LIMIT],
+        }
         if chart.get("title"):
             image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
         blocks.append(image_block)

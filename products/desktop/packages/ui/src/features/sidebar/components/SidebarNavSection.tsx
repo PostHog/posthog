@@ -6,19 +6,15 @@ import {
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
-  CUSTOMIZABLE_NAV_ITEM_IDS,
-  type CustomizableNavItemId,
-  isNavItemVisible,
-  orderedNavItems,
+  NAV_ITEMS,
+  type NavItemId,
 } from "@posthog/ui/features/sidebar/constants";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   navigateToActivity,
   navigateToCommandCenter,
@@ -66,26 +62,19 @@ export function SidebarNavSection({
 }: SidebarNavSectionProps = {}) {
   const view = useAppView();
   const openBrowserTab = useOpenBrowserTab();
-  // Loops stays behind the loops flag; default on in dev so local builds
-  // keep the nav item. Also gates the per-channel Loops tab (see ChannelTabs).
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  // Loops stays behind the loops flag. Also gates the per-channel Loops tab
+  // (see ChannelTabs).
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   // Channels stay behind project-bluebird, including channel-only nav items.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  // With channel reports on, spaces own reports (sidebar tab + feed) and the
-  // inbox disappears as a destination.
-  const channelReportsEnabled = useChannelReportsEnabled();
-  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxAvailable = useInboxAvailable();
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
-  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
-  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
-  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
-  const inboxVisible =
-    inboxAvailable && isNavItemVisible(navItemOverrides, "inbox");
+  const inboxVisible = inboxAvailable;
   const inboxDecisionCount = useInboxDecisionCount({ enabled: inboxVisible });
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
@@ -138,13 +127,7 @@ export function SidebarNavSection({
       action();
     };
 
-  const orderedItems = orderedNavItems(navItemOrder);
-  const hidden = new Set<CustomizableNavItemId>(
-    CUSTOMIZABLE_NAV_ITEM_IDS.filter(
-      (id) => !isNavItemVisible(navItemOverrides, id),
-    ),
-  );
-  const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
+  const navItemAvailable: Record<NavItemId, boolean> = {
     // The global reports inbox reclaims the slot from the channel-reports
     // takeover; without it, spaces own reports and the entry goes away.
     inbox: inboxAvailable,
@@ -155,12 +138,9 @@ export function SidebarNavSection({
     loops: loopsEnabled,
   };
 
-  // One renderer per customizable item, used for both the top level (depth 0)
+  // One renderer per nav item, used for both the top level (depth 0)
   // and the expanded More section (depth 1) so the two never drift apart.
-  const renderNavItem: Record<
-    CustomizableNavItemId,
-    (depth: 0 | 1) => ReactNode
-  > = {
+  const renderNavItem: Record<NavItemId, (depth: 0 | 1) => ReactNode> = {
     inbox: (depth) => (
       <InboxItem
         depth={depth}
@@ -218,9 +198,7 @@ export function SidebarNavSection({
     ),
   };
 
-  const topLevelItems = orderedItems.filter(
-    ({ id }) => navItemAvailable[id] && !hidden.has(id),
-  );
+  const topLevelItems = NAV_ITEMS.filter(({ id }) => navItemAvailable[id]);
   return (
     <Flex direction="column" className="shrink-0 gap-px px-2 py-2">
       <Box mb="2">

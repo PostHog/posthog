@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from ..facade import api, contracts
@@ -41,6 +42,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ActorType
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -62,8 +64,19 @@ from .serializers import (
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
+
+
+def _actor(request: Request) -> ActorType:
+    """Who is making this write, for attribution on the row it creates.
+
+    `is_mcp_request` needs both a scoped token and the MCP server's user agent, so a
+    browser session is never recorded as an agent. The marker is client-supplied, so
+    this attributes a write and must never gate one.
+    """
+    return ActorType.AGENT if is_mcp_request(request) else ActorType.HUMAN
 
 
 def _parse_uuid(value: str, field: str = "id") -> UUID:
@@ -271,22 +284,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 input=request.validated_data,
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                source=_actor(request),
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
-        request_serializer=QuarantineInputSerializer,
+        request_serializer=UnquarantineQuerySerializer,
         responses={204: None},
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
-    def unquarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+    def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
         """Expire all active quarantine entries for an identifier."""
         try:
             api.unquarantine_identifier(
                 repo_id=_parse_uuid(pk),
-                identifier=request.validated_data.identifier,
+                identifier=request.validated_data["identifier"],
                 run_type=run_type,
                 team_id=self.team_id,
             )
@@ -571,6 +585,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snapshot_id=request.validated_data["snapshot_id"],
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                actor=_actor(request),
             )
         except api.RunNotFoundError:
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)

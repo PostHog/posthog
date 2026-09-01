@@ -193,6 +193,11 @@ def extract_message_text(msg: dict) -> str:
         pieces.append(text)
 
     blocks = msg.get("blocks") or []
+    if text:
+        # A `rich_text` block is Slack's structured mirror of `text`. Flattening it drops
+        # mentions and emoji, yielding a near-duplicate the exact-match dedup below can't
+        # catch — skip it and let `text` (which keeps both) speak for that content.
+        blocks = [b for b in blocks if not (isinstance(b, dict) and b.get("type") == "rich_text")]
     attachments = msg.get("attachments") or []
     try:
         pieces.extend(flatten_block_text(blocks))
@@ -496,8 +501,9 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     Never raises: the footer is the last thing added to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
 
-    Describes the run in full, links included. Whether the reader may open them is
-    ``viewer_has_code_access``'s question, asked where the reader is known.
+    Describes the run in full, links included. Whether the reader gets the desktop link
+    is ``viewer_has_code_access``'s question, asked where the reader is known; the web
+    link is for everyone, since the task page enforces access itself.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -637,6 +643,11 @@ def personal_integrations_url(team_id: int) -> str:
     deep-links to this settings page instead of starting an OAuth flow from Slack.
     """
     return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
+
+
+def project_web_url(team_id: int) -> str:
+    """Absolute ``/project/<id>`` base for links into this project's PostHog app."""
+    return _public_url(f"/project/{team_id}")
 
 
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:

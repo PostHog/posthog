@@ -6,6 +6,8 @@ description: >
 
 # Maintaining Python tests
 
+Before you propose a change to how the suite runs in CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records measured verdicts on test parallelism, sharding, and coverage-based selection, so a rejected approach is not rebuilt.
+
 Use this skill for an existing Python test suite. Use `/writing-tests` before adding or substantially changing coverage. Use `/fixing-flaky-tests` when intermittent failure is the main problem.
 
 The goal is not a smaller test count. The goal is a suite that catches the same realistic regressions with less compute, less waiting, and less maintenance.

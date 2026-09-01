@@ -1,5 +1,6 @@
 import math
 import datetime
+from typing import Any
 
 import pytest
 
@@ -30,7 +31,17 @@ from products.signals.dags.inbox_ranking.training.examples import (
     holdout_mask,
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, dismissed_as_wrong
-from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, decide_promotion
+from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
+from products.signals.dags.inbox_ranking.training.telemetry import (
+    DISTINCT_ID,
+    LOCAL_DISTINCT_ID,
+    HeadExampleCounts,
+    TrainingEvent,
+    candidate_events,
+    capture_training_events,
+    examples_events,
+    promotion_event,
+)
 from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
 
 D0 = datetime.date(2026, 8, 10)
@@ -250,6 +261,13 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert trained.metrics.readable
     assert trained.metrics.holdout_auc is not None and trained.metrics.holdout_auc > 0.9
     assert trained.metrics.null_auc is not None and abs(trained.metrics.null_auc - 0.5) < 0.15
+    assert trained.metrics.null_auc_std is not None and trained.metrics.null_auc_std < 0.15
+    assert trained.metrics.train_auc is not None and trained.metrics.train_auc > 0.9
+    assert trained.metrics.holdout_average_precision is not None and trained.metrics.holdout_average_precision > 0.9
+    assert trained.metrics.holdout_logloss is not None and trained.metrics.holdout_logloss < 0.5
+    assert trained.metrics.holdout_positive_rate == pytest.approx(
+        trained.metrics.holdout_positives / trained.metrics.holdout_rows
+    )
     booster = xgb.Booster()
     booster.load_model(bytearray(trained.booster_ubj))
     assert booster.feature_names == list(FEATURE_NAMES)
@@ -263,6 +281,43 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     other_schema = xgb.XGBClassifier(n_estimators=2).fit(pd.DataFrame({"not_a_feature": [0, 1, 0, 1]}), [0, 1, 0, 1])
     other_ubj = bytes(other_schema.get_booster().save_raw("ubj"))
     assert booster_holdout_auc(other_ubj, examples, head, holdout_days=7) is None
+
+
+def test_train_head_keeps_logloss_on_a_single_class_holdout():
+    # Only the newest reports fall in the holdout, and they are all negatives: AUC is undefined
+    # there but logloss is not, and the head must still train and ship.
+    head = HEADS_BY_NAME["open"]
+    rng = np.random.default_rng(1)
+    n = 400
+    created = pd.to_datetime("2026-07-01", utc=True) + pd.to_timedelta(rng.integers(0, 40, n), unit="D")
+    signal_count = rng.integers(1, 50, n)
+    rows = pd.DataFrame(
+        {
+            "signal_count": signal_count,
+            "total_weight": rng.random(n),
+            "run_count": 1,
+            "title_chars": 40,
+            "summary_chars": 400,
+            "priority": "P2",
+            "actionability": None,
+            "age_hours": 12.0,
+        }
+    )
+    examples = feature_frame(rows)
+    examples.insert(0, "head", head.name)
+    examples.insert(1, "report_id", [f"r{i}" for i in range(n)])
+    examples.insert(2, "snapshot_date", D0)
+    examples.insert(3, "report_created_at", created)
+    in_holdout = holdout_mask(examples, 7).to_numpy()
+    examples["label"] = ((signal_count > 25) & ~in_holdout).astype(int)
+
+    trained = train_head(examples, head, holdout_days=7)
+    assert trained is not None
+    assert trained.metrics.holdout_positives == 0
+    assert trained.metrics.holdout_auc is None
+    assert trained.metrics.holdout_average_precision is None
+    assert trained.metrics.holdout_logloss is not None and trained.metrics.holdout_logloss > 0
+    assert not trained.metrics.readable
 
 
 def test_train_head_returns_none_without_both_classes():
@@ -279,6 +334,114 @@ def test_train_head_returns_none_without_both_classes():
     for name in FEATURE_NAMES:
         examples[name] = 1.0
     assert train_head(examples, head, holdout_days=7) is None
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.shutdowns = 0
+
+    def capture(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+
+    def shutdown(self) -> None:
+        self.shutdowns += 1
+
+
+def _patch_capture(monkeypatch, *, cloud: bool, debug: bool) -> _FakeClient:
+    client = _FakeClient()
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.get_client", lambda region: client)
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.is_cloud", lambda: cloud)
+    monkeypatch.setattr(settings, "DEBUG", debug)
+    monkeypatch.setattr(settings, "CLOUD_DEPLOYMENT", "US" if cloud else None)
+    return client
+
+
+@pytest.mark.parametrize(
+    "cloud,debug,expected_distinct_id,expected_environment",
+    [
+        (True, False, DISTINCT_ID, "US"),
+        (False, True, LOCAL_DISTINCT_ID, "local"),  # a laptop run lands on the dashboard, marked
+        (False, False, None, None),  # a self-hosted instance never reports into PostHog's project
+    ],
+)
+def test_training_events_capture_gate_and_local_marking(
+    monkeypatch, cloud, debug, expected_distinct_id, expected_environment
+):
+    client = _patch_capture(monkeypatch, cloud=cloud, debug=debug)
+    events = [TrainingEvent(event="inbox_ranking_examples_built", properties={"head": "open"})]
+    capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
+    if expected_distinct_id is None:
+        assert client.calls == []
+        return
+    assert client.shutdowns == 1
+    (call,) = client.calls
+    assert call["distinct_id"] == expected_distinct_id
+    assert call["properties"]["environment"] == expected_environment
+
+
+def test_training_events_carry_the_dashboard_contract(monkeypatch):
+    # The per-head events are what the project-2 insights break down on; dropping the head
+    # property, the partition-day timestamp, or the person-profile opt-out breaks every chart.
+    metadata = {
+        "model_version": "2026-08-25",
+        "run_id": "run-1",
+        "dataset_version": "v1",
+        "feature_schema_version": 1,
+        "lookback_days": 60,
+        "holdout_days": 7,
+        "heads": [
+            {"head": "open", "holdout_auc": 0.67, "readable": True, "file": "open.ubj", "holdout_file": None},
+            {"head": "action", "holdout_auc": None, "readable": False, "file": "action.ubj", "holdout_file": None},
+        ],
+        "skipped_heads": ["dismiss_wrong"],
+    }
+    events = [
+        *candidate_events(metadata),
+        *examples_events(
+            partition_key="2026-08-25",
+            run_id="run-1",
+            snapshots=20,
+            backfilled_rows=0,
+            per_head={"open": HeadExampleCounts(rows=10, positives=2)},
+        ),
+        promotion_event(
+            partition_key="2026-08-25",
+            run_id="run-1",
+            decision=PromotionDecision(promote=True, reason="no champion yet"),
+            promoted=False,
+            champion_version="none",
+            incumbent_champion_version="none",
+            champion_aucs={"open": 0.6},
+        ),
+    ]
+    client = _patch_capture(monkeypatch, cloud=True, debug=False)
+    capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
+
+    by_event: dict[str, list[dict]] = {}
+    for call in client.calls:
+        by_event.setdefault(call["event"], []).append(call)
+        assert call["distinct_id"] == DISTINCT_ID
+        assert call["timestamp"] == datetime.datetime(2026, 8, 25, 12, tzinfo=datetime.UTC)
+        assert call["properties"]["$process_person_profile"] is False
+        assert call["properties"]["model_version"] == "2026-08-25"
+    candidates = by_event["inbox_ranking_candidate_trained"]
+    assert [c["properties"]["head"] for c in candidates] == ["open", "action", "dismiss_wrong"]
+    assert candidates[0]["properties"]["holdout_auc"] == 0.67
+    assert candidates[0]["properties"]["lookback_days"] == 60
+    assert candidates[0]["properties"]["trained"] is True
+    assert "file" not in candidates[0]["properties"]
+    # A head with nothing to fit still reports, so the readability alert sees a bad day, not a gap.
+    assert {"trained": False, "readable": False}.items() <= candidates[2]["properties"].items()
+    examples_props = by_event["inbox_ranking_examples_built"][0]["properties"]
+    assert {"head": "open", "rows": 10, "positives": 2}.items() <= examples_props.items()
+    promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
+    assert {
+        "would_promote": True,
+        "promoted": False,
+        "incumbent_champion_version": "none",
+        "champion_open_auc_on_this_holdout": 0.6,
+    }.items() <= promotion_props.items()
 
 
 @pytest.mark.parametrize(

@@ -547,6 +547,25 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user, None)
 
+    @pytest.mark.disable_mock_email_code_verification
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_unverified_login_returns_verify_email_pending_with_uuid(
+        self, mock_send_code, mock_is_email_available
+    ):
+        # The signup code flow blocks login with the user uuid in `detail`, so the frontend can
+        # route to /verify_email/<uuid> where the code entry form lives.
+        self.user.is_email_verified = False
+        self.user.save()
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "verify_email_pending")
+        self.assertEqual(response.json()["detail"], str(self.user.uuid))
+        mock_send_code.assert_called_once()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     @parameterized.expand(
         [
             # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the

@@ -4,7 +4,8 @@ import json
 import time
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
@@ -13,7 +14,14 @@ from django.http import Http404
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import (
     pagination,
     serializers,
@@ -28,6 +36,7 @@ from rest_framework.response import Response
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -71,9 +80,22 @@ from products.conversations.backend.person_lookup import _get_persons_by_email
 from .. import reply_dedupe
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
+
+
+class UserTicketAssignee(TypedDict):
+    id: int
+    type: Literal["user"]
+
+
+class RoleTicketAssignee(TypedDict):
+    id: str
+    type: Literal["role"]
+
+
+TicketAssignee = UserTicketAssignee | RoleTicketAssignee
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -388,6 +410,80 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         return None
 
 
+class UserTicketAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Assign the ticket to a user.")
+    id = serializers.IntegerField(help_text="User ID.")
+
+
+class RoleTicketAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Assign the ticket to a role.")
+    id = serializers.UUIDField(help_text="Role ID.")
+
+
+_TICKET_ASSIGNEE_REQUEST_SCHEMA = PolymorphicProxySerializer(
+    component_name="TicketAssigneeRequest",
+    serializers={
+        "user": UserTicketAssigneeRequestSerializer,
+        "role": RoleTicketAssigneeRequestSerializer,
+    },
+    resource_type_field_name="type",
+)
+
+
+@extend_schema_field(_TICKET_ASSIGNEE_REQUEST_SCHEMA)
+class TicketAssigneeRequestField(serializers.Field):
+    def to_internal_value(self, data: object) -> TicketAssignee | None:
+        try:
+            return validate_assignee(data)
+        except serializers.ValidationError as error:
+            if isinstance(error.detail, dict) and "assignee" in error.detail:
+                raise serializers.ValidationError(error.detail["assignee"]) from error
+            raise
+
+
+class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """Fields accepted when updating a ticket."""
+
+    assignee = TicketAssigneeRequestField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="User or role to assign. Pass null to remove the current assignee.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to set on the ticket.",
+    )
+
+    class Meta:
+        model = Ticket
+        fields = [
+            "status",
+            "priority",
+            "assignee",
+            "anonymous_traits",
+            "ai_resolved",
+            "escalation_reason",
+            "sla_due_at",
+            "snoozed_until",
+            "tags",
+        ]
+        extra_kwargs = {
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Pass null to clear it."},
+            "anonymous_traits": {"help_text": "Customer details such as name and email."},
+            "ai_resolved": {"help_text": "Whether AI resolved the ticket."},
+            "escalation_reason": {"help_text": "Reason the ticket was escalated. Pass null to clear it."},
+            "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
+            "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
+        }
+
+    def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
+        validated_data.pop("assignee", None)
+        return super().update(instance, validated_data)
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -403,10 +499,108 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
 )
 
 
+def _status_implied_by_snooze(before: datetime | None, after: datetime | None) -> str | None:
+    """Return the status a snooze change implies, or None when it implies no status change.
+
+    Snoozing a ticket puts it on hold, and unsnoozing reopens it. Moving a snooze to a
+    different time leaves the status alone.
+    """
+    if before is None and after is not None:
+        return Status.ON_HOLD
+    if before is not None and after is None:
+        return Status.OPEN
+    return None
+
+
+def _activity_value(value: Any) -> Any:
+    """Render a field value for the activity log. Datetimes go in as ISO strings."""
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+def _ticket_action_properties(ticket: Ticket) -> dict[str, Any]:
+    return {
+        "channel_source": ticket.channel_source,
+        "ticket_status": ticket.status,
+        "is_assigned": getattr(ticket, "assignment", None) is not None,
+    }
+
+
+@frozen
+class _TicketFields:
+    """The ticket fields a single-ticket update compares before and after saving."""
+
+    status: str
+    priority: str | None
+    sla_due_at: datetime | None
+    snoozed_until: datetime | None
+
+    @classmethod
+    def read_from(cls, ticket: Ticket) -> _TicketFields:
+        return cls(
+            status=ticket.status,
+            priority=ticket.priority,
+            sla_due_at=ticket.sla_due_at,
+            snoozed_until=ticket.snoozed_until,
+        )
+
+
+@frozen
+class _TicketUpdateDiff:
+    """What a single-ticket update changed, and therefore which side effects run."""
+
+    before: _TicketFields
+    after: _TicketFields
+    # True when the request carried an assignee, which is not the same as the assignment
+    # having changed. assign_ticket() decides that, and stays silent when it did not.
+    assignee_submitted: bool
+
+    @property
+    def status_changed(self) -> bool:
+        return self.before.status != self.after.status
+
+    @property
+    def priority_changed(self) -> bool:
+        return self.before.priority != self.after.priority
+
+    @property
+    def crosses_resolved(self) -> bool:
+        return self.status_changed and Status.RESOLVED in (self.before.status, self.after.status)
+
+    @property
+    def has_changes(self) -> bool:
+        return self.assignee_submitted or self.before != self.after
+
+    def activity_changes(self) -> list[Change]:
+        """Build the activity-log entries for every field this update touched."""
+        fields: list[tuple[str, Any, Any]] = [
+            ("status", self.before.status, self.after.status),
+            ("priority", self.before.priority, self.after.priority),
+            ("sla_due_at", self.before.sla_due_at, self.after.sla_due_at),
+            ("snoozed_until", self.before.snoozed_until, self.after.snoozed_until),
+        ]
+        # Compare the raw values, so two datetimes for the same instant in different
+        # timezones do not register as a change, then render for the log.
+        return [
+            Change(
+                type="Ticket",
+                field=field,
+                before=_activity_value(before),
+                after=_activity_value(after),
+                action="changed",
+            )
+            for field, before, after in fields
+            if before != after
+        ]
+
+
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
-    update=extend_schema(parameters=[TICKET_ID_PARAM]),
-    partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
+    update=extend_schema(
+        parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
+    ),
+    partial_update=extend_schema(
+        parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
+    ),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -786,11 +980,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             report_user_action(
                 request.user,
                 "support ticket viewed",
-                {
-                    "channel_source": instance.channel_source,
-                    "ticket_status": instance.status,
-                    "is_assigned": getattr(instance, "assignment", None) is not None,
-                },
+                _ticket_action_properties(instance),
                 team=self.team,
                 request=request,
             )
@@ -804,158 +994,135 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         """Handle ticket updates including assignee changes."""
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
-        old_status = instance.status
-        old_priority = instance.priority
-        old_sla_due_at = instance.sla_due_at
-        old_snoozed_until = instance.snoozed_until
+        before = _TicketFields.read_from(instance)
 
-        # Extract assignee without mutating request.data
-        assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
-        data = {k: v for k, v in request.data.items() if k != "assignee"}
-
-        # Update other fields normally
-        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer = TicketUpdateRequestSerializer(
+            instance,
+            data=request.data,
+            partial=partial,
+            context=self.get_serializer_context(),
+        )
         serializer.is_valid(raise_exception=True)
 
-        explicit_status = "status" in data
-        with transaction.atomic():
-            self.perform_update(serializer)
+        assignee_submitted = "assignee" in serializer.validated_data
+        validated_assignee = serializer.validated_data.get("assignee")
+        if assignee_submitted:
+            validate_assignee_membership(validated_assignee, self.organization)
 
-            # Auto-status on snooze transitions (only when user didn't explicitly set status)
-            new_snoozed_until = instance.snoozed_until
-            snooze_changed = old_snoozed_until != new_snoozed_until
-            if snooze_changed and not explicit_status:
-                if old_snoozed_until is None and new_snoozed_until is not None:
-                    instance.status = Status.ON_HOLD
-                    instance.save(update_fields=["status"])
-                elif old_snoozed_until is not None and new_snoozed_until is None:
-                    instance.status = Status.OPEN
-                    instance.save(update_fields=["status"])
+        self._save_ticket_fields(
+            serializer,
+            instance,
+            before,
+            explicit_status="status" in serializer.validated_data,
+        )
 
-        # Handle assignee update if provided (not ... sentinel)
-        if assignee is not ...:
-            assign_ticket(
+        if assignee_submitted:
+            _assign_ticket(
                 instance,
-                assignee,
+                validated_assignee,
                 self.organization,
                 request.user,
                 self.team_id,
                 is_impersonated(request),
             )
-            # Refresh instance to get updated assignment
             instance.refresh_from_db()
 
-        # Invalidate unread count cache if status changed to/from resolved
-        new_status = instance.status
-        if old_status != new_status and (old_status == "resolved" or new_status == "resolved"):
+        diff = _TicketUpdateDiff(
+            before=before,
+            after=_TicketFields.read_from(instance),
+            assignee_submitted=assignee_submitted,
+        )
+        self._emit_update_side_effects(request, instance, diff)
+
+        # Re-serialize to include updated assignee
+        response_serializer = self.get_serializer(instance)
+        return Response(response_serializer.data)
+
+    def _save_ticket_fields(
+        self,
+        serializer: serializers.BaseSerializer,
+        instance: Ticket,
+        before: _TicketFields,
+        *,
+        explicit_status: bool,
+    ) -> None:
+        """Persist the submitted fields, then apply the status a snooze change implies.
+
+        A status in the same request wins over the implied one, so a caller can snooze a
+        ticket and keep it pending.
+        """
+        with transaction.atomic():
+            self.perform_update(serializer)
+
+            implied_status = _status_implied_by_snooze(before.snoozed_until, instance.snoozed_until)
+            if implied_status is not None and not explicit_status:
+                instance.status = implied_status
+                instance.save(update_fields=["status"])
+
+    def _emit_update_side_effects(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        if diff.crosses_resolved:
             invalidate_unread_count_cache(self.team_id)
 
-        # Emit analytics events for workflow triggers
-        new_priority = instance.priority
-        new_sla_due_at = instance.sla_due_at
-        status_changed = old_status != new_status
-        priority_changed = old_priority != new_priority
-        sla_changed = old_sla_due_at != new_sla_due_at
-        assignee_changed = assignee is not ...
+        self._capture_update_events(request, instance, diff)
+        self._log_update_activity(request, instance, diff)
 
+        if diff.has_changes:
+            self._report_ticket_updated(request, instance)
+
+    def _capture_update_events(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        """Emit the analytics events that workflow triggers listen for."""
         try:
-            if status_changed:
-                capture_ticket_status_changed(instance, old_status, new_status, actor=request.user, actor_type="user")
+            if diff.status_changed:
+                capture_ticket_status_changed(
+                    instance, diff.before.status, diff.after.status, actor=request.user, actor_type="user"
+                )
 
-            if priority_changed:
+            if diff.priority_changed:
                 capture_ticket_priority_changed(
-                    instance, old_priority, new_priority, actor=request.user, actor_type="user"
+                    instance, diff.before.priority, diff.after.priority, actor=request.user, actor_type="user"
                 )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
-        # Log all field changes to activity log
-        changes: list[Change] = []
-        if status_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="status",
-                    before=old_status,
-                    after=new_status,
-                    action="changed",
-                )
-            )
-        if priority_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="priority",
-                    before=old_priority,
-                    after=new_priority,
-                    action="changed",
-                )
-            )
-        if sla_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="sla_due_at",
-                    before=old_sla_due_at.isoformat() if old_sla_due_at else None,
-                    after=new_sla_due_at.isoformat() if new_sla_due_at else None,
-                    action="changed",
-                )
-            )
-        if snooze_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="snoozed_until",
-                    before=old_snoozed_until.isoformat() if old_snoozed_until else None,
-                    after=new_snoozed_until.isoformat() if new_snoozed_until else None,
-                    action="changed",
-                )
-            )
+    def _log_update_activity(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        changes = diff.activity_changes()
+        if not changes:
+            return
 
-        if changes:
-            try:
-                log_activity(
-                    organization_id=self.organization.id,
-                    team_id=self.team_id,
-                    user=request.user,
-                    was_impersonated=is_impersonated(request),
-                    item_id=str(instance.id),
-                    scope="Ticket",
-                    activity="updated",
-                    detail=Detail(
-                        name=f"Ticket #{instance.ticket_number}",
-                        changes=changes,
-                    ),
-                )
-            except Exception as e:
-                capture_exception(e, {"ticket_id": str(instance.id)})
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(instance.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{instance.ticket_number}",
+                    changes=changes,
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
 
-        # Track internal analytics
-        if status_changed or priority_changed or assignee_changed or sla_changed or snooze_changed:
-            try:
-                report_user_action(
-                    request.user,
-                    "support ticket updated",
-                    {
-                        "channel_source": instance.channel_source,
-                        "ticket_status": instance.status,
-                        "is_assigned": getattr(instance, "assignment", None) is not None,
-                    },
-                    team=self.team,
-                    request=request,
-                )
-            except Exception as e:
-                capture_exception(e, {"ticket_id": str(instance.id)})
-
-        # Re-serialize to include updated assignee
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+    def _report_ticket_updated(self, request, instance: Ticket) -> None:
+        try:
+            report_user_action(
+                request.user,
+                "support ticket updated",
+                _ticket_action_properties(instance),
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
 
     def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
         """Emit analytics + activity log for a single ticket status change.
 
-        Called from both ``update()`` and ``bulk_update_status()`` to keep
-        event-tracking logic in one place.
+        Used by ``bulk_update_status()``. Single-ticket updates log every changed
+        field in one entry, so they build their own activity log entry instead.
         """
         try:
             capture_ticket_status_changed(ticket, old_status, new_status, actor=request.user, actor_type="user")
@@ -1551,10 +1718,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         )
 
 
-def validate_assignee(assignee) -> None:
+def validate_assignee(assignee: object) -> TicketAssignee | None:
     """Validate assignee payload structure."""
     if assignee is None:
-        return
+        return None
     if not isinstance(assignee, dict):
         raise serializers.ValidationError({"assignee": "must be an object"})
     if "type" not in assignee or "id" not in assignee:
@@ -1571,8 +1738,10 @@ def validate_assignee(assignee) -> None:
         except (ValueError, AttributeError):
             raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
+    return cast(TicketAssignee, assignee)
 
-def validate_assignee_membership(assignee, organization) -> None:
+
+def validate_assignee_membership(assignee: TicketAssignee | None, organization: Organization) -> None:
     """Validate that the assignee belongs to the organization."""
     if assignee is None:
         return
@@ -1586,8 +1755,14 @@ def validate_assignee_membership(assignee, organization) -> None:
 
 
 def assign_ticket(
-    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
-):
+    ticket: Ticket,
+    assignee: object,
+    organization: Organization,
+    user: User | None,
+    team_id: int,
+    was_impersonated: bool,
+    trigger: Trigger | None = None,
+) -> None:
     """
     Assign a ticket to a user or role.
 
@@ -1600,9 +1775,20 @@ def assign_ticket(
         was_impersonated: Whether the session is impersonated
         trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
-    validate_assignee(assignee)
-    validate_assignee_membership(assignee, organization)
+    validated_assignee = validate_assignee(assignee)
+    validate_assignee_membership(validated_assignee, organization)
+    _assign_ticket(ticket, validated_assignee, organization, user, team_id, was_impersonated, trigger)
 
+
+def _assign_ticket(
+    ticket: Ticket,
+    assignee: TicketAssignee | None,
+    organization: Organization,
+    user: User | None,
+    team_id: int,
+    was_impersonated: bool,
+    trigger: Trigger | None = None,
+) -> None:
     with transaction.atomic():
         # Lock the ticket to prevent concurrent modifications
         Ticket.objects.select_for_update().get(id=ticket.id, team_id=team_id)

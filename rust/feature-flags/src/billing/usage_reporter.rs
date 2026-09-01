@@ -20,12 +20,12 @@ use usage_ingestion_proto::usage_ingestion::v1::{
 use uuid::Uuid;
 
 use crate::config::TeamIdCollection;
+use crate::flags::flag_request::FlagRequestType;
 use crate::metrics::consts::{FLAGS_USAGE_RECORDS_FAILED, FLAGS_USAGE_RECORDS_SENT};
 
 use super::AggregationKey;
 
 const PRODUCER_ID: &str = "feature-flags";
-const USAGE_KEY: &str = "feature_flag_requests";
 const UNIT: &str = "requests";
 const MAX_BATCH_SIZE: usize = 500;
 /// Queued sends waiting on the sender task. A full queue drops rather than growing
@@ -179,6 +179,16 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
     }
 }
 
+/// The two billable request types are priced apart — the nightly report weighs one local
+/// evaluation as ten decide requests — so they cannot share a key. The weighting itself stays
+/// out of here: a producer reports what happened, and pricing is applied downstream.
+fn usage_key(request_type: FlagRequestType) -> &'static str {
+    match request_type {
+        FlagRequestType::Decide => "feature_flag_requests",
+        FlagRequestType::FlagDefinitions => "feature_flag_local_evaluation_requests",
+    }
+}
+
 fn build_records(
     entries: &[(AggregationKey, u64)],
     teams: &TeamIdCollection,
@@ -191,7 +201,7 @@ fn build_records(
             record_id: Uuid::now_v7().to_string(),
             producer_id: PRODUCER_ID.to_string(),
             team_id: i64::from(key.team_id),
-            usage_key: USAGE_KEY.to_string(),
+            usage_key: usage_key(key.request_type).to_string(),
             unit: UNIT.to_string(),
             quantity: i64::try_from(*count).unwrap_or(i64::MAX),
             timestamp_ms,
@@ -203,7 +213,6 @@ fn build_records(
 mod tests {
     use super::*;
     use crate::billing::usage_test_support::{serve, RecordingIngestion};
-    use crate::flags::flag_request::FlagRequestType;
     use crate::handler::types::Library;
 
     fn key(team_id: i32, library: Option<Library>) -> AggregationKey {
@@ -213,6 +222,34 @@ mod tests {
             library,
             bucket: 7,
         }
+    }
+
+    #[test]
+    fn build_records_keys_the_two_billable_request_types_apart() {
+        // The report weighs one local evaluation as ten decide requests, so a shared key
+        // would price them the same.
+        let entries = vec![
+            (key(1, None), 3),
+            (
+                AggregationKey {
+                    request_type: FlagRequestType::FlagDefinitions,
+                    ..key(1, None)
+                },
+                4,
+            ),
+        ];
+        let records = build_records(&entries, &TeamIdCollection::All, 1);
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| (record.usage_key.as_str(), record.quantity))
+                .collect::<Vec<_>>(),
+            vec![
+                ("feature_flag_requests", 3),
+                ("feature_flag_local_evaluation_requests", 4)
+            ]
+        );
     }
 
     #[test]
@@ -304,7 +341,7 @@ mod tests {
         assert_eq!(requests[0][0].team_id, 7);
         assert_eq!(requests[0][0].quantity, 4);
         assert_eq!(requests[0][0].producer_id, PRODUCER_ID);
-        assert_eq!(requests[0][0].usage_key, USAGE_KEY);
+        assert_eq!(requests[0][0].usage_key, usage_key(FlagRequestType::Decide));
     }
 
     #[tokio::test]

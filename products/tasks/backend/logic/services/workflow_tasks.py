@@ -136,7 +136,10 @@ def create_workflow_task(
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap.
 
-    `event` is rendered into the agent's prompt as data. `slack_context` binds the run to
+    `event` is rendered into the agent's prompt as data. The Slack thread binding decides
+    the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
+    reply posts and thread replies reach the agent, while a run with no binding ends
+    itself the moment the agent is done. `slack_context` binds the run to
     the Slack thread that triggered the workflow. The task is created either way: a context
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
@@ -261,6 +264,15 @@ def create_workflow_task(
             # run to "slack", which flips actor and credential resolution to a Slack steering
             # user the run does not have. It must keep executing as the workflow owner.
             interaction_origin = "workflow" if thread_context is not None else None
+
+            if slack_binding is None:
+                # Only a thread-bound run must outlive its turn, because the reply relay
+                # fires at end of turn. Every other workflow run gets the `finish` tool
+                # (the agent server reads this key at boot), so its sandbox is reclaimed
+                # promptly. The idle timeout is not a safe fallback for those runs: the
+                # PR follow-up loop raises it well past the 2-minute window for
+                # repository runs.
+                extra_run_state["end_run_when_done"] = True
 
             task = Task.create_and_run(
                 team=team,

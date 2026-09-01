@@ -17,22 +17,6 @@ export interface WorktreeListEntry {
   branch: string | null;
 }
 
-export interface AheadBehind {
-  aheadOfRemote: number;
-  behind: number;
-}
-
-export interface GitStatus {
-  isClean: boolean;
-  staged: string[];
-  modified: string[];
-  deleted: string[];
-  untracked: string[];
-  overflowedDirs?: string[];
-  totalUntrackedSeen?: number;
-  totalUntrackedTruncated?: boolean;
-}
-
 type GitLike = {
   raw: (args: string[]) => Promise<string>;
   revparse: (args: string[]) => Promise<string>;
@@ -146,25 +130,6 @@ export async function getRemoteUrl(
   );
 }
 
-export async function getStatus(
-  baseDir: string,
-  options?: CreateGitClientOptions,
-): Promise<GitStatus> {
-  const status = await streamGitStatus(baseDir, {
-    signal: options?.abortSignal,
-  });
-  return {
-    isClean: status.isClean,
-    staged: status.staged,
-    modified: status.modified,
-    deleted: status.deleted,
-    untracked: status.untracked,
-    overflowedDirs: status.overflowedDirs,
-    totalUntrackedSeen: status.totalUntrackedSeen,
-    totalUntrackedTruncated: status.totalUntrackedTruncated,
-  };
-}
-
 export async function hasChanges(
   baseDir: string,
   options?: CreateGitClientOptions,
@@ -175,34 +140,6 @@ export async function hasChanges(
     async (git) => {
       const status = await git.status(["--untracked-files=normal"]);
       return !status.isClean();
-    },
-    { signal: options?.abortSignal },
-  );
-}
-
-export async function getAheadBehind(
-  baseDir: string,
-  options?: CreateGitClientOptions,
-): Promise<AheadBehind | null> {
-  const manager = getGitOperationManager();
-  return manager.executeRead(
-    baseDir,
-    async (git) => {
-      const branchOutput = await git.revparse(["--abbrev-ref", "HEAD"]);
-      const branch = branchOutput === "HEAD" ? null : branchOutput;
-      if (!branch) return null;
-
-      try {
-        await git.raw(["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
-      } catch {
-        return null;
-      }
-
-      const status = await git.status(["--untracked-files=no"]);
-      return {
-        aheadOfRemote: status.ahead,
-        behind: status.behind,
-      };
     },
     { signal: options?.abortSignal },
   );
@@ -355,14 +292,6 @@ export async function getHeadSha(
   return manager.executeRead(baseDir, (git) => git.revparse(["HEAD"]), {
     signal: options?.abortSignal,
   });
-}
-
-export async function isDetachedHead(
-  baseDir: string,
-  options?: CreateGitClientOptions,
-): Promise<boolean> {
-  const branch = await getCurrentBranch(baseDir, options);
-  return branch === null;
 }
 
 export async function isGitRepository(
@@ -1151,7 +1080,7 @@ export async function fetchRef(
   }
 }
 
-export async function listFiles(
+async function listFiles(
   baseDir: string,
   options?: CreateGitClientOptions,
 ): Promise<string[]> {
@@ -1322,41 +1251,6 @@ export async function getDiffAgainstRemote(
   return manager.executeRead(
     baseDir,
     (git) => git.diff([`origin/${baseBranch}...HEAD`]),
-    { signal: options?.abortSignal },
-  );
-}
-
-export async function isCommitOnRemote(
-  baseDir: string,
-  commit: string,
-  options?: CreateGitClientOptions,
-): Promise<boolean> {
-  const manager = getGitOperationManager();
-  return manager.executeRead(
-    baseDir,
-    async (git) => {
-      try {
-        const output = await git.branch(["-r", "--contains", commit]);
-        return output.all.length > 0;
-      } catch {
-        return false;
-      }
-    },
-    { signal: options?.abortSignal },
-  );
-}
-
-export async function resolveGitDir(
-  baseDir: string,
-  options?: CreateGitClientOptions,
-): Promise<string> {
-  const manager = getGitOperationManager();
-  return manager.executeRead(
-    baseDir,
-    async (git) => {
-      const gitDir = await git.revparse(["--git-dir"]);
-      return path.resolve(baseDir, gitDir);
-    },
     { signal: options?.abortSignal },
   );
 }

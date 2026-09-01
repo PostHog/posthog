@@ -49,17 +49,25 @@ function record(overrides: Record<string, unknown> = {}): Buffer {
 
 describe('frontier record', () => {
     it('round trips the durable job state', () => {
-        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([candidate()]), 'example.com')
+        const durableCandidate = candidate({ lastBlockReason: 'configuration_unreachable' })
+        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([durableCandidate]), 'example.com')
+
+        expect(parsed).toEqual({ ok: true, candidates: [durableCandidate], urlCount: 1, rejected: [] })
+    })
+
+    it('does not persist source partition attribution', () => {
+        const parsed = parseCollectedUrlsRecord(
+            serializeFrontierRecord([candidate({ sourcePartitions: [7] })]),
+            'example.com'
+        )
 
         expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
     })
 
-    it('round trips the optional low-origin-diversity marker', () => {
-        const marked = candidate({ lowOriginDiversityDeferred: true })
-
-        expect(parseCollectedUrlsRecord(serializeFrontierRecord([marked]), 'example.com')).toEqual({
+    it('accepts and removes the legacy low-origin-diversity marker', () => {
+        expect(parseCollectedUrlsRecord(record({ lowOriginDiversityDeferred: true }), 'example.com')).toEqual({
             ok: true,
-            candidates: [marked],
+            candidates: [candidate()],
             urlCount: 1,
             rejected: [],
         })
@@ -150,6 +158,7 @@ describe('frontier record', () => {
         ['fetchCount', 1.5],
         ['republishCount', Number.MAX_SAFE_INTEGER + 1],
         ['lastRepublishReason', 'unknown'],
+        ['lastBlockReason', 'unknown'],
     ])('drops an invalid %s', (field, value) => {
         const parsed = parseCollectedUrlsRecord(record({ [field]: value }), 'example.com')
 

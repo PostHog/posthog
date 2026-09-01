@@ -111,7 +111,7 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
                     </LemonTag>
                 </div>
 
-                <div className="border rounded divide-y overflow-hidden">
+                <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {serviceAccountsLoading ? (
                         <div className="p-4 text-sm text-secondary flex items-center justify-center gap-2">
                             <Spinner /> Loading agents

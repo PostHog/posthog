@@ -140,6 +140,26 @@ describe('LazyLoader', () => {
         })
     })
 
+    describe('getMany with flush', () => {
+        it('issues the buffered load at once, carrying keys already buffered, and later gets join it', async () => {
+            const slowBufferLoader = new LazyLoader<string>({ name: 'test', loader, bufferMs: 5000 })
+            loader.mockImplementation(async (keys: string[]) => {
+                await delay(20)
+                return Object.fromEntries(keys.map((key) => [key, { val: key }]))
+            })
+
+            const buffered = slowBufferLoader.get('key1')
+            const flushed = slowBufferLoader.getMany(['key2'], { flush: true })
+            const joined = slowBufferLoader.get('key1')
+
+            const results = await Promise.all([buffered, flushed, joined])
+
+            expect(loader).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledWith(['key1', 'key2'])
+            expect(results).toEqual([{ val: 'key1' }, { key2: { val: 'key2' } }, { val: 'key1' }])
+        })
+    })
+
     describe('getMany', () => {
         it('loads and caches multiple values', async () => {
             loader.mockResolvedValue({ key1: 'value1', key2: 'value2' })

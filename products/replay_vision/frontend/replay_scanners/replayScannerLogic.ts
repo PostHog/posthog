@@ -87,6 +87,7 @@ import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     MAX_CREDIT_LIMIT,
+    SamplingMode,
     ScannerConfig,
     defaultScannerName,
     ScannerFormValues,
@@ -297,6 +298,7 @@ export interface replayScannerLogicValues {
     durationValidationError: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
+    goalBudgetInput: number | null
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
@@ -363,6 +365,9 @@ export interface replayScannerLogicActions {
     appendClassifierTags: (tags: string[]) => {
         tags: string[]
     }
+    clearClassifierTags: () => {
+        value: true
+    }
     clearObservationFilters: () => {
         value: true
     }
@@ -381,8 +386,12 @@ export interface replayScannerLogicActions {
     dismissTagSuggestions: () => {
         value: true
     }
-    draftScannerFromGoal: (goal: string) => {
+    draftScannerFromGoal: (
+        goal: string,
+        monthlyCreditBudget?: number
+    ) => {
         goal: string
+        monthlyCreditBudget: number | undefined
     }
     draftScannerFromGoalFailure: (
         error: string,
@@ -395,11 +404,13 @@ export interface replayScannerLogicActions {
         goalDraft: DraftScannerResponseApi | null,
         payload?: {
             goal: string
+            monthlyCreditBudget: number | undefined
         }
     ) => {
         goalDraft: DraftScannerResponseApi | null
         payload?: {
             goal: string
+            monthlyCreditBudget: number | undefined
         }
     }
     loadObservationStats: () => {
@@ -548,6 +559,9 @@ export interface replayScannerLogicActions {
     }
     setExperimentVariant: (variantKey: string | null) => {
         variantKey: string | null
+    }
+    setGoalBudgetInput: (budget: number | null) => {
+        budget: number | null
     }
     setGoalDraftInput: (goal: string) => {
         goal: string
@@ -727,11 +741,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ScannerFormValues) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
+        clearClassifierTags: true,
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
-        draftScannerFromGoal: (goal: string) => ({ goal }),
+        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number) => ({ goal, monthlyCreditBudget }),
         setGoalDraftInput: (goal: string) => ({ goal }),
+        setGoalBudgetInput: (budget: number | null) => ({ budget }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -841,7 +857,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // A non-final step only ever offers "Next", so any submit there advances rather than persisting.
                 // Enter would otherwise save an existing scanner and leave the wizard from the middle of it.
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
-                const nextStep = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                // The overview step sits outside the manual wizard's step list (indexOf -1), so its
+                // submit must persist rather than resolve to the list's first step and navigate there.
+                const currentStepIndex = SCANNER_EDITOR_STEPS.indexOf(currentStep)
+                const nextStep = currentStepIndex === -1 ? undefined : SCANNER_EDITOR_STEPS[currentStepIndex + 1]
                 if (nextStep) {
                     router.actions.push(scannerStepUrlWithParams(nextStep, props.id, router.values.searchParams))
                     return
@@ -932,12 +951,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 // Errors surface through draftScannerFromGoalFailure; kea-loaders dispatches it for us.
-                draftScannerFromGoal: async ({ goal }) => {
+                draftScannerFromGoal: async ({ goal, monthlyCreditBudget }) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || !goal.trim()) {
                         return values.goalDraft
                     }
-                    return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
+                    return await visionScannersDraftCreate(String(teamId), {
+                        goal: goal.trim(),
+                        ...(typeof monthlyCreditBudget === 'number' && monthlyCreditBudget > 0
+                            ? { monthly_credit_budget: monthlyCreditBudget }
+                            : {}),
+                    })
                 },
             },
         ],
@@ -984,6 +1008,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Cleared once a draft or a template pick consumed it, so a stale goal doesn't linger.
                 draftScannerFromGoalSuccess: () => '',
                 startFromTemplate: () => '',
+            },
+        ],
+        // The monthly credit budget input on the goal-based creation flow. Default 5,000 credits
+        // (~$50): the round anchor the budget question shows, and enough for a real first scanner.
+        goalBudgetInput: [
+            5000 as number | null,
+            {
+                setGoalBudgetInput: (_, { budget }) => budget,
             },
         ],
         // A template pick replaces the drafted form, so its rationale no longer describes the config.
@@ -1679,13 +1711,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // Fires on request rather than result, so failed drafts still count as entering the AI path.
-            draftScannerFromGoal: ({ goal }) => {
+            draftScannerFromGoal: ({ goal, monthlyCreditBudget }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: null,
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })
+                // Goal flow: land on the overview immediately, in its skeleton state, so the wait
+                // reads as progress rather than a stuck button. A budget marks the goal flow; the
+                // legacy AI box passes none and keeps opening the details step on success.
+                if (monthlyCreditBudget != null) {
+                    router.actions.push(urls.replayVisionScannerOverview('new'))
+                }
             },
 
             // A successful AI draft seeds the wizard form, then the configure step opens for review.
@@ -1695,10 +1733,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 // The model call can take a while; if the user picked a template or navigated away
                 // meanwhile, their newer state wins and the stale draft is dropped. The box lives on
-                // the template step and the zero-scanner empty state, so both count as still there.
+                // the template step and the zero-scanner empty state; the goal flow has already moved
+                // to the overview skeleton, so all three count as still there.
                 const pathname = router.values.location.pathname
                 if (
                     !pathname.endsWith(urls.replayVisionScannerTemplate('new')) &&
+                    !pathname.endsWith(urls.replayVisionScannerOverview('new')) &&
                     !pathname.endsWith(urls.replayVision())
                 ) {
                     return
@@ -1714,12 +1754,35 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The drafted session filter (when the goal mapped to real screens or events); the
                     // triggers step shows it for review like any hand-picked filter.
                     ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
+                    // A goal-flow draft also solves the budget dials; legacy drafts keep the wizard defaults.
+                    ...(goalDraft.sampling_mode ? { sampling_mode: goalDraft.sampling_mode as SamplingMode } : {}),
+                    ...(goalDraft.sampling_rate != null ? { sampling_rate: goalDraft.sampling_rate } : {}),
+                    // The model the draft chose for the goal, and the credit cap set to the stated
+                    // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
+                    ...(goalDraft.model ? { model: goalDraft.model } : {}),
+                    ...(goalDraft.credit_limit != null
+                        ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
+                        : {}),
                 })
-                router.actions.push(urls.replayVisionScannerDetails('new'))
+                // Solved dials mark a goal-flow draft, which reviews on the overview; legacy drafts
+                // open the details step. The goal flow is already on the overview (pushed on request),
+                // so this only navigates the legacy path.
+                const isGoalFlowDraft = goalDraft.sampling_mode != null || goalDraft.sampling_rate != null
+                if (isGoalFlowDraft) {
+                    // The form now carries the drafted filter, so count what it will actually watch.
+                    actions.loadScannerEstimate()
+                } else {
+                    router.actions.push(urls.replayVisionScannerDetails('new'))
+                }
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {
                 lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
+                // The goal flow moved to the overview skeleton on request; with no draft to show,
+                // send the user back to the questions to try again.
+                if (router.values.location.pathname.endsWith(urls.replayVisionScannerOverview('new'))) {
+                    router.actions.push(urls.replayVisionScannerTemplate('new'))
+                }
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
@@ -1741,6 +1804,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 if (merged.length !== existing.length) {
                     actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
+            },
+
+            clearClassifierTags: () => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                if ((scanner.scanner_config.tags ?? []).length > 0) {
+                    actions.setScannerValue(['scanner_config', 'tags'], [])
                 }
             },
 
@@ -2199,6 +2272,8 @@ export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
+        // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
+        scannerStepUrl('overview', scannerId),
         // Retired step: the redirect off it must not trip the unsaved-changes guard.
         urls.replayVisionScannerSelfDriving(scannerId),
     ]

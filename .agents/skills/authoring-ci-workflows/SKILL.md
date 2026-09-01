@@ -9,6 +9,8 @@ description: >
 
 # Authoring CI workflows
 
+Before you propose a change to CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md) for the idea. It records what was measured, and why some good-sounding changes were reverted or rejected.
+
 Conventions for `.github/workflows/**` and `.github/actions/**`.
 The linters own the mechanical rules (below); this skill is the **judgment calls** they can't enforce.
 
@@ -221,7 +223,7 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
   # forks can't read org secrets — fall back to github.token
   if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
   with:
-    client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+    client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
     private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
 # a later step consumes the token (falling back to github.token on forks):
@@ -231,7 +233,7 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
 ```
 
 - **Right-size, don't over-isolate.** One heavy consumer (change detection on a hot matrix) deserves its own app; a long tail of light workflows can share `GITHUB_TOKEN`.
-  Convention: `GH_APP_<PURPOSE>_APP_ID` + `GH_APP_<PURPOSE>_PRIVATE_KEY`.
+  Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive, and org secret slots are capped at 100) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
 

@@ -119,6 +119,7 @@ export enum ProductTab {
     LIVE = 'live',
     BOT_ANALYTICS = 'bots',
     PAGE_PERFORMANCE = 'page-performance',
+    AGENTS = 'agents',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'

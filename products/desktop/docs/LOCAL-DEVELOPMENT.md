@@ -179,33 +179,33 @@ posthog.isFeatureEnabled("mcp-gateway"); // undefined ⇒ flags never loaded
 
 The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. Verify at http://localhost:8010/admin/posthog/oauthapplication/.
 
-### "OAuth error: invalid_scope"
+### "OAuth error: invalid_scope" or "Couldn't check Desktop access"
 
-PostHog Desktop requests the wildcard scope `*` (see `OAUTH_SCOPES` in
-`packages/shared/src/oauth.ts`). PostHog's OAuth server only grants `*` at
-`/authorize` when the OAuth application's **scope ceiling is empty** — this is
-the grandfathering path for the PostHog Desktop client. If the application has any
-explicit `scopes` or `optional_scopes` configured, the wildcard is rejected with
-`invalid_scope`.
+PostHog Desktop requests an explicit scope list (`OAUTH_SCOPES` in `packages/shared/src/oauth.ts`),
+which includes the privileged scope `llm_gateway:read`.
+`/authorize` never rejects a request over scopes: it clamps the request to the application's
+scope ceiling (`OAuthApplication.scopes`) and grants whatever falls inside
+(`validate_scopes` in `posthog/api/oauth/views.py`).
+An empty ceiling falls back to the default unprivileged scopes, which exclude `llm_gateway:read`.
+So an app created manually (option B above) or by an older demo data generator signs in fine
+but issues a token without that scope.
+`GET /api/projects/:id/desktop/access/` requires it (`required_scopes` on the desktop access endpoint),
+so the request returns 403 and the app shows "Couldn't check Desktop access".
+On older PostHog checkouts the same misconfiguration failed sign-in with `invalid_scope` instead.
+(A current `generate_demo_data` seeds a ceiling that already covers the scope.)
 
-Fix: clear the scope ceiling on your local OAuth application so it matches the
-production app. Either edit it at
-http://localhost:8010/admin/posthog/oauthapplication/ (empty the **Scopes** and
-**Optional scopes** fields), or run in your PostHog repo:
+Fix: seed the ceiling with the defaults plus that one privileged scope,
+which matches how the production Desktop app is configured. In your PostHog repo:
 
 ```bash
-python manage.py shell -c "
-from posthog.models.oauth import OAuthApplication
-app = OAuthApplication.objects.get(client_id='DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ')
-app.scopes = []
-app.optional_scopes = []
-app.save()
-print('cleared scope ceiling for', app.client_id)
-"
+python manage.py seed_oauth_app_scopes \
+  --client-id DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ \
+  --scopes '@default,llm_gateway:read'
 ```
 
-Then retry login. (Do not add `*` to the ceiling — an explicit ceiling never
-grants the wildcard, even if `*` is listed.)
+Add `--clear-optional-scopes` if the command reports optional scopes. Then log
+out of the app and sign in again: an existing token keeps the scopes it was
+issued with. (Do not add `*` to the ceiling. It is not a valid ceiling entry.)
 
 ### "Redirect URI mismatch"
 

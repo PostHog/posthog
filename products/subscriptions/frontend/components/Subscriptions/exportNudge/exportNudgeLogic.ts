@@ -146,6 +146,15 @@ export function captureExportNudgeCheckFailed(
     posthog.capture('export nudge check failed', { step, ...properties })
 }
 
+// A healthy check that lands on "not eligible" is not a failure, so it gets its own event: without
+// this, the only visible ineligible exporters were the ones whose check broke.
+function captureExportNudgeIneligible(
+    reason: 'already_subscribed' | 'over_limit',
+    properties: Record<string, unknown> = {}
+): void {
+    posthog.capture('export nudge not eligible', { reason, ...properties })
+}
+
 // Mounted on first use, so exports of anything else do not pay for it, and left mounted so the
 // free-tier count survives between exports.
 function mountedExportNudgeLogic(): typeof exportNudgeLogic {
@@ -203,6 +212,9 @@ async function fetchHasExistingSubscription(subject: ExportNudgeSubject): Promis
 export function lookUpExportNudge(subject: ExportNudgeSubject): ExportNudgeLookup {
     const limitStatus = subscriptionLimitStatus()
     if (limitStatus !== 'within') {
+        if (limitStatus === 'exceeded') {
+            captureExportNudgeIneligible('over_limit', exportNudgeEventProperties(subject))
+        }
         return { status: limitStatus === 'unknown' ? 'unknown' : 'ineligible' }
     }
 
@@ -211,6 +223,7 @@ export function lookUpExportNudge(subject: ExportNudgeSubject): ExportNudgeLooku
         return { status: 'unknown' }
     }
     if (subscriptionCount > 0) {
+        captureExportNudgeIneligible('already_subscribed', exportNudgeEventProperties(subject))
         return { status: 'ineligible' }
     }
     return { status: 'eligible', candidate: { subject, name: supportFor(subject).name(subject) } }
@@ -231,6 +244,7 @@ export async function resolveExportNudgeEligibility(subject: ExportNudgeSubject)
         return null
     }
     if (limitStatus !== 'within') {
+        captureExportNudgeIneligible('over_limit', exportNudgeEventProperties(subject))
         return null
     }
 
@@ -239,6 +253,7 @@ export async function resolveExportNudgeEligibility(subject: ExportNudgeSubject)
         return null // fail closed on a broken check
     }
     if (hasExistingSubscription) {
+        captureExportNudgeIneligible('already_subscribed', exportNudgeEventProperties(subject))
         return null
     }
 

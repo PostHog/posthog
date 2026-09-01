@@ -26,10 +26,10 @@ import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
