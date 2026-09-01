@@ -37,12 +37,6 @@ await runRpcMode(runtime);
 
 RPC is Pi's JSONL protocol over stdin/stdout. Harness does not define another protocol.
 
-## RTK command compression
-
-Published `hog` packages include RTK and use its Pi extension to reduce Bash command output before it reaches the model.
-
-Set `RTK_DISABLED=1` to run Pi without RTK command rewriting.
-
 ## Authentication
 
 Run `hog /login`, or pass a PostHog personal API key:

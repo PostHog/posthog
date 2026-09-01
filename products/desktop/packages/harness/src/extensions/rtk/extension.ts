@@ -1,62 +1,12 @@
-import { existsSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   BashToolCallEvent,
   ExtensionAPI,
   ExtensionFactory,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { rtkTarget } from "./targets.mjs";
 
 const REWRITE_TIMEOUT_MS = 2_000;
 const MIN_SUPPORTED_RTK_MINOR = 23;
-
-export function resolveBundledRtkExecutable(): string | undefined {
-  const target = rtkTarget() as string | undefined;
-  if (!target) {
-    return undefined;
-  }
-
-  const binary = process.platform === "win32" ? "rtk.exe" : "rtk";
-  const extensionDirectory = fileURLToPath(
-    new URL(`./bin/${target}/`, import.meta.url),
-  );
-  const runtimeDirectory = fileURLToPath(
-    new URL(`./extensions/rtk/bin/${target}/`, import.meta.url),
-  );
-  const rpcHostDirectory = process.argv[1]
-    ? join(dirname(process.argv[1]), "rtk")
-    : undefined;
-  const executable = [
-    join(extensionDirectory, binary),
-    join(runtimeDirectory, binary),
-    rpcHostDirectory && join(rpcHostDirectory, binary),
-  ].find(
-    (candidate): candidate is string =>
-      typeof candidate === "string" && existsSync(candidate),
-  );
-
-  return executable;
-}
-
-function addRtkToPath(executable: string): void {
-  if (executable === "rtk") {
-    return;
-  }
-
-  const pathKey =
-    process.env.PATH === undefined && process.env.Path ? "Path" : "PATH";
-  const directory = dirname(executable);
-  const directories = (process.env[pathKey] ?? "").split(delimiter);
-  if (directories.includes(directory)) {
-    return;
-  }
-
-  process.env[pathKey] = [directory, ...directories]
-    .filter(Boolean)
-    .join(delimiter);
-}
 
 function isBashToolCallEvent(event: ToolCallEvent): event is BashToolCallEvent {
   return event.toolName === "bash";
@@ -77,11 +27,10 @@ function parseSemver(raw: string): [number, number, number] | null {
 
 async function rewriteCommand(
   pi: ExtensionAPI,
-  executable: string,
   command: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const result = await pi.exec(executable, ["rewrite", command], {
+  const result = await pi.exec("rtk", ["rewrite", command], {
     timeout: REWRITE_TIMEOUT_MS,
     signal,
   });
@@ -94,13 +43,11 @@ async function rewriteCommand(
 
 export function createRtkExtension(): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
-    if (process.env.RTK_DISABLED === "1" || process.env.POSTHOG_RTK === "0") {
+    if (process.env.POSTHOG_RTK !== "1") {
       return;
     }
 
-    const executable = resolveBundledRtkExecutable() ?? "rtk";
-    addRtkToPath(executable);
-    const version = await pi.exec(executable, ["--version"], {
+    const version = await pi.exec("rtk", ["--version"], {
       timeout: REWRITE_TIMEOUT_MS,
     });
     if (version.code !== 0) {
@@ -125,19 +72,13 @@ export function createRtkExtension(): ExtensionFactory {
       if (
         typeof command !== "string" ||
         command.trim() === "" ||
-        command.startsWith("rtk ") ||
-        process.env.RTK_DISABLED === "1"
+        command.startsWith("rtk ")
       ) {
         return;
       }
 
       try {
-        const rewritten = await rewriteCommand(
-          pi,
-          executable,
-          command,
-          context.signal,
-        );
+        const rewritten = await rewriteCommand(pi, command, context.signal);
         if (rewritten && rewritten !== command) {
           event.input.command = rewritten;
         }

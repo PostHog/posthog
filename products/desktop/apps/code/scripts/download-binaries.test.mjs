@@ -72,7 +72,6 @@ describe("download binaries", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -183,49 +182,6 @@ describe("download binaries", () => {
         `codesign --force --sign - "${binaryPath}"`,
         { stdio: "pipe" },
       );
-    }
-  });
-
-  it("uses the configured target for RTK", () => {
-    vi.stubEnv("npm_config_platform", "darwin");
-    vi.stubEnv("npm_config_arch", "x64");
-    const rtk = BINARIES.find((binary) => binary.name === "rtk");
-
-    expect(rtk?.getTarget()).toBe("x86_64-apple-darwin");
-  });
-
-  it("downloads RTK from its pinned release", async () => {
-    const rtk = BINARIES.find((binary) => binary.name === "rtk");
-    if (!rtk) {
-      throw new Error("RTK binary is missing");
-    }
-    const target = rtk.getTarget();
-    if (!target) {
-      return;
-    }
-
-    const destination = "/tmp/rtk-binaries";
-    const binaryName = process.platform === "win32" ? "rtk.exe" : "rtk";
-    const binaryPath = `${destination}/${binaryName}`;
-    let binaryChecks = 0;
-    existsSync.mockImplementation((path) => {
-      if (path !== binaryPath) {
-        return false;
-      }
-      binaryChecks += 1;
-      return binaryChecks > 1;
-    });
-    fetchMock.mockResolvedValue(okResponse());
-
-    await downloadBinary(rtk, destination);
-
-    const archiveSuffix = target.includes("windows") ? ".zip" : ".tar.gz";
-    expect(fetchMock).toHaveBeenCalledWith(
-      `https://github.com/rtk-ai/rtk/releases/download/v${rtk.version}/rtk-${target}${archiveSuffix}`,
-      { redirect: "follow" },
-    );
-    if (process.platform !== "win32") {
-      expect(chmodSync).toHaveBeenCalledWith(binaryPath, 0o755);
     }
   });
 

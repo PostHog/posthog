@@ -4,7 +4,7 @@ import type {
   ExtensionFactory,
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRtkExtension } from "./extension";
 
 type ToolCallHandler = (
@@ -48,6 +48,10 @@ function bashCall(command: string): BashToolCallEvent {
     input: { command },
   };
 }
+
+beforeEach(() => {
+  vi.stubEnv("POSTHOG_RTK", "1");
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -93,11 +97,8 @@ describe("createRtkExtension", () => {
     expect(event.input.command).toBe("git status");
   });
 
-  it.each([
-    ["RTK_DISABLED", "1"],
-    ["POSTHOG_RTK", "0"],
-  ])("does not start rtk when %s=%s", async (key, value) => {
-    vi.stubEnv(key, value);
+  it("does not start rtk when POSTHOG_RTK=0", async () => {
+    vi.stubEnv("POSTHOG_RTK", "0");
     const exec = vi.fn();
     const handlers = new Map<string, ToolCallHandler>();
 
@@ -129,18 +130,14 @@ describe("createRtkExtension", () => {
     expect(handlers.get("tool_call")).toBeUndefined();
   });
 
-  it("does not rewrite a disabled or already wrapped command", async () => {
+  it("does not rewrite an already wrapped command", async () => {
     const exec = vi.fn().mockResolvedValue(execResult(0, "rtk 0.43.0"));
     const handler = await loadExtension(exec);
     const wrapped = bashCall("rtk git status");
-    const disabled = bashCall("git status");
 
     await handler(wrapped, {});
-    vi.stubEnv("RTK_DISABLED", "1");
-    await handler(disabled, {});
 
     expect(wrapped.input.command).toBe("rtk git status");
-    expect(disabled.input.command).toBe("git status");
     expect(exec).toHaveBeenCalledTimes(1);
   });
 });

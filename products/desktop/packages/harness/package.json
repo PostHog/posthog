@@ -48,10 +48,6 @@
       "types": "./dist/extensions/product-engineer/index.d.ts",
       "import": "./dist/extensions/product-engineer/index.js"
     },
-    "./extensions/rtk": {
-      "types": "./dist/extensions/rtk/index.d.ts",
-      "import": "./dist/extensions/rtk/index.js"
-    },
     "./extensions/web-access": {
       "types": "./dist/extensions/web-access/index.d.ts",
       "import": "./dist/extensions/web-access/index.js"
@@ -79,7 +75,6 @@
   },
   "scripts": {
     "build": "tsup && pnpm build:types",
-    "prepack": "pnpm build && node scripts/download-rtk-binaries.mjs",
     "build:types": "tsc --emitDeclarationOnly --declaration --noEmit false --outDir dist --rootDir src",
     "dev": "tsup --watch",
     "test": "vitest run",
@@ -101,7 +96,6 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/turndown": "^5.0.6",
-    "tar": "^7.5.22",
     "tsup": "^8.5.1",
     "typescript": "^5.5.0",
     "vitest": "^4.1.8"

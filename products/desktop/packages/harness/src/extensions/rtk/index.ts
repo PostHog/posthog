@@ -1,1 +1,1 @@
-export { createRtkExtension, default } from "./extension";
+export { default } from "./extension";

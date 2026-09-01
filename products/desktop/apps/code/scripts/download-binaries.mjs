@@ -15,16 +15,6 @@ import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { extract } from "tar";
-import {
-  targetArch,
-  targetPlatform,
-} from "../../../packages/agent/build/native-binary.mjs";
-import {
-  RTK_VERSION,
-  rtkAssetForTarget,
-  rtkReleaseUrl,
-  rtkTarget,
-} from "../../../packages/harness/src/extensions/rtk/targets.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEST_DIR = join(__dirname, "..", "resources", "codex-acp");
@@ -79,16 +69,6 @@ export const BINARIES = [
       codexReleaseUrl("codex-code-mode-host", version, target),
     getTarget: nativeTarget,
     archiveBinaryName: codexArchiveBinaryName("codex-code-mode-host"),
-  },
-  {
-    name: "rtk",
-    version: RTK_VERSION,
-    getUrl: (_version, target) => {
-      const asset = rtkAssetForTarget(target);
-      if (!asset) throw new Error(`Unsupported RTK target: ${target}`);
-      return rtkReleaseUrl(asset);
-    },
-    getTarget: () => rtkTarget(targetPlatform(), targetArch()),
   },
   {
     name: "rg",
@@ -173,12 +153,6 @@ export async function downloadBinary(binary, destDir = DEST_DIR) {
   }
 
   const target = binary.getTarget();
-  if (!target) {
-    console.warn(
-      `  Skipping ${binary.name}: no supported binary for ${process.platform}/${process.arch}`,
-    );
-    return;
-  }
   const url = binary.getUrl(binary.version, target);
   const archiveName = `${binary.name}-archive${url.endsWith(".zip") ? ".zip" : ".tar.gz"}`;
   const archivePath = join(destDir, archiveName);
