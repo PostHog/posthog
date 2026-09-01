@@ -29,9 +29,9 @@ describe('PersonhogIdentityOperations', () => {
     }
 
     // Both fields are new on this RPC and nothing else exercises the wire,
-    // where a dropped mapping is silent: the caller would simply always run
-    // its follow-up update and no newborn would carry its creating event.
-    it('carries the creator event uuid out and the created flag back', async () => {
+    // where a dropped mapping is silent: no newborn would carry its
+    // creating event, and every verdict would read as unsettled.
+    it('carries the creator event uuid out and the settled bit back', async () => {
         const handler = jest.fn((req: MergePersonsRequest) => ({
             opId: req.opId,
             survivor: {
@@ -43,8 +43,7 @@ describe('PersonhogIdentityOperations', () => {
                 version: 1n,
                 isIdentified: true,
             },
-            results: [{ sourceDistinctId: 'anon-1', outcome: 1 }],
-            survivorCreated: true,
+            results: [{ sourceDistinctId: 'anon-1', outcome: 1, settled: true }],
         }))
         const ops = makeOps({ mergePersons: handler })
 
@@ -62,7 +61,7 @@ describe('PersonhogIdentityOperations', () => {
         })
 
         expect(handler.mock.calls[0][0].creatorEventUuid).toBe('event-uuid')
-        expect(result.survivorCreated).toBe(true)
+        expect(result.results[0].settled).toBe(true)
         expect(result.survivor?.id).toBe('7')
     })
 
@@ -72,9 +71,7 @@ describe('PersonhogIdentityOperations', () => {
         // for point reads and would cancel drives mid-lease, serializing
         // progress behind lease expiry.
         const client = {
-            mergePersons: jest.fn((_req: unknown, _options?: unknown) =>
-                Promise.resolve({ opId: '', results: [], survivorCreated: false })
-            ),
+            mergePersons: jest.fn((_req: unknown, _options?: unknown) => Promise.resolve({ opId: '', results: [] })),
         }
         const ops = new PersonhogIdentityOperations(client as never, { mergeTimeoutMs: 35_000 })
 
@@ -106,7 +103,6 @@ describe('PersonhogIdentityOperations', () => {
                 opId: req.opId,
                 survivor: undefined,
                 results: [{ sourceDistinctId: 'anon-1', outcome: wire }],
-                survivorCreated: false,
             })),
         })
 

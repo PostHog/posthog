@@ -1947,7 +1947,6 @@ describe('PersonhogPersonsStore', () => {
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor,
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-                survivorCreated: false,
             } as never)
             await bound.mergePersons({
                 teamId: 1,
@@ -2016,7 +2015,6 @@ describe('PersonhogPersonsStore', () => {
                 repository.mergePersons = jest.fn().mockResolvedValue({
                     survivor,
                     results: [{ sourceDistinctId, outcome: 'merged', sourcePersonId }],
-                    survivorCreated: false,
                 } as never)
             }
 
@@ -2032,32 +2030,6 @@ describe('PersonhogPersonsStore', () => {
             // person from the middle.
             const [landed] = await bound.applyEventOps(first, ops({ $set: { late: 'op' } }), 'anon-1')
             expect(landed.id).toBe('11')
-        })
-
-        it('a birth left unidentified still needs its follow-up update', async () => {
-            const bound = store.forBatch(0)
-            // An illegal source settling inline births the target with
-            // nothing to flip the identified flag, so only the follow-up
-            // update will ever identify this person. Reporting that update
-            // unnecessary would leave the person unidentified for good.
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor: { ...person, is_identified: false },
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_illegal', sourcePersonId: null }],
-                survivorCreated: true,
-            } as never)
-
-            const result = await bound.mergePersons({
-                teamId: 1,
-                targetDistinctId: 'd1',
-                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                eventOps: ops({}, '$identify'),
-                eventUuid: 'event-uuid',
-                allowIdentifiedSources: false,
-                mergeMode: createDefaultSyncMergeMode(),
-                createdAtMs: 3_600_000,
-            })
-
-            expect(result.survivorNeedsUpdate).toBe(true)
         })
 
         it('an attach-only merge still invalidates a fetch that resolved before it', async () => {
@@ -2083,7 +2055,6 @@ describe('PersonhogPersonsStore', () => {
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: responseSurvivor,
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'attached', sourcePersonId: null }],
-                survivorCreated: false,
             } as never)
             const result = await bound.mergePersons(mergeReq())
 

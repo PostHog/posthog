@@ -1399,7 +1399,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return {
                     survivor: result.survivor,
                     results: result.results,
-                    survivorNeedsUpdate: !(result.survivorCreated && result.survivor?.is_identified === true),
                 }
             }
             if (refreshed === null) {
@@ -1441,13 +1440,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         return {
             survivor,
             results: result.results,
-            // Only a newborn that is also identified has everything the
-            // follow-up update would apply; a birth whose every source was
-            // skipped is not identified, so the follow-up is the only thing
-            // that will ever identify that person. Judged on the response
-            // document rather than the refreshed one, because the question
-            // is what the merge itself left behind.
-            survivorNeedsUpdate: !(result.survivorCreated && result.survivor?.is_identified === true),
         }
     }
 

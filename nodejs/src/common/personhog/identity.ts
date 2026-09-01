@@ -113,14 +113,12 @@ export interface MergeSagaResult {
          * answers null because the person it would name is still live.
          */
         sourcePersonId: string | null
+        /**
+         * The server's durability statement: true means no retry can change
+         * this outcome, false means a retry under the same op id may.
+         */
+        settled: boolean
     }[]
-    /**
-     * The call created the survivor rather than resolving one that already
-     * existed; a saga run reports false whether or not it created one. A new
-     * person is identified only when some source attached or matched, so this
-     * alone does not mean the follow-up update has nothing left to write.
-     */
-    survivorCreated: boolean
 }
 
 export const personhogUnknownMergeOutcomeCounter = new Counter({
@@ -327,8 +325,8 @@ export class PersonhogIdentityOperations {
                 sourceDistinctId: result.sourceDistinctId,
                 outcome: namedOutcome(result.outcome),
                 sourcePersonId: result.sourcePersonId === undefined ? null : String(result.sourcePersonId),
+                settled: result.settled,
             })),
-            survivorCreated: response.survivorCreated,
         }
     }
 }
