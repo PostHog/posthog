@@ -49,3 +49,9 @@ class TestPlainSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
 
         assert schemas == []
+
+    def test_read_timeout_is_retryable(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+
+        error_msg = "HTTPSConnectionPool(host='core-api.uk.plain.com', port=443): Read timed out. (read timeout=60)"
+        assert error_message_matches(error_msg, self.source.get_retryable_errors())
