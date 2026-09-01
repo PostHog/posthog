@@ -73,17 +73,16 @@ def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
     # payload under any other key is unreachable and dropping it is invisible.
     payloads = new_filters.get("payloads")
     if isinstance(payloads, dict):
-        kept, rule = payloads, ""
-        if new_filters.get("multivariate"):
-            # Only prune against a variant list we could actually read. With no keys to compare
-            # against, every payload would look orphaned; a flag whose variants are missing or
-            # malformed belongs to the multivariate_empty rule in 0011, not to this one.
-            if variant_keys:
-                kept = {k: v for k, v in payloads.items() if _payload_key_is_resolvable(k, variant_keys)}
-                rule = "payload_key_not_a_variant"
-        else:
-            kept = {k: v for k, v in payloads.items() if _payload_key_is_resolvable(k, set())}
+        if not new_filters.get("multivariate"):
             rule = "payload_key_not_true"
+            kept = {k: v for k, v in payloads.items() if _payload_key_is_resolvable(k, set())}
+        elif variant_keys:
+            rule = "payload_key_not_a_variant"
+            kept = {k: v for k, v in payloads.items() if _payload_key_is_resolvable(k, variant_keys)}
+        else:
+            # No variant list we could read, so every payload would look orphaned. A flag whose
+            # variants are missing or malformed belongs to the multivariate_empty rule in 0011.
+            rule, kept = "", payloads
         if rule and len(kept) != len(payloads):
             new_filters["payloads"] = kept
             rules.add(rule)
@@ -109,9 +108,14 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
     last_id = 0
     while True:
         # _base_manager: the default manager excludes soft-deleted flags.
+        # Skip encrypted flags: `encrypt_flag_payloads` encrypts every payload key, not just the
+        # ones the read path serves, so dropping one destroys a customer secret with no way back.
+        # `exclude` rather than `filter(=False)` keeps legacy NULL rows in scope. The audit keeps
+        # reporting them.
         rows = list(
             FeatureFlag._base_manager.filter(id__gt=last_id)
             .exclude(filters=None)
+            .exclude(has_encrypted_payloads=True)
             .order_by("id")
             .only("id", "filters")[:BATCH_SIZE]
         )
@@ -145,6 +149,12 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Non-atomic so each row's UPDATE commits as it goes. The default wrapping transaction would
+    # stay open across the whole scan, holding an xmin autovacuum cannot advance past on the table
+    # the flags API writes to. Safe to resume: every compare-and-swap is independently correct and
+    # the transform is idempotent, so a partial run leaves a consistent table.
+    atomic = False
+
     dependencies = [
         ("feature_flags", "0013_narrow_whole_rollout_percentages"),
     ]

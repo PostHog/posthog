@@ -85,6 +85,22 @@ class CleanInertFilterViolationsMigrationTest(TestMigrations):
                 },
             },
         ).id
+        # Every payload key on an encrypted flag is ciphertext, so pruning one destroys a secret.
+        self.encrypted_id = make_flag(
+            "encrypted",
+            {"groups": [group()], "payloads": {"true": "cipher-1", "staging": "cipher-2"}},
+            has_encrypted_payloads=True,
+        ).id
+        self.encrypted_legacy_null_id = make_flag(
+            "encrypted-legacy-null",
+            {
+                "groups": [group(variant="ghost")],
+                "multivariate": MULTIVARIATE,
+                "payloads": {"control": "1", "ghost": "2"},
+            },
+            has_encrypted_payloads=None,
+        ).id
+
         # Shapes the scan must skip rather than raise on, which would abort the whole migration.
         self.junk_ids = [
             make_flag("junk-groups", {"groups": {}}).id,
@@ -139,6 +155,14 @@ class CleanInertFilterViolationsMigrationTest(TestMigrations):
         filters = self._filters(self.non_inert_id)
         assert filters["groups"][0]["properties"][0]["operator"] == "exact"
         assert [variant["rollout_percentage"] for variant in filters["multivariate"]["variants"]] == [40, 40, 40]
+
+    def test_leaves_encrypted_flags_alone(self) -> None:
+        assert self._filters(self.encrypted_id)["payloads"] == {"true": "cipher-1", "staging": "cipher-2"}
+
+    def test_still_cleans_flags_with_a_null_encrypted_marker(self) -> None:
+        filters = self._filters(self.encrypted_legacy_null_id)
+        assert filters["payloads"] == {"control": "1"}
+        assert filters["groups"][0]["variant"] is None
 
     def test_skips_malformed_filters_without_raising(self) -> None:
         # Reaching any assertion here means the scan completed; these rows stay as they were.
