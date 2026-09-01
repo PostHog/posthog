@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -3123,6 +3123,36 @@ class StaleWorkflowUpdateError(exceptions.APIException):
     default_code = "stale_update"
 
 
+class ConcurrentWorkflowUpdateError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Another save for this workflow is in progress. Wait a moment, then try again."
+    default_code = "concurrent_update"
+
+
+# Postgres SQLSTATE for "lock not available" — what SELECT ... FOR UPDATE NOWAIT raises when the
+# row is already locked by another transaction.
+_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
+
+
+def _is_lock_not_available(exc: BaseException | None) -> bool:
+    # A NOWAIT row lock conflict surfaces as Postgres SQLSTATE 55P03, which the driver raises as
+    # LockNotAvailable and Django re-raises as django.db.OperationalError with the driver error
+    # chained. Walk __cause__ and __context__ and match on the SQLSTATE (psycopg2 exposes it as
+    # .pgcode, psycopg3 as .sqlstate) so a real lock conflict is told apart from an unrelated
+    # OperationalError — a dropped connection, a statement timeout, or a server shutdown.
+    stack: list[BaseException] = [exc] if exc is not None else []
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if (getattr(current, "sqlstate", None) or getattr(current, "pgcode", None)) == _LOCK_NOT_AVAILABLE_SQLSTATE:
+            return True
+        stack.extend(linked for linked in (current.__cause__, current.__context__) if linked is not None)
+    return False
+
+
 class DraftExistsError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -3536,6 +3566,23 @@ class HogFlowViewSet(
             },
         )
 
+    def _lock_hog_flow_for_update(self, pk: uuid_mod.UUID) -> HogFlow:
+        # Fail fast instead of queueing on the row lock. A blocking select_for_update lets a second
+        # writer wait until the statement timeout kills it (a 500 on the save path); NOWAIT turns that
+        # contention into an immediate 409 the caller retries, matching the endpoint's concurrency
+        # contract. Raises HogFlow.DoesNotExist for the caller to handle, same as a plain get().
+        try:
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            return HogFlow.objects.select_for_update(nowait=True).get(pk=pk)
+        except OperationalError as e:
+            # Only a NOWAIT lock conflict is a concurrent save. A dropped connection, a statement
+            # timeout, or a server shutdown surface through the same OperationalError class; mapping
+            # those to a 409 would tell the client to retry or reconcile a write that never happened
+            # and would hide the real failure from error tracking. Let them propagate as a 500.
+            if _is_lock_not_available(e):
+                raise ConcurrentWorkflowUpdateError()
+            raise
+
     def perform_update(self, serializer):
         # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
@@ -3591,8 +3638,7 @@ class HogFlowViewSet(
 
         with transaction.atomic():
             try:
-                # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
-                before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
+                before_update = self._lock_hog_flow_for_update(instance_id)
             except HogFlow.DoesNotExist:
                 before_update = None
 
@@ -3761,8 +3807,7 @@ class HogFlowViewSet(
         instance = self.get_object()
 
         with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            locked = self._lock_hog_flow_for_update(instance.pk)
 
             route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
 
@@ -3859,8 +3904,7 @@ class HogFlowViewSet(
             rendered = _render_action_email_operations(render_base, action_id, operations)
 
         with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            locked = self._lock_hog_flow_for_update(instance.pk)
 
             route_to_draft = self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE
 
@@ -4082,8 +4126,7 @@ class HogFlowViewSet(
             )
 
         with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            locked = self._lock_hog_flow_for_update(instance.pk)
             if not locked.draft:
                 raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             if previewed_value != _publish_confirm_value(locked):
@@ -4130,8 +4173,7 @@ class HogFlowViewSet(
         # Throw away the staged draft. Idempotent: discarding when nothing is staged is a no-op.
         instance = self.get_object()
         with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            locked = self._lock_hog_flow_for_update(instance.pk)
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = None
@@ -4192,8 +4234,7 @@ class HogFlowViewSet(
 
         instance = self.get_object()
         with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+            locked = self._lock_hog_flow_for_update(instance.pk)
             try:
                 revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=int(version or 0))
             except HogFlowRevision.DoesNotExist:
