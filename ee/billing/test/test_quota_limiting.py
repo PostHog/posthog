@@ -3017,6 +3017,7 @@ class TestGraceExemptMidnightRollover(BaseTest):
 
         assert result == {"quota_limited_until": self.PERIOD_END, "quota_limiting_suspended_until": None}
         self.organization.refresh_from_db()
+        assert self.organization.usage is not None
         assert self.organization.usage["signals_credits"]["quota_limited_until"] == self.PERIOD_END
 
     @patch("posthoganalytics.capture")
@@ -3031,6 +3032,7 @@ class TestGraceExemptMidnightRollover(BaseTest):
 
         assert result is None
         self.organization.refresh_from_db()
+        assert self.organization.usage is not None
         assert self.organization.usage["signals_credits"].get("quota_limited_until") is None
 
 
