@@ -69,10 +69,9 @@ class SelfDrivingQuotaGate:
 def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
     """Whether quota-gate enforcement is rolled out to this team's org.
 
-    Org-keyed like the `signals-pr-refunds` gate (the limit is the org's billing cap). Fails open
-    (no enforcement) on a flag-read error, matching the quota check's own fail-open policy: a flag
-    outage must not stall the fleet's pipelines. Also gates visibility of the refund-summary
-    endpoint (the widget's source for the paused state), which must work with refunds off.
+    Org-keyed (the limit is the org's billing cap). Fails open (no enforcement) on a flag-read
+    error, matching the quota check's own fail-open policy: a flag outage must not stall the
+    fleet's pipelines.
     """
     try:
         org_id = str(team.organization_id)

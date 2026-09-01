@@ -6,10 +6,7 @@ import {
   inboxStatusLabel,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import {
-  DISMISSAL_REASON_OPTIONS,
-  SIGNALS_PR_REFUNDS_FLAG,
-} from "@posthog/shared";
+import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
 import type {
   ActionabilityJudgmentContent,
   SignalFindingContent,
@@ -28,7 +25,7 @@ import {
   Receipt,
   ThumbsDown,
 } from "phosphor-react-native";
-import { useFeatureFlag, usePostHog } from "posthog-react-native";
+import { usePostHog } from "posthog-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -160,7 +157,6 @@ export default function ReportDetailScreen() {
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
   const posthog = usePostHog();
-  const refundFlagEnabled = !!useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
   const { data: report, isLoading, error } = useInboxReport(reportId ?? null);
   const { data: me } = useUserQuery();
   const [reportRepo, setReportRepo] = useState<string | null>(null);
@@ -467,7 +463,7 @@ export default function ReportDetailScreen() {
   const bannerReport = { ...report, already_addressed: alreadyAddressed };
 
   const { canRefund: canRefundPr, disabledReason: refundDisabledReason } =
-    computeRefundEligibility(report, refundFlagEnabled);
+    computeRefundEligibility(report);
 
   return (
     <>

@@ -12,9 +12,8 @@ Creates five reports per invocation (a report can only ever be refunded once, so
 4. billing-exempt, with PR  → "Free" badge (health-check tooltip); refund hidden
 5. no PR run yet            → valid target for `manage.py exempt_signal_report_billing`
 
-The refund endpoints are gated on the `signals-pr-refunds` feature flag; the full local setup
-(flag, local billing service, verification queries) is in the "Testing refunds locally" section
-of products/signals/ARCHITECTURE.md.
+The full local setup (local billing service, verification queries) is in the "Testing refunds
+locally" section of products/signals/ARCHITECTURE.md.
 
 DEBUG only.
 

@@ -31,7 +31,6 @@ from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -113,7 +112,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -661,11 +660,6 @@ class SignalReportFeedbackResponseSerializer(serializers.Serializer):
             "when the report has no resolvable authoring scout, or the caller lacks scout-steering access."
         ),
     )
-
-
-# Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
-# organization, matching the refund window (the org's billing period).
-SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
 
 
 # User-facing message for each shared `refund_ineligibility_reason` the refund action rejects on
@@ -2380,19 +2374,6 @@ class SignalReportViewSet(
             }
         )
 
-    def _signals_pr_refunds_enabled(self) -> bool:
-        # Server-side feature gate, keyed on the org (the refund window is the org's billing
-        # period). Same call shape as the quota-limiting data-retention flag check.
-        return (
-            posthoganalytics.feature_enabled(
-                SIGNALS_PR_REFUNDS_FEATURE_FLAG,
-                str(self.organization.id),
-                groups={"organization": str(self.organization.id)},
-                group_properties={"organization": {"id": str(self.organization.id)}},
-            )
-            is True
-        )
-
     def _refund_response(self, refund: SignalReportRefund, *, already_refunded: bool = False) -> Response:
         if already_refunded:
             # SignalReportRefundResponseSerializer reads the attribute; absent it falls back to
@@ -2416,7 +2397,7 @@ class SignalReportViewSet(
                     "the current billing period, or the report is system-marked never-billable."
                 )
             ),
-            404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+            404: OpenApiResponse(description="Report not found."),
         },
         summary="Refund a report's implementation PR",
         description=(
@@ -2432,9 +2413,6 @@ class SignalReportViewSet(
     )
     @action(detail=True, methods=["post"], url_path="refund", required_scopes=["task:write"])
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
-        if not self._signals_pr_refunds_enabled():
-            raise NotFound("PR refunds are not enabled for this organization.")
-
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
         note = data.get("note") or ""
@@ -2580,7 +2558,6 @@ class SignalReportViewSet(
                 response=SignalReportRefundSummaryResponseSerializer,
                 description="Org-wide credited-refund totals for the current billing period.",
             ),
-            404: OpenApiResponse(description="Refunds are not enabled for this organization."),
         },
         summary="Summarize credited PR refunds for the billing period",
         description=(
@@ -2596,13 +2573,6 @@ class SignalReportViewSet(
     )
     @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
     def refund_summary(self, request: Request, **kwargs):
-        # Two independent flags can each make this endpoint matter: refunds (the netting numbers)
-        # and quota enforcement (`quota_limited` drives the widget's paused banner, and enforcement
-        # can roll out before refunds). Gating on refunds alone would hide the paused state for
-        # enforcement-only orgs.
-        if not (self._signals_pr_refunds_enabled() or self_driving_quota_enforcement_enabled(self.team)):
-            raise NotFound("PR refunds are not enabled for this organization.")
-
         period = current_billing_period_bounds(self.organization)
         aggregates = (
             # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.

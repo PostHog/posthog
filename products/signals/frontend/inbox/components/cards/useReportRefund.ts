@@ -3,8 +3,6 @@ import { useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/api'
@@ -23,9 +21,9 @@ const REFUND_DISABLED_REASONS: Record<string, string> = {
 /**
  * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportDismiss`.
  * Opens the refund dialog and posts to the refund endpoint; the backend freezes the billing path,
- * dismisses the report, and (when needed) kicks off the billing credit. Offered only when the flag
- * is on and the report has a billable PR that hasn't been refunded — the server enforces the same
- * rules, so `canRefund` is purely a display gate.
+ * dismisses the report, and (when needed) kicks off the billing credit. Offered only when the
+ * report has a billable PR that hasn't been refunded — the server enforces the same rules, so
+ * `canRefund` is purely a display gate.
  */
 export function useReportRefund({
     report,
@@ -43,17 +41,12 @@ export function useReportRefund({
     isRefunding: boolean
     onRefundClick: (event: React.MouseEvent) => void
 } {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [isRefunding, setIsRefunding] = useState(false)
 
     // Exempt reports ("Free" tag) were never charged, so there is nothing to refund; a report
     // without a PR was never billed either. One refund per report, ever.
-    const canRefund =
-        !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] &&
-        !!report.implementation_pr_url &&
-        !report.refund &&
-        !report.billing_exempt_reason
+    const canRefund = !!report.implementation_pr_url && !report.refund && !report.billing_exempt_reason
 
     // Backend-owned eligibility: when the visible button would only ever 400 (e.g. the PR was
     // billed in a previous period), disable it with the reason instead of hiding it.

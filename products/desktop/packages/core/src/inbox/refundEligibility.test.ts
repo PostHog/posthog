@@ -16,32 +16,23 @@ function report(overrides: Partial<SignalReport> = {}): SignalReport {
 
 describe("computeRefundEligibility", () => {
   it.each([
-    ["flag off hides the button", { flagEnabled: false, overrides: {} }],
-    [
-      "no implementation PR hides the button",
-      { flagEnabled: true, overrides: { implementation_pr_url: null } },
-    ],
+    ["no implementation PR hides the button", { implementation_pr_url: null }],
     [
       "an already-refunded report hides the button",
-      {
-        flagEnabled: true,
-        overrides: {
-          refund: { id: "r1", reason: "other" },
-        } as Partial<SignalReport>,
-      },
+      { refund: { id: "r1", reason: "other" } } as Partial<SignalReport>,
     ],
     [
       "a billing-exempt report hides the button",
-      { flagEnabled: true, overrides: { billing_exempt_reason: "free" } },
+      { billing_exempt_reason: "free" },
     ],
-  ])("%s", (_label, { flagEnabled, overrides }) => {
-    const result = computeRefundEligibility(report(overrides), flagEnabled);
+  ])("%s", (_label, overrides) => {
+    const result = computeRefundEligibility(report(overrides));
     expect(result.canRefund).toBe(false);
     expect(result.disabledReason).toBeNull();
   });
 
   it("offers the button for a billable, unrefunded PR", () => {
-    const result = computeRefundEligibility(report(), true);
+    const result = computeRefundEligibility(report());
     expect(result.canRefund).toBe(true);
     expect(result.disabledReason).toBeNull();
   });
@@ -57,7 +48,6 @@ describe("computeRefundEligibility", () => {
     (reason, copy) => {
       const result = computeRefundEligibility(
         report({ refund_ineligibility_reason: reason }),
-        true,
       );
       expect(result.canRefund).toBe(true);
       expect(result.disabledReason).toBe(copy);
@@ -67,7 +57,6 @@ describe("computeRefundEligibility", () => {
   it("falls back to generic copy for an unrecognized ineligibility reason", () => {
     const result = computeRefundEligibility(
       report({ refund_ineligibility_reason: "some_new_backend_reason" }),
-      true,
     );
     expect(result.canRefund).toBe(true);
     expect(result.disabledReason).toBe("This PR can't be refunded right now.");
@@ -79,7 +68,6 @@ describe("computeRefundEligibility", () => {
         implementation_pr_url: null,
         refund_ineligibility_reason: "out_of_period",
       }),
-      true,
     );
     expect(result.canRefund).toBe(false);
     expect(result.disabledReason).toBeNull();

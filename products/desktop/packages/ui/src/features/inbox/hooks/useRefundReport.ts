@@ -1,30 +1,23 @@
 import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
 import { computeRefundEligibility } from "@posthog/core/inbox/refundEligibility";
-import { SIGNALS_PR_REFUNDS_FLAG } from "@posthog/shared";
 import type {
   SignalReport,
   SignalReportRefundReason,
 } from "@posthog/shared/types";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
  * Refund-and-archive a report's PR, mirroring the web inbox. The button is
- * offered only when the flag is on and the report has a billable PR that
- * hasn't been refunded; the server enforces the same rules, so `canRefund`
- * is a display gate.
+ * offered only when the report has a billable PR that hasn't been refunded;
+ * the server enforces the same rules, so `canRefund` is a display gate.
  */
 export function useRefundReport(report: SignalReport) {
   const client = useAuthenticatedClient();
   const queryClient = useQueryClient();
-  const flagEnabled = useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
 
-  const { canRefund, disabledReason } = computeRefundEligibility(
-    report,
-    flagEnabled,
-  );
+  const { canRefund, disabledReason } = computeRefundEligibility(report);
 
   const mutation = useMutation({
     mutationFn: (input: { reason: SignalReportRefundReason; note?: string }) =>
