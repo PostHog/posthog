@@ -36,7 +36,7 @@ After deployment, Django shell can call the same compilation API. Construct the 
 For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the managed-warehouse client facade. This explicit entry point reads the organization's ready Trino catalog from the control plane and combines it with the project's authoritative team row. It maps:
 
 - `events` and `persons` to the project's provisioned tables in the `posthog` schema;
-- materialized saved queries to their `shadow_<team_id>_models` relations;
+- materialized saved queries to their `posthog_data_modeling_team_<team_id>` DuckLake copies;
 - copied warehouse sources to their provisioned data-import schema and table names.
 
 The control-plane read accepts both `trino_catalog_name` and the earlier `catalog` field during a rolling deployment. A disabled or non-ready Trino target, an organization mismatch, a missing team row, or an unmapped relation fails compilation before SQL submission. The helper only compiles; deploying it does not change query routing or execute Trino SQL.

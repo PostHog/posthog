@@ -7,8 +7,9 @@ from rest_framework.response import Response
 
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
@@ -19,6 +20,8 @@ from products.managed_warehouse.backend.trino_compiler import (
     compile_hogql_to_trino_sql,
     get_ready_trino_catalog_name,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _membership(*, team_id: int, organization_id: str) -> ManagedWarehouseTeamMembership:
@@ -154,24 +157,62 @@ class TestCompileHogQLToTrinoSQL:
                 compile_hogql_to_trino_sql(team.pk, HogQLQuery(query="SELECT 1"), team=team)
 
 
-def test_build_trino_table_locators_combines_core_and_bound_tables() -> None:
+@pytest.mark.django_db
+def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_aliases() -> None:
+    organization = Organization.objects.create(name="trino-locators")
+    team = Team.objects.create(organization=organization)
+    model_table = DataWarehouseTable.objects.create(
+        name="orders_model",
+        format="Parquet",
+        team=team,
+        url_pattern="https://bucket.s3.amazonaws.com/models/orders/*.parquet",
+    )
+    saved_query_id = UUID("12345678-1234-5678-1234-567812345678")
+    DataWarehouseSavedQuery.objects.create(
+        id=saved_query_id,
+        team=team,
+        name="orders_model",
+        query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        table=model_table,
+        is_materialized=True,
+    )
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="source_id",
+        connection_id="connection_id",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.STRIPE,
+        prefix="myprefix_",
+    )
+    source_table = DataWarehouseTable.objects.create(
+        name="myprefix_stripe_customers",
+        format="Parquet",
+        team=team,
+        external_data_source=source,
+        url_pattern="https://bucket.s3.amazonaws.com/stripe/customers/*.parquet",
+    )
+    ExternalDataSchema.objects.create(
+        team=team,
+        name="customers",
+        source=source,
+        table=source_table,
+        should_sync=True,
+    )
     table_names = ManagedWarehouseTableNames(
         events_table="events_production",
         persons_table="persons_production",
         data_imports_schema="imports_production",
     )
-    bindings = [
-        mock.Mock(logical_name="orders_model", schema_name="shadow_7_models", table_name="orders_model"),
-        mock.Mock(logical_name="stripe_customers", schema_name="imports_production", table_name="customers"),
-    ]
+    database = mock.Mock()
+    database.has_table.return_value = True
 
     with mock.patch(
-        "products.managed_warehouse.backend.table_binding.bind_tables_to_ducklake",
-        return_value=bindings,
-    ) as bind:
+        "products.managed_warehouse.backend.team_state.data_imports_table_naming_version",
+        return_value="copy_v1",
+    ):
         locators = build_trino_table_locators(
-            mock.sentinel.database,
-            7,
+            database,
+            team.pk,
             catalog_name="org_catalog",
             table_names=table_names,
         )
@@ -179,7 +220,11 @@ def test_build_trino_table_locators_combines_core_and_bound_tables() -> None:
     assert locators == {
         "events": ("org_catalog", "posthog", "events_production"),
         "persons": ("org_catalog", "posthog", "persons_production"),
-        "orders_model": ("org_catalog", "shadow_7_models", "orders_model"),
-        "stripe_customers": ("org_catalog", "imports_production", "customers"),
+        "orders_model": (
+            "org_catalog",
+            f"posthog_data_modeling_team_{team.pk}",
+            f"model_{saved_query_id.hex}",
+        ),
+        "myprefix_stripe_customers": ("org_catalog", "imports_production", "stripe_myprefix_customers"),
+        "stripe.myprefix.customers": ("org_catalog", "imports_production", "stripe_myprefix_customers"),
     }
-    bind.assert_called_once_with(mock.sentinel.database, 7, data_imports_schema_name="imports_production")
