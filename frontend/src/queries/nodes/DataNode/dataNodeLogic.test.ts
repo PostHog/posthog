@@ -1,5 +1,6 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
+import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
@@ -582,6 +583,22 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(0)
 
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
+    })
+
+    it('does not POST a query in a shared view, keeping the inlined results', async () => {
+        jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValueOnce(true)
+
+        logic = dataNodeLogic({
+            key: 'sharedView',
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+        })
+        logic.mount()
+
+        // A shared view can only GET with its sharing token, so no query POST is allowed.
+        expect(performQuery).toHaveBeenCalledTimes(0)
     })
 
     it('passes filtersOverride to api', async () => {
