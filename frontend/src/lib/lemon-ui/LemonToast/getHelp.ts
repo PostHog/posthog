@@ -1,6 +1,7 @@
 export type GetHelpAction = () => void
 
-const openSupportPage: GetHelpAction = () => {
+/** Where people without in-app support end up: self-hosted instances, the toolbar, the exporter. */
+export const openSupportPage: GetHelpAction = () => {
     window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast', '_blank')
 }
 
