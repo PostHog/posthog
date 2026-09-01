@@ -1004,8 +1004,10 @@ describe('CDP API', () => {
                     name: 'Trigger',
                     type: 'trigger',
                     config: {
-                        type: 'slack-message',
+                        type: 'internal-event',
                         filters: {
+                            source: 'internal-events',
+                            events: [{ id: '$slack_message_received', type: 'events' }],
                             properties: [{ key: 'channel', value: 'C0ALERTS', operator: 'exact', type: 'event' }],
                             // properties.channel == 'C0ALERTS'
                             bytecode: ['_H', 1, 32, 'C0ALERTS', 32, 'channel', 32, 'properties', 1, 2, 11],
@@ -1020,35 +1022,38 @@ describe('CDP API', () => {
         it.each([
             ['skips a non-slack event', '$pageview', 'skipped', null],
             ['passes a matching slack message', '$slack_message_received', 'success', 'exit_node'],
-        ])('%s against a slack-message trigger', async (_, eventName, expectedStatus, expectedNextActionId) => {
-            const res = await supertest(app)
-                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
-                .send({
-                    globals: {
-                        ...globals,
-                        event: {
-                            ...globals.event!,
-                            event: eventName,
-                            properties: { channel: 'C0ALERTS', text: 'deploy failed' },
+        ])(
+            '%s against a Slack-connected internal-event trigger',
+            async (_, eventName, expectedStatus, expectedNextActionId) => {
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                    .send({
+                        globals: {
+                            ...globals,
+                            event: {
+                                ...globals.event!,
+                                event: eventName,
+                                properties: { channel: 'C0ALERTS', text: 'deploy failed' },
+                            },
                         },
-                    },
-                    mock_async_functions: true,
-                    configuration: { ...slackMessageFlowConfiguration, team_id: team.id },
-                })
+                        mock_async_functions: true,
+                        configuration: { ...slackMessageFlowConfiguration, team_id: team.id },
+                    })
 
-            expect(res.status).toEqual(200)
-            expect(res.body.status).toEqual(expectedStatus)
-            expect(res.body.nextActionId).toEqual(expectedNextActionId)
-            if (expectedStatus === 'skipped') {
-                expect(res.body.logs).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            message: expect.stringContaining('would not trigger this workflow'),
-                        }),
-                    ])
-                )
+                expect(res.status).toEqual(200)
+                expect(res.body.status).toEqual(expectedStatus)
+                expect(res.body.nextActionId).toEqual(expectedNextActionId)
+                if (expectedStatus === 'skipped') {
+                    expect(res.body.logs).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                message: expect.stringContaining('would not trigger this workflow'),
+                            }),
+                        ])
+                    )
+                }
             }
-        })
+        )
     })
 
     describe('hogflow wait_until_condition test invocations', () => {

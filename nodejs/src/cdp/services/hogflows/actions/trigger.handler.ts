@@ -2,8 +2,10 @@ import { DateTime } from 'luxon'
 
 import {
     DWH_SOURCE_TABLE_PROPERTY,
+    GITHUB_EVENT_RECEIVED_EVENT,
     HogFlowAction,
     SLACK_MESSAGE_RECEIVED_EVENT,
+    getInternalEventFilterEventIds,
     isRowScopedTrigger,
     rowScopedTriggerTypeForEvent,
 } from '~/cdp/schema/hogflow'
@@ -35,15 +37,25 @@ export class TriggerHandler implements ActionHandler {
         const trigger = action.config
         const event = invocation.state.event
 
-        if (trigger.type === 'slack-message') {
-            // Test runs accept arbitrary globals, so mirror the eligibility check the
-            // internal-events consumer applies before a real invocation is ever created: a
-            // slack-message trigger only fires on $slack_message_received events.
-            if (event?.event !== SLACK_MESSAGE_RECEIVED_EVENT) {
+        if (trigger.type === 'internal-event') {
+            // Test runs accept arbitrary globals, so mirror the eligibility checks the
+            // internal-events consumer applies before a real invocation is ever created: the
+            // trigger only fires on the internal events its filters name.
+            const eventIds = getInternalEventFilterEventIds(trigger.filters)
+            if (!eventIds) {
                 result.logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `Slack message triggers only fire for '${SLACK_MESSAGE_RECEIVED_EVENT}' events. A '${event?.event}' event would not trigger this workflow.`,
+                    message:
+                        "This trigger's filters do not name any internal events, so no event would trigger this workflow.",
+                })
+                return { finished: true, skipped: true }
+            }
+            if (!event?.event || !eventIds.includes(event.event)) {
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `This workflow triggers on '${eventIds.join("', '")}' events. A '${event?.event}' event would not trigger this workflow.`,
                 })
                 return { finished: true, skipped: true }
             }
@@ -51,11 +63,25 @@ export class TriggerHandler implements ActionHandler {
             // Mirrors the consumer's own-app exclusion: a message PostHog's own connected Slack
             // app posted never reaches a real invocation, so a workflow can't retrigger itself
             // off its own reply. Without this, a hand-written payload naming that app passes.
-            if (await this.isOwnSlackMessage(event.properties, invocation.teamId)) {
+            if (
+                event.event === SLACK_MESSAGE_RECEIVED_EVENT &&
+                (await this.isOwnSlackMessage(event.properties, invocation.teamId))
+            ) {
                 result.logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
                     message: "Messages PostHog's own connected Slack app posted would not trigger this workflow.",
+                })
+                return { finished: true, skipped: true }
+            }
+
+            // The GitHub equivalent, resolved from the own_app property the emit stamps on the
+            // event (see isOwnGithubEvent in the internal-events consumer).
+            if (event.event === GITHUB_EVENT_RECEIVED_EVENT && event.properties?.own_app === true) {
+                result.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: "Activity from PostHog's own GitHub App would not trigger this workflow.",
                 })
                 return { finished: true, skipped: true }
             }
@@ -65,8 +91,8 @@ export class TriggerHandler implements ActionHandler {
         // fires on a row of its own kind (source table vs materialized view) from its own table.
         // Without this, any event - a $pageview included - passes a warehouse trigger whose
         // filters are empty, which is the default for a freshly created one. isRowScopedTrigger
-        // also covers slack-message and github-event, which have no table_name to check here and
-        // are handled by their own eligibility checks instead.
+        // also covers internal-event, which has no table_name to check here and is handled by
+        // its own eligibility checks above.
         if (trigger.type === 'data-warehouse-table' || trigger.type === 'data-warehouse-view') {
             const sourceTable = event?.properties?.[DWH_SOURCE_TABLE_PROPERTY]
             const rowTriggerType = rowScopedTriggerTypeForEvent(event?.event)
@@ -83,7 +109,7 @@ export class TriggerHandler implements ActionHandler {
         // The filter-carrying trigger types, the same set buildHogFlowInvocations evaluates before
         // creating a real invocation. The remaining types (webhook, manual, schedule, batch,
         // tracking_pixel) carry no event filters, so they continue unconditionally.
-        if (trigger.type !== 'event' && trigger.type !== 'slack-message' && !isRowScopedTrigger(trigger)) {
+        if (trigger.type !== 'event' && !isRowScopedTrigger(trigger)) {
             return { nextAction: findContinueAction(invocation) }
         }
 

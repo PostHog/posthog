@@ -28,6 +28,7 @@ import {
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
@@ -1061,7 +1062,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 values.workflow.name
             )
             actions.loadSampleGlobalsSuccess(exampleGlobals)
-            if (values.triggerAction?.config.type === 'slack-message') {
+            if (isSlackMessageTriggerConfig(values.triggerAction?.config)) {
                 actions.setSampleGlobalsError(
                     "A real Slack message can't be loaded here. This example matches your channel and who-can-start-a-run filters. Edit it to test any other filters, such as message text."
                 )

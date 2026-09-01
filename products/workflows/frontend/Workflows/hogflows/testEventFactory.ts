@@ -3,7 +3,11 @@ import { uuid } from 'lib/utils/dom'
 
 import { CyclotronJobInvocationGlobals } from '~/types'
 
-import { SlackTriggerFilters, decodeSlackFilters } from './registry/triggers/slackTriggerFilters'
+import {
+    SlackTriggerFilters,
+    decodeSlackFilters,
+    isSlackMessageTriggerConfig,
+} from './registry/triggers/slackTriggerFilters'
 
 // A pure, kea-free factory for a synthetic test event/person - kept out of hogFlowEditorTestLogic
 // so callers that only need example data don't pull in the workflow editor's kea logic graph.
@@ -129,16 +133,16 @@ export const createExampleSlackMessageEvent = (
     }
 }
 
-// The example globals for a trigger type. Slack-message triggers get a message shaped like the
-// real internal event, seeded with the trigger's own channel and poster filters so it matches
-// those by default.
+// The example globals for a trigger type. A Slack-connected internal-event trigger gets a
+// message shaped like the real internal event, seeded with the trigger's own channel and poster
+// filters so it matches those by default.
 export const createExampleEventForTrigger = (
-    triggerConfig: { type?: string; filters?: { properties?: Record<string, any>[] } } | undefined,
+    triggerConfig: unknown,
     teamId?: number,
     workflowName?: string | null
 ): CyclotronJobInvocationGlobals => {
-    if (triggerConfig?.type === 'slack-message') {
-        const decoded = decodeSlackFilters(triggerConfig.filters?.properties)
+    if (isSlackMessageTriggerConfig(triggerConfig)) {
+        const decoded = decodeSlackFilters(triggerConfig.filters.properties)
         return createExampleSlackMessageEvent(teamId, workflowName, decoded)
     }
     return createExampleEvent(teamId, workflowName)

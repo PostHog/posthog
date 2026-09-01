@@ -149,7 +149,7 @@ describe('hogFlowEditorTestLogic', () => {
     })
 
     describe('createExampleEventForTrigger', () => {
-        it('builds a slack message example for slack-message triggers, seeded from the channel filter', () => {
+        it('builds a slack message example for Slack-connected triggers, seeded from the channel filter', () => {
             const properties = encodeSlackFilters({
                 channel: 'C0ALERTS|#alerts',
                 posterMode: 'anyone',
@@ -158,7 +158,18 @@ describe('hogFlowEditorTestLogic', () => {
                 additional: [],
             })
 
-            const globals = createExampleEventForTrigger({ type: 'slack-message', filters: { properties } }, 1, 'wf')
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$slack_message_received', type: 'events' }],
+                        properties,
+                    },
+                },
+                1,
+                'wf'
+            )
 
             expect(globals.event.event).toEqual('$slack_message_received')
             expect(globals.event.properties.channel).toEqual('C0ALERTS')
@@ -187,7 +198,14 @@ describe('hogFlowEditorTestLogic', () => {
         })
 
         it('falls back to a default channel when the trigger has no channel filter', () => {
-            const globals = createExampleEventForTrigger({ type: 'slack-message', filters: {} }, 1, 'wf')
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: { source: 'internal-events', events: [{ id: '$slack_message_received', type: 'events' }] },
+                },
+                1,
+                'wf'
+            )
 
             expect(globals.event.event).toEqual('$slack_message_received')
             expect(typeof globals.event.properties.channel).toEqual('string')
@@ -217,7 +235,18 @@ describe('hogFlowEditorTestLogic', () => {
                 additional: [],
             })
 
-            const globals = createExampleEventForTrigger({ type: 'slack-message', filters: { properties } }, 1, 'wf')
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$slack_message_received', type: 'events' }],
+                        properties,
+                    },
+                },
+                1,
+                'wf'
+            )
 
             assertion(globals.event.properties)
         })

@@ -369,10 +369,46 @@ export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowS
     )
 }
 
-// The internal event every slack-message trigger fires on. Shared by the internal-events
+// The internal event a Slack-connected workflow's trigger fires on. Shared by the internal-events
 // consumer's eligibility check and the test-run trigger handler so both match the same events.
 // The Python producer keeps its own copy in products/slack_app/backend/slack_workflow_events.py.
 export const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+
+// The same, for a GitHub delivery. The Python producer keeps its own copy in
+// products/workflows/backend/github_workflow_events.py.
+export const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
+
+// The event ids an internal-event trigger's filters name, or null when the filters are not the
+// shape the internal-events consumer accepts (wrong source, no events, or action/warehouse
+// filters, which that stream cannot evaluate). Shared by the consumer's eligibility check and
+// the test-run trigger handler so both accept the same filters.
+export function getInternalEventFilterEventIds(filters: unknown): string[] | null {
+    if (!filters || typeof filters !== 'object') {
+        return null
+    }
+
+    const { source, events, actions, data_warehouse } = filters as {
+        source?: unknown
+        events?: unknown
+        actions?: unknown
+        data_warehouse?: unknown
+    }
+    const hasUnsupportedFilters =
+        (actions !== undefined && (!Array.isArray(actions) || actions.length > 0)) ||
+        (data_warehouse !== undefined && (!Array.isArray(data_warehouse) || data_warehouse.length > 0))
+    if (source !== 'internal-events' || !Array.isArray(events) || !events.length || hasUnsupportedFilters) {
+        return null
+    }
+
+    const eventIds = events.map((event) => (event && typeof event === 'object' ? (event as { id?: unknown }).id : null))
+    return eventIds.every((eventId): eventId is string => typeof eventId === 'string' && eventId.trim().length > 0)
+        ? eventIds
+        : null
+}
+
+export function hasMatchingInternalEventFilter(filters: unknown, eventName: string): boolean {
+    return getInternalEventFilterEventIds(filters)?.includes(eventName) ?? false
+}
 
 // Synthetic event name stamped on the row built for a warehouse-row trigger from a synced source
 // table. Shared by the warehouse-events consumer's eligibility check and the test-run trigger

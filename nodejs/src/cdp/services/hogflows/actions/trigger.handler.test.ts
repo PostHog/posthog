@@ -52,38 +52,74 @@ describe('TriggerHandler', () => {
     }
 
     const slackTrigger = (filters: Record<string, any> = {}): HogFlow['trigger'] =>
-        ({ type: 'slack-message', filters }) as HogFlow['trigger']
+        ({
+            type: 'internal-event',
+            filters: {
+                source: 'internal-events',
+                events: [{ id: '$slack_message_received', type: 'events' }],
+                ...filters,
+            },
+        }) as HogFlow['trigger']
 
-    it('skips a slack-message trigger when the test event is not $slack_message_received', async () => {
+    it('skips an internal-event trigger when the test event is not one its filters name', async () => {
         const { result, logs } = await run(slackTrigger(), { event: '$pageview' })
 
         expect(result).toEqual({ finished: true, skipped: true })
         expect(logs).toEqual([
-            "Slack message triggers only fire for '$slack_message_received' events. A '$pageview' event would not trigger this workflow.",
+            "This workflow triggers on '$slack_message_received' events. A '$pageview' event would not trigger this workflow.",
         ])
+    })
+
+    it('skips an internal-event trigger whose filters name no events', async () => {
+        // The consumer's eligibility check never fires such a trigger, so a test run must not
+        // pass it either, even though its property filters alone would match anything.
+        const { result, logs } = await run(
+            { type: 'internal-event', filters: { source: 'internal-events', events: [] } } as any,
+            { event: '$slack_message_received' }
+        )
+
+        expect(result).toEqual({ finished: true, skipped: true })
+        expect(logs).toEqual([
+            "This trigger's filters do not name any internal events, so no event would trigger this workflow.",
+        ])
+    })
+
+    it("skips an internal-event trigger for PostHog's own GitHub App activity", async () => {
+        const { result, logs } = await run(
+            {
+                type: 'internal-event',
+                filters: {
+                    source: 'internal-events',
+                    events: [{ id: '$github_event_received', type: 'events' }],
+                    properties: [],
+                    bytecode: ['_h', 29],
+                },
+            } as any,
+            { event: '$github_event_received', properties: { own_app: true } }
+        )
+
+        expect(result).toEqual({ finished: true, skipped: true })
+        expect(logs).toEqual(["Activity from PostHog's own GitHub App would not trigger this workflow."])
     })
 
     it.each([
         ['matching', 'C0ALERTS', 'exit'],
         ['non-matching', 'C0OTHER', null],
-    ])(
-        'evaluates slack-message trigger filters against a %s channel',
-        async (_label, channel, expectedNextActionId) => {
-            const { result, logs } = await run(
-                slackTrigger({ properties: [{ key: 'channel' }], bytecode: CHANNEL_BYTECODE }),
-                { event: '$slack_message_received', properties: { channel } }
-            )
+    ])('evaluates the trigger property filters against a %s channel', async (_label, channel, expectedNextActionId) => {
+        const { result, logs } = await run(
+            slackTrigger({ properties: [{ key: 'channel' }], bytecode: CHANNEL_BYTECODE }),
+            { event: '$slack_message_received', properties: { channel } }
+        )
 
-            if (expectedNextActionId) {
-                expect(result.nextAction?.id).toEqual(expectedNextActionId)
-            } else {
-                expect(result).toEqual({ finished: true, skipped: true })
-                expect(logs).toEqual(['Workflow trigger did not match the event.'])
-            }
+        if (expectedNextActionId) {
+            expect(result.nextAction?.id).toEqual(expectedNextActionId)
+        } else {
+            expect(result).toEqual({ finished: true, skipped: true })
+            expect(logs).toEqual(['Workflow trigger did not match the event.'])
         }
-    )
+    })
 
-    it('continues a slack-message trigger with no property filters when the event name matches', async () => {
+    it('continues an internal-event trigger with no property filters when the event name matches', async () => {
         // A saved flow with no filters carries the server-compiled always-true bytecode.
         const { result } = await run(slackTrigger({ properties: [], bytecode: ['_h', 29] }), {
             event: '$slack_message_received',
@@ -92,7 +128,7 @@ describe('TriggerHandler', () => {
         expect(result.nextAction?.id).toEqual('exit')
     })
 
-    it("skips a slack-message trigger for a message PostHog's own connected app posted", async () => {
+    it("skips a Slack-triggered workflow for a message PostHog's own connected app posted", async () => {
         const { result, logs } = await run(
             slackTrigger({ properties: [], bytecode: ['_h', 29] }),
             { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OWN_APP' } },
@@ -103,7 +139,7 @@ describe('TriggerHandler', () => {
         expect(logs).toEqual(["Messages PostHog's own connected Slack app posted would not trigger this workflow."])
     })
 
-    it('continues a slack-message trigger for a message from a different Slack app', async () => {
+    it('continues a Slack-triggered workflow for a message from a different Slack app', async () => {
         const { result } = await run(
             slackTrigger({ properties: [], bytecode: ['_h', 29] }),
             { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OTHER_APP' } },
@@ -156,7 +192,7 @@ describe('TriggerHandler', () => {
 
     // A freshly created warehouse trigger has empty filters, which match unconditionally - so
     // without a row-kind/table check any event would otherwise pass it, the same false positive
-    // this handler already closes for slack-message.
+    // this handler already closes for internal-event triggers.
     it.each([
         ['a non-warehouse event', '$pageview', {}],
         ['the wrong row kind', '$warehouse_view_row', { $source_table: 'postgres.public.accounts' }],

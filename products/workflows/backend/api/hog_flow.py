@@ -3078,8 +3078,9 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: "
-            "an event matching the trigger filters for event triggers, or a $slack_message_received event with "
-            "Slack properties (channel, user, text, ts) and no person for slack-message triggers."
+            "an event matching the trigger filters for event triggers, or for an internal-event trigger an event "
+            "named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, "
+            "text, ts) and no person."
         ),
     )
     mock_async_functions = serializers.BooleanField(
