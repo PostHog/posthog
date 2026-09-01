@@ -31,8 +31,9 @@
 //! Reads accumulate globally rather than per instruction, so a join can never retract one.
 //!
 //! One case answers rather than widens. A `GET_GLOBAL` root that no globals dict carries reads
-//! nothing under any projection, so it claims no path and the walk continues — see
-//! [`Interpreter::get_global`].
+//! nothing under any projection, so it claims no path and the walk continues. A bare
+//! representation-sensitive native is the exception, because such a root is a closure the program
+//! can still call — see [`Interpreter::get_global`].
 
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -606,17 +607,25 @@ impl<'a> Interpreter<'a> {
             }
         }
         let (root_name, segments) = chain.split_first().expect("count is non-zero");
-        // A name no globals dict carries reads no event data, so it constrains no column.
-        //
-        // A projection only narrows the values *under* the roots a globals builder writes; it never
-        // removes a root. So a name absent from the dict is absent under every projection, and its
-        // `GET_GLOBAL` behaves the same in the projected event as in the full one — raising
-        // `UnknownGlobal`, or resolving a native function reference. Neither reads event data.
-        // [`GlobalRoot`] is what makes "not a root" mean "in no dict this crate builds".
-        //
-        // Opaque rather than terminate: the function-reference case keeps executing, so ending the
-        // path here could prune a genuine later read. Over-approximating is the safe direction.
         let Some(root) = GlobalRoot::parse(root_name) else {
+            // A one-element chain also resolves to a first-class closure over a native, and
+            // `arrayMap` invokes that closure through `CALL_LOCAL`, so the `CallGlobal` arm never
+            // sees the name. Reading a number's spelling is unsafe however the native is reached,
+            // so [`REPRESENTATION_SENSITIVE_NATIVES`] has to be checked on both paths.
+            if segments.is_empty() && REPRESENTATION_SENSITIVE_NATIVES.contains(&root_name.as_ref())
+            {
+                return Err(Stop::Unnarrowable(
+                    FullColumnsReason::RepresentationSensitiveCall,
+                ));
+            }
+            // Every other such name reads no event data, so it constrains no column. A projection
+            // narrows the values *under* the roots a globals builder writes and never removes a
+            // root, so a name absent from the dict is absent under every projection: its
+            // `GET_GLOBAL` raises `UnknownGlobal` on the projected event and on the full one alike.
+            // [`GlobalRoot`] is what makes "not a root" mean "in no dict this crate builds".
+            //
+            // Opaque rather than terminate: the closure case keeps executing, so ending the path
+            // here could prune a genuine later read. Over-approximating is the safe direction.
             return push_opaque(stack);
         };
         // A bare `properties`, `person`, or `pdi` hands a whole object to whatever consumes it, so
@@ -841,6 +850,67 @@ mod tests {
         tokens.push(json!(3));
         tokens.push(json!(2));
         assert_eq!(reads(tokens), ["properties.plan"]);
+    }
+
+    /// A bare native name is not a read. `GET_GLOBAL` resolves it to a first-class closure, and
+    /// `arrayMap` invokes that closure through `CALL_LOCAL`, so the `CALL_GLOBAL` guard never sees
+    /// the name. `typeof` answers from how a number was spelled, so a caller rebuilding the blob
+    /// from the claimed keys re-prints `100.0` as `100` and the condition decides the other way.
+    /// The root carries the same obligation a direct call does.
+    #[test]
+    fn a_representation_sensitive_native_reached_as_a_root_widens() {
+        // arrayMap(typeof, [properties.n]) == ['float']
+        let tokens = vec![
+            json!(32),
+            json!("typeof"),
+            json!(1),
+            json!(1),
+            json!(32),
+            json!("n"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(43),
+            json!(1),
+            json!(2),
+            json!("arrayMap"),
+            json!(2),
+            json!(32),
+            json!("float"),
+            json!(43),
+            json!(1),
+            json!(11),
+        ];
+        assert_eq!(
+            full_columns_reason(tokens),
+            FullColumnsReason::RepresentationSensitiveCall
+        );
+    }
+
+    /// A native the rebuild cannot disturb stays projectable when it arrives as a root, so the
+    /// guard above widens on representation sensitivity rather than on every native reference.
+    #[test]
+    fn an_insensitive_native_reached_as_a_root_still_claims_its_reads() {
+        // arrayMap(base64Encode, [properties.n])
+        let tokens = vec![
+            json!(32),
+            json!("base64Encode"),
+            json!(1),
+            json!(1),
+            json!(32),
+            json!("n"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(43),
+            json!(1),
+            json!(2),
+            json!("arrayMap"),
+            json!(2),
+        ];
+        assert_eq!(reads(tokens), ["properties.n"]);
     }
 
     /// `elements_chain` resolves to the event column or, when that is empty, to

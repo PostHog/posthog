@@ -13,7 +13,8 @@
 //!
 //! One input is answered rather than widened: a `GET_GLOBAL` root outside [`GlobalRoot`] claims no
 //! read. That is not an exception to the rule above, but a consequence of the section below — such
-//! a root reads no event data at all.
+//! a root reads no event data at all. A root naming a representation-sensitive native still widens,
+//! because it resolves to a closure the program can call.
 //!
 //! # Why the read set can be trusted
 //!
@@ -27,6 +28,10 @@
 //! absent from the projected event and from the full one alike, so it names no column. That rests
 //! on [`GlobalRoot`] covering every dict this crate builds, which
 //! `every_globals_dict_key_is_a_named_root` in `hogvm::globals` checks.
+//!
+//! Reading no event data is only half the obligation. A bare native name resolves to a closure
+//! instead of a read, so such a root widens whenever calling it would read a value's spelling
+//! rather than its value, the same way a direct call to it does.
 
 mod decode;
 mod event_only;
