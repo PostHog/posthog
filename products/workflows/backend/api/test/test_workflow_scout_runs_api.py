@@ -21,11 +21,17 @@ SCOUT = "signals-scout-error-tracking"
 _START_SCOUT = "products.workflows.backend.api.workflow_scout_runs.start_workflow_scout_run"
 
 
-def _token(team_id: int, hog_flow_id: str | None, *, expiry: timedelta = timedelta(minutes=5)) -> str:
+def _token(
+    team_id: int,
+    hog_flow_id: str | None,
+    *,
+    audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_SCOUT_RUN,
+    expiry: timedelta = timedelta(minutes=5),
+) -> str:
     claims: dict = {"team_id": team_id}
     if hog_flow_id is not None:
         claims["hog_flow_id"] = hog_flow_id
-    return encode_jwt(claims, expiry, PosthogJwtAudience.TASKS_CREATE, signing_key=SECRET)
+    return encode_jwt(claims, expiry, audience, signing_key=SECRET)
 
 
 @override_settings(TASKS_CREATE_JWT_SECRETS=[SECRET])
@@ -75,6 +81,37 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert response.status_code == expected
         assert response.json()["detail"] == f"detail: {reason}"
 
+    def test_a_retry_that_collides_with_its_own_dispatch_gets_the_run_back(self) -> None:
+        # The engine re-queues an identical fetch on a lost response. The retry always collides
+        # with the run its own earlier attempt started (the workflow's Temporal id is stable per
+        # (team, skill)), confirmed by Temporal's own id-conflict policy, so it must report that
+        # run rather than record a skip for a fire that actually started one.
+        rejection = WorkflowScoutRunRejected(
+            ScoutRunRejection(kind=ScoutRunRejectionKind.CONFLICT, reason="run_in_flight", detail="in progress"),
+            in_flight_workflow_id="signals-scout-workflow-run-1",
+            dispatch_confirmed=True,
+        )
+        with patch(_START_SCOUT, side_effect=rejection):
+            response = self._post()
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
+
+    def test_an_unrelated_collision_still_skips_since_nothing_is_confirmed_dispatched(self) -> None:
+        # The pre-dispatch gate can also report in_flight_workflow_id, for a live run of this
+        # scout from a different source or a different workflow's fire — nothing has actually
+        # started under this call's own id, so it must not be reported as a dispatch.
+        rejection = WorkflowScoutRunRejected(
+            ScoutRunRejection(kind=ScoutRunRejectionKind.CONFLICT, reason="run_in_flight", detail="in progress"),
+            in_flight_workflow_id="signals-scout-workflow-run-1",
+            dispatch_confirmed=False,
+        )
+        with patch(_START_SCOUT, side_effect=rejection):
+            response = self._post()
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == "in progress"
+
     def test_refuses_a_request_for_a_deleted_workflow(self) -> None:
         token = _token(self.team.id, str(self.hog_flow.id))
         self.hog_flow.delete()
@@ -107,6 +144,16 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         response = self._post(token=_token(other_team.id, str(self.hog_flow.id)))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_rejects_a_task_creation_token(self) -> None:
+        # Same signing key as the "Create AI task" step, different audience: a token minted for
+        # that step must not spend a scout run, even though both mint from the same secret.
+        token = _token(self.team.id, str(self.hog_flow.id), audience=PosthogJwtAudience.TASKS_CREATE)
+        with patch(_START_SCOUT) as start:
+            response = self._post(token=token)
+
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+        start.assert_not_called()
 
     @parameterized.expand([("unknown_workflow",), ("another_teams_workflow",)])
     def test_refuses_a_workflow_it_cannot_find_in_the_tokens_team(self, case: str) -> None:

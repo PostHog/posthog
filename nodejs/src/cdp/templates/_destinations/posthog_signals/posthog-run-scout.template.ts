@@ -46,14 +46,18 @@ return response.body
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the
             // status is listed here. 409 is the endpoint's answer for every kind of backpressure
-            // (paused, in flight, cooldown, budget, quota), which the code above turns into a
-            // graceful skip. A missing or unrunnable scout answers 404, deliberately NOT listed
-            // here, so a misconfigured node fails loudly.
+            // (paused, cooldown, budget, quota), which the code above turns into a graceful skip.
+            // A missing or unrunnable scout answers 404, deliberately NOT listed here, so a
+            // misconfigured node fails loudly.
+            // required (despite being hidden): the backend only fills a schema default for a
+            // required input (posthog/cdp/validation.py), and an API- or MCP-built step has no
+            // editor to pre-fill this from the template, so it would otherwise publish with the
+            // field unset and fail its workflow on ordinary backpressure instead of skipping.
             key: 'non_failure_status_codes',
             type: 'non_failure_status_codes',
             label: 'Non-failure status codes',
             secret: false,
-            required: false,
+            required: true,
             hidden: true,
             default: [409],
         },

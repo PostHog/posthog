@@ -148,6 +148,13 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
         SignalScoutRun.objects.for_team(team_id)
         .filter(
             skill_name=skill_name,
+            # The scout row is inserted from the on_task_run_created hook after its TaskRun
+            # exists, so its created_at is always at or after the TaskRun's — this floor keeps
+            # the same result set as the task_run__created_at__gte one below, but lets
+            # signal_scout_run_recent_idx (team, skill_name, -created_at) range-scan just the
+            # live window before joining to task_run, instead of scanning the scout's whole
+            # history (this table grows with no pruning).
+            created_at__gte=live_cutoff,
             task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
             task_run__created_at__gte=live_cutoff,
         )

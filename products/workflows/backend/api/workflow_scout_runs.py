@@ -17,13 +17,14 @@ from products.signals.backend.facade.api import (
     start_workflow_scout_run,
 )
 from products.workflows.backend.models import HogFlow
-from products.workflows.backend.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.service_jwt import WORKFLOW_SCOUT_RUN_PURPOSE
 
 logger = structlog.get_logger(__name__)
 
-# The step only treats 409 as a graceful skip, so every backpressure kind (paused, in flight,
+# The step only treats 409 as a graceful skip, so every remaining backpressure kind (paused,
 # cooldown, budget, quota) maps onto it; a scout that cannot run at all fails the step so the
-# author notices.
+# author notices. A run_in_flight rejection never reaches this map — create() answers it directly
+# with the in-flight run's id instead.
 _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
     ScoutRunRejectionKind.NOT_FOUND: status.HTTP_404_NOT_FOUND,
     ScoutRunRejectionKind.FORBIDDEN: status.HTTP_403_FORBIDDEN,
@@ -33,9 +34,10 @@ _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
 
 
 class WorkflowScoutRunsJWTAuthentication(ScopedServiceJWTAuthentication):
-    # Same purpose/secret as the "Create AI task" step: both are the workflow engine dispatching
-    # a step for a verified (team, workflow), just to a different agent harness behind it.
-    purpose = TASKS_CREATE_PURPOSE
+    # Same key as the "Create AI task" step's authenticator, distinct audience: both are the
+    # workflow engine dispatching a step for a verified (team, workflow), but a token minted for
+    # one step must not verify at the other's endpoint.
+    purpose = WORKFLOW_SCOUT_RUN_PURPOSE
 
     # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
     def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
@@ -58,8 +60,8 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Stable key for this invocation. Accepted for parity with the task-creation endpoint; "
-            "the scout path has no idempotency replay of its own, since a run in flight already "
-            "answers a retried request with a 409 the step records as a skip."
+            "the scout path has no idempotency store of its own, since a retry deterministically "
+            "collides with the run its own earlier attempt started and gets the same run back."
         ),
     )
 
@@ -74,9 +76,9 @@ class WorkflowScoutRunRejectedSerializer(serializers.Serializer):
 
 
 class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
-    """Start a Signals scout run from a workflow's "Run scout" action. Authenticated by the same
-    scoped service JWT as the "Create AI task" step, minted by the plugin server, never by a user
-    credential.
+    """Start a Signals scout run from a workflow's "Run scout" action. Authenticated by a scoped
+    service JWT minted by the plugin server, never by a user credential. Shares its signing key
+    with the "Create AI task" step's JWT, on its own audience.
 
     A run is a pure kick: nothing from the triggering event reaches the scout, so it explores
     exactly as it does on its schedule. It never stamps the scout's last_run_at and never feeds
@@ -104,7 +106,7 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             ),
             409: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
-                description="The scout is paused, already running, or over its cooldown, daily budget, or quota",
+                description="The scout is paused or over its cooldown, daily budget, or quota",
             ),
             422: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
@@ -131,6 +133,28 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         try:
             started = start_workflow_scout_run(team_id=team_id, skill_name=skill_name)
         except WorkflowScoutRunRejected as error:
+            # A retried request (the engine re-queues the identical fetch on a lost response)
+            # deterministically collides with the run its own earlier attempt started, confirmed
+            # by Temporal's own id-conflict policy — so answer with that run's id as a normal
+            # dispatch rather than a skip. dispatch_confirmed gates this: the earlier pre-dispatch
+            # gate can also report in_flight_workflow_id for an unrelated run of this scout (a
+            # different source, or a different workflow's fire), where nothing has actually
+            # started under this call's own id, and that case still falls through to a 409 below.
+            if error.in_flight_workflow_id is not None and error.dispatch_confirmed:
+                logger.info(
+                    "workflow_scout_run_already_in_flight",
+                    team_id=team_id,
+                    hog_flow_id=str(hog_flow_id),
+                    skill_name=skill_name,
+                    workflow_id=error.in_flight_workflow_id,
+                )
+                return Response(
+                    WorkflowScoutRunResponseSerializer(
+                        {"scout": skill_name, "workflow_id": error.in_flight_workflow_id}
+                    ).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
+
             logger.info(
                 "workflow_scout_run_rejected",
                 team_id=team_id,

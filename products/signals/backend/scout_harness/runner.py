@@ -387,6 +387,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -449,6 +450,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
@@ -509,6 +511,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -725,6 +728,7 @@ async def _spawn_and_run(
             business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=str(task_run.id),
+            triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -1156,6 +1160,7 @@ def _capture_run_started(
     business_knowledge_maintained: bool,
     run_id: Any,
     task_run_id: str,
+    triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
 ) -> None:
@@ -1183,6 +1188,7 @@ def _capture_run_started(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        triggered_by=triggered_by,
     )
     try:
         posthoganalytics.capture(
@@ -1290,6 +1296,7 @@ def _attach_run_shape_props(
     business_knowledge_maintained: bool,
     model: str | None,
     runtime_adapter: str | None,
+    triggered_by: str,
 ) -> None:
     """Attach the dimensions that describe what this run was configured with, to both lifecycle
     events from one place so the started and finished streams can never drift apart.
@@ -1300,8 +1307,11 @@ def _attach_run_shape_props(
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
     agent-server default served it. `network_access` follows the same absent-means-default
     convention (attached only for `full`), so an event-based readout never pools runs with
-    different egress capabilities under one model or prompt. All of these make run outcomes
-    (timeout rate, runtime, emit volume) sliceable without joining through $ai_generation.
+    different egress capabilities under one model or prompt. `triggered_by` follows the run row's
+    own absent-means-schedule convention (`_create_run_row`), so the started/finished streams can
+    separate workflow-triggered volume, failure, and latency from scheduled and manual traffic
+    without a database join. All of these make run outcomes (timeout rate, runtime, emit volume)
+    sliceable without joining through $ai_generation.
     """
     properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
@@ -1314,6 +1324,8 @@ def _attach_run_shape_props(
         properties["model"] = model
     if runtime_adapter is not None:
         properties["runtime_adapter"] = runtime_adapter
+    if triggered_by != TRIGGERED_BY_SCHEDULE:
+        properties["triggered_by"] = triggered_by
 
 
 def _capture_run_finished(
@@ -1328,6 +1340,7 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
     error_type: str | None = None,
@@ -1369,6 +1382,7 @@ def _capture_run_finished(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        triggered_by=triggered_by,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.

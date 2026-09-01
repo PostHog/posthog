@@ -151,6 +151,9 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
 
         self._assert_rejected("run_in_flight", ScoutRunRejectionKind.CONFLICT)
         assert self.last_rejection.in_flight_workflow_id == self.workflow_id
+        # The blocking row could be any source's run (this one carries no triggered_by), so
+        # nothing is confirmed dispatched under this call's own workflow id.
+        assert self.last_rejection.dispatch_confirmed is False
 
     def test_reports_the_workflow_id_when_temporal_single_flights_the_start(self) -> None:
         with self.assertRaises(WorkflowScoutRunRejected) as caught:
@@ -159,6 +162,8 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
 
         assert caught.exception.rejection.reason == "run_in_flight"
         assert caught.exception.in_flight_workflow_id == self.workflow_id
+        # Temporal's own id-conflict policy proves an execution is open under this exact id.
+        assert caught.exception.dispatch_confirmed is True
 
     def test_refuses_a_child_environment(self) -> None:
         # No human credential is left at run time to authorize against the environment that owns

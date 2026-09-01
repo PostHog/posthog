@@ -50,12 +50,27 @@ class WorkflowScoutRunRejected(Exception):
 
     `in_flight_workflow_id` is set on a `run_in_flight` rejection: the id a workflow-triggered run
     of this scout carries (stable per team and skill), so the HTTP layer can recognise its own
-    earlier attempt as the run it collided with."""
+    earlier attempt as the run it collided with.
 
-    def __init__(self, rejection: ScoutRunRejection, *, in_flight_workflow_id: str | None = None) -> None:
+    `dispatch_confirmed` is only true when Temporal itself refused a start under that exact id
+    (`WorkflowAlreadyStartedError`) — proof an execution is genuinely open under it, safe for the
+    HTTP layer to report as a normal dispatch. The pre-dispatch `check_run_in_flight` gate also
+    sets `in_flight_workflow_id` (for logging and the DB-level skip), but it only proves some run
+    of this scout is live, not that this specific id is real: the blocking run can be a different
+    source, or a different workflow's fire of the same scout, so nothing has actually started
+    under this call's own id yet."""
+
+    def __init__(
+        self,
+        rejection: ScoutRunRejection,
+        *,
+        in_flight_workflow_id: str | None = None,
+        dispatch_confirmed: bool = False,
+    ) -> None:
         super().__init__(rejection.detail)
         self.rejection = rejection
         self.in_flight_workflow_id = in_flight_workflow_id
+        self.dispatch_confirmed = dispatch_confirmed
 
 
 @frozen
@@ -151,7 +166,8 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
         start_workflow_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
     except WorkflowAlreadyStartedError:
         # A run was dispatched between the in-flight check and the start call — the Temporal
-        # server's id-conflict policy single-flights it. Same graceful skip.
+        # server's id-conflict policy single-flights it under this exact id, so unlike the
+        # pre-check gate above, an execution is confirmed open under `workflow_id` right now.
         raise WorkflowScoutRunRejected(
             ScoutRunRejection(
                 kind=ScoutRunRejectionKind.CONFLICT,
@@ -159,6 +175,7 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
                 detail="A run for this scout is already in progress.",
             ),
             in_flight_workflow_id=workflow_id,
+            dispatch_confirmed=True,
         )
 
     logger.info(

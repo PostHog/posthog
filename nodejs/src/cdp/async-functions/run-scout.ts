@@ -16,9 +16,12 @@ const TOKEN_TTL_SECONDS = 30 * 60
 
 // Same audience and secret as postHogCreateTask: both are the workflow engine dispatching a step
 // for a verified (team, workflow), just to a different agent harness behind the endpoint.
+// Same key as postHogCreateTask, distinct audience: both mint from the workflow engine for a
+// verified (team, workflow), but a token minted for one step must not verify at the other's
+// endpoint.
 let scoutRunJwt: ScopedServiceJwt | undefined
 const getScoutRunJwt = (): ScopedServiceJwt =>
-    (scoutRunJwt ??= new ScopedServiceJwt(PosthogJwtAudience.TASKS_CREATE, defaultConfig.TASKS_CREATE_JWT_SECRET))
+    (scoutRunJwt ??= new ScopedServiceJwt(PosthogJwtAudience.WORKFLOW_SCOUT_RUN, defaultConfig.TASKS_CREATE_JWT_SECRET))
 
 registerAsyncFunction('postHogRunScout', {
     execute: (args, context, result) => {

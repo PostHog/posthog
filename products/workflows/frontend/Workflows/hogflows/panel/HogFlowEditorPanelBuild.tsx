@@ -350,15 +350,19 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                     </span>
                 </HogFlowEditorToolbarNode>
             )}
-            {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere. */}
-            {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] && currentTeam?.id === currentTeam?.project_id && (
-                <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE}>
-                    <span className="inline-flex items-center gap-1.5">
-                        {RUN_SCOUT_ACTION_NODE.name}
-                        <LemonTag type="completion">Beta</LemonTag>
-                    </span>
-                </HogFlowEditorToolbarNode>
-            )}
+            {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
+            Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
+            undefined, which would otherwise pass. */}
+            {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
+                !!currentTeam &&
+                currentTeam.id === currentTeam.project_id && (
+                    <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE}>
+                        <span className="inline-flex items-center gap-1.5">
+                            {RUN_SCOUT_ACTION_NODE.name}
+                            <LemonTag type="completion">Beta</LemonTag>
+                        </span>
+                    </HogFlowEditorToolbarNode>
+                )}
             <HogFunctionTemplatesChooser />
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
