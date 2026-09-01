@@ -171,13 +171,9 @@ class TestEligibilityReasonTagging(BaseTest):
         reset_query_tags()
 
     def test_rejection_reason_is_tagged_then_cleared_once_a_gate_admits(self) -> None:
-        # The reason is what separates "this team missed the cache" from "this team was never
-        # allowed near it" on a live read, so a gate that stops reporting it collapses the two.
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=DateRangeOverMax(120))
         assert lazy_precompute_ineligible_reason() == "DateRangeOverMax"
 
-        # A stats-table read consults several gates in turn. A rejection surviving onto a query a
-        # later gate admits would report a precompute-served response as a gate rejection.
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=None)
         assert lazy_precompute_ineligible_reason() is None
 

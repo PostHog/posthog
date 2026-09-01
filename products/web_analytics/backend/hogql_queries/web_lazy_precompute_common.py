@@ -718,7 +718,7 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
     lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
         reason = type(error).__name__
-        tag_queries(precompute_ineligible_reason=reason)
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,
@@ -726,21 +726,24 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
             detail=str(error) or None,
         )
     else:
-        # A stats-table read consults several gates in turn, so an earlier gate's rejection must
-        # not survive onto a query a later one admits.
-        clear_tag("precompute_ineligible_reason")
+        set_lazy_precompute_ineligible_reason(None)
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
 
 
-def lazy_precompute_ineligible_reason() -> Optional[str]:
-    """The gate rejection reason for this read, or None when the query was eligible.
+def set_lazy_precompute_ineligible_reason(reason: Optional[str]) -> None:
+    """Record why a gate refused this read, or clear the tag when a gate admits the query.
 
-    Both eligibility gates stamp this via `tag_queries`; runners put it on the response so the
-    frontend's `query completed` telemetry can attribute a live read to a reason. Without it a
-    gate rejection and a precompute miss both surface as `precompute_strategy=live`, which hides
-    whether a team is missing the cache or was never allowed near it.
+    A stats-table read consults several gates in turn, so a rejection from an earlier gate must not
+    survive onto a query that a later gate admits.
     """
-    return get_query_tag_value("precompute_ineligible_reason")
+    if reason is None:
+        clear_tag("web_analytics_precompute_ineligible_reason")
+    else:
+        tag_queries(web_analytics_precompute_ineligible_reason=reason)
+
+
+def lazy_precompute_ineligible_reason() -> Optional[str]:
+    return get_query_tag_value("web_analytics_precompute_ineligible_reason")
 
 
 def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
