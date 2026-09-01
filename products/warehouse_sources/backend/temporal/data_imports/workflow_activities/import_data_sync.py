@@ -181,12 +181,43 @@ async def _warehouse_parent_reuse_available(
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
     """Whether an in-flight repartition should pause this schema's import for one run.
 
-    Both conditions have to hold: the schema opted into the hold, and a rewrite checkpoint is fresh
-    enough to be worth waiting for. The flag is checked second so a schema without it never pays for
-    the evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    Two situations hold the import. A staged swap holds it unconditionally, because the table's
+    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
+    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
+    be worth waiting for; the flag is checked second so a schema without it never pays for the
+    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
     ingestion is the more expensive way to be wrong.
     """
-    if schema is None or not schema.repartition_holds_import:
+    if schema is None:
+        return False
+
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready":
+        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
+        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
+        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
+        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
+        # lookback window duplicated, with the job still reporting Completed. The repartition activity
+        # runs ahead of this one on every sync and resolves the marker, so waiting costs one run's
+        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
+        # can finish, and this trades it for not corrupting the table.
+        logger.warning(
+            "Holding import: a repartition swap is staged, so the table's partition layout is mid-change",
+            schema_id=str(schema.id),
+            temp_uri=swap.get("temp_uri"),
+        )
+        capture_repartition_event(
+            "warehouse_repartition_import_held",
+            {
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "resource_name": schema.name,
+                "reason": "swap_staged",
+            },
+        )
+        return True
+
+    if not schema.repartition_holds_import:
         return False
     try:
         if not is_repartition_hold_enabled(schema):
@@ -208,6 +239,7 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
             "team_id": schema.team_id,
             "schema_id": str(schema.id),
             "resource_name": schema.name,
+            "reason": "rewrite_converging",
             "rows_written": rewrite.get("rows_written"),
             "held_at": rewrite.get("held_at"),
         },

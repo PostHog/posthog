@@ -95,6 +95,8 @@ class ClickHouseUser(StrEnum):
     ENDPOINTS = "endpoints"
     BILLING = "billing"
     REPLAY_VISION = "replay_vision"
+    # Session replay surfacing scoring sweep
+    SURFACING_SCORING = "surfacing_scoring"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

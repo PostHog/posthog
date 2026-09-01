@@ -377,11 +377,12 @@ export function TaxonomicFilterMenu({
             mapShortcutItems(
                 filterPinnedForContext(
                     pinnedFilterItems as TaxonomicDefinitionTypes[],
-                    taxonomicGroupTypes
+                    taxonomicGroupTypes,
+                    excludedProperties
                 ) as ShortcutItem[],
                 groups
             ),
-        [pinnedFilterItems, taxonomicGroupTypes, groups]
+        [pinnedFilterItems, taxonomicGroupTypes, groups, excludedProperties]
     )
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)

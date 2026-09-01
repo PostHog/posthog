@@ -110,6 +110,20 @@ This produces a smooth, continuously-updating estimate that's more accurate than
 
 Each `CacheEntry` stores the last-known weighted count from Redis (`estimated_count`)
 and the time it was synced (`synced_at`).
+
+`synced_at` is `None` until the first Redis read lands. A never-synced entry is
+due for a sync as soon as it clears `min_sync_floor`; a synced one waits out its
+pressure tier. Collapsing the two delays a new key's first read by a full tier
+interval, during which the node cannot see the fleet.
+
+**A known, tolerated race.** The request path's get-modify-insert can overwrite
+the entry a Redis read just refreshed. The effect is bounded: the clobbered
+entry is due for a sync at once (recovery is one tick), the stale estimate is
+never higher than the fresh one (it only under-counts), and the collision
+window is microseconds per event against one read per key every 7.5 to 60
+seconds. A fix via moka's per-key entry API cost ~0.3 µs per evaluation (+31%
+on this crate's bench) for no measurable change in decisions, so it is
+deliberately not applied.
 Between syncs, the estimate **decays** at the configured leak rate:
 
 ```text
@@ -210,7 +224,7 @@ Tier boundaries are pressure-based (level / threshold), so they apply correctly 
 ```rust
 struct CacheEntry {
     estimated_count: f64,    // weighted count from last Redis sync
-    synced_at: Instant,      // when we last read from Redis
+    synced_at: Option<Instant>, // when we last read from Redis; None until the first read
     local_pending: u64,      // events counted locally since last sync, reset to 0 on sync
     pressure: f64,           // effective_level / threshold at last sync
 }
@@ -231,6 +245,13 @@ TTL:   2 × window_interval (120s for 60s window)
 ```
 
 Only 2 keys per entity exist at any time (current + previous epoch).
+
+**Two deployments that share a key prefix must agree on `window_interval`.**
+The epoch number is `floor(unix / window_interval)`, so a mismatch splits the
+shared counter into separate key namespaces. Capture's AI byte budget is one
+such namespace (its prefix carries no `capture_mode`). The
+`global_rate_limiter_window_seconds{scope}` gauge publishes each process's
+running value so an alert can compare them.
 
 ### Configuration
 
@@ -301,13 +322,16 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
-- `global_cache_ttl` is an enforcement requirement, not only Redis hygiene.
-  Reads consult the current and previous epoch, so the previous epoch's key is
-  still needed for a full window after its last write. Below 2 × `window_interval`
-  it expires early, `weighted_count` reads `prev_count` as 0, and the fleet
-  estimate is understated for the rest of every window — always toward
-  under-limiting. `GlobalRateLimiterImpl::new` clamps it up and logs a warning.
-  Making it much larger than 2 × `window_interval` wastes Redis memory on dead keys.
+- **`min_sync_floor` gates reads only.** Every event's count reaches Redis
+  regardless of the floor; the floor only suppresses the `MGET` for keys too far
+  under their threshold to be limited. Writes are bounded separately:
+  `absorb_update` merges by `(key, epoch)` per tick, so write volume scales with
+  distinct active keys, not event rate.
+- `global_cache_ttl` is an enforcement requirement, not only Redis hygiene: the
+  previous epoch's key is read for a full window after its last write, and a
+  TTL under 2 × `window_interval` zeroes `prev_count` early, understating the
+  estimate. `new` clamps it up and warns. Much larger values only waste Redis
+  memory on dead keys.
 
 **All three TTLs are clamped at construction**, because each one expiring inside
 the window it serves causes silent under-enforcement:
@@ -392,6 +416,7 @@ When multiple Redis instances are configured, work is partitioned by consistent 
 | `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier promotion/demotion events |
 | `global_rate_limiter_cache_size` | Gauge | Live local cache entry count vs cap |
+| `global_rate_limiter_window_seconds` | Gauge | Configured `window_interval` per scope. Deployments that share a Redis key prefix must report the same value, or their epoch keys diverge and the shared counter splits |
 | `global_rate_limiter_eviction_total` | Counter | Cache evictions by cause (size/expired/explicit) |
 | `global_rate_limiter_estimate_drift` | Histogram | Local vs Redis accuracy |
 | `global_rate_limiter_sync_staleness_ms` | Histogram | Real staleness at access time |

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { IconAsterisk, IconCheck } from '@posthog/icons'
+import { IconAsterisk, IconCheck, IconPerson } from '@posthog/icons'
 import { LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -29,6 +29,7 @@ export function InboxPeoplePicker({
     people,
     loading = false,
     selectedUuid,
+    forYou,
     everyoneLabel,
     onPick,
 }: {
@@ -41,6 +42,8 @@ export function InboxPeoplePicker({
     loading?: boolean
     /** `null` marks the everyone row; `undefined` marks no row at all. */
     selectedUuid: string | null | undefined
+    /** Adds a pinned "For you" row above the everyone row (the reports scope filter uses it). */
+    forYou?: { active: boolean; onPick: () => void }
     everyoneLabel: string
     onPick: (person: InboxPerson | null) => void
 }): JSX.Element {
@@ -62,6 +65,21 @@ export function InboxPeoplePicker({
                         className="mb-1"
                     />
                     <div className="max-h-[16rem] overflow-y-auto space-y-px">
+                        {forYou && (
+                            <PersonRow
+                                active={forYou.active}
+                                onClick={forYou.onPick}
+                                avatar={
+                                    <span
+                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-secondary text-tertiary"
+                                        aria-hidden
+                                    >
+                                        <IconPerson className="text-xs" />
+                                    </span>
+                                }
+                                label="For you"
+                            />
+                        )}
                         <PersonRow
                             active={selectedUuid === null}
                             onClick={() => onPick(null)}
