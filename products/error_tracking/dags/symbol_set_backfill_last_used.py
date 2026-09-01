@@ -2,13 +2,34 @@ from django.db import connection
 from django.utils import timezone
 
 import dagster
+import pydantic
 
 from posthog.dags.common import JobOwners
+
+from products.error_tracking.backend.temporal.symbol_set_cleanup.types import SYMBOL_SET_CLEANUP_BUCKET_COUNT
 
 
 class SymbolSetBackfillLastUsedConfig(dagster.Config):
     total_per_run: int = 300000
-    batch_size: int = 10000
+    batch_size: int = pydantic.Field(default=10000, gt=0)
+
+
+def _backfill_last_used_bucket(*, bucket: int, batch_size: int) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE posthog_errortrackingsymbolset
+            SET last_used = %s
+            WHERE id IN (
+                SELECT id FROM posthog_errortrackingsymbolset
+                WHERE last_used IS NULL
+                  AND get_byte(uuid_send(id), 15) = %s
+                LIMIT %s
+            )
+            """,
+            [timezone.now().date(), bucket, batch_size],
+        )
+        return cursor.rowcount
 
 
 @dagster.asset
@@ -21,30 +42,21 @@ def symbol_set_backfill_last_used(
     Runs hourly, updating rows in small batches to avoid long locks.
     Once all rows are backfilled this is a no-op.
     """
-    today = timezone.now().date()
     total_updated = 0
 
-    while total_updated < config.total_per_run:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE posthog_errortrackingsymbolset
-                SET last_used = %s
-                WHERE id IN (
-                    SELECT id FROM posthog_errortrackingsymbolset
-                    WHERE last_used IS NULL
-                    LIMIT %s
-                )
-                """,
-                [today, config.batch_size],
-            )
-            updated = cursor.rowcount
+    for bucket in range(SYMBOL_SET_CLEANUP_BUCKET_COUNT):
+        while total_updated < config.total_per_run:
+            batch_size = min(config.batch_size, config.total_per_run - total_updated)
+            updated = _backfill_last_used_bucket(bucket=bucket, batch_size=batch_size)
+            total_updated += updated
 
-        if updated == 0:
+            if updated < batch_size:
+                break
+
+            context.log.info(f"Updated {total_updated} symbol sets so far")
+
+        if total_updated >= config.total_per_run:
             break
-
-        total_updated += updated
-        context.log.info(f"Updated {total_updated} symbol sets so far")
 
     context.log.info(f"Backfilled last_used for {total_updated} symbol sets")
 

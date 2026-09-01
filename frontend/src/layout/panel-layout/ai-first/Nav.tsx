@@ -15,10 +15,8 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -72,7 +70,7 @@ export function SectionTrigger({
     return (
         <Collapsible.Trigger
             className={cn(
-                'flex items-center py-1 cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-4 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))] -outline-offset-2',
+                'flex items-center py-[var(--nav-section-trigger-padding-y,0.25rem)] cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-4 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))] -outline-offset-2',
                 isCollapsed && 'mx-0 w-full px-px'
             )}
         >
@@ -134,11 +132,8 @@ export function Nav(): JSX.Element {
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
-    // When expanded, the search-bar variant swaps the icon-only search button for a full-width bar below the header
-    const showNavSearchBar = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'search-bar' && !isLayoutNavCollapsed
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'panel-layout-navbar',
@@ -205,12 +200,8 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        {!showNavSearchBar && (
-                            <NavSearchButton
-                                isLayoutNavCollapsed={isLayoutNavCollapsed}
-                                toggleCommand={toggleCommand}
-                            />
-                        )}
+                        {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
+                        {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
@@ -251,7 +242,7 @@ export function Nav(): JSX.Element {
                     </div>
                 </div>
 
-                {showNavSearchBar && (
+                {!isLayoutNavCollapsed && (
                     <div className="px-2 py-1">
                         <NavSearchBar toggleCommand={toggleCommand} />
                     </div>

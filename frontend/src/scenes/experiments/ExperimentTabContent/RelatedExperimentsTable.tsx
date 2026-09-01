@@ -6,14 +6,14 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 import { getShippedVariantKey, isSingleVariantShipped } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 type RelatedExperimentsTableProps = {

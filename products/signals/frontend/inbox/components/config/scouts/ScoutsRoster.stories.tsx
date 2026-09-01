@@ -77,8 +77,9 @@ export const RosterLegacy: Story = {
     render: () => <ScoutsRosterLegacy />,
 }
 
-// Phone width with the flag off. Cadence and Next run drop out, and the table stops overflowing
-// sideways, so the name, the status, the run strip, and the on/off toggle all stay on screen.
+// Phone width with the flag off. Owners, Cadence, and Next run drop out, and the table stops
+// overflowing sideways, so the name, the status, the run strip, and the on/off toggle all stay on
+// screen.
 export const Narrow: Story = {
     parameters: {
         featureFlags: LEGACY_FLAGS,

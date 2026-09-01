@@ -2,6 +2,7 @@ import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import {
   cn,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -14,6 +15,7 @@ import type { SourceProduct } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   type ActivityInboxScope,
+  hasActiveActivityMenuFilters,
   useActivityFilterStore,
 } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
@@ -116,6 +118,12 @@ export function ActivityIncludeMenuSection(): ReactElement {
   const clearPriorityFilter = useActivityFilterStore(
     (state) => state.clearInboxPriorityFilter,
   );
+  const resetMenuFilters = useActivityFilterStore(
+    (state) => state.resetMenuFilters,
+  );
+  const filtersActive = useActivityFilterStore((state) =>
+    hasActiveActivityMenuFilters(state, authIdentity),
+  );
   const inboxAvailable = reportsInboxEnabled && authIdentity !== null;
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter, {
     enabled: inboxAvailable && inboxEnabled,
@@ -128,7 +136,6 @@ export function ActivityIncludeMenuSection(): ReactElement {
     (option) =>
       option.field === sortField && option.direction === sortDirection,
   );
-
   return (
     <>
       <MenuLabel>Include</MenuLabel>
@@ -302,6 +309,18 @@ export function ActivityIncludeMenuSection(): ReactElement {
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+        </>
+      )}
+      {filtersActive && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            data-attr="clear-activity-filters"
+            variant="destructive"
+            onClick={() => resetMenuFilters(authIdentity)}
+          >
+            Clear filters
+          </DropdownMenuItem>
         </>
       )}
     </>

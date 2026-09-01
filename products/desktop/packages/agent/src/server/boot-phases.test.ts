@@ -14,7 +14,7 @@ describe("AgentBootTracker", () => {
       .mockReturnValueOnce(150)
       .mockReturnValueOnce(500);
 
-    const tracker = new AgentBootTracker("run-1");
+    const tracker = new AgentBootTracker("run-1", 5);
     await tracker.measure("context_fetch", async () => "ok");
     tracker.markReady();
 
@@ -23,6 +23,7 @@ describe("AgentBootTracker", () => {
       bootId: "run-1",
       state: "ready",
       totalMs: 50,
+      httpReadyMs: 5,
       phasesMs: { context_fetch: 25 },
     });
   });

@@ -114,19 +114,29 @@ describe("loopModelOptions", () => {
     ).toContainEqual({ value: "claude-opus-4-6", label: "claude-opus-4-6" });
   });
 
-  it("gates GLM 5.3 independently from GLM 5.2", () => {
+  it.each([
+    {
+      flags: { glm53Enabled: true },
+      expected: [{ value: "zai-org/glm-5.3", label: "GLM-5.3" }],
+    },
+    {
+      flags: { glm53FlashEnabled: true },
+      expected: [{ value: "zai-org/glm-5.3-flash", label: "GLM-5.3 Flash" }],
+    },
+  ])("gates each GLM 5.3 variant independently", ({ flags, expected }) => {
     const options = modelConfigOption([
       { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
       { value: "zai-org/glm-5.3", name: "GLM-5.3" },
+      { value: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
     ]);
 
     expect(
       loopModelOptions("claude", options, {
         glmEnabled: false,
-        glm53Enabled: true,
         pinnedModel: "",
+        ...flags,
       }),
-    ).toEqual([{ value: "zai-org/glm-5.3", label: "GLM-5.3" }]);
+    ).toEqual(expected);
   });
 
   it.each<{

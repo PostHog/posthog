@@ -42,14 +42,28 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
     "organization_memberships": ClerkEndpointConfig(
         name="organization_memberships", path="/organization_memberships", is_wrapped_response=True
     ),
-    "invitations": ClerkEndpointConfig(name="invitations", path="/invitations"),
+    "invitations": ClerkEndpointConfig(
+        name="invitations",
+        path="/invitations",
+        # Clerk answers 404 resource_not_found for the invitations list on instances where the
+        # resource isn't available — the same feature-off signal the domains and OAuth applications
+        # endpoints give. A 404 can't coexist with real data (that returns 200 with an array), so
+        # skip zero rows instead of failing the schema every run.
+        gated_feature="Invitations",
+    ),
     "sessions": ClerkEndpointConfig(
         name="sessions",
         path="/sessions",
         fan_out=ClerkFanOut(parent="users", parent_field="id", query_param="user_id"),
     ),
     "organization_invitations": ClerkEndpointConfig(
-        name="organization_invitations", path="/organization_invitations", is_wrapped_response=True
+        name="organization_invitations",
+        path="/organization_invitations",
+        is_wrapped_response=True,
+        # Clerk answers 404 resource_not_found for the organization invitations list on instances
+        # that don't have Organizations switched on — the same feature-off signal the domains and
+        # OAuth applications endpoints give. Skip zero rows instead of failing the schema every run.
+        gated_feature="Organizations",
     ),
     "organization_domains": ClerkEndpointConfig(
         name="organization_domains", path="/organization_domains", is_wrapped_response=True

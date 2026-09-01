@@ -7,6 +7,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
+from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 
@@ -38,7 +39,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert res.json() == {
             "status": "error",
             "id": "",
-            "error": {"code": "rate_limited", "message": "Rate limit exceeded for this partner. Try again later."},
+            "error": {"code": "rate_limited", "message": RATE_LIMITED_MESSAGE},
         }
 
     @patch("ee.api.agentic_provisioning.views.resources.capture_provisioning_event")

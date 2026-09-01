@@ -354,6 +354,12 @@ SQL
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     settings = {
       background_insert_batch = "1"
     }
@@ -408,6 +414,12 @@ SQL
       type = "Map(LowCardinality(String), String)"
     }
     column "retention_days" {
+      type = "Nullable(Int32)"
+    }
+    column "pattern" {
+      type = "Nullable(String)"
+    }
+    column "pattern_version" {
       type = "Nullable(Int32)"
     }
     engine "kafka" {
@@ -494,6 +506,12 @@ SQL
     }
     column "_bytes_compressed" {
       type = "Nullable(Int64)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
   }
 }

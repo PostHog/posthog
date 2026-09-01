@@ -35,7 +35,10 @@ The gateway experience has these pages and workflows:
 
 - **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
   Users with permission can add a hosted custom server and choose OAuth or API key authentication.
-  Admins can set its team availability, and eligible users can grant initial agent access.
+  Admins can set its team availability.
+  Every connection is shared with the built-in PostHog agents automatically when the connecting user may manage agent access (admins always, members while team settings allow it).
+  The add-server form picks how far that share reaches: only the user's own runs (the default), or every agent run in the project.
+  Connecting a catalog server shares it for the user's own runs; the server page widens it to the team or revokes it.
   Connecting starts the appropriate authorization flow, while an existing connection opens its configuration.
 - **Server details**: Manage a personal connection by enabling, reconnecting, disconnecting, or removing it.
   Admins can also manage team and member access.
@@ -144,6 +147,11 @@ There are two ways a caller uses a connection, and they differ in who speaks MCP
   Discovery for that path is `GET .../mcp_server_installations/available_tools/`, which returns every callable tool across the caller's connections in one request, each namespaced by a server slug (`linear__create_issue`).
   When two connections share a display name, both slugs carry a fragment of their installation id (`linear-a1b2c3`), and that ambiguity is decided over every connection the caller can address rather than only the reachable ones — otherwise an expiring token could re-point a tool name at a different connection between refreshes.
   The `exec` side lives in `services/mcp/src/lib/gateway-tools.ts` and is gated on the `mcp-gateway` flag.
+
+Agents mount a connection without connecting to it, so an installation's `description` (copied from the catalog entry at install time) travels with the server config and is what the agent's tool search matches on until the first call.
+A connection with no description is only findable by searching its exact name.
+Cloud runs read it through `get_installations_for_sandbox`, which falls back to the template's description; desktop runs read it from the installation serializer.
+Either way the description is for pi only, so the agent server drops it before passing servers to claude or codex.
 
 Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
 `needs_approval` and `do_not_use` tools are refused before any upstream request.

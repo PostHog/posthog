@@ -887,7 +887,22 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH.
-    tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},
+    tags={
+        **owner_tags,
+        "dagster/max_runtime": str(3 * 60 * 60),
+        # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
+        # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
+        # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
+        # without this tag, and the peak crossed it (OOMKilled) once the inventory grew enough.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"memory": "8Gi"},
+                    "limits": {"memory": "16Gi"},
+                }
+            }
+        },
+    },
 )
 
 

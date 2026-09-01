@@ -68,6 +68,35 @@ describe("Agent", () => {
     );
   });
 
+  it("uses machine authentication for a ChatGPT subscription", async () => {
+    const agent = new Agent({ skipLogPersistence: true });
+
+    await agent.run("task-1", "run-1", {
+      adapter: "codex",
+      codexModelAccess: "own-subscription",
+      repositoryPath: "/tmp/repo",
+    });
+
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.codexOptions).toEqual(
+      expect.objectContaining({ useMachineAuth: true }),
+    );
+  });
+
+  it("stops before starting Codex without authentication", async () => {
+    const agent = new Agent({ skipLogPersistence: true });
+
+    await expect(
+      agent.run("task-1", "run-1", {
+        adapter: "codex",
+        codexModelAccess: "posthog-gateway",
+      }),
+    ).rejects.toThrow("Codex authentication is not ready");
+    expect(createAcpConnectionMock).not.toHaveBeenCalled();
+  });
+
   it("scopes local Claude sessions to the selected project", async () => {
     const agent = new Agent({
       posthog: {

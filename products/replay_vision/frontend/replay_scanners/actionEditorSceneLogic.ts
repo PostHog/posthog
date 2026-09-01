@@ -24,6 +24,7 @@ import {
     VisionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
+import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
 import { parseRruleToCadence } from './cadence'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
 import { buildActionBody, NEW_ACTION_FORM, VisionActionForm, visionActionsLogic } from './visionActionsLogic'
@@ -227,21 +228,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 loadedAction: VisionActionApi | null,
                 scannerName: string
             ): Breadcrumb[] => {
-                const crumbs: Breadcrumb[] = [
-                    {
-                        key: 'replay-vision',
-                        name: 'Replay vision',
-                        path: urls.replayVision(),
-                        iconType: 'replay_vision',
-                    },
-                ]
+                const crumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
                 if (isNew) {
                     if (effectiveScannerId) {
-                        crumbs.push({
-                            key: `scanner-${effectiveScannerId}`,
-                            name: scannerName || 'Scanner',
-                            path: `${urls.replayVision(effectiveScannerId)}?tab=actions`,
-                        })
+                        crumbs.push(scannerBreadcrumb(effectiveScannerId, scannerName, 'actions'))
                     }
                     crumbs.push({ key: 'new-action', name: 'New' })
                     return crumbs

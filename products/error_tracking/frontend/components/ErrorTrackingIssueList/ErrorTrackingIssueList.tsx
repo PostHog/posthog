@@ -6,7 +6,6 @@ import { Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -65,7 +64,6 @@ export function ErrorTrackingIssueListRow({
 }): JSX.Element {
     const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
-    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
     const runtime = getRuntimeFromLib(issue.library)
     const sparklineKey = issue.id ?? 'issue-unknown'
     const sparklineData = useSparklineData(issue.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
@@ -116,20 +114,16 @@ export function ErrorTrackingIssueListRow({
                         <StatusIndicator status={issue.status} size="small" />
                     )}
                     <CustomSeparator />
-                    {hasSeverityRules ? (
-                        <>
-                            {canMutateIssues ? (
-                                <IssueSeveritySelect
-                                    severity={issue.severity}
-                                    onChange={(severity) => updateIssueSeverity(issue.id, severity)}
-                                    loading={severityUpdateInFlightIds.includes(issue.id)}
-                                />
-                            ) : (
-                                <IssueSeverityTag severity={issue.severity} />
-                            )}
-                            <CustomSeparator />
-                        </>
-                    ) : null}
+                    {canMutateIssues ? (
+                        <IssueSeveritySelect
+                            severity={issue.severity}
+                            onChange={(severity) => updateIssueSeverity(issue.id, severity)}
+                            loading={severityUpdateInFlightIds.includes(issue.id)}
+                        />
+                    ) : (
+                        <IssueSeverityTag severity={issue.severity} />
+                    )}
+                    <CustomSeparator />
                     {canMutateIssues ? (
                         <QuillAssigneeSelect
                             assignee={issue.assignee}

@@ -129,6 +129,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "login_notification": "44",
     "personal_api_key_exposed": "45",
     "code_based_verification": "75",
+    "email_verification_code": "79",
     "feature_flags_secure_api_key_exposed": "49",
     "project_secret_api_key_exposed": "76",
     "oauth_token_exposed": "50",

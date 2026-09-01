@@ -7,6 +7,12 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Hourly full-matrix run against the newest master state. Master pushes no
+        # longer run the test matrices per commit — the merge queue's trunk-merge/**
+        # run already gated every commit before it landed — so this is where master's
+        # matrix coverage, flaky-test baseline, and per-test timing data come from.
+        - cron: '23 * * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -19,10 +25,11 @@ on:
         # deferring to its ready run. turbo-tests (product tests) still skip drafts.
         # On a legacy diff the product matrix is narrowed the same way: the products the
         # selector reached plus the ones Turbo saw change (see turbo-discover).
-        # The merge queue's trunk-merge/** run and master pushes always run the full
-        # matrices, and the queue run is what actually gates master. To force the
-        # full matrices on a PR, add the `run-ci-backend` label. Cheap checks still
-        # run on drafts.
+        # The merge queue's trunk-merge/** run and the hourly scheduled master run
+        # always run the full matrices; the queue run is what actually gates master.
+        # Master pushes run only the per-commit checks (migrations + schema cache,
+        # OpenAPI types, repo checks). To force the full matrices on a PR, add the
+        # `run-ci-backend` label. Cheap checks still run on drafts.
         # The `no-ci` label does the opposite: it silences this workflow on a draft
         # entirely (prototypes/spikes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
@@ -31,12 +38,15 @@ on:
         # ready_for_review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
-        # PRs run legacy-schema only (master runs always cover both).
+        # PRs run legacy-schema only (master coverage of the new schema is paused for
+        # CI cost — see build-product-test-matrix).
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
+    # Scheduled runs share the ref group without cancellation, so a slow hourly
+    # run queues the next one instead of stacking runs.
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -142,11 +152,14 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. On schedule the action would otherwise diff only the
+              # last commit and could turn the full-matrix run into a no-op.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -194,9 +207,9 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads the module graph for the dependent
-                        # cascade, and `tach check` validates it — a graph-only PR
-                        # must still dispatch both.
+                        # tach.toml's exclude list shapes the import map turbo-discover
+                        # reads for the dependent cascade, and `tach check` validates
+                        # the declarations — a graph-only PR must still dispatch both.
                         - tach.toml
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
@@ -371,7 +384,9 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Master pushes skip the matrices (see the trigger comment); skipping this
+        # root cascades to every downstream test job via their result checks.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
@@ -408,7 +423,9 @@ jobs:
     # Runs on depot to match the product-test runner environment
     turbo-discover:
         needs: changes
-        if: needs.changes.outputs.backend == 'true'
+        # Skipped on master push: the merge queue already ran the full matrices for
+        # every landed commit, and the hourly scheduled run keeps master coverage.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
@@ -516,7 +533,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -525,6 +542,15 @@ jobs:
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
+            # --no-project` for the dependent cascade; the script pins tach, so no
+            # Python project sync is needed. A missing uv widens the cascade to
+            # every product rather than failing the job.
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              continue-on-error: true
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
@@ -775,7 +801,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -965,8 +991,15 @@ jobs:
               continue-on-error: true
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
-              # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
+              # legs: one turbo invocation per entry, each with its own pytest-split flags
+              # (e.g. "-- --splits 3 --group 1"). A job holds several legs when a split
+              # product's last shard had budget left over for whole small products, and
+              # pytest-split flags must not leak from that shard onto its job-mates.
               env:
+                  PRODUCT_LEGS: ${{ toJSON(matrix.legs) }}
+                  # Read only when an unrebased branch planned the pre-legs shape.
+                  LEGACY_FILTERS: ${{ matrix.filters }}
+                  LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   # products/tasks/backend/temporal moved here from the Django Temporal
                   # segment, and its conftest and workflows talk to Modal. Injected only
@@ -993,17 +1026,55 @@ jobs:
                   # bin-packed buckets (each product writes its own file) and split products (unioned later).
                   # sysmon: Python 3.12+'s low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
                   COVERAGE_CORE: sysmon
+              shell: bash
               run: |
                   set +e
-                  pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
-                  exit_code=$?
-                  set -e
-                  if [ $exit_code -eq 5 ]; then
-                      echo "No tests collected for this shard, this is expected when splitting tests"
-                      exit 0
-                  else
-                      exit $exit_code
+                  overall=0
+                  # A workflow edit reaches an open PR before the script edit does, so a
+                  # branch that has not rebased still plans the flat {filters, pytest_args}
+                  # shape. Normalize that into one leg rather than requiring the new key.
+                  if [ -z "$PRODUCT_LEGS" ] || [ "$PRODUCT_LEGS" = "null" ]; then
+                      PRODUCT_LEGS=$(jq -cn --arg f "$LEGACY_FILTERS" --arg a "$LEGACY_PYTEST_ARGS" \
+                          '[{filters: $f, pytest_args: $a}]')
+                      echo "Matrix entry carries no legs; running the legacy single invocation"
                   fi
+                  leg_count=$(jq 'length' <<< "$PRODUCT_LEGS")
+                  # Neither shape present means the job would pass having run no tests, and
+                  # the rollup gate only reads this step's outcome. Fail loudly instead.
+                  if [ -z "$leg_count" ] || [ "$leg_count" -lt 1 ]; then
+                      echo "::error::No test legs in this matrix entry; refusing to pass without running tests"
+                      exit 1
+                  fi
+                  for ((leg_index = 0; leg_index < leg_count; leg_index++)); do
+                      leg_filters=$(jq -r ".[$leg_index].filters" <<< "$PRODUCT_LEGS")
+                      leg_args=$(jq -r ".[$leg_index].pytest_args" <<< "$PRODUCT_LEGS")
+                      echo "::group::turbo backend:test $leg_filters $leg_args"
+                      # Word splitting is intended here: both variables carry several flags.
+                      # shellcheck disable=SC2086
+                      pnpm turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
+                      exit_code=$?
+                      echo "::endgroup::"
+                      if [ $exit_code -eq 5 ]; then
+                          echo "No tests collected for this leg, this is expected when splitting tests"
+                      elif [ $exit_code -ne 0 ]; then
+                          overall=$exit_code
+                      fi
+                  done
+                  set -e
+                  exit $overall
+
+            # Excluded reports bypass Trunk quarantine, so this step owns their verdict.
+            - name: Prepare product JUnit for Trunk
+              id: prepare_product_junit
+              if: always()
+              shell: bash
+              env:
+                  PRODUCT_FILTERS: ${{ matrix.filters }}
+              run: |
+                  bash .github/scripts/prepare-product-junit-for-trunk.sh \
+                      trunk-junit \
+                      "$PRODUCT_FILTERS" \
+                      products/warehouse_sources/junit-product.xml
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
@@ -1018,7 +1089,7 @@ jobs:
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
-                  junit-paths: products/*/junit-product.xml
+                  junit-paths: trunk-junit/junit-product-*.xml
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1026,7 +1097,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
             # a real failure still skips it, as it did before the test step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
@@ -1131,7 +1202,8 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true'
+        # A per-commit check — the hourly scheduled run skips it as already covered.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'schedule'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1149,7 +1221,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -1219,7 +1291,15 @@ jobs:
                     run: python .github/scripts/check-operator-parity.py
 
                   - name: Check module boundaries (tach)
-                    run: tach check --dependencies --interfaces
+                    # Two passes: tests are in the interface graph but not the dependency graph.
+                    # A branch that predates the command still excludes tests in tach.toml, so
+                    # the old single pass is the right check there.
+                    run: |
+                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
+                            ./bin/hogli lint:tach
+                        else
+                            tach check --dependencies --interfaces
+                        fi
 
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
@@ -1349,7 +1429,9 @@ jobs:
     # in check-openapi-types below.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
+        # A per-commit check — every master push runs it (it saves the schema dump
+        # caches), so the hourly scheduled run skips it as already covered.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true') && github.event_name != 'schedule'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores. That replay grows with
         # every merged migration, so the limit needs headroom over it: it is
@@ -1403,7 +1485,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -2048,7 +2130,8 @@ jobs:
 
     check-openapi-types:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
+        # A per-commit check — the hourly scheduled run skips it as already covered.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'schedule'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -2095,7 +2178,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -2722,7 +2805,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -3213,7 +3296,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/tests/api/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
@@ -3508,7 +3591,8 @@ jobs:
     get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Only feeds the test matrices, which master pushes skip.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -3843,8 +3927,15 @@ jobs:
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
-        # changes is skipped on no-ci drafts — no tests ran, nothing to verdict.
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
+        # The verdict scores the selection against the JUnit a run produced, so it needs
+        # a test job to have run. changes is skipped on no-ci drafts. Both matrices are
+        # skipped on a draft whose selection was untrusted, which defers to the ready run
+        # — there is no selection to score and no JUnit to score it against. The decision
+        # itself is still recorded, by capture-test-selection.
+        if: >-
+            !cancelled() && github.event_name == 'pull_request' &&
+            needs.changes.result != 'skipped' &&
+            (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped')
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
@@ -4008,19 +4099,26 @@ jobs:
 
     report-test-timings:
         name: Report per-test traces
-        needs: [django_tests]
+        # django and turbo-tests are here for their results only; django_tests already
+        # waits for both, so this adds no wall time.
+        needs: [django_tests, django, turbo-tests]
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
         # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
         # attempt-suffixed artifact names so only they are emitted for the new attempt.
-        # Master pushes and all in-repo PRs. Skip forks (no secrets access).
+        # Scheduled master runs and all in-repo PRs. Skip forks (no secrets access)
+        # and master pushes (their matrices are skipped, so there are no traces).
+        # Both matrices skipped also means no JUnit was uploaded, so there are no
+        # traces to emit. This job sits on the tail of the run, so skipping it takes
+        # its whole duration off the wall of a draft that ran no tests.
         if: >-
             !cancelled() &&
             github.repository == 'PostHog/posthog' &&
+            (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
-            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )

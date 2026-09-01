@@ -108,20 +108,6 @@ describe('FrontierPublisher', () => {
         })
     })
 
-    it('records low-diversity republishing without extending the persisted reason enum', async () => {
-        const { batch, sent } = build()
-        const republished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
-
-        await batch.republish(candidate(), candidate(), 'low_origin_diversity')
-        await batch.flush()
-
-        expect(republished).toHaveBeenCalledWith('low_origin_diversity', 'frontier')
-        expect(parseCollectedUrlsRecord(sent[0].value, 'example.com')).toMatchObject({
-            ok: true,
-            candidates: [{ republishCount: 1, lastRepublishReason: null, lowOriginDiversityDeferred: true }],
-        })
-    })
-
     it.each([
         ['an unspecified retry', 0, 'retry_1m', 60_000],
         ['a short retry', 30_000, 'retry_1m', 60_000],

@@ -9,8 +9,12 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
-from products.replay_vision.backend.search import ObservationSearchFilters, rank_observations
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
+from products.replay_vision.backend.search import ObservationSearchFilters, fetch_ranked_observations, rank_observations
+from products.replay_vision.backend.tests.helpers import snapshot_for
 
 
 class TestObservationFiltersTagClause:
@@ -141,3 +145,45 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([m.observation_id for m in matches], [kept])
+
+
+class TestFetchRankedObservations(APIBaseTest):
+    def _observation(self, scanner_name: str, origin: ScannerOrigin = ScannerOrigin.CONFIGURED) -> ReplayObservation:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name=scanner_name,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+            origin=origin,
+            # A check constraint pairs the two: an inline scanner owes a key, a configured one owes none.
+            inline_key=scanner_name if origin == ScannerOrigin.INLINE else "",
+        )
+        return ReplayObservation.objects.create(
+            team=self.team,
+            scanner=scanner,
+            session_id=f"sess-{scanner_name}",
+            status=ObservationStatus.SUCCEEDED,
+            # A settled status has to carry a completion time, per the model's check constraint.
+            completed_at=timezone.now(),
+            scanner_snapshot=snapshot_for(scanner),
+        )
+
+    @parameterized.expand([("configured", ScannerOrigin.CONFIGURED), ("inline", ScannerOrigin.INLINE)])
+    def test_hydrated_rows_carry_their_scanner(self, _name: str, origin: ScannerOrigin) -> None:
+        # Both origins, because the default manager serves configured scanners only, so a join that
+        # stopped using the base manager would drop exactly the inline rows this branch fixes.
+        observations = [self._observation("first", origin), self._observation("second", origin)]
+        access = UserAccessControl(user=self.user, team=self.team)
+
+        rows = fetch_ranked_observations(
+            self.team.pk,
+            [str(obs.scanner_id) for obs in observations],
+            [str(obs.id) for obs in observations],
+            access,
+        )
+
+        self.assertEqual(len(rows), 2)
+        with self.assertNumQueries(0):
+            # Annotated by `hydrate_for_serialization`, so it is not on the declared row type.
+            self.assertEqual([row.scanner_origin for row in rows], [origin] * 2)  # type: ignore[attr-defined]

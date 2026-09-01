@@ -7,12 +7,14 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 """
 
 import hashlib
+import datetime
 from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -29,6 +31,12 @@ logger = structlog.get_logger(__name__)
 
 ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
+
+# An upload rewrites `last_used` only when the stored value is older than this. `last_used` is part
+# of `et_symset_bucket_cleanup_idx`, so every write churns that index, and a monorepo that uploads
+# thousands of chunks per merge would rewrite all of them on each run. Cymbal throttles its own
+# `last_used` writes over the same window for the same reason.
+LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
 
 
 class SymbolSetNotFoundError(Exception):
@@ -141,6 +149,23 @@ def create_symbol_set(
         ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()
 
         return symbol_set
+
+
+def refresh_last_used(team: Team, chunk_ids: list[str]) -> None:
+    """Mark every symbol set the upload referenced as still in use.
+
+    Retention deletes a symbol set once `last_used` falls outside its window. In event release
+    mode the chunk id is derived from the chunk content, so one row serves every release that
+    ships that chunk, and re-uploading an unchanged chunk writes nothing. Without this call the
+    row ages out while the chunk is still deployed, and the next exception from it cannot be
+    symbolicated until a later deploy recreates the row.
+    """
+    now = timezone.now()
+    ErrorTrackingSymbolSet.objects.filter(
+        Q(last_used__isnull=True) | Q(last_used__lt=now - LAST_USED_UPLOAD_REFRESH_INTERVAL),
+        team=team,
+        ref__in=chunk_ids,
+    ).update(last_used=now)
 
 
 @posthoganalytics.scoped()
@@ -274,6 +299,8 @@ def bulk_create_symbol_sets(
         # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
         # during a prior attempt or something).
         ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
+
+        refresh_last_used(team, chunk_ids)
 
     return id_url_map
 
