@@ -11,7 +11,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Every preview stops at a gate that shows the automated review result and links to the source. The viewer must choose to run the exact build.
 - Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. “Run widget” records consent for that exact hash. A later build with different artifact contents requires a new decision. A build whose manifest is byte-identical, such as an identical rebuild, reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
-- Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows without sending values to the model.
+- Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
 - `<Widget>` is the only notebook markdown tag for generated widgets.
 - Organizations must approve AI data processing before a job is queued and when its worker starts.
