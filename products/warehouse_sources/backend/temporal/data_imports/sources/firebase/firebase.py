@@ -521,6 +521,11 @@ def _rfc3339(value: Any) -> str:
 
 def _firestore_cursor_value(field_type: IncrementalFieldType, value: Any) -> dict[str, Any]:
     if field_type == IncrementalFieldType.Integer:
+        # Firestore orders integers and doubles together, so a field sampled as an integer can still
+        # carry a fractional value on some document. Truncating that watermark with int() would send
+        # a lower bound the fractional row is still above, importing it again on every later run.
+        if isinstance(value, float) and not value.is_integer():
+            return {"doubleValue": value}
         # The REST API carries int64 as a JSON string so the value survives a JavaScript parser.
         return {"integerValue": str(int(value))}
     return {"timestampValue": _rfc3339(value)}

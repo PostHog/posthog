@@ -501,6 +501,43 @@ class TestFirestoreIncrementalReads:
             for fltr in session.requests[0][2]["json"]["structuredQuery"]["where"]["compositeFilter"]["filters"]
         ] == [{"integerValue": "42"}, {"integerValue": str(FIRESTORE_MAX_INTEGER)}]
 
+    def test_a_fractional_watermark_on_an_integer_cursor_is_not_truncated(self, logger: FilteringBoundLogger) -> None:
+        # Firestore orders integers and doubles together, so a field sampled as an integer can still
+        # carry a doubleValue on some document. int() truncating that watermark down would leave the
+        # fractional row above the lower bound, and it would be re-imported on every later run.
+        session = FakeSession(
+            request_responses=[run_query_page([])], post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]
+        )
+
+        read_incremental(
+            session,
+            logger,
+            cursor=incremental_cursor(
+                field_name="version", field_type=IncrementalFieldType.Integer, last_value=42.5
+            ),
+        )
+
+        filters = session.requests[0][2]["json"]["structuredQuery"]["where"]["compositeFilter"]["filters"]
+        assert filters[0]["fieldFilter"]["value"] == {"doubleValue": 42.5}
+
+    def test_a_whole_number_float_watermark_on_an_integer_cursor_is_sent_as_an_integer(
+        self, logger: FilteringBoundLogger
+    ) -> None:
+        session = FakeSession(
+            request_responses=[run_query_page([])], post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]
+        )
+
+        read_incremental(
+            session,
+            logger,
+            cursor=incremental_cursor(
+                field_name="version", field_type=IncrementalFieldType.Integer, last_value=42.0
+            ),
+        )
+
+        filters = session.requests[0][2]["json"]["structuredQuery"]["where"]["compositeFilter"]["filters"]
+        assert filters[0]["fieldFilter"]["value"] == {"integerValue": "42"}
+
     @pytest.mark.parametrize(
         "last_value,expected",
         [
