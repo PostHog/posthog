@@ -390,6 +390,36 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             for column in ("test_account_filters", "session_replay_config"):
                 assert f'posthog_team"."{column}"' not in sql
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_detail_cohort_defers_deprecated_team_columns(self, patch_calculate_cohort, patch_capture):
+        # Detail and write actions read `cohort.team`, so they keep the hydrating `select_related("team")`
+        # JOIN. They must re-apply `.defer(*DEPRECATED_ATTRS)` the way `TeamManager` does on lazy loads, or
+        # every retrieve re-reads the deprecated taxonomy columns (`event_names` and siblings) that TOAST
+        # out to megabytes per team. `test_list_cohorts_does_not_hydrate_team` guards only the list query
+        # and only non-deprecated columns, so it cannot catch a dropped defer here. Assert the SQL directly.
+        cohort_id = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        ).json()["id"]
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # The query that hydrates the team carries a non-deprecated team column; find it to make sure the
+        # detail path still JOINs and hydrates the team, so the deprecated-column check below is not vacuous.
+        team_hydrating_queries = [
+            q["sql"]
+            for q in context.captured_queries
+            if 'FROM "posthog_cohort"' in q["sql"] and 'posthog_team"."test_account_filters"' in q["sql"]
+        ]
+        assert team_hydrating_queries, "expected the detail fetch to hydrate the team onto the cohort row"
+        # `event_names` is a deprecated taxonomy column that TOASTs out to megabytes. The defer keeps it off
+        # the hydrated team row; dropping the defer would pull it back in.
+        for sql in team_hydrating_queries:
+            assert 'posthog_team"."event_names"' not in sql
+
     @parameterized.expand(
         [
             # A group with none of properties/action_id/event_id used to raise an uncaught
