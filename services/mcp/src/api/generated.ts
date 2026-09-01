@@ -1465,6 +1465,28 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type RefreshType = typeof RefreshType[keyof typeof RefreshType];
+
+
+    export const RefreshType = {
+      Async: 'async',
+      AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+      Blocking: 'blocking',
+      ForceAsync: 'force_async',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
+      LazyAsync: 'lazy_async',
+    } as const;
+
+    export interface AccountsTableQueryRequest {
+      /** Accounts table query to run. */
+      query: AccountsTableQuery;
+      /** Client-provided query ID for checking status or canceling an asynchronous query. */
+      client_query_id?: string | null;
+      /** Cache and execution behavior for the query. */
+      refresh?: RefreshType;
+    }
+
     /**
      * * `user` - user
      * * `team` - team
@@ -71109,19 +71131,6 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type RefreshType = typeof RefreshType[keyof typeof RefreshType];
-
-
-    export const RefreshType = {
-      Async: 'async',
-      AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
-      Blocking: 'blocking',
-      ForceAsync: 'force_async',
-      ForceBlocking: 'force_blocking',
-      ForceCache: 'force_cache',
-      LazyAsync: 'lazy_async',
-    } as const;
 
     export interface QueryRequest {
       async?: boolean | null;

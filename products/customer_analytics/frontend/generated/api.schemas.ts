@@ -1008,10 +1008,32 @@ export interface AccountsTableAssignedToFilterApi {
     userIds: number[]
 }
 
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
 export const AccountsTableUnassignedFilterApiValue = {
     kind: 'unassigned',
 } as const
 export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
+}
 
 export interface AccountsTableAccountIdFilterApi {
     accountId: string
@@ -1383,6 +1405,8 @@ export interface AccountsTableRowApi {
     customPropertyHistory: AccountsTableRowApiCustomPropertyHistory
     externalId?: string | null
     id: string
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
     name: string
     /** Number of linked internal notes. Omitted when the request does not select the note count. */
     noteCount?: number | null
@@ -1506,7 +1530,9 @@ export interface AccountsTableQueryApi {
               | AccountsTableSearchFilterApi
               | AccountsTableTagsFilterApi
               | AccountsTableAssignedToFilterApi
+              | AccountsTableAssignedFilterApi
               | AccountsTableUnassignedFilterApi
+              | AccountsTableRelationshipFilterApi
               | AccountsTableAccountIdFilterApi
               | AccountsTableAccountFieldFilterApi
               | AccountsTableCustomPropertyFilterApi
