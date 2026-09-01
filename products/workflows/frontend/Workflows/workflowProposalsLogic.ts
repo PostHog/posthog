@@ -107,6 +107,9 @@ export interface workflowProposalsLogicActions {
         outcome: WorkflowProposalOutcomeApi
         proposalId: string
     }
+    removeResolvedProposal: (proposalId: string) => {
+        proposalId: string
+    }
     setResolvingId: (
         proposalId: string | null,
         action?: 'approve' | 'reject' | null
@@ -147,6 +150,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         }),
         rejectProposal: (proposalId: string) => ({ proposalId }),
         confirmRejectProposal: (proposalId: string) => ({ proposalId }),
+        removeResolvedProposal: (proposalId: string) => ({ proposalId }),
         setResolvingId: (proposalId: string | null, action: 'approve' | 'reject' | null = null) => ({
             proposalId,
             action,
@@ -211,6 +215,15 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         proposalsResponse: [
             null as PaginatedWorkflowProposalListApi | null,
             {
+                // The server has resolved this one. Dropping it here means a reload that fails
+                // afterwards cannot leave a resolved suggestion in the queue with live buttons.
+                removeResolvedProposal: (response, { proposalId }) =>
+                    response
+                        ? {
+                              ...response,
+                              results: response.results.filter((proposal) => proposal.id !== proposalId),
+                          }
+                        : response,
                 loadProposals: async () => {
                     try {
                         return await hogFlowsProposalsList(String(values.currentTeamIdStrict), props.id, {
@@ -276,17 +289,23 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                     expected_draft_updated_at: expectedDraftUpdatedAt,
                 })
                 lemonToast.success('Suggestion staged as a draft. Publish it to go live.')
+                actions.removeResolvedProposal(proposalId)
                 workflowLogic({ id: props.id }).actions.loadWorkflow()
                 actions.loadProposals()
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
                     // The backend refuses a suggestion whose step list predates the live workflow, and
                     // says why. Its wording is more useful here than a generic draft-changed message.
-                    lemonToast.error(
-                        error.code === 'proposal_out_of_date' && error.detail
-                            ? error.detail
-                            : 'The staged draft changed while you were confirming. Review it and try again.'
-                    )
+                    if (error.code === 'proposal_already_resolved') {
+                        lemonToast.info('This suggestion was already resolved.')
+                        actions.removeResolvedProposal(proposalId)
+                    } else {
+                        lemonToast.error(
+                            error.code === 'proposal_out_of_date' && error.detail
+                                ? error.detail
+                                : 'The staged draft changed while you were confirming. Review it and try again.'
+                        )
+                    }
                     workflowLogic({ id: props.id }).actions.loadWorkflow()
                     actions.loadProposals()
                 } else {
@@ -321,9 +340,18 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             try {
                 await hogFlowsProposalsRejectCreate(String(values.currentTeamIdStrict), props.id, proposalId, {})
                 lemonToast.success('Suggestion rejected')
+                actions.removeResolvedProposal(proposalId)
                 actions.loadProposals()
-            } catch {
-                lemonToast.error('Could not reject this suggestion. Please try again.')
+            } catch (error) {
+                if (error instanceof ApiError && error.code === 'proposal_already_resolved') {
+                    // Someone else answered it, or an earlier attempt landed and its reload did not.
+                    // Saying "try again" would send the person back to a button that cannot work.
+                    lemonToast.info('This suggestion was already resolved.')
+                    actions.removeResolvedProposal(proposalId)
+                    actions.loadProposals()
+                } else {
+                    lemonToast.error('Could not reject this suggestion. Please try again.')
+                }
             } finally {
                 actions.setResolvingId(null)
             }
